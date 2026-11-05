@@ -291,6 +291,7 @@ internal object AndroidNativeCrashMonitor {
             PlayerEngine.Mpv -> NativePlaybackComponent.Mpv
             PlayerEngine.Mdk -> NativePlaybackComponent.Mdk
             PlayerEngine.Exo -> NativePlaybackComponent.Unknown
+            PlayerEngine.SenPlayer -> NativePlaybackComponent.SenPlayer
         }
 
     private fun traceState(

@@ -216,7 +216,8 @@ internal fun rememberYCoreRuntimeAssessmentState(
                 // The anonymous protocol currently enumerates compatibility PlayerEngine values.
                 // NativeDirect may sit behind an Exo-selected plan; reporting it as Exo would make
                 // aggregated telemetry lie in the same way persistent failure memory used to.
-                if (effectiveEngineLearningEnabled) {
+                // Existing deployed servers do not understand the experimental engine enum yet.
+                if (effectiveEngineLearningEnabled && engineKind != PlayerEngine.SenPlayer) {
                     qoeReporter?.let { reporter ->
                         val report =
                             anonymousPlaybackQoeReport(

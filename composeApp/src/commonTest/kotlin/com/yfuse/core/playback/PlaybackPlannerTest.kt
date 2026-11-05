@@ -9,6 +9,20 @@ import kotlin.test.assertTrue
 
 class PlaybackPlannerTest {
     @Test
+    fun senplayer_is_used_only_when_explicitly_locked_and_bundled() {
+        fun plan(selection: PlaybackEngineSelection, available: Set<PlayerEngine>) =
+            planPlayback(
+                probe = probe(container = "mp4"), capabilities = capabilities(),
+                preferredEngine = PlayerEngine.SenPlayer, preferredDecoderMode = DecoderMode.Auto,
+                engineSelection = selection, availableEngines = available,
+            )
+        val all = PlayerEngine.entries.toSet()
+        assertFalse(PlayerEngine.SenPlayer in plan(PlaybackEngineSelection.Auto, all).engineOrder)
+        assertEquals(listOf(PlayerEngine.SenPlayer), plan(PlaybackEngineSelection.LockSenPlayer, all).engineOrder)
+        assertFalse(PlayerEngine.SenPlayer in plan(PlaybackEngineSelection.LockSenPlayer, all - PlayerEngine.SenPlayer).engineOrder)
+    }
+
+    @Test
     fun compact_package_never_selects_an_unbundled_locked_engine() {
         val plan =
             planPlayback(

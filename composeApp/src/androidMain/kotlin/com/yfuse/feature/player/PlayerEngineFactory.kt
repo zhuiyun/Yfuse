@@ -110,6 +110,7 @@ internal fun createVideoEngine(
                         PlaybackRemotePolicyRegistry.isDisabled(PlaybackRemotePath.Mdk)
                     } ?: NativePlaybackComponent.Unknown
                 PlayerEngine.Exo -> NativePlaybackComponent.Unknown
+                PlayerEngine.SenPlayer -> NativePlaybackComponent.SenPlayer
             }
         }
     AndroidNativeCrashMonitor.arm(
@@ -188,6 +189,12 @@ internal fun createVideoEngine(
     }
 
     return when (kind) {
+        PlayerEngine.SenPlayer ->
+            SenPlayerVideoEngine(
+                items, startIndex, startPositionMs, startPlaybackRequested,
+                startSpeed, decoderMode, autoNext, customUserAgent,
+            )
+
         PlayerEngine.Mdk ->
             if (
                 BuildConfig.YFUSE_MDK_INCLUDED &&

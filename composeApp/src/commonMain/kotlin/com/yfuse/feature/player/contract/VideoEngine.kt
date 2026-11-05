@@ -298,6 +298,8 @@ data class PlaybackState(
     val durationMs: Long = 0L,
     /** Absolute media position reached by the active engine's forward buffer. */
     val bufferedPositionMs: Long = 0L,
+    /** Null when unsupported; empty means the engine reported no cached ranges. */
+    val bufferedRanges: List<PlaybackBufferedRange>? = null,
     val speed: Float = 1f,
     /** Decoded picture height, for the "1080P" badge; 0 until the first frame. */
     val videoHeight: Int = 0,

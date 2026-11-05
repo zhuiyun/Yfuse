@@ -74,8 +74,9 @@ internal fun mpvFileLoadWatchdogPolicy(
 /**
  * Evaluates one watchdog poll.
  *
- * [lastProgressMs] is updated by mpv load/cache activity. A heartbeat can keep a slow source alive
- * after its grace period, but never beyond [MpvFileLoadWatchdogPolicy.hardLimitMs].
+ * [lastProgressMs] records actual forward input/cache progress, not log traffic or a nonzero rate.
+ * Confirmed fresh progress permits a weak connection to continue beyond the no-progress limit.
+ * Once input stops, the stall deadline still applies; a stale attempt cannot extend a new load.
  */
 internal fun evaluateMpvFileLoadWatchdog(
     attempt: Long,
@@ -86,16 +87,18 @@ internal fun evaluateMpvFileLoadWatchdog(
     lastProgressMs: Long,
     nowMs: Long,
     policy: MpvFileLoadWatchdogPolicy,
+    confirmedProgress: Boolean = false,
 ): MpvFileLoadWatchdogDecision {
     if (attempt != activeAttempt || released || !buffering) return MpvFileLoadWatchdogDecision.Ignore
     if (startedAtMs < 0L || lastProgressMs < 0L || nowMs < startedAtMs) {
         return MpvFileLoadWatchdogDecision.Wait
     }
     val elapsed = nowMs - startedAtMs
+    val stalledFor = (nowMs - lastProgressMs).coerceAtLeast(0L)
+    if (confirmedProgress && stalledFor < policy.stallMs) return MpvFileLoadWatchdogDecision.Wait
     if (elapsed >= policy.hardLimitMs) return MpvFileLoadWatchdogDecision.HardTimeout
     if (elapsed < policy.graceMs) return MpvFileLoadWatchdogDecision.Wait
 
-    val stalledFor = (nowMs - lastProgressMs).coerceAtLeast(0L)
     return if (stalledFor >= policy.stallMs) {
         MpvFileLoadWatchdogDecision.StallTimeout
     } else {

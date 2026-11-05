@@ -45,3 +45,5 @@ include(":mdkAndroid")
 include(":watchTogetherProtocol")
 include(":yfuseBackendClient")
 include(":watchTogetherServer")
+
+include(":senPlayerAndroid")

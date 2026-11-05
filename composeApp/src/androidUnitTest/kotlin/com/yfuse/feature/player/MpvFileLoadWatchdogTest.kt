@@ -100,7 +100,7 @@ class MpvFileLoadWatchdogTest {
     }
 
     @Test
-    fun hard_limit_wins_even_when_progress_is_still_arriving() {
+    fun unconfirmed_heartbeat_cannot_extend_the_hard_limit() {
         val policy = MpvFileLoadWatchdogPolicy(graceMs = 10_000L, stallMs = 5_000L, hardLimitMs = 30_000L)
 
         assertEquals(
@@ -115,6 +115,23 @@ class MpvFileLoadWatchdogTest {
                 nowMs = 30_000L,
                 policy = policy,
             ),
+        )
+    }
+
+    @Test
+    fun real_progress_can_cross_hard_limit_but_a_stopped_transfer_still_times_out() {
+        val policy = MpvFileLoadWatchdogPolicy(10_000L, 5_000L, 30_000L)
+        assertEquals(
+            MpvFileLoadWatchdogDecision.Wait,
+            evaluateMpvFileLoadWatchdog(2L, 2L, false, true, 0L, 89_000L, 90_000L, policy, true),
+        )
+        assertEquals(
+            MpvFileLoadWatchdogDecision.HardTimeout,
+            evaluateMpvFileLoadWatchdog(2L, 2L, false, true, 0L, 89_000L, 94_000L, policy, true),
+        )
+        assertEquals(
+            MpvFileLoadWatchdogDecision.Ignore,
+            evaluateMpvFileLoadWatchdog(1L, 2L, false, true, 0L, 89_000L, 90_000L, policy, true),
         )
     }
 

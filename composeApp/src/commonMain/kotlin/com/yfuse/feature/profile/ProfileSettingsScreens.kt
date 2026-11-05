@@ -48,6 +48,12 @@ internal fun PlayerEngine.playbackOptionCopy(): PlaybackOptionCopy =
                 summary = "格式优先",
                 description = "使用 libmpv，覆盖更多封装、编码与字幕格式",
             )
+        PlayerEngine.SenPlayer ->
+            PlaybackOptionCopy(
+                label = "SenPlayer（实验）",
+                summary = "SenPlayer",
+                description = "实验性 Android ARM64 内核；是否可播放取决于运行库兼容性与许可状态",
+            )
         PlayerEngine.Mdk ->
             PlaybackOptionCopy(
                 label = "原生内核（MDK）",
@@ -73,6 +79,10 @@ internal fun PlaybackEngineSelection.playbackOptionCopy(): PlaybackOptionCopy =
             PlayerEngine.Mpv.playbackOptionCopy().copy(
                 label = "格式兼容模式",
                 description = "固定使用 MPV；DRM 或系统 Dolby 安全路径会临时使用 Media3",
+            )
+        PlaybackEngineSelection.LockSenPlayer ->
+            PlayerEngine.SenPlayer.playbackOptionCopy().copy(
+                description = "手动使用 SenPlayer；DRM 使用系统内核，WebDAV / SMB 仍使用 YCore",
             )
         PlaybackEngineSelection.LockMdk ->
             PlayerEngine.Mdk.playbackOptionCopy().copy(

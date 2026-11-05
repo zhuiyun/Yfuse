@@ -213,6 +213,7 @@ internal fun PlayerRootSurface(
                     ambientSampler = ambient.sampler,
                     ambientLayer = ambientLayer,
                 )
+            is SenPlayerVideoEngine -> SenPlayerSurface(engine, pictureModifier)
             is MdkVideoEngine ->
                 MdkSurface(
                     engine,

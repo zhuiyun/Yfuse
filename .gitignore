@@ -42,6 +42,7 @@ google-services.json
 
 # Bundled player engine binaries (large; fetched by scripts/fetch-engines)
 composeApp/libs/
+senPlayerAndroid/runtime/
 
 # Local proxy used for development and network troubleshooting
 .tmp-proxy/

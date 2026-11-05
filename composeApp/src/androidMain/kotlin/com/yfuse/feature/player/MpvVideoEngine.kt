@@ -187,6 +187,7 @@ class MpvVideoEngine(
     private val fileLoadAttempt = AtomicLong(0L)
     private val fileLoadStartedAtMs = AtomicLong(-1L)
     private val fileLoadLastProgressMs = AtomicLong(-1L)
+    private val fileLoadProgress = MpvStartupProgress()
     private val endFileTracker = MpvEndFileTracker()
     private val videoReadinessGate = MpvVideoReadinessGate()
     private val networkProxy =
@@ -286,9 +287,7 @@ class MpvVideoEngine(
                 level: Int,
                 text: String,
             ) {
-                // Native open/probe log traffic is a useful heartbeat before cache properties exist.
-                // It extends only the stall timer; the policy hard limit can never be extended.
-                markFileLoadProgress()
+                // Repeated probe/network messages do not prove that media bytes arrived.
                 if (level > MPVLib.MpvLogLevel.MPV_LOG_LEVEL_WARN) return
                 val details = text.trim().take(600)
                 if (details.isEmpty()) return
@@ -419,6 +418,7 @@ class MpvVideoEngine(
             ) {
                 when (property) {
                     "track-list/count" -> readTracks()
+                    "stream-pos" -> markFileLoadProgress(position = value)
                     "editions", "current-edition", "chapters", "chapter" ->
                         readDiscNavigation()
                     "video-params/h" -> _state.update { it.copy(videoHeight = value.toInt()) }
@@ -533,7 +533,6 @@ class MpvVideoEngine(
                             )
                         }
                     "cache-speed" -> {
-                        markFileLoadProgress()
                         _state.update {
                             it.copy(
                                 diagnostics =
@@ -544,7 +543,9 @@ class MpvVideoEngine(
                         }
                     }
                     "demuxer-cache-duration" -> {
-                        markFileLoadProgress()
+                        if (value.isFinite() && value >= 0.0) {
+                            markFileLoadProgress(bufferedMs = (value * 1000.0).toLong())
+                        }
                         _state.update {
                             val bufferedDurationMs = (value * 1000.0).toLong().coerceAtLeast(0L)
                             it.copy(
@@ -704,7 +705,6 @@ class MpvVideoEngine(
                             mutableSubtitleText.update { it.copy(primary = "", secondary = "") }
                             if (!videoReadinessGate.onStartFile(mpv.currentMpvFileIdentity())) return@synchronized
                             surfaceRecoveryAttempts.set(0L)
-                            markFileLoadProgress()
                             _state.update {
                                 it.copy(
                                     buffering = true,
@@ -945,6 +945,7 @@ class MpvVideoEngine(
             instance.observeProperty("estimated-display-fps", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE)
             instance.observeProperty("video-bitrate", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE)
             instance.observeProperty("cache-speed", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE)
+            instance.observeProperty("stream-pos", MPVLib.MpvFormat.MPV_FORMAT_INT64)
             instance.observeProperty("demuxer-cache-duration", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE)
             instance.observeProperty("avsync", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE)
             instance.observeProperty("decoder-frame-drop-count", MPVLib.MpvFormat.MPV_FORMAT_INT64)
@@ -2179,6 +2180,7 @@ class MpvVideoEngine(
         val startedAt = SystemClock.elapsedRealtime()
         fileLoadStartedAtMs.set(startedAt)
         fileLoadLastProgressMs.set(startedAt)
+        fileLoadProgress.reset(attempt)
         fileLoadWatchdogJob?.cancel()
         fileLoadWatchdogJob =
             scope.launch {
@@ -2196,6 +2198,7 @@ class MpvVideoEngine(
                             lastProgressMs = fileLoadLastProgressMs.get(),
                             nowMs = now,
                             policy = policy,
+                            confirmedProgress = fileLoadProgress.confirmed(attempt),
                         )
                     when (decision) {
                         MpvFileLoadWatchdogDecision.Ignore -> return@launch
@@ -2226,14 +2229,18 @@ class MpvVideoEngine(
             }
     }
 
-    /** Native log/cache activity is a startup heartbeat, not an excuse to exceed the hard limit. */
-    private fun markFileLoadProgress() {
+    /** Only current-source byte cursor/cache growth may extend a slow startup. */
+    private fun markFileLoadProgress(position: Long? = null, bufferedMs: Long? = null) {
         if (fileLoadStartedAtMs.get() < 0L) return
-        fileLoadLastProgressMs.set(SystemClock.elapsedRealtime())
+        val attempt = fileLoadAttempt.get()
+        if (!videoReadinessGate.acceptsStartupProgress(mpv.currentMpvFileIdentity())) return
+        if (fileLoadProgress.observe(attempt, position, bufferedMs) && attempt == fileLoadAttempt.get()) {
+            fileLoadLastProgressMs.set(SystemClock.elapsedRealtime())
+        }
     }
 
     private fun cancelFileLoadWatchdog() {
-        fileLoadAttempt.incrementAndGet()
+        fileLoadProgress.reset(fileLoadAttempt.incrementAndGet())
         fileLoadWatchdogJob?.cancel()
         fileLoadWatchdogJob = null
         fileLoadStartedAtMs.set(-1L)

@@ -689,6 +689,10 @@ private fun RefinedBottomBarContent(
                 StandardSeekBar(
                     fraction = shownFraction,
                     bufferedFraction = bufferedFraction,
+                    bufferedRanges = {
+                        val current = timeline.value
+                        displayedBufferedRanges(current.bufferedRanges, current.positionMs, current.bufferedPositionMs, current.durationMs)
+                    },
                     positionMs = shownPositionMs,
                     durationMs = durationMs,
                     progressMarkers = progressMarkers,
@@ -1157,6 +1161,7 @@ internal fun StandardSeekBar(
     /** The played fraction as a state, so a new sample of it reaches the rail and nothing else. */
     fraction: State<Float>,
     bufferedFraction: State<Float>,
+    bufferedRanges: () -> List<PlaybackBufferedRange>? = { null },
     positionMs: () -> Long,
     durationMs: Long,
     progressMarkers: List<PlaybackProgressMarker>,
@@ -1242,6 +1247,7 @@ internal fun StandardSeekBar(
     val latestOnCancel by rememberUpdatedState(onCancel)
     val latestPositionMs by rememberUpdatedState(positionMs)
     val latestBufferedFraction by rememberUpdatedState(bufferedFraction)
+    val latestBufferedRanges by rememberUpdatedState(bufferedRanges)
     // Disabled mid-drag — the seek locked, the duration lost — the gesture goes with the modifier
     // that ran it and reports neither end. Say it here, or the bar stays "scrubbing" and the
     // chrome never hides again until the next tap.
@@ -1465,7 +1471,12 @@ internal fun StandardSeekBar(
                     val playedWidth = size.width * played
                     // Read the engine's latest sample while drawing. Paused playback still buffers;
                     // a seek or engine change can also clear it without waiting for an animation.
-                    val bufferedWidth = size.width * latestBufferedFraction.value.coerceIn(0f, 1f)
+                    val cachedRanges = displayedBufferedRanges(
+                        reported = latestBufferedRanges(),
+                        positionMs = latestPositionMs(),
+                        bufferedEndMs = scrubPositionMs(latestBufferedFraction.value, latestDurationMs),
+                        durationMs = latestDurationMs,
+                    )
                     val bufferColor = Color.White.copy(alpha = 0.60f)
                     // One brush across every part, so the played gradient runs on through the cuts.
                     val playedBrush =
@@ -1480,13 +1491,16 @@ internal fun StandardSeekBar(
                             topLeft = Offset(left, 0f),
                             size = Size(right - left, size.height),
                         )
-                        val bufferedRight = min(right, bufferedWidth)
-                        if (bufferedRight > left) {
-                            drawRect(
-                                bufferColor,
-                                topLeft = Offset(left, 0f),
-                                size = Size(bufferedRight - left, size.height),
-                            )
+                        for (range in cachedRanges) {
+                            val cachedLeft = maxOf(left, size.width * playbackProgressFraction(range.startMs, latestDurationMs))
+                            val cachedRight = min(right, size.width * playbackProgressFraction(range.endMs, latestDurationMs))
+                            if (cachedRight > cachedLeft) {
+                                drawRect(
+                                    bufferColor,
+                                    topLeft = Offset(cachedLeft, 0f),
+                                    size = Size(cachedRight - cachedLeft, size.height),
+                                )
+                            }
                         }
                         val playedRight = min(right, playedWidth)
                         if (playedRight > left) {

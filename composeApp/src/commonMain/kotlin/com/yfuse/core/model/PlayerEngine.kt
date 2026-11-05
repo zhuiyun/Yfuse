@@ -13,6 +13,8 @@ enum class PlayerEngine(
 
     /** MDK — hardware-accelerated libmdk renderer and decoder stack. */
     Mdk("MDK", true),
+    /** User-selected experimental SenPlayer binary adapter; never an automatic fallback. */
+    SenPlayer("SenPlayer（实验）", true),
     ;
 
     companion object {
