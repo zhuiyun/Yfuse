@@ -5,6 +5,7 @@ internal fun PlaybackState.runtimeProjection(): PlaybackState =
     copy(
         positionMs = if (positionMs > 0L) 1L else 0L,
         bufferedPositionMs = 0L,
+        bufferedRanges = null,
         diagnostics =
             diagnostics.copy(
                 playbackHealth = "",

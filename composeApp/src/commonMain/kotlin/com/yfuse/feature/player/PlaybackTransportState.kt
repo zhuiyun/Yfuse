@@ -9,6 +9,8 @@ internal data class PlaybackTransportState(
     val positionMs: Long,
     val durationMs: Long,
     val bufferedPositionMs: Long,
+    /** Null means unsupported; empty means the engine reported no buffered interval. */
+    val bufferedRanges: List<PlaybackBufferedRange>?,
     val speed: Float,
     val buttons: PlaybackButtonState,
 )
@@ -29,6 +31,7 @@ internal fun PlaybackState.transportState(): PlaybackTransportState =
         positionMs = positionMs,
         durationMs = durationMs,
         bufferedPositionMs = bufferedPositionMs,
+        bufferedRanges = bufferedRanges,
         speed = speed,
         buttons = PlaybackButtonState(playing, buffering, hasPrevious, hasNext, durationMs > 0L),
     )

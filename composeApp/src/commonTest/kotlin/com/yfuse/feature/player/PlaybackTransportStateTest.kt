@@ -4,9 +4,86 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class PlaybackTransportStateTest {
+    @Test
+    fun reported_buffer_intervals_reach_the_timeline_without_filling_holes() {
+        val ranges = listOf(PlaybackBufferedRange(0L, 1_000L), PlaybackBufferedRange(3_000L, 6_000L))
+        val timeline =
+            PlaybackState(
+                positionMs = 3_000L,
+                durationMs = 10_000L,
+                bufferedPositionMs = 6_000L,
+                bufferedRanges = ranges,
+            ).transportState()
+
+        assertEquals(ranges, timeline.bufferedRanges)
+        assertEquals(
+            ranges,
+            displayedBufferedRanges(
+                timeline.bufferedRanges,
+                timeline.positionMs,
+                timeline.bufferedPositionMs,
+                timeline.durationMs,
+            ),
+        )
+    }
+
+    @Test
+    fun unsupported_and_empty_buffer_intervals_stay_distinct_after_projection() {
+        val unsupported = PlaybackState(positionMs = 3_000L, durationMs = 10_000L, bufferedPositionMs = 6_000L)
+        val unknown = unsupported.transportState()
+        val empty = unsupported.copy(bufferedRanges = emptyList()).transportState()
+
+        assertNull(unknown.bufferedRanges)
+        assertEquals(emptyList(), empty.bufferedRanges)
+        assertNotEquals(unknown, empty)
+        assertEquals(unknown.buttons, empty.buttons)
+        assertEquals(
+            unsupported.runtimeProjection(),
+            unsupported.copy(bufferedRanges = emptyList()).runtimeProjection(),
+        )
+        assertEquals(
+            listOf(PlaybackBufferedRange(3_000L, 6_000L)),
+            displayedBufferedRanges(
+                unknown.bufferedRanges,
+                unknown.positionMs,
+                unknown.bufferedPositionMs,
+                unknown.durationMs,
+            ),
+        )
+        assertEquals(
+            emptyList(),
+            displayedBufferedRanges(
+                empty.bufferedRanges,
+                empty.positionMs,
+                empty.bufferedPositionMs,
+                empty.durationMs,
+            ),
+        )
+    }
+
+    @Test
+    fun range_only_updates_change_the_timeline_without_changing_buttons() {
+        val original =
+            PlaybackState(
+                positionMs = 3_000L,
+                durationMs = 10_000L,
+                bufferedPositionMs = 6_000L,
+                bufferedRanges = listOf(PlaybackBufferedRange(3_000L, 6_000L)),
+            )
+        val updated =
+            original.copy(
+                bufferedRanges = listOf(PlaybackBufferedRange(0L, 1_000L), PlaybackBufferedRange(3_000L, 6_000L)),
+            )
+
+        assertNotEquals(original.transportState(), updated.transportState())
+        assertEquals(original.transportState().buttons, updated.transportState().buttons)
+        assertEquals(original.runtimeProjection(), updated.runtimeProjection())
+    }
+
     @Test
     fun diagnostics_do_not_change_transport_and_ticks_do_not_change_buttons() {
         val original = PlaybackState(playing = true, buffering = false, durationMs = 100_000L, itemCount = 3)
