@@ -16,7 +16,7 @@ import com.yfuse.core.designsystem.ThemeText as Text
 internal fun PlaybackProblemDialog(
     playback: State<PlaybackState>,
     onDismiss: () -> Unit,
-) {
+) = PlayerOverlayTypography {
     val state = playback.value
     val explanation = explainPlaybackProblem(state)
     val diagnostics = state.diagnostics
