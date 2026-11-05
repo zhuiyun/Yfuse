@@ -14,6 +14,31 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class OfflineCommandQueueTest {
+    @Test fun batch_reports_one_receipt_and_keeps_processing_after_item_failures() =
+        runTest {
+            val errors = mutableListOf<Throwable>()
+            val scope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
+            try {
+                val queue = OfflineCommandQueue(scope, onFailure = errors::add)
+                val applied = mutableListOf<Int>()
+                queue.submitBatch(listOf(1, 2, 2, 3, 4)) {
+                    if (it == 2 || it == 3) error("full")
+                    applied += it
+                }
+                queue.awaitPending()
+                assertEquals(listOf(1, 4), applied)
+                val receipt = errors.single() as OfflineBatchCommandException
+                assertEquals(2, receipt.completedCount)
+                assertEquals(2, receipt.failedCount)
+                assertEquals("full", receipt.cause?.message)
+                queue.submit { applied += 5 }
+                queue.awaitPending()
+                assertEquals(listOf(1, 4, 5), applied)
+            } finally {
+                scope.cancel()
+            }
+        }
+
     @Test
     fun accepted_ui_commands_run_later_in_order_and_a_worker_waits_for_them() =
         runTest {

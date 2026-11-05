@@ -52,23 +52,57 @@ class FileSourceLibraryTest {
             ): String = error("not used")
         }
 
-    private fun scanner(tmdbDown: Boolean = false) =
-        FileSourceScanner(
-            client = client,
-            matcher =
-                TmdbTitleMatcher(
-                    search = { query, mediaType, _ ->
-                        searches += "$mediaType:$query"
-                        if (tmdbDown) {
-                            Result.failure(IllegalStateException("offline"))
-                        } else {
-                            Result.success(listOfNotNull(catalog[query]?.takeIf { it.mediaType == mediaType }))
-                        }
-                    },
-                    alternativeTitles = { _, _ -> Result.success(emptyList()) },
-                ),
-            nowEpochMs = { 1_000L },
-        )
+    private fun scanner(
+        tmdbDown: Boolean = false,
+        reader: FileSourceClient = client,
+    ) = FileSourceScanner(
+        client = reader,
+        matcher =
+            TmdbTitleMatcher(
+                search = { query, mediaType, _ ->
+                    searches += "$mediaType:$query"
+                    if (tmdbDown) {
+                        Result.failure(IllegalStateException("offline"))
+                    } else {
+                        Result.success(listOfNotNull(catalog[query]?.takeIf { it.mediaType == mediaType }))
+                    }
+                },
+                alternativeTitles = { _, _ -> Result.success(emptyList()) },
+            ),
+        nowEpochMs = { 1_000L },
+    )
+
+    @Test
+    fun a_partial_rescan_keeps_titles_from_an_unreachable_folder() =
+        runTest {
+            val previous = scanner().scan(source, credentials, null)
+            val failedFolder =
+                object : FileSourceClient by client {
+                    override suspend fun list(
+                        source: FileSource,
+                        credentials: FileSourceCredentials,
+                        path: List<String>,
+                    ): List<FileSourceEntry> {
+                        if (path == listOf("电影")) throw FileSourceException(FileSourceFailure.Timeout)
+                        return client.list(source, credentials, path)
+                    }
+                }
+            val partial = scanner(reader = failedFolder).scan(source, credentials, previous)
+            assertTrue(partial.partial)
+            assertEquals(previous.files.toSet(), partial.files.toSet())
+            assertEquals(previous.titles.toSet(), partial.titles.toSet())
+            val emptyShare =
+                object : FileSourceClient by client {
+                    override suspend fun list(
+                        source: FileSource,
+                        credentials: FileSourceCredentials,
+                        path: List<String>,
+                    ) = emptyList<FileSourceEntry>()
+                }
+            val complete = scanner(reader = emptyShare).scan(source, credentials, partial)
+            assertFalse(complete.partial)
+            assertTrue(complete.files.isEmpty(), "Only a completed scan may confirm removal")
+        }
 
     @Test
     fun a_scan_names_films_and_shows_and_asks_once_per_title() =

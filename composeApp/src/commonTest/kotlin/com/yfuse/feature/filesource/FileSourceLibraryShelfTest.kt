@@ -117,7 +117,7 @@ class FileSourceLibraryShelfTest {
         assertNull(libraryStatus(null, null))
         assertEquals("「NAS」已加入片库：2 部影片与剧集，3 个视频未能识别", library.summary("NAS"))
         assertEquals(
-            "「NAS」里没有识别出影片或剧集，其余内容下次刮削时补全",
+            "「NAS」里没有识别出影片或剧集，部分目录未读完，已保留原有片库，可重新刮削补全",
             FileSourceLibrary(scannedAtEpochMs = 1L, partial = true).summary("NAS"),
         )
     }

@@ -619,28 +619,32 @@ class SearchStoreFactory(
             }
             val server = registry.serverById(serverId) ?: return
             val query = snapshot.searchedQuery
+            val generation = searchGeneration
             if (query.isBlank() && snapshot.playlistName == null) return
             dispatch(SearchMsg.LoadingMore(serverId))
             loadMoreJobs[serverId] =
                 scope.launch {
-                    repo
-                        .searchPage(
+                    val result =
+                        repo.searchPage(
                             server = server,
                             query = query,
                             startIndex = group.nextStartIndex,
                             filter = searchFilter(snapshot),
-                        ).fold(
-                            onSuccess = { dispatch(SearchMsg.MoreLoaded(query, serverId, it)) },
-                            onFailure = {
-                                dispatch(
-                                    SearchMsg.MoreFailed(
-                                        query,
-                                        serverId,
-                                        it.toUserMessage("加载更多失败"),
-                                    ),
-                                )
-                            },
                         )
+                    currentCoroutineContext().ensureActive()
+                    if (generation != searchGeneration || registry.serverById(serverId) != server) return@launch
+                    result.fold(
+                        onSuccess = { dispatch(SearchMsg.MoreLoaded(query, serverId, it)) },
+                        onFailure = {
+                            dispatch(
+                                SearchMsg.MoreFailed(
+                                    query,
+                                    serverId,
+                                    it.toUserMessage("加载更多失败"),
+                                ),
+                            )
+                        },
+                    )
                     loadMoreJobs.remove(serverId)
                 }
         }
@@ -681,6 +685,7 @@ class SearchStoreFactory(
                     librariesJob =
                         scope.launch {
                             val libraries = repo.mediaLibraries(server)
+                            currentCoroutineContext().ensureActive()
                             if (librariesFor != serverId) return@launch
                             dispatch(
                                 SearchMsg.Libraries(
@@ -700,6 +705,7 @@ class SearchStoreFactory(
                     genresJob =
                         scope.launch {
                             val genres = repo.searchGenres(server, libraryId)
+                            currentCoroutineContext().ensureActive()
                             if (genresFor != genresKey) return@launch
                             dispatch(SearchMsg.Genres(genres.getOrDefault(emptyList())))
                             if (genres.isFailure) genresFor = null
@@ -710,6 +716,8 @@ class SearchStoreFactory(
 
         private fun debouncedSearch(rawQuery: String) {
             debounceJob?.cancel()
+            // Invalidate before the debounce delay: A → B → A must not revive A's old filters.
+            cancelInFlight()
             if (rawQuery.isBlank()) {
                 clear()
                 return
@@ -737,8 +745,9 @@ class SearchStoreFactory(
             }
             personJob =
                 scope.launch {
-                    repo
-                        .itemsByPerson(server, person.personId)
+                    val result = repo.itemsByPerson(server, person.personId)
+                    currentCoroutineContext().ensureActive()
+                    result
                         .onSuccess {
                             dispatch(
                                 SearchMsg.PersonLoaded(person, ServerSearchGroup(server.id, server.serverName, it)),
@@ -773,6 +782,7 @@ class SearchStoreFactory(
                 return
             }
             val snapshot = state()
+            val generation = searchGeneration
             val filter = searchFilter(snapshot)
             // Opt-in, like every other 智能跨服务器片源 behaviour: an unavailable preference
             // store leaves results grouped per server rather than silently merging them.
@@ -830,6 +840,10 @@ class SearchStoreFactory(
                                         } else {
                                             first
                                         }
+                                    currentCoroutineContext().ensureActive()
+                                    if (generation != searchGeneration || registry.serverById(server.id) != server) {
+                                        return@launch
+                                    }
                                     val group =
                                         result.fold(
                                             onSuccess = {
@@ -859,6 +873,8 @@ class SearchStoreFactory(
                             }.joinAll()
                     }
                     val groups = completedGroupsMutex.withLock { servers.mapNotNull { completedGroups[it.id] } }
+                    currentCoroutineContext().ensureActive()
+                    if (generation != searchGeneration) return@launch
                     // Preserve per-server failures even when every server failed. The result page
                     // can then name each unavailable server and offer the direct re-login action,
                     // instead of collapsing useful recovery context into one generic error.
@@ -906,7 +922,10 @@ class SearchStoreFactory(
                                 }.awaitAll()
                                 .flatten()
                         }
-                    if (state().searchedQuery == query) dispatch(SearchMsg.People(people))
+                    currentCoroutineContext().ensureActive()
+                    if (generation == searchGeneration && state().searchedQuery == query) {
+                        dispatch(SearchMsg.People(people))
+                    }
                 }
         }
     }

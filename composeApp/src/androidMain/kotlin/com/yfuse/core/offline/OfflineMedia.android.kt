@@ -126,6 +126,8 @@ internal class AndroidOfflineMediaManager(
                     "下载记录未能读取，请检查存储后重新打开应用"
                 } else if (error is OfflineCommandRejectedException) {
                     "下载操作过于频繁，请稍后重试"
+                } else if (error is OfflineBatchCommandException) {
+                    "批量操作：${error.completedCount} 项已完成，${error.failedCount} 项失败。请检查存储后重试失败项。"
                 } else {
                     "下载操作未完成，请检查存储空间和目录权限后重试"
                 }

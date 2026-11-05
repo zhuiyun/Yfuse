@@ -8,6 +8,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 class OfflineBatchCommandTest {
@@ -84,7 +85,10 @@ class OfflineBatchCommandTest {
                     ),
                     events,
                 )
-                assertEquals("directory permission lost", errors.single().message)
+                val failure = assertIs<OfflineBatchCommandException>(errors.single())
+                assertEquals(2, failure.completedCount)
+                assertEquals(1, failure.failedCount)
+                assertEquals("directory permission lost", failure.cause?.message)
             } finally {
                 scope.cancel()
             }

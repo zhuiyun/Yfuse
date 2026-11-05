@@ -292,6 +292,7 @@ data class RemoteSubtitlePanelState(
     val language: SubtitleSearchLanguage = SubtitleSearchLanguage.Chinese,
     val searchUnavailableReason: String? = null,
     val importUnavailableReason: String? = null,
+    val importedCount: Int = 0,
 )
 
 data class RemoteSubtitleActions(
@@ -299,4 +300,5 @@ data class RemoteSubtitleActions(
     val onDownload: (String) -> Unit = {},
     val onLanguage: (SubtitleSearchLanguage) -> Unit = {},
     val onImport: () -> Unit = {},
+    val onClearImports: () -> Unit = {},
 )
