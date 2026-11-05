@@ -57,6 +57,7 @@ class CalendarSyncWorker(
                 pastDays = CALENDAR_SYNC_PAST_DAYS,
                 futureDays = CALENDAR_SYNC_FUTURE_DAYS,
                 forceRefresh = false,
+                includeDomesticDiscovery = false,
             ).fold(
                 onSuccess = { Result.success() },
                 onFailure = {

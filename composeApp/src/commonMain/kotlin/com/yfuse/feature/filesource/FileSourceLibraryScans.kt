@@ -61,7 +61,18 @@ class FileSourceLibraryScans(
                         registry.credentials(source.id) ?: throw IllegalStateException("File source is gone")
                     val scanJob = currentCoroutineContext()[Job]
                     val library =
-                        scanner.scan(source, credentials, store.libraries.value[source.id]) { progress ->
+                        scanner.scan(
+                            source,
+                            credentials,
+                            store.libraries.value[source.id],
+                            onCheckpoint = { checkpoint ->
+                                currentCoroutineContext().ensureActive()
+                                if (registry.source(source.id)?.copy(name = source.name) == source) {
+                                    val visible = store.libraries.value[source.id] ?: FileSourceLibrary(0)
+                                    store.save(source.id, visible.copy(checkpoint = checkpoint))
+                                }
+                            },
+                        ) { progress ->
                             _progress.update { current ->
                                 if (jobs[source.id] === scanJob && scanJob?.isActive == true) {
                                     current + (source.id to progress)
@@ -157,6 +168,7 @@ internal fun libraryStatus(
         progress != null && progress.matching -> "正在识别 · ${progress.titlesLookedUp}/${progress.titlesToMatch}"
         progress != null -> "正在读取文件夹 · 已找到 ${progress.videosFound} 个视频"
         library == null -> null
+        library.checkpoint != null -> "扫描已保存 · 再次扫描可从 ${library.checkpoint.foldersRead} 个文件夹后继续"
         library.titles.isEmpty() -> "片库中没有识别出的影片"
         else ->
             listOfNotNull(

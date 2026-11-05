@@ -63,6 +63,10 @@ internal class AndroidNativeDirectSession(
     private val preferredRemoteBufferTargetUs = configuration.preferredRemoteBufferTargetUs
     private val preparedExtractor = configuration.preparedExtractor
     private val videoHandoff = configuration.videoHandoff
+    private val bufferSessionId =
+        java.util.UUID
+            .randomUUID()
+            .toString()
     private val demux =
         AndroidMediaExtractorReadAheadNode(
             context = context,
@@ -977,6 +981,9 @@ internal class AndroidNativeDirectSession(
                 buffering = requestedPlay,
                 positionMs = targetUs / MICROS_PER_MILLISECOND,
                 bufferedPositionMs = maxOf(targetUs, demux.snapshot().bufferedThroughUs) / MICROS_PER_MILLISECOND,
+                bufferSnapshot =
+                    com.yfuse.core2.api
+                        .YBufferSnapshot(),
                 subtitleCues = activeSubtitleCues(),
                 secondarySubtitleCues = activeSecondarySubtitleCues(),
                 secondarySubtitleTrackId = secondarySubtitleId(),
@@ -1874,15 +1881,7 @@ internal class AndroidNativeDirectSession(
                 playing = requestedPlay && !transportBufferingVisible,
             ),
         )
-        // A byte/bitrate estimate is not a timestamp range that can be sought in the queue.
-        // Only advertise media timestamps present for every required track.
-        val bufferedPositionMs =
-            if (!sourceRemote && currentState.durationMs > 0L) {
-                currentState.durationMs
-            } else {
-                val endMs = maxOf(positionMs, readAhead.bufferedThroughUs / MICROS_PER_MILLISECOND)
-                if (currentState.durationMs > 0L) endMs.coerceAtMost(currentState.durationMs) else endMs
-            }
+        val bufferedPositionMs = readAhead.timestampBufferEndMs(positionMs, currentState.durationMs)
         val playing =
             requestedPlay && !videoOutputPending && !transportBufferingVisible && !isEnded()
         val buffering =
@@ -1909,6 +1908,7 @@ internal class AndroidNativeDirectSession(
             current.copy(
                 positionMs = positionMs,
                 bufferedPositionMs = bufferedPositionMs,
+                bufferSnapshot = readAhead.timestampBufferSnapshot(bufferSessionId, positionMs, current.durationMs),
                 subtitleCues = activeSubtitleCues(),
                 secondarySubtitleCues = activeSecondarySubtitleCues(),
                 secondarySubtitleTrackId = secondarySubtitleId(),

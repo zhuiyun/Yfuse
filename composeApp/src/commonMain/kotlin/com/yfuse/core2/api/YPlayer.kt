@@ -576,6 +576,7 @@ data class YPlayerState(
     val positionMs: Long = 0L,
     val durationMs: Long = 0L,
     val bufferedPositionMs: Long = 0L,
+    val bufferSnapshot: YBufferSnapshot = YBufferSnapshot(),
     val speed: Float = 1f,
     val currentIndex: Int = 0,
     val itemCount: Int = 1,

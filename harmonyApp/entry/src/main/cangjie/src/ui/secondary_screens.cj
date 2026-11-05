@@ -1,115 +1,109 @@
 package com.yfuse.harmony.entry
 
 import com.yfuse.harmony.entry.design.DesignTokens
-
+import com.yfuse.harmony.entry.data.*
+import std.collection.*
 import ohos.base.*
-import ohos.component.*
-import ohos.state_manage.*
-import ohos.state_macro_manage.*
+import ohos.arkui.component.*
+import ohos.arkui.state_management.*
+import ohos.arkui.state_macro_manage.*
 
+/** Every displayed title, duration and source comes from the selected provider result. */
 @Component
 class DetailScreen {
-    @State var sourceOpen: Bool = false
+    var detail: Option<MediaDetailModel> = None
+    var sources: ArrayList<MediaSourceModel> = ArrayList<MediaSourceModel>()
+    var loading: Bool = false
     var onPlay: () -> Unit = { => }
+    var onPlaySource: (String) -> Unit = { _ => }
     var onOpenEpisodes: () -> Unit = { => }
+    @State var sourceOpen: Bool = false
 
     func build() {
-        Scroll { Column {
-            Stack { Column { Blank().height(190); Text("媒体详情").fontColor(Color(DesignTokens.darkText)).fontSize(26).fontWeight(FontWeight.Bold) }.padding(18).width(100.percent) }.height(320)
-            Text("年份 · 分级 · 时长").fontColor(Color(DesignTokens.darkText)).fontSize(13).opacity(0.7)
-            Text("内容简介会完整呈现，并保持 Android 的海报底部渐隐与页面动态取色。").fontColor(Color(DesignTokens.darkText)).fontSize(13)
-            Row {
-                Button("▶ 继续 · 00:42:10").backgroundColor(Color(DesignTokens.darkAccent)).fontColor(Color(DesignTokens.darkOnAccent)).borderRadius(DesignTokens.radiusSmall).onClick(() => { onPlay() })
-                Button("资源").backgroundColor(Color(DesignTokens.darkAccent)).fontColor(Color(DesignTokens.darkOnAccent)).borderRadius(DesignTokens.radiusSmall).onClick(() => { sourceOpen = !sourceOpen })
-                Button("收藏").backgroundColor(Color(DesignTokens.darkAccent)).fontColor(Color(DesignTokens.darkOnAccent)).borderRadius(DesignTokens.radiusSmall)
+        Column {
+            if (let Some(value) <- detail) {
+                Text(value.item.title).fontColor(Color(DesignTokens.darkText)).fontSize(26).fontWeight(FontWeight.Bold)
+                Text(value.item.subtitle).fontColor(Color(DesignTokens.darkSecondary))
+                Text(if (value.item.overview.isEmpty()) { "服务器未提供简介" } else { value.item.overview }).fontColor(Color(DesignTokens.darkText))
+                if (value.resumePositionMs > 0) {
+                    Text("服务器续播记录：${value.resumePositionMs / 60000} 分钟").fontColor(Color(DesignTokens.darkSecondary))
+                }
+                Row {
+                    Button("播放 / 继续观看").enabled(!loading).onClick({ => onPlay() })
+                    Button("片源 (${sources.size})").enabled(!loading).onClick({ => sourceOpen = !sourceOpen })
+                }
+                if (sourceOpen) {
+                    if (sources.isEmpty()) { Text("服务器未返回可播放片源").fontColor(Color(DesignTokens.darkSecondary)) }
+                    ForEach(sources.toArray(), { source: MediaSourceModel =>
+                        Button(source.name + " · " + source.container + " · ${source.width}×${source.height}")
+                            .enabled(!loading).onClick({ => onPlaySource(source.id) }).width(100.percent)
+                    })
+                    Text("重新请求所选片源后播放；需要额外请求头或跨域认证的片源将显示错误。").fontColor(Color(DesignTokens.darkSecondary))
+                }
+                Button("收藏 / 剧集列表 · 暂不可用").enabled(false)
+                Text("尚未接入收藏写入和按季枚举，请返回媒体库选择具体单集。").fontColor(Color(DesignTokens.darkSecondary))
+            } else {
+                Text(if (loading) { "正在加载媒体详情…" } else { "尚未选择媒体" }).fontColor(Color(DesignTokens.darkText))
+                Text("从已连接服务器的媒体库或搜索结果打开真实条目。").fontColor(Color(DesignTokens.darkSecondary))
             }
-            if (sourceOpen) {
-                Column { Text("画质与片源").fontColor(Color(DesignTokens.darkText)).fontSize(18).fontWeight(FontWeight.Bold); Button("原始画质 · 直接播放").backgroundColor(Color(DesignTokens.darkAccent)).fontColor(Color(DesignTokens.darkOnAccent)).borderRadius(DesignTokens.radiusSmall); Button("兼容画质 · 服务端转码").backgroundColor(Color(DesignTokens.darkAccent)).fontColor(Color(DesignTokens.darkOnAccent)).borderRadius(DesignTokens.radiusSmall) }.padding(12)
-            }
-            Text("选集").fontColor(Color(DesignTokens.darkText)).fontSize(18).fontWeight(FontWeight.Bold)
-            Button("第 1 季").backgroundColor(Color(DesignTokens.darkAccent)).fontColor(Color(DesignTokens.darkOnAccent)).borderRadius(DesignTokens.radiusSmall).onClick(() => { onOpenEpisodes() }).width(100.percent)
-            Text("演员与制作人员").fontColor(Color(DesignTokens.darkText)).fontSize(18).fontWeight(FontWeight.Bold)
-            Text("相关推荐").fontColor(Color(DesignTokens.darkText)).fontSize(18).fontWeight(FontWeight.Bold)
-            Blank().height(72)
-        }.padding(18).width(100.percent) }.width(100.percent).height(100.percent)
+        }.padding(18).width(100.percent)
     }
 }
 
 @Component
 class SeasonEpisodesScreen {
     var onPlay: () -> Unit = { => }
-
     func build() {
-        Scroll { Column {
-            Text("剧集").fontColor(Color(DesignTokens.darkText)).fontSize(26).fontWeight(FontWeight.Bold)
-            EpisodeRow("第 1 集", "00:45:00", onPlay)
-            EpisodeRow("第 2 集", "00:47:00", onPlay)
-            EpisodeRow("第 3 集", "00:44:00", onPlay)
-        }.padding(18).width(100.percent) }.width(100.percent).height(100.percent)
+        FeatureUnavailable("剧集", "尚未连接按季剧集列表。请返回媒体库或搜索选择具体单集。")
     }
 }
 
 @Component
 class CalendarScreen {
-    @State var selectedDay: Int64 = 0
     var onOpenDetail: () -> Unit = { => }
-
     func build() {
-        Scroll { Column {
-            Text("追剧日历").fontColor(Color(DesignTokens.darkText)).fontSize(26).fontWeight(FontWeight.Bold)
-            Row { Day("一", 0); Day("二", 1); Day("三", 2); Day("四", 3); Day("五", 4); Day("六", 5); Day("日", 6) }
-            EpisodeRow("今天更新 · 第 8 集", "20:00", onOpenDetail)
-            EpisodeRow("即将更新 · 第 4 集", "明天", onOpenDetail)
-        }.padding(18).width(100.percent) }.width(100.percent).height(100.percent)
+        FeatureUnavailable("追剧日历", "尚未配置日历数据源与 TMDB 授权，没有已验证的播出日期可显示。")
     }
-    @Builder func Day(label: String, index: Int64) { Button(label).backgroundColor(Color(DesignTokens.darkAccent)).fontColor(Color(DesignTokens.darkOnAccent)).borderRadius(DesignTokens.radiusSmall).onClick(() => { selectedDay = index }).layoutWeight(1) }
 }
 
 @Component
 class DownloadsScreen {
+    var onBrowseLibrary: () -> Unit = { => }
     func build() {
         Column {
-            Text("下载管理").fontColor(Color(DesignTokens.darkText)).fontSize(26).fontWeight(FontWeight.Bold)
-            Row { Button("全部").backgroundColor(Color(DesignTokens.darkAccent)).fontColor(Color(DesignTokens.darkOnAccent)).borderRadius(DesignTokens.radiusSmall); Button("下载中").backgroundColor(Color(DesignTokens.darkAccent)).fontColor(Color(DesignTokens.darkOnAccent)).borderRadius(DesignTokens.radiusSmall); Button("已完成").backgroundColor(Color(DesignTokens.darkAccent)).fontColor(Color(DesignTokens.darkOnAccent)).borderRadius(DesignTokens.radiusSmall) }
-            EmptyState("暂无离线内容", "从详情页选择片源后即可下载", "浏览媒体库")
-        }.padding(18).width(100.percent).height(100.percent)
+            FeatureUnavailable("下载管理", "当前 Harmony 版本尚未连接下载传输和文件存储，不能创建离线任务。")
+            Button("浏览媒体库").onClick({ => onBrowseLibrary() })
+        }.padding(18).width(100.percent)
     }
 }
 
 @Component
 class AccountSettingsScreen {
     var onOpenSessions: () -> Unit = { => }
-
+    var onOpenServers: () -> Unit = { => }
     func build() {
-        Scroll { Column {
+        Column {
             Text("账户与同步").fontColor(Color(DesignTokens.darkText)).fontSize(26).fontWeight(FontWeight.Bold)
-            TextInput(placeholder: "账户邮箱").backgroundColor(Color(DesignTokens.darkSurface)).fontColor(Color(DesignTokens.darkText)).placeholderColor(Color(DesignTokens.darkSecondary))
-            TextInput(placeholder: "密码").backgroundColor(Color(DesignTokens.darkSurface)).fontColor(Color(DesignTokens.darkText)).placeholderColor(Color(DesignTokens.darkSecondary))
-            Button("登录并启用加密同步").backgroundColor(Color(DesignTokens.darkAccent)).fontColor(Color(DesignTokens.darkOnAccent)).borderRadius(DesignTokens.radiusSmall).width(100.percent)
-            SettingsGroup("数据", "立即同步", "导出数据", "删除云端账户")
-            Button("设备会话").backgroundColor(Color(DesignTokens.darkAccent)).fontColor(Color(DesignTokens.darkOnAccent)).borderRadius(DesignTokens.radiusSmall).onClick(() => { onOpenSessions() }).width(100.percent)
-        }.padding(18).width(100.percent) }.height(100.percent)
+            Text("播放进度可保存到本机并上报当前媒体服务器；跨设备加密账户同步尚未接入。").fontColor(Color(DesignTokens.darkSecondary))
+            Button("管理已连接的服务器账户").onClick({ => onOpenServers() })
+            Button("云端登录 / 导出 / 删除账户 · 暂不可用").enabled(false)
+            Button("设备会话说明").onClick({ => onOpenSessions() })
+        }.padding(18).width(100.percent)
     }
 }
 
 @Component
 class AccountSessionsScreen {
     func build() {
-        Column {
-            Text("设备会话").fontColor(Color(DesignTokens.darkText)).fontSize(26).fontWeight(FontWeight.Bold)
-            Text("当前设备 · HarmonyOS").fontColor(Color(DesignTokens.darkText)).fontSize(18).fontWeight(FontWeight.Bold)
-            Text("其他登录设备可在此逐一撤销").fontColor(Color(DesignTokens.darkText))
-            Button("撤销其他设备").backgroundColor(Color(DesignTokens.darkAccent)).fontColor(Color(DesignTokens.darkOnAccent)).borderRadius(DesignTokens.radiusSmall).width(100.percent)
-        }.padding(18).width(100.percent).height(100.percent)
+        FeatureUnavailable("设备会话", "尚未接入云端会话查询和撤销，无法确认当前设备或其他设备的登录状态。")
     }
 }
 
 @Builder
-func EpisodeRow(title: String, trailing: String, onOpen!: () -> Unit = { => }) {
-    Row {
-        Column { Text(title).fontColor(Color(DesignTokens.darkText)).fontSize(18).fontWeight(FontWeight.Bold); Text("简介与播放进度").fontColor(Color(DesignTokens.darkText)) }
-        Blank()
-        Text(trailing).fontColor(Color(DesignTokens.darkText))
-        Button("播放").backgroundColor(Color(DesignTokens.darkAccent)).fontColor(Color(DesignTokens.darkOnAccent)).borderRadius(DesignTokens.radiusSmall).onClick(() => { onOpen() })
-    }.height(76).width(100.percent)
+func FeatureUnavailable(title: String, reason: String) {
+    Column {
+        Text(title).fontColor(Color(DesignTokens.darkText)).fontSize(26).fontWeight(FontWeight.Bold)
+        Text(reason).fontColor(Color(DesignTokens.darkSecondary))
+        Button("暂不可用").enabled(false).backgroundColor(Color(DesignTokens.darkSurface)).fontColor(Color(DesignTokens.darkSecondary))
+    }.padding(18).width(100.percent)
 }

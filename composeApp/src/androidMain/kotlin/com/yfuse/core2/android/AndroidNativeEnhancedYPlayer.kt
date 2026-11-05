@@ -80,6 +80,10 @@ internal class AndroidNativeEnhancedYPlayer(
     private val appContext = context.applicationContext
     private val capabilityProvider = AndroidYCapabilityProvider(context)
     private val externalSubtitleLoader = AndroidExternalSubtitleLoader(context)
+    private val bufferSessionId =
+        java.util.UUID
+            .randomUUID()
+            .toString()
     private val mutableState =
         MutableStateFlow(
             YPlayerState(
@@ -223,6 +227,9 @@ internal class AndroidNativeEnhancedYPlayer(
         mutableState.updateState {
             it.copy(
                 positionMs = target,
+                bufferSnapshot =
+                    com.yfuse.core2.api
+                        .YBufferSnapshot(),
                 subtitleCues = emptyList(),
                 secondarySubtitleCues = emptyList(),
                 buffering = it.playbackRequested,
@@ -750,9 +757,18 @@ internal class AndroidNativeEnhancedYPlayer(
                     buffering = snapshot.buffering,
                     playbackRequested = requestedPlay && !snapshot.ended,
                     positionMs = snapshot.positionUs / MICROS_PER_MILLISECOND,
+                    bufferSnapshot =
+                        snapshot.sourceBuffer?.timestampBufferSnapshot(
+                            bufferSessionId,
+                            snapshot.positionUs / MICROS_PER_MILLISECOND,
+                            it.durationMs,
+                        ) ?: com.yfuse.core2.api
+                            .YBufferSnapshot(),
                     bufferedPositionMs =
-                        (snapshot.positionUs + snapshot.sourceBufferedUs) /
-                            MICROS_PER_MILLISECOND,
+                        snapshot.sourceBuffer?.timestampBufferEndMs(
+                            snapshot.positionUs / MICROS_PER_MILLISECOND,
+                            it.durationMs,
+                        ) ?: snapshot.positionUs / MICROS_PER_MILLISECOND,
                     subtitleCues =
                         if (selectedExternalSubtitleId != null) {
                             externalSubtitles.firstOrNull { it.track.id == selectedExternalSubtitleId }?.cues.orEmpty()

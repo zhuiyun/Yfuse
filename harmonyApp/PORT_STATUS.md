@@ -1,5 +1,36 @@
 # HarmonyOS Cangjie port status
 
+## 2026-11-05 player controls and secondary-screen correction
+
+The source now binds requested playback speed through `Video(currentProgressRate:)` and image fit
+through `objectFit`. Playback state comes from `onStart`, `onPause`, `onPrepared`, `onUpdate`,
+`onFinish` and `onError`; pressing Play no longer claims successful playback before the callback.
+Seek commits only at drag end/track click and is clamped to known duration. Diagnostics show those
+observations and explicitly label decoder/HDR/output/cache evidence unavailable. Track selection,
+dual subtitles, PiP, episode queues, danmaku, engine handover and export remain disabled with reasons.
+
+Provider detail now renders actual metadata and sources. The source picker requests fresh playback
+info and fails if the selected source disappeared. Old secondary pages no longer display a fabricated
+42-minute resume point, sample episodes/calendar dates or assumed signed-in devices. Download/account
+pages state their missing adapters, with working links to the existing library/server-account flow.
+Legacy library/server editor routes delegate to that connected flow.
+
+Cangjie API evidence is pinned to the official [Video wrapper](https://github.com/openharmony/arkui_arkui_cangjie_wrapper/blob/fc6583f58e71a911eaf6eba32910fb57e757a40e/ohos/arkui/component/video/video.cj)
+and [enum definitions](https://github.com/openharmony/arkui_arkui_cangjie_wrapper/blob/fc6583f58e71a911eaf6eba32910fb57e757a40e/ohos/arkui/component/common/cj_enum.cj).
+These signatures use optional Int32 callback values and the `ohos.arkui.*` namespaces. UI imports
+were aligned and `compatibleSdkVersion` raised **20 → 22**; API20/21 devices are outside this new
+source configuration. There is no matching installed UI SDK/build evidence, so this is not a claim
+that every remaining platform import or adapter compiles.
+
+`audit/harmony-ui-20261105/verification.json` records passing parity contracts, scaffold, fixtures
+and 51-file source structure. Host compiler 1.0.5 crashed with internal error 3221225477 in unchanged
+`data` and `player` packages and the watch test; two packages compiled, six failed (including dependent
+packages), four lacked stdx; no host test suite executed successfully. Portable YCore was blocked by
+missing host C++ tools in this Windows environment. Short TEMP and the official compiler environment
+script did not change the result. These are reported as failures/blocks; release gates are unchanged.
+**No HAP was compiled, signed, installed or run.** Historical passing checks below describe earlier
+runs and are not evidence for this revision.
+
 ## 2026-09-14 transport parity update
 
 The connected login and server registry now accept valid HTTP and HTTPS endpoints without an

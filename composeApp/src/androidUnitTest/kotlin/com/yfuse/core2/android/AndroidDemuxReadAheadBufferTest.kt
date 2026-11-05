@@ -1,5 +1,6 @@
 package com.yfuse.core2.android
 
+import com.yfuse.core2.api.YBufferedRange
 import com.yfuse.core2.capability.YContainer
 import com.yfuse.core2.demux.YCompressedSample
 import com.yfuse.core2.demux.YDemuxOpenResult
@@ -62,8 +63,27 @@ class AndroidDemuxReadAheadBufferTest {
             }
             assertEquals(samples.size, node.snapshot().queuedSamples)
             assertEquals(200_000L, node.snapshot().bufferedDurationUs)
+            // Video has a hole after 100 ms; audio through 200 ms cannot fill it.
+            val timeline = node.snapshot(includeTimestampRanges = true)
+            assertEquals(listOf(YBufferedRange(0, 100)), timeline.bufferedRanges)
+            assertEquals(listOf(YBufferedRange(50, 100)), timeline.timestampBufferSnapshot("queue", 50, 5_000).ranges)
         } finally {
             node.release()
         }
+    }
+
+    @Test
+    fun `queued endpoints retain sparse intervals and overlap counts without inventing packet duration`() {
+        val starts = sortedMapOf(8_000_000L to 1, 8_500_000L to 1, 11_000_000L to 1, 15_000_000L to 1)
+        val ends = sortedMapOf(9_000_000L to 1, 10_000_000L to 1, 12_000_000L to 1, 15_000_000L to 1)
+        val video = queuedTimestampRanges(starts, ends)
+        assertEquals(listOf(YBufferedRange(8_000, 10_000), YBufferedRange(11_000, 12_000)), video)
+        val audio = listOf(YBufferedRange(8_500, 11_500))
+        assertEquals(
+            listOf(YBufferedRange(8_500, 10_000), YBufferedRange(11_000, 11_500)),
+            intersectQueuedRanges(listOf(video, audio)),
+        )
+        assertTrue(intersectQueuedRanges(listOf(video, emptyList())).isEmpty())
+        assertTrue(queuedTimestampRanges(sortedMapOf(3_000L to 1), sortedMapOf(3_000L to 1)).isEmpty())
     }
 }

@@ -209,6 +209,12 @@ class AndroidPlaybackHttpProxyTest {
         assertNull(parsePlaybackHttpByteRange("bytes=-4096"))
         assertNull(parsePlaybackHttpByteRange("bytes=50-10"))
         assertNull(parsePlaybackHttpByteRange("bytes=0-1,4-5"))
+        assertNull(parsePlaybackHttpByteRange("bytes=0-9223372036854775808"))
+        assertNull(parsePlaybackHttpByteRange("bytes=0-${Long.MAX_VALUE}"))
+        assertEquals(
+            PlaybackHttpByteRange(start = Long.MAX_VALUE, endInclusive = Long.MAX_VALUE),
+            parsePlaybackHttpByteRange("bytes=${Long.MAX_VALUE}-${Long.MAX_VALUE}"),
+        )
     }
 
     @Test

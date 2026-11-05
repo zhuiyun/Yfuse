@@ -199,7 +199,10 @@ internal class AndroidDemuxReadAheadNode(
     fun supportsSubtitleFormat(format: YSubtitleFormat): Boolean =
         (delegate as? YSubtitlePacketDecoder)?.supportsSubtitleFormat(format) == true
 
-    fun snapshot(includeTrackDetails: Boolean = false): YDemuxReadAheadSnapshot =
+    fun snapshot(
+        includeTrackDetails: Boolean = false,
+        includeTimestampRanges: Boolean = false,
+    ): YDemuxReadAheadSnapshot =
         synchronized(monitor) {
             YDemuxReadAheadSnapshot(
                 queuedSamples = samples.size,
@@ -207,6 +210,24 @@ internal class AndroidDemuxReadAheadNode(
                 memoryBudgetBytes = memoryBudgetBytes(),
                 queueBudgetBytes = queueBudgetBytes(),
                 bufferedDurationUs = bufferedDurationUsLocked(),
+                bufferedFromUs =
+                    selectedTrackIds.filterNot { it in subtitleTracks }.maxOfOrNull {
+                        trackTimeSpans[it]?.startUs ?: 0L
+                    } ?: 0L,
+                bufferedThroughUs =
+                    selectedTrackIds.filterNot { it in subtitleTracks }.minOfOrNull {
+                        trackTimeSpans[it]?.endUs ?: 0L
+                    } ?: 0L,
+                bufferedRanges =
+                    if (includeTimestampRanges) {
+                        intersectQueuedRanges(
+                            selectedTrackIds.filterNot { it in subtitleTracks }.map {
+                                trackTimeSpans[it]?.ranges().orEmpty()
+                            },
+                        )
+                    } else {
+                        emptyList()
+                    },
                 maximumQueuedBytesObserved = maximumQueuedBytesObserved,
                 starvationCount = starvationCount,
                 throughputBitsPerSecond = throughput.snapshot(System.nanoTime(), fillScheduled),
@@ -511,18 +532,28 @@ private class QueuedTrackTimeSpan {
     private val starts = TreeMap<Long, Int>()
     private val ends = TreeMap<Long, Int>()
     val isEmpty: Boolean get() = starts.isEmpty()
+    val startUs: Long get() = starts.firstKey()
+    val endUs: Long get() = ends.lastKey()
+
+    fun ranges() = queuedTimestampRanges(starts, ends)
+
     val durationUs: Long get() = (ends.lastKey() - starts.firstKey()).coerceAtLeast(0L)
 
     fun add(sample: YCompressedSample) {
         val start = sample.presentationTimeUs
-        val end = start + (sample.durationUs ?: 0L)
+        val end = sampleEndUs(sample)
         starts[start] = (starts[start] ?: 0) + 1
         ends[end] = (ends[end] ?: 0) + 1
     }
 
     fun remove(sample: YCompressedSample) {
         removeEndpoint(starts, sample.presentationTimeUs)
-        removeEndpoint(ends, sample.presentationTimeUs + (sample.durationUs ?: 0L))
+        removeEndpoint(ends, sampleEndUs(sample))
+    }
+
+    private fun sampleEndUs(sample: YCompressedSample): Long {
+        val duration = (sample.durationUs ?: 0L).coerceAtLeast(0L)
+        return sample.presentationTimeUs.coerceAtMost(Long.MAX_VALUE - duration) + duration
     }
 
     private fun removeEndpoint(
@@ -658,6 +689,9 @@ internal data class YDemuxReadAheadSnapshot(
     val packetsRead: Long = 0L,
     val generation: Long = 0L,
     val trackBufferedUs: Map<Int, Long> = emptyMap(),
+    val bufferedFromUs: Long = 0L,
+    val bufferedThroughUs: Long = 0L,
+    val bufferedRanges: List<com.yfuse.core2.api.YBufferedRange> = emptyList(),
 )
 
 private const val DEMUX_THREAD_NAME = "YCore-Demux"

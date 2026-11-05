@@ -49,84 +49,6 @@ import kotlin.concurrent.thread
 
 private const val TAG = "YfusePlayer"
 
-internal data class MpvScaleModeProperties(
-    val panscan: Double,
-    val keepAspect: Boolean,
-)
-
-internal fun mpvScaleModeProperties(mode: VideoScaleMode): MpvScaleModeProperties =
-    MpvScaleModeProperties(
-        panscan = if (mode == VideoScaleMode.Fill) 1.0 else 0.0,
-        keepAspect = mode != VideoScaleMode.Stretch,
-    )
-
-internal fun externalSubtitleMpvCommand(item: PlayerMediaItem): Array<String>? =
-    externalSubtitleMpvCommands(item).firstOrNull()
-
-internal fun externalSubtitleMpvCommands(item: PlayerMediaItem): List<Array<String>> =
-    item.playbackExternalSubtitles().map { subtitle ->
-        val language = subtitle.language?.takeIf(String::isNotBlank)
-        val selection = if (subtitle.default) "select" else "auto"
-        val title =
-            if (subtitle.uri == item.externalSubtitleUri) {
-                "外挂字幕"
-            } else {
-                subtitle.label
-            }
-        if (language == null) {
-            arrayOf("sub-add", subtitle.uri, selection, title)
-        } else {
-            arrayOf("sub-add", subtitle.uri, selection, title, language)
-        }
-    }
-
-internal fun mpvAudioOutputReadiness(
-    outputDriver: String?,
-    outputFormat: String?,
-    clockAdvancing: Boolean,
-): PlaybackOutputReadiness {
-    val driver = outputDriver?.trim().orEmpty()
-    val format = outputFormat?.trim().orEmpty()
-    return if (
-        clockAdvancing &&
-        driver.isNotEmpty() &&
-        !driver.equals("null", ignoreCase = true) &&
-        format.isNotEmpty()
-    ) {
-        PlaybackOutputReadiness.Rendering
-    } else {
-        PlaybackOutputReadiness.Waiting
-    }
-}
-
-internal fun mpvDecoderDiagnostic(hwdecCurrent: String?): String =
-    hwdecCurrent
-        ?.trim()
-        ?.takeIf { it.isNotEmpty() && !it.equals("no", ignoreCase = true) }
-        ?.let { "硬件解码 · $it" }
-        ?: "FFmpeg 软件解码"
-
-internal fun mpvDolbyVisionVideoFilter(stripToBaseLayer: Boolean): String =
-    if (stripToBaseLayer) {
-        "format=dolbyvision=no:enhancement-layer=no"
-    } else {
-        ""
-    }
-
-/**
- * Native optical-disc URLs are explicit so Blu-ray always starts on the main feature instead of
- * relying on whichever playlist libbluray happens to expose first. mpv documents `bd://longest`
- * as the longest Blu-ray playlist and uses the same `edition` property for later title changes.
- */
-internal fun mpvDiscPlaybackUrl(kind: PlaybackDiscKind): String? =
-    when (kind) {
-        PlaybackDiscKind.Dvd -> "dvd://"
-        PlaybackDiscKind.BluRay,
-        PlaybackDiscKind.Bdmv,
-        -> "bd://longest"
-        else -> null
-    }
-
 /**
  * libmpv behind the engine-agnostic [VideoEngine] contract.
  *
@@ -222,6 +144,10 @@ class MpvVideoEngine(
     @Volatile
     private var pauseAtEndOfCurrentItem = false
 
+    private val bufferSessionId =
+        java.util.UUID
+            .randomUUID()
+            .toString()
     private val _state =
         MutableStateFlow(
             PlaybackState(
@@ -347,6 +273,7 @@ class MpvVideoEngine(
         if (!videoReadinessGate.onFileLoaded(nativeIdentity, demuxerReady)) return false
         cancelFileLoadWatchdog()
         val seekMs = pendingSeek.peek()
+        if (seekMs != null) videoReadinessGate.onSeekRequested()
         if (!pendingSeek.applyIfPending { target ->
                 withMpvResult {
                     it.command(
@@ -359,7 +286,17 @@ class MpvVideoEngine(
                 }
             }
         ) {
-            seekMs?.let { target -> _state.update { it.copy(positionMs = target, bufferedPositionMs = target) } }
+            seekMs?.let { target ->
+                _state.update {
+                    it.copy(
+                        positionMs = target,
+                        bufferedPositionMs = target,
+                        bufferSnapshot =
+                            com.yfuse.core2.api
+                                .YBufferSnapshot(),
+                    )
+                }
+            }
             markTerminalFailure("mpv 无法恢复播放位置，正在尝试其他播放器")
             return false
         }
@@ -475,17 +412,29 @@ class MpvVideoEngine(
             override fun eventProperty(
                 property: String,
                 value: Double,
-            ) {
+            ) = synchronized(this@MpvVideoEngine) {
                 when (property) {
                     "time-pos" -> {
-                        if (pendingSeek.peek() != null) return
+                        if (pendingSeek.peek() != null ||
+                            !videoReadinessGate.canReportBufferRanges()
+                        ) {
+                            return@synchronized
+                        }
                         val ms = (value * 1000).toLong().coerceAtLeast(0L)
-                        if (kotlin.math.abs(ms - lastPositionMs) < PLAYBACK_PROGRESS_STEP_MS) return
+                        if (kotlin.math.abs(ms - lastPositionMs) < PLAYBACK_PROGRESS_STEP_MS) return@synchronized
                         lastPositionMs = ms
                         sampleAudioOutputProgress()
+                        val cacheState = runCatching { mpv?.getPropertyString("demuxer-cache-state") }.getOrNull()
                         _state.update {
                             it.copy(
                                 positionMs = ms,
+                                bufferSnapshot =
+                                    mpvBufferSnapshot(
+                                        cacheState,
+                                        bufferSessionId,
+                                        videoReadinessGate.bufferGeneration(),
+                                        it.durationMs,
+                                    ),
                                 bufferedPositionMs =
                                     bufferedEndPositionMs(
                                         positionMs = ms,
@@ -499,7 +448,13 @@ class MpvVideoEngine(
                     "duration" -> {
                         val durationMs = (value * 1000).toLong()
                         if (durationMs > 0L) {
-                            _state.update { it.copy(durationMs = durationMs) }
+                            _state.update {
+                                it.copy(
+                                    durationMs = durationMs,
+                                    bufferSnapshot = it.bufferSnapshot.shifted(0L, durationMs),
+                                    bufferedPositionMs = it.bufferedPositionMs.coerceAtMost(durationMs),
+                                )
+                            }
                         }
                     }
                     "speed" -> _state.update { it.copy(speed = value.toFloat()) }
@@ -545,9 +500,22 @@ class MpvVideoEngine(
                     }
                     "demuxer-cache-duration" -> {
                         markFileLoadProgress()
+                        if (pendingSeek.peek() != null ||
+                            !videoReadinessGate.canReportBufferRanges()
+                        ) {
+                            return@synchronized
+                        }
+                        val cacheState = runCatching { mpv?.getPropertyString("demuxer-cache-state") }.getOrNull()
                         _state.update {
                             val bufferedDurationMs = (value * 1000.0).toLong().coerceAtLeast(0L)
                             it.copy(
+                                bufferSnapshot =
+                                    mpvBufferSnapshot(
+                                        cacheState,
+                                        bufferSessionId,
+                                        videoReadinessGate.bufferGeneration(),
+                                        it.durationMs,
+                                    ),
                                 bufferedPositionMs =
                                     bufferedEndPositionMs(
                                         positionMs = it.positionMs,
@@ -596,6 +564,19 @@ class MpvVideoEngine(
                         if (value) resetAudioOutputProgress()
                         _state.update { it.copy(playing = !value) }
                     }
+                    "seeking" ->
+                        if (value) {
+                            videoReadinessGate.onSeekRequested()
+                            _state.update {
+                                it.copy(
+                                    bufferedPositionMs = it.positionMs,
+                                    bufferSnapshot =
+                                        com.yfuse.core2.api
+                                            .YBufferSnapshot(),
+                                    diagnostics = it.diagnostics.copy(bufferedDurationMs = 0L),
+                                )
+                            }
+                        }
                     "paused-for-cache" -> {
                         val bufferEvent = value && !wasBuffering
                         wasBuffering = value
@@ -709,6 +690,9 @@ class MpvVideoEngine(
                                 it.copy(
                                     buffering = true,
                                     bufferedPositionMs = it.positionMs,
+                                    bufferSnapshot =
+                                        com.yfuse.core2.api
+                                            .YBufferSnapshot(),
                                     error = null,
                                     ended = false,
                                     diagnostics = it.diagnostics.copy(bufferedDurationMs = 0L),
@@ -921,6 +905,7 @@ class MpvVideoEngine(
             instance.observeProperty("duration", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE)
             instance.observeProperty("speed", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE)
             instance.observeProperty("pause", MPVLib.MpvFormat.MPV_FORMAT_FLAG)
+            instance.observeProperty("seeking", MPVLib.MpvFormat.MPV_FORMAT_FLAG)
             instance.observeProperty("paused-for-cache", MPVLib.MpvFormat.MPV_FORMAT_FLAG)
             instance.observeProperty("eof-reached", MPVLib.MpvFormat.MPV_FORMAT_FLAG)
             instance.observeProperty("vo-configured", MPVLib.MpvFormat.MPV_FORMAT_FLAG)
@@ -1056,12 +1041,16 @@ class MpvVideoEngine(
     @Synchronized
     override fun seekTo(positionMs: Long) {
         pendingSeek.updateIfPending(positionMs)
+        videoReadinessGate.onSeekRequested()
         resetAudioOutputProgress()
         lastPositionMs = positionMs
         _state.update {
             it.copy(
                 positionMs = positionMs,
                 bufferedPositionMs = positionMs.coerceAtLeast(0L),
+                bufferSnapshot =
+                    com.yfuse.core2.api
+                        .YBufferSnapshot(),
                 ended = false,
             )
         }
@@ -1288,9 +1277,12 @@ class MpvVideoEngine(
             val mediaChanged = it.currentIndex != index
             it.copy(
                 currentIndex = index,
-                positionMs = if (mediaChanged) 0L else it.positionMs,
+                positionMs = 0L,
                 durationMs = if (mediaChanged) 0L else it.durationMs,
-                bufferedPositionMs = if (mediaChanged) 0L else it.bufferedPositionMs,
+                bufferedPositionMs = 0L,
+                bufferSnapshot =
+                    com.yfuse.core2.api
+                        .YBufferSnapshot(),
                 videoHeight = nextItem?.sourceVideoHeight(transcoding) ?: 0,
                 buffering = true,
                 ended = false,
@@ -1334,6 +1326,9 @@ class MpvVideoEngine(
                         error = null,
                         buffering = true,
                         bufferedPositionMs = position.coerceAtLeast(0L),
+                        bufferSnapshot =
+                            com.yfuse.core2.api
+                                .YBufferSnapshot(),
                         ended = false,
                         fallbacksExhausted = false,
                         automaticFallbackBlocked = false,
@@ -1511,6 +1506,9 @@ class MpvVideoEngine(
                 error = null,
                 buffering = true,
                 bufferedPositionMs = it.positionMs,
+                bufferSnapshot =
+                    com.yfuse.core2.api
+                        .YBufferSnapshot(),
                 ended = false,
                 transcoding = true,
                 discNavigation = PlaybackDiscNavigationState(),

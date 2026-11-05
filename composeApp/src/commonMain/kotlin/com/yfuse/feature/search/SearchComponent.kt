@@ -311,6 +311,29 @@ class SearchHomeComponent(
     /** 浮起菜单's 播放: straight to the player from where the title was left, or from [startTicks]. */
     val onPlayItem: (serverId: String, itemId: String, startTicks: Long) -> Unit = { _, _, _ -> },
 ) : ComponentContext by componentContext {
+    private val scope = componentScope(lifecycle)
+    private val personal by lazy {
+        org.koin.core.context.GlobalContext
+            .get()
+            .get<com.yfuse.core.personal.PersonalLibraryRepository>()
+    }
+    val access get() = personal.policy
+
+    /** Shares the same fresh-link and sidecar preparation path as the file browser. */
+    val fileSources: com.yfuse.feature.filesource.FileSourcesController by lazy {
+        val koin =
+            org.koin.core.context.GlobalContext
+                .get()
+        com.yfuse.feature.filesource.FileSourcesController(
+            registry = koin.get(),
+            client = koin.get(),
+            progressStore = koin.get(),
+            libraryStore = koin.get(),
+            scanner = koin.get(),
+            scope = scope,
+        )
+    }
+
     /** Search remains composed logically while detail covers it; retain its real viewport. */
     internal val listState = LazyListState()
 

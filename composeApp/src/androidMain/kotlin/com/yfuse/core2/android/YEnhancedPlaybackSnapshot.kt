@@ -35,6 +35,7 @@ internal data class YEnhancedPlaybackSnapshot(
     val avSyncOffsetUs: Long?,
     val sourceQueueBytes: Long,
     val sourceBufferedUs: Long,
+    val sourceBuffer: YDemuxReadAheadSnapshot? = null,
     val sourceStarvationCount: Long,
     val sourceNetworkBitsPerSecond: Long,
     val subtitleCues: List<YSubtitleCue>,

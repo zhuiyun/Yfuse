@@ -9,7 +9,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -27,7 +26,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -51,10 +49,8 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -98,8 +94,6 @@ import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.SkeletonBlock
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.YfChip
-import com.yfuse.core.designsystem.controlBorder
-import com.yfuse.core.designsystem.controlSurface
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.glassControlHighlight
 import com.yfuse.core.designsystem.glassSelection
@@ -206,6 +200,22 @@ private fun SearchHomeScreen(
     val playlistEditor = remember { SmartPlaylistEditorState() }
     val sharer = rememberPosterCardSharer()
     val state by component.store.states.collectAsState(component.store.state)
+    val access by component.access.collectAsState()
+    val fileSources by component.fileSources.sources.collectAsState()
+    val fileLaunch by component.fileSources.launch.collectAsState()
+    val fileNotice by component.fileSources.notice.collectAsState()
+    var sourceFilter by rememberSaveable { mutableStateOf("all") }
+    val includeServers = sourceFilter == "all" || sourceFilter == "servers"
+    LaunchedEffect(includeServers) { component.store.accept(SearchIntent.SetRemoteSearchEnabled(includeServers)) }
+    val fileResults = rememberFileSourceSearch(component, state, sourceFilter, access.canManageServers)
+    LaunchedEffect(access.canManageServers, fileSources) {
+        if (!access.canManageServers) {
+            component.fileSources.closeBrowser()
+            sourceFilter = "all"
+        } else if (sourceFilter.startsWith("source:") && fileSources.none { "source:${it.id}" == sourceFilter }) {
+            sourceFilter = "all"
+        }
+    }
     val actionMessage by component.flags.message.collectAsState()
     val palette = LocalPalette.current
     val store = component.store
@@ -292,6 +302,49 @@ private fun SearchHomeScreen(
                     )
                 }
             }
+
+            if (access.canManageServers && fileSources.isNotEmpty()) {
+                motionItem(key = "search-source-filter") {
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        val options =
+                            listOf("all" to "全部来源", "servers" to "媒体服务器", "files" to "文件来源") +
+                                fileSources.map { "source:${it.id}" to it.name }
+                        items(options, key = { it.first }) { option ->
+                            SearchFilterChoice(option.second, sourceFilter == option.first, {
+                                sourceFilter =
+                                    option.first
+                                store.accept(
+                                    SearchIntent.SetRemoteSearchEnabled(
+                                        option.first == "all" || option.first == "servers",
+                                    ),
+                                )
+                            })
+                        }
+                    }
+                }
+            }
+            if (access.canManageServers && sourceFilter != "servers" && state.query.isNotBlank()) {
+                motionItem(key = "search-file-coverage") {
+                    FileSourceSearchCoverage(fileResults, state.sort == SearchSort.RecentlyAdded)
+                }
+                motionItemsIndexed(
+                    fileResults.hits,
+                    key = { _, hit -> "indexed:${hit.id}" },
+                    contentType = { _, _ -> "indexed-file-result" },
+                ) { _, hit ->
+                    FileSourceSearchResult(hit) {
+                        if (component.access.value.canManageServers) {
+                            component.fileSources.playIndexed(
+                                hit.source.id,
+                                hit.file.path,
+                            )
+                        }
+                    }
+                }
+            }
             state.person?.let { person ->
                 motionItem(key = "search-person-banner") {
                     PersonBanner(
@@ -301,14 +354,14 @@ private fun SearchHomeScreen(
                 }
             }
 
-            if (skeletonShown) {
+            if (includeServers && skeletonShown) {
                 motionItem(key = "search-skeleton") {
                     SearchSkeleton(compact = compactResults, perServer = !state.mergesServers)
                 }
             }
 
             // Nothing typed yet: the chip row alone, no empty results heading.
-            if ((state.hasSearched || state.error != null) && !holdingResults) {
+            if (includeServers && (state.hasSearched || state.error != null) && !holdingResults) {
                 motionItem(key = "search-results-heading") {
                     Column(
                         Modifier.padding(horizontal = Dimens.pageHorizontal).then(resultHandoff.item(key = "heading")),
@@ -340,7 +393,7 @@ private fun SearchHomeScreen(
                             )
                         } else {
                             Text(
-                                if (visibleResultCount == 0) "搜索结果" else "$visibleResultCount 条结果",
+                                if (visibleResultCount == 0) "媒体服务器搜索结果" else "媒体服务器 · $visibleResultCount 条结果",
                                 style = AppTypography.caption.medium,
                                 color = palette.sub2,
                                 modifier = Modifier.padding(top = 2.dp, bottom = 6.dp),
@@ -448,7 +501,7 @@ private fun SearchHomeScreen(
                 }
             }
 
-            if (state.people.isNotEmpty() && state.person == null) {
+            if (includeServers && state.people.isNotEmpty() && state.person == null) {
                 motionItem(key = "search-people-toggle") {
                     com.yfuse.feature.library.LibraryAction(
                         if (showPeople) "收起相关人物" else "查看相关人物（${state.people.size}）",
@@ -481,9 +534,23 @@ private fun SearchHomeScreen(
         }
 
         ActionToast(
-            message = actionMessage,
-            onDismiss = component.flags::dismissMessage,
+            message = fileNotice ?: actionMessage,
+            onDismiss = {
+                component.fileSources.dismissNotice()
+                component.flags.dismissMessage()
+            },
         )
+    }
+
+    if (access.canManageServers) {
+        fileLaunch?.let { prepared ->
+            com.yfuse.feature.player.PlayerLauncher(
+                prepared.items,
+                prepared.startIndex,
+                prepared.startPositionMs,
+                onLaunched = component.fileSources::consumeLaunch,
+            )
+        }
     }
 
     if (filtersOpen) {
@@ -706,113 +773,6 @@ private fun SearchFilterSheet(
             }
         }
     }
-}
-
-@Composable
-private fun SearchFilterLabel(
-    text: String,
-    value: String,
-) {
-    Row(
-        Modifier.fillMaxWidth().padding(start = 2.dp, end = 2.dp, bottom = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(text, style = AppTypography.body.strong, color = LocalPalette.current.text)
-        Text(
-            value,
-            modifier = Modifier.weight(1f),
-            style = AppTypography.caption.regular,
-            color = LocalPalette.current.sub2,
-            textAlign = TextAlign.End,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
-}
-
-/** Long server/library labels retain their full Text semantics even when visually ellipsized. */
-@Composable
-private fun SearchFilterGrid(
-    options: List<SearchOption>,
-    selectedId: String?,
-    allLabel: String,
-    onSelect: (String?) -> Unit,
-) {
-    val fontScale = LocalDensity.current.fontScale.coerceAtLeast(1f)
-    BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val columns = if (maxWidth >= 280.dp * fontScale) 2 else 1
-        val choices = listOf<SearchOption?>(null) + options
-        Column(
-            Modifier.fillMaxWidth().selectableGroup(),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            choices.chunked(columns).forEach { choicesInRow ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    choicesInRow.forEach { option ->
-                        SearchFilterChoice(
-                            label = option?.label ?: allLabel,
-                            selected = selectedId == option?.id,
-                            onClick = { onSelect(option?.id) },
-                            modifier = Modifier.weight(1f),
-                            weightedLabel = true,
-                        )
-                    }
-                    repeat(columns - choicesInRow.size) { Spacer(Modifier.weight(1f)) }
-                }
-            }
-        }
-    }
-}
-
-/** All filter families share the same light glass, small check and 48 dp touch target. */
-@Composable
-private fun SearchFilterChoice(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    weightedLabel: Boolean = false,
-) {
-    val palette = LocalPalette.current
-    val selection = rememberGlassSelectionStyle()
-    Row(
-        modifier
-            .widthIn(min = 64.dp)
-            .heightIn(min = 48.dp)
-            .pressable(role = Role.RadioButton, onClick = onClick)
-            .semantics(mergeDescendants = true) { this.selected = selected }
-            .then(
-                if (selected) {
-                    Modifier.glassSelection(AppShapes.chip, selection)
-                } else {
-                    Modifier.glass(AppShapes.chip, palette.controlSurface, palette.controlBorder)
-                },
-            ).padding(horizontal = 10.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            label,
-            modifier = if (weightedLabel) Modifier.weight(1f, fill = false) else Modifier,
-            style = if (selected) AppTypography.body.strong else AppTypography.body.medium,
-            color = if (selected) selection.contentColor else palette.text,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Box(Modifier.size(14.dp), contentAlignment = Alignment.Center) {
-            if (selected) Icon(AppIcons.Check, null, tint = selection.contentColor, modifier = Modifier.size(14.dp))
-        }
-    }
-}
-
-@Composable
-private fun SearchFilterChips(content: @Composable () -> Unit) {
-    FlowRow(
-        modifier = Modifier.fillMaxWidth().selectableGroup(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) { content() }
 }
 
 /**

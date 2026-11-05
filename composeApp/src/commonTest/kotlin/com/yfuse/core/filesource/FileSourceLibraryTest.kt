@@ -77,7 +77,7 @@ class FileSourceLibraryTest {
         runTest {
             val previous = scanner().scan(source, credentials, null)
             val failedFolder =
-                object : FileSourceClient by client {
+                object : TestDelegatingClient(client) {
                     override suspend fun list(
                         source: FileSource,
                         credentials: FileSourceCredentials,
@@ -92,7 +92,7 @@ class FileSourceLibraryTest {
             assertEquals(previous.files.toSet(), partial.files.toSet())
             assertEquals(previous.titles.toSet(), partial.titles.toSet())
             val emptyShare =
-                object : FileSourceClient by client {
+                object : TestDelegatingClient(client) {
                     override suspend fun list(
                         source: FileSource,
                         credentials: FileSourceCredentials,
@@ -153,7 +153,7 @@ class FileSourceLibraryTest {
             val failing =
                 FileSourceScanner(
                     client =
-                        object : FileSourceClient by client {
+                        object : TestDelegatingClient(client) {
                             override suspend fun list(
                                 source: FileSource,
                                 credentials: FileSourceCredentials,
@@ -208,6 +208,25 @@ class FileSourceLibraryTest {
 
             assertTrue(store.libraries.value.isEmpty())
         }
+
+    // Explicit forwarding keeps listBounded's default dispatch on this test double. Kotlin's
+    // `by client` would forward listBounded too, bypassing the per-test overridden list failure.
+    private open class TestDelegatingClient(
+        private val delegate: FileSourceClient,
+    ) : FileSourceClient {
+        override suspend fun list(
+            source: FileSource,
+            credentials: FileSourceCredentials,
+            path: List<String>,
+        ) = delegate.list(source, credentials, path)
+
+        override suspend fun cacheSubtitle(
+            source: FileSource,
+            credentials: FileSourceCredentials,
+            path: List<String>,
+            entry: FileSourceEntry,
+        ) = delegate.cacheSubtitle(source, credentials, path, entry)
+    }
 
     private class MemoryStorage(
         var text: String? = null,

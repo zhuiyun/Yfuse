@@ -80,6 +80,10 @@ internal fun FileSourcesSection(controller: FileSourcesController) {
         Modifier.fillMaxWidth().padding(top = 10.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        com.yfuse.feature.iptv
+            .IptvEntry()
+        com.yfuse.feature.localimport
+            .WifiImportEntry()
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 "文件来源",
@@ -438,4 +442,7 @@ private fun FileSourceKind.tint(): Color =
         FileSourceKind.WebDav -> DecorativeTints.ramp[0]
         FileSourceKind.Smb -> DecorativeTints.ramp[1]
         FileSourceKind.Alist -> DecorativeTints.ramp[4]
+        FileSourceKind.Ftp -> DecorativeTints.ramp[2]
+        FileSourceKind.Pan123 -> DecorativeTints.ramp[0]
+        FileSourceKind.Baidu -> DecorativeTints.ramp[1]
     }

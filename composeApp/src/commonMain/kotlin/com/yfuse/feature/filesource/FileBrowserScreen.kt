@@ -81,6 +81,7 @@ internal fun FileBrowserScreen(controller: FileSourcesController) {
     val palette = LocalPalette.current
     val visitedFolders = remember(browser.source.id) { mutableStateMapOf<List<String>, String>() }
     var menuFor by remember { mutableStateOf<FolderRow?>(null) }
+    var moveFor by remember { mutableStateOf<FolderRow?>(null) }
     ReportOverlayVisible()
     StatusBarIconStyle(darkIcons = !palette.isDark)
 
@@ -127,6 +128,30 @@ internal fun FileBrowserScreen(controller: FileSourcesController) {
                 row.itemId?.let(controller::markWatched)
             },
             onDismiss = { menuFor = null },
+            onMove =
+                if (controller.canMove(browser.source)) {
+                    (
+                        {
+                            moveFor = row
+                            menuFor = null
+                        }
+                    )
+                } else {
+                    null
+                },
+        )
+    }
+    moveFor?.let { row ->
+        FileSourceMoveDialog(
+            row.entry.name,
+            browser.path,
+            ftp =
+                browser.source.kind == com.yfuse.core.filesource.FileSourceKind.Ftp,
+            onDismiss = { moveFor = null },
+            onMove = { target ->
+                moveFor = null
+                controller.move(row.entry, target)
+            },
         )
     }
 
@@ -191,6 +216,7 @@ private fun FolderPage(
             motionItem(key = "breadcrumbs") { FolderBreadcrumbs(source.name, path, onNavigateDepth) }
         }
         if (listing is FolderListing.Loaded && listing.rows.isNotEmpty()) {
+            if (listing.truncated) motionItem(key = "truncated") { PageHint("目录超过读取预算，仅显示前 10000 项。可进入子文件夹或缩小来源根路径。") }
             motionItem(key = "browse-tools") {
                 FolderBrowseTools(
                     query,
@@ -244,7 +270,7 @@ private fun FolderPage(
                             progress = row.itemId?.let(progress::get),
                             preparing = preparing == row.entry.name,
                             onClick = { onRow(row) },
-                            onLongClick = if (row.entry.directory) null else ({ onRowMenu(row) }),
+                            onLongClick = { onRowMenu(row) },
                         )
                     }
                 }
@@ -411,6 +437,7 @@ private fun VideoActionsDialog(
     onClearProgress: () -> Unit,
     onMarkWatched: () -> Unit,
     onDismiss: () -> Unit,
+    onMove: (() -> Unit)? = null,
 ) {
     val resume = progress?.resumePositionMs?.takeIf { it > 0L }
     GlassDialog(onDismiss = onDismiss) {
@@ -419,36 +446,39 @@ private fun VideoActionsDialog(
             subtitle = videoFacts(row, progress, watched = false),
             onClose = onDismiss,
         )
-        OverlayActionRow(
-            label = if (resume != null) "从 ${formatTime(resume)} 继续播放" else "播放",
-            description = "同一文件夹里的其他视频接着播",
-            onClick = overlayAction { onPlay(false) },
-        )
-        if (resume != null) {
-            Spacer(Modifier.height(8.dp))
+        if (!row.entry.directory) {
             OverlayActionRow(
-                label = "从头播放",
-                description = "保留现在的进度，直到这次看得更远",
-                onClick = overlayAction { onPlay(true) },
+                label = if (resume != null) "从 ${formatTime(resume)} 继续播放" else "播放",
+                description = "同一文件夹里的其他视频接着播",
+                onClick = overlayAction { onPlay(false) },
             )
+            if (resume != null) {
+                Spacer(Modifier.height(8.dp))
+                OverlayActionRow(
+                    label = "从头播放",
+                    description = "保留现在的进度，直到这次看得更远",
+                    onClick = overlayAction { onPlay(true) },
+                )
+            }
+            // Half-watched offers both: finished elsewhere, or not worth going back to.
+            if (progress?.watched != true) {
+                Spacer(Modifier.height(8.dp))
+                OverlayActionRow(
+                    label = "标为已看完",
+                    description = "只记在这台设备上",
+                    onClick = overlayAction(onMarkWatched),
+                )
+            }
+            if (progress != null) {
+                Spacer(Modifier.height(8.dp))
+                OverlayActionRow(
+                    label = "标为未看",
+                    description = "清除本机记录的进度和已看完标记",
+                    onClick = overlayAction(onClearProgress),
+                )
+            }
         }
-        // Half-watched offers both: finished elsewhere, or not worth going back to.
-        if (progress?.watched != true) {
-            Spacer(Modifier.height(8.dp))
-            OverlayActionRow(
-                label = "标为已看完",
-                description = "只记在这台设备上",
-                onClick = overlayAction(onMarkWatched),
-            )
-        }
-        if (progress != null) {
-            Spacer(Modifier.height(8.dp))
-            OverlayActionRow(
-                label = "标为未看",
-                description = "清除本机记录的进度和已看完标记",
-                onClick = overlayAction(onClearProgress),
-            )
-        }
+        onMove?.let { move -> OverlayActionRow(label = "重命名或移动", description = "更改远端文件或文件夹的位置", onClick = move) }
     }
 }
 

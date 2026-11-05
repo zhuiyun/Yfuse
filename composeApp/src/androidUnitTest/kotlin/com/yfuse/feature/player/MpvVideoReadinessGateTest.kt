@@ -6,6 +6,34 @@ import kotlin.test.assertTrue
 
 class MpvVideoReadinessGateTest {
     @Test
+    fun seeking_and_same_item_reload_reject_old_buffer_samples_until_the_new_native_boundary() {
+        val gate = MpvVideoReadinessGate()
+        gate.onLoadRequested()
+        gate.onStartFile()
+        gate.onFileLoaded()
+        gate.onPlaybackRestart()
+        assertTrue(gate.canReportBufferRanges())
+        val previous = gate.bufferGeneration()
+        gate.onSeekRequested()
+        assertFalse(gate.canReportBufferRanges())
+        assertTrue(gate.bufferGeneration() > previous)
+        gate.onPlaybackRestart()
+        assertTrue(gate.canReportBufferRanges())
+        val afterSeek = gate.bufferGeneration()
+        gate.onLoadRequested()
+        gate.onPlaybackRestart() // Queued predecessor restart before START_FILE is not the new item.
+        assertFalse(gate.canReportBufferRanges())
+        assertTrue(gate.bufferGeneration() > afterSeek)
+        gate.onStartFile()
+        assertFalse(gate.canReportBufferRanges())
+        gate.onFileLoaded()
+        gate.onSeekRequested() // Pending resume issued from FILE_LOADED.
+        assertFalse(gate.canReportBufferRanges())
+        gate.onPlaybackRestart()
+        assertTrue(gate.canReportBufferRanges())
+    }
+
+    @Test
     fun configured_placeholder_cannot_confirm_a_media_frame_while_http_headers_are_pending() {
         val gate = MpvVideoReadinessGate()
         assertFalse(gate.canReportRendering(outputConfigured = true, surfaceValid = true))

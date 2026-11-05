@@ -430,6 +430,7 @@ internal class AndroidMediaExtractorReadAheadNode(
                 queuedSamples = samples.size,
                 queuedBytes = queuedBytes,
                 bufferedDurationUs = bufferedDurationUsLocked(),
+                bufferedFromUs = bufferingTracks.maxOfOrNull { queuedTimestamps[it]?.firstKey() ?: 0L } ?: 0L,
                 bufferedThroughUs =
                     bufferingTracks
                         .takeIf {
@@ -740,6 +741,8 @@ internal sealed interface YQueuedExtractorResult {
 
 internal data class YExtractorReadAheadSnapshot(
     val bufferedThroughUs: Long = 0L,
+    /** Latest first queued timestamp across the required tracks; not the playback clock. */
+    val bufferedFromUs: Long = 0L,
     val queuedSamples: Int,
     val queuedBytes: Long,
     val bufferedDurationUs: Long,

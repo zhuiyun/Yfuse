@@ -48,6 +48,12 @@ internal fun PlayerEngine.playbackOptionCopy(): PlaybackOptionCopy =
                 summary = "格式优先",
                 description = "使用 libmpv，覆盖更多封装、编码与字幕格式",
             )
+        PlayerEngine.SenPlayer ->
+            PlaybackOptionCopy(
+                label = "SenPlayer（实验，需联网许可）",
+                summary = "SenPlayer 实验内核",
+                description = "仅 Android 9+ ARM64。选用播放时向 www.senmuse.com/api/license 校验，发送当前应用版本、原内核构建及临时公钥；许可失败会明确停止。",
+            )
         PlayerEngine.Mdk ->
             PlaybackOptionCopy(
                 label = "原生内核（MDK）",
@@ -74,6 +80,7 @@ internal fun PlaybackEngineSelection.playbackOptionCopy(): PlaybackOptionCopy =
                 label = "格式兼容模式",
                 description = "固定使用 MPV；DRM 或系统 Dolby 安全路径会临时使用 Media3",
             )
+        PlaybackEngineSelection.LockSenPlayer -> PlayerEngine.SenPlayer.playbackOptionCopy()
         PlaybackEngineSelection.LockMdk ->
             PlayerEngine.Mdk.playbackOptionCopy().copy(
                 label = "实验原生模式",
@@ -362,6 +369,7 @@ internal fun PlaybackSettingsScreen(
                             true,
                             icon = AppIcons.Lock,
                             iconTint = SettingTint.general,
+                            description = "默认关闭；开启后分享匿名播放质量指标，关闭时清除待发送记录",
                             onChange = onAnonymousQoeSharing,
                         )
                     }
@@ -507,6 +515,9 @@ internal fun AdvancedPlaybackSettingsScreen(
                     }
                 }
             }
+        }
+        motionItem(key = "subtitle-translation") {
+            Section(title = "字幕工具") { SettingsCard { SubtitleTranslationSettingsCard() } }
         }
     }
 }

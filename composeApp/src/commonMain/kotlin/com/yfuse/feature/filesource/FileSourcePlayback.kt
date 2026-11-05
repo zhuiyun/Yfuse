@@ -3,6 +3,7 @@ package com.yfuse.feature.filesource
 import com.yfuse.core.filesource.FileSource
 import com.yfuse.core.filesource.FileSourceClient
 import com.yfuse.core.filesource.FileSourceCredentials
+import com.yfuse.core.filesource.FileSourcePlaybackTarget
 import com.yfuse.core.filesource.FileSourceProgress
 import com.yfuse.core.filesource.FileSourceProgressRecorder
 import com.yfuse.core.filesource.FileSourceQueuePlan
@@ -11,6 +12,7 @@ import com.yfuse.core.filesource.fileBaseName
 import com.yfuse.core.filesource.isFileSourceItemId
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.PlaybackMethod
+import com.yfuse.core.playback.PlayerCustomHeaders
 import com.yfuse.feature.player.PlaybackState
 import com.yfuse.feature.player.PlayerExternalSubtitle
 import com.yfuse.feature.player.PlayerMediaItem
@@ -59,12 +61,24 @@ internal suspend fun prepareFileSourceLaunch(
     progress: Map<String, FileSourceProgress>,
     subtitleBudgetMs: Long = SUBTITLE_BUDGET_MS,
 ): FileSourceLaunch {
-    val sidecars = fetchSidecars(source, credentials, plan, client, subtitleBudgetMs)
-    val items = fileSourcePlaybackItems(source, credentials, plan, sidecars, progress)
-    val start = items[plan.startIndex]
+    val resolved =
+        plan to
+            plan.entries.map {
+                if (source.isCloud) {
+                    FileSourcePlaybackTarget(
+                        source.cloudPlaybackUrl(it.path),
+                    )
+                } else {
+                    client.resolvePlayback(source, credentials, it.path)
+                }
+            }
+    val preparedPlan = resolved.first
+    val sidecars = fetchSidecars(source, credentials, preparedPlan, client, subtitleBudgetMs)
+    val items = fileSourcePlaybackItems(source, credentials, preparedPlan, sidecars, progress, resolved.second)
+    val start = items[preparedPlan.startIndex]
     return FileSourceLaunch(
         items = items,
-        startIndex = plan.startIndex,
+        startIndex = preparedPlan.startIndex,
         startPositionMs = progress[start.id]?.resumePositionMs ?: 0L,
     )
 }
@@ -79,10 +93,20 @@ internal fun fileSourcePlaybackItems(
     plan: FileSourceQueuePlan,
     sidecars: Map<Pair<Int, String>, String>,
     progress: Map<String, FileSourceProgress>,
+    targets: List<FileSourcePlaybackTarget>? = null,
 ): List<PlayerMediaItem> {
-    val transportCredentials = credentials.transportCredentials(source.kind)
+    val transportCredentials = if (source.isCloud) null else credentials.transportCredentials(source.kind)
     return plan.entries.mapIndexed { index, queued ->
-        val url = source.url(queued.path, directory = false)
+        val target = targets?.get(index)
+        val url =
+            target?.url
+                ?: if (source.isCloud) {
+                    source.cloudPlaybackUrl(
+                        queued.path,
+                    )
+                } else {
+                    source.url(queued.path, directory = false)
+                }
         val subtitles =
             queued.subtitles.mapNotNull { paired ->
                 val uri = sidecars[index to paired.entry.name] ?: return@mapNotNull null
@@ -128,7 +152,8 @@ internal fun fileSourcePlaybackItems(
             progress = resume?.fraction,
             externalSubtitles = subtitles,
             durationMsHint = resume?.durationMs ?: 0L,
-            transportCredentials = transportCredentials,
+            transportCredentials = if (target == null) transportCredentials else target.credentials,
+            customHeaders = target?.headers?.takeIf { it.isNotEmpty() }?.let(::PlayerCustomHeaders),
             playMethod = PlaybackMethod.DirectPlay,
             serverTranscodeSupported = false,
         )

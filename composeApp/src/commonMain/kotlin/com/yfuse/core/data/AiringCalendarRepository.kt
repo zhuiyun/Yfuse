@@ -52,6 +52,7 @@ class AiringCalendarRepository(
     /** Broadcast instants can be tested independently of cache-expiration timing. */
     private val broadcastEpochMillis: () -> Long = ::currentEpochMillis,
     val metadataSources: CalendarMetadataRepository? = null,
+    private val domesticSchedules: DomesticAiringScheduleLookup? = null,
 ) {
     private data class IdentityCatalogSnapshot(
         val fetchedAtEpochMs: Long,
@@ -341,6 +342,7 @@ class AiringCalendarRepository(
         today: String = currentIsoDate(),
         forceRefresh: Boolean = false,
         onPreview: (List<CalendarDay>) -> Unit = {},
+        includeDomesticDiscovery: Boolean = true,
     ): Result<List<CalendarDay>> {
         // Give another screen a verified schedule even while the shared inventory refresh owns the lock.
         val immediate = officialSchedules.between(shiftIsoDate(today, -pastDays), shiftIsoDate(today, futureDays))
@@ -352,7 +354,9 @@ class AiringCalendarRepository(
             val followFingerprint =
                 followStore.followed.value
                     .joinToString(",") { "${it.tmdbId}:${it.serverId}:${it.seriesItemId}" }
-            val key = "server-feed:$today:$pastDays:$futureDays:$serverFingerprint:$followFingerprint"
+            val key =
+                "server-feed:$today:$pastDays:$futureDays:$serverFingerprint:$followFingerprint" +
+                    if (includeDomesticDiscovery) "" else ":background"
             val now = currentEpochMillis()
             val startedAt = now
             calendarLoadCount += 1
@@ -376,6 +380,7 @@ class AiringCalendarRepository(
                     forceRefresh = forceRefresh,
                     onPreview = onPreview,
                     cacheScope = key,
+                    includeDomesticDiscovery = includeDomesticDiscovery,
                 ).onSuccess { days ->
                     calendarRuntimeSnapshot = CalendarRuntimeSnapshot(key, currentEpochMillis(), days)
                 }
@@ -400,6 +405,7 @@ class AiringCalendarRepository(
         forceRefresh: Boolean,
         onPreview: (List<CalendarDay>) -> Unit,
         cacheScope: String,
+        includeDomesticDiscovery: Boolean,
     ): Result<List<CalendarDay>> {
         val from = shiftIsoDate(today, -pastDays)
         val to = shiftIsoDate(today, futureDays)
@@ -420,19 +426,28 @@ class AiringCalendarRepository(
         val cached = officialSchedules.between(from, to)
         if (localDays.isEmpty() && cached.isNotEmpty()) onPreview(unresolvedCalendarDays(cached, today))
 
-        suspend fun resolve(rows: List<AiringEpisode>) =
-            calendarDays(
-                episodes = rows,
-                today = today,
-                forceRefresh = forceRefresh,
-                persistFrom = from,
-                persistTo = to,
-                persistScope = cacheScope,
-                onPreview = onPreview,
-            )
+        suspend fun resolve(
+            rows: List<AiringEpisode>,
+            persist: Boolean = true,
+        ) = calendarDays(
+            episodes = rows,
+            today = today,
+            forceRefresh = forceRefresh,
+            persistFrom = from.takeIf { persist },
+            persistTo = to,
+            persistScope = cacheScope,
+            onPreview = onPreview,
+        )
         // A slow publication refresh must not postpone availability for an already verified schedule.
         return coroutineScope {
-            val availability = async { if (cached.isEmpty()) null else resolve(cached) }
+            val availability = async { if (cached.isEmpty()) null else resolve(cached, persist = false) }
+            val domestic =
+                async {
+                    calendarAttempt {
+                        if (includeDomesticDiscovery) domesticSchedules?.calendar(from, to, forceRefresh) else null
+                    }.getOrNull()
+                        ?: DomesticAiringScheduleResult(emptyList(), complete = domesticSchedules == null)
+                }
             val tracking =
                 async {
                     if (supplementalSchedules != null) {
@@ -443,16 +458,26 @@ class AiringCalendarRepository(
                 }
             val refresh = officialSchedules.refreshIfDue(force = forceRefresh)
             tracking.await()
-            val episodes =
+            val published =
                 supplementTrackedSchedules(
                     officialSchedules.between(from, to),
                     followStore.followed.value,
                     forceRefresh,
                     today,
+                )
+            val episodes =
+                mergeForegroundDomesticSchedules(
+                    discovery = domestic.await(),
+                    published = published,
+                    local = localDays.flatMap { it.entries }.map { it.episode },
+                    officialSeries = officialSchedules::series,
                 ).filter { it.airDate in from..to }
             val initial = availability.await()
             when {
-                episodes == cached && initial != null -> initial
+                episodes == cached && initial != null ->
+                    initial.onSuccess { days ->
+                        localStore.persistCalendarDays(from, to, cacheScope, days)
+                    }
                 episodes.isEmpty() && localDays.isNotEmpty() && refresh.isFailure -> Result.success(localDays)
                 episodes.isEmpty() && refresh.isFailure -> Result.failure(refresh.exceptionOrNull()!!)
                 else -> resolve(episodes)
@@ -489,7 +514,9 @@ class AiringCalendarRepository(
         today: String = currentIsoDate(),
         forceRefresh: Boolean = false,
         onPreview: (List<CalendarDay>) -> Unit = {},
-    ): Result<List<CalendarDay>> = calendar(pastDays, futureDays, today, forceRefresh, onPreview)
+        includeDomesticDiscovery: Boolean = true,
+    ): Result<List<CalendarDay>> =
+        calendar(pastDays, futureDays, today, forceRefresh, onPreview, includeDomesticDiscovery)
 
     /** A movie refresh uses its own publication row, never the TV endpoint with the same id. */
     suspend fun movieCalendar(
@@ -894,24 +921,7 @@ class AiringCalendarRepository(
             persistTo != null &&
             persistScope != null
         ) {
-            calendarAttempt {
-                localStore.replaceCalendarWindow(
-                    fromDate = persistFrom,
-                    toDate = persistTo,
-                    scope = persistScope,
-                    days = days,
-                    scheduleSyncedAtEpochMs = checkedAt,
-                    resourcesCheckedAtEpochMs = checkedAt,
-                    seriesScope = seriesScope,
-                )
-            }.onFailure { error ->
-                AppLog.warning(
-                    category = "feature.calendar",
-                    event = "local_calendar_write_failed",
-                    message = "Resolved calendar could not be persisted",
-                    throwable = error,
-                )
-            }
+            localStore.persistCalendarDays(persistFrom, persistTo, persistScope, days, checkedAt, seriesScope)
         }
         return Result.success(days)
     }
@@ -1721,29 +1731,6 @@ internal fun airingHasStarted(
     return if (scheduled != null) nowEpochMs >= scheduled else episode.airDate <= today
 }
 
-/** True when the day is the one the user is standing on, which the list marks 今天. */
-fun CalendarDay.isToday(today: String = currentIsoDate()): Boolean = date == today
-
-/** True for a day already past, whose entries are about catching up rather than waiting. */
-fun CalendarDay.isPast(today: String = currentIsoDate()): Boolean = date < today
-
-/** How many of a day's broadcasts aired without landing in the library. */
-val CalendarDay.missingCount: Int
-    get() = entries.count { it.status == LibraryStatus.Missing && (it.inLibrary || it.followed) }
-
-internal fun localCalendarSnapshotIsFresh(
-    snapshot: CalendarLocalSnapshot,
-    nowEpochMs: Long = currentEpochMillis(),
-): Boolean {
-    val state = snapshot.syncState ?: return false
-    val scheduleAge = nowEpochMs - state.scheduleSyncedAtEpochMs
-    val resourceAge = nowEpochMs - state.resourcesSyncedAtEpochMs
-    return scheduleAge in 0 until LOCAL_SCHEDULE_TTL_MS &&
-        resourceAge in 0 until LOCAL_RESOURCE_STATUS_TTL_MS
-}
-
-private const val LOCAL_SCHEDULE_TTL_MS = 6 * 60 * 60_000L
-private const val LOCAL_RESOURCE_STATUS_TTL_MS = 60_000L
 private const val ACTIVE_LIBRARY_SERIES_LIMIT_PER_SERVER = 40
 private const val LIBRARY_EPISODE_REQUEST_CONCURRENCY = 3
 private const val LIBRARY_SERVER_REQUEST_CONCURRENCY = 3

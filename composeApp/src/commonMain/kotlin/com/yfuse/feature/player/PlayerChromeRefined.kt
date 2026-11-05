@@ -42,7 +42,6 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -230,7 +229,7 @@ internal fun RefinedTopBar(
                 // and goes away again whenever a source stops reporting. Growing the line rather
                 // than inserting it keeps the title from hopping up and down the bar. The last
                 // non-empty text is kept so the line still has something to say on its way out.
-                val shownSubtitle = rememberLastNonNull(subtitle.takeIf(String::isNotEmpty)).orEmpty()
+                val shownSubtitle = rememberLastPlayerChromeLine(subtitle.takeIf(String::isNotEmpty)).orEmpty()
                 AnimatedVisibility(
                     visible = subtitle.isNotEmpty(),
                     enter = barLineEnter(reduceMotion),
@@ -689,6 +688,7 @@ private fun RefinedBottomBarContent(
                 StandardSeekBar(
                     fraction = shownFraction,
                     bufferedFraction = bufferedFraction,
+                    bufferedRanges = { timeline.value.bufferSnapshot.ranges },
                     positionMs = shownPositionMs,
                     durationMs = durationMs,
                     progressMarkers = progressMarkers,
@@ -986,25 +986,6 @@ internal fun CompactAutoSkipPill(
     }
 }
 
-private class RetainedLine<T>(
-    var value: T?,
-)
-
-/**
- * The last value that was actually there, so a line can finish its exit still saying something.
- *
- * The cache is written from a [SideEffect] rather than during composition: composition can be
- * abandoned and replayed, and filling a cache from it is a side effect either way. A plain holder
- * rather than a state, for the same reason [ChromeContent] uses one — remembering the outgoing
- * value must not cost the bar a second pass.
- */
-@Composable
-private fun <T : Any> rememberLastNonNull(value: T?): T? {
-    val retained = remember { RetainedLine(value) }
-    SideEffect { if (value != null) retained.value = value }
-    return value ?: retained.value
-}
-
 /**
  * How a control that comes and goes inside one of the bars arrives and leaves.
  *
@@ -1177,6 +1158,7 @@ internal fun StandardSeekBar(
     scrub: SeekScrubUi? = null,
     /** 弹幕热度, read while drawing; null draws no curve. */
     heat: () -> DanmakuHeat? = { null },
+    bufferedRanges: () -> List<com.yfuse.core2.api.YBufferedRange> = { emptyList() },
 ) {
     val haptics = LocalHaptics.current
     val tips = LocalTips.current
@@ -1242,6 +1224,7 @@ internal fun StandardSeekBar(
     val latestOnCancel by rememberUpdatedState(onCancel)
     val latestPositionMs by rememberUpdatedState(positionMs)
     val latestBufferedFraction by rememberUpdatedState(bufferedFraction)
+    val latestBufferedRanges by rememberUpdatedState(bufferedRanges)
     // Disabled mid-drag — the seek locked, the duration lost — the gesture goes with the modifier
     // that ran it and reports neither end. Say it here, or the bar stays "scrubbing" and the
     // chrome never hides again until the next tap.
@@ -1342,10 +1325,8 @@ internal fun StandardSeekBar(
                 stateDescription =
                     buildString {
                         append("播放进度 ${formatTime(latestPositionMs())} / ${formatTime(durationMs)}")
-                        if (durationMs > 0L && latestBufferedFraction.value > 0f) {
-                            val bufferedPosition = scrubPositionMs(latestBufferedFraction.value, durationMs)
-                            append(" · 已缓冲至 ${formatTime(bufferedPosition)}")
-                        }
+                        val ranges = latestBufferedRanges()
+                        if (durationMs > 0L && ranges.isNotEmpty()) append(" · 已确认 ${ranges.size} 段缓冲")
                     }
                 progressBarRangeInfo = ProgressBarRangeInfo(shownFraction.value, 0f..1f)
                 if (enabled) setProgress { commit(it) } else disabled()
@@ -1465,7 +1446,7 @@ internal fun StandardSeekBar(
                     val playedWidth = size.width * played
                     // Read the engine's latest sample while drawing. Paused playback still buffers;
                     // a seek or engine change can also clear it without waiting for an animation.
-                    val bufferedWidth = size.width * latestBufferedFraction.value.coerceIn(0f, 1f)
+                    val ranges = latestBufferedRanges()
                     val bufferColor = Color.White.copy(alpha = 0.60f)
                     // One brush across every part, so the played gradient runs on through the cuts.
                     val playedBrush =
@@ -1480,13 +1461,24 @@ internal fun StandardSeekBar(
                             topLeft = Offset(left, 0f),
                             size = Size(right - left, size.height),
                         )
-                        val bufferedRight = min(right, bufferedWidth)
-                        if (bufferedRight > left) {
-                            drawRect(
-                                bufferColor,
-                                topLeft = Offset(left, 0f),
-                                size = Size(bufferedRight - left, size.height),
-                            )
+                        for (range in ranges) {
+                            val bufferedLeft =
+                                maxOf(
+                                    left,
+                                    size.width * playbackProgressFraction(range.startMs, durationMs),
+                                )
+                            val bufferedRight =
+                                min(
+                                    right,
+                                    size.width * playbackProgressFraction(range.endMs, durationMs),
+                                )
+                            if (bufferedRight > bufferedLeft) {
+                                drawRect(
+                                    bufferColor,
+                                    topLeft = Offset(bufferedLeft, 0f),
+                                    size = Size(bufferedRight - bufferedLeft, size.height),
+                                )
+                            }
                         }
                         val playedRight = min(right, playedWidth)
                         if (playedRight > left) {

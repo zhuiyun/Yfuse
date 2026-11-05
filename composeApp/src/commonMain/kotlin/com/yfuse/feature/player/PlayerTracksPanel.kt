@@ -356,6 +356,11 @@ internal fun TracksPanel(
                 onClick = remoteSubtitleActions.onImport,
                 detailLabel = "SRT / ASS / SSA / VTT · 保存到本机并关联当前版本",
             )
+            if (remoteSubtitles.translationAvailable) {
+                OptionRow("翻译字幕文件", false, onClick = remoteSubtitleActions.onTranslate,
+                    detailLabel = "使用高级播放设置中的 OpenAI 兼容接口")
+                OptionRow("取消字幕翻译", false, onClick = remoteSubtitleActions.onCancelTranslation)
+            }
             if (remoteSubtitles.importedCount > 0) {
                 OptionRow(
                     "清除本片已导入字幕（${remoteSubtitles.importedCount} 条）",

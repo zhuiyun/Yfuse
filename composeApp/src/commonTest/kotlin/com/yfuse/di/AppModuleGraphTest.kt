@@ -291,6 +291,7 @@ class AppModuleGraphTest {
                 "Singleton com.yfuse.core.filesource.FileSourceClient",
                 "Singleton com.yfuse.core.filesource.FileSourceLibraryStore",
                 "Singleton com.yfuse.core.filesource.FileSourceScanner",
+                "Singleton com.yfuse.core.iptv.IptvRepository",
                 "Singleton com.yfuse.core.data.ThemePreferences",
                 "Singleton com.yfuse.core.data.TipsPreferences",
                 "Singleton com.yfuse.feature.library.LibraryGridColumnsPreferences",

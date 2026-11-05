@@ -65,8 +65,21 @@ internal fun rememberPlayerSubtitleLibrary(
             },
             onMessage = { panel = panel.copy(message = it) },
         )
+    val translator =
+        rememberSubtitleTranslationPicker(
+            target = key,
+            enabled = item != null && !casting,
+            store = store,
+            onImported = { owner, saved ->
+                importRevision++
+                if (owner == latestKey && imported(owner, saved)) panel = panel.copy(importedCount = saved.size)
+            },
+            onMessage = { panel = panel.copy(message = it) },
+        )
     val actions =
         RemoteSubtitleActions(
+            onTranslate = translator.open,
+            onCancelTranslation = translator.cancel,
             onLanguage = { language ->
                 if (language != panel.language) {
                     operation?.cancel()
@@ -134,6 +147,7 @@ internal fun rememberPlayerSubtitleLibrary(
             onClearImports = {
                 if (key != null && !casting) {
                     picker.cancel()
+                    translator.cancel()
                     val revision = ++importRevision
                     operation?.cancel()
                     panel = panel.copy(loading = false, downloadingId = null)
@@ -154,6 +168,7 @@ internal fun rememberPlayerSubtitleLibrary(
             },
         )
     return panel.copy(
+        translationAvailable = item != null && !casting,
         searchUnavailableReason = unavailable,
         importUnavailableReason = "请先返回本机播放，再导入本地字幕。".takeIf { casting },
     ) to actions

@@ -196,6 +196,11 @@ private const val DEBOUNCE_MS = 300L
 private const val RECENT_LIMIT = 8
 
 sealed interface SearchIntent {
+    /** File-index-only scope must not send its query to media servers. */
+    data class SetRemoteSearchEnabled(
+        val enabled: Boolean,
+    ) : SearchIntent
+
     data class ApplyPlaylist(
         val rule: com.yfuse.core.data.SmartPlaylist,
     ) : SearchIntent
@@ -434,6 +439,7 @@ class SearchStoreFactory(
         private val loadMoreJobs = mutableMapOf<String, Job>()
         private val retryJobs = mutableMapOf<String, Job>()
         private var searchGeneration = 0L
+        private var remoteSearchEnabled = true
 
         /** The server whose 媒体库 the state offers, loaded or on the way. */
         private var librariesFor: String? = null
@@ -462,6 +468,14 @@ class SearchStoreFactory(
 
         override fun executeIntent(intent: SearchIntent) {
             when (intent) {
+                is SearchIntent.SetRemoteSearchEnabled -> {
+                    if (remoteSearchEnabled == intent.enabled) return
+                    remoteSearchEnabled = intent.enabled
+                    debounceJob?.cancel()
+                    cancelInFlight()
+                    followFacets()
+                    search(state().query)
+                }
                 is SearchIntent.ApplyPlaylist -> {
                     debounceJob?.cancel()
                     cancelInFlight()
@@ -534,6 +548,7 @@ class SearchStoreFactory(
         }
 
         private fun retryFailedServers(serverId: String?) {
+            if (!remoteSearchEnabled) return
             val snapshot = state()
             if (snapshot.loading || snapshot.person != null || snapshot.query.trim() != snapshot.searchedQuery) return
             snapshot.unavailableGroups.filter { serverId == null || it.serverId == serverId }.forEach { group ->
@@ -673,7 +688,7 @@ class SearchStoreFactory(
          * rather than leaving the panel without it for the rest of the session.
          */
         private fun followFacets() {
-            val serverId = state().facetServerId
+            val serverId = state().facetServerId.takeIf { remoteSearchEnabled }
             val libraryId = state().libraryId
             val server = serverId?.let(registry::serverById)
             if (serverId != librariesFor) {
@@ -767,6 +782,12 @@ class SearchStoreFactory(
             }
             debounceJob?.cancel()
             cancelInFlight()
+            if (!remoteSearchEnabled) {
+                dispatch(SearchMsg.Loading(query))
+                dispatch(SearchMsg.Loaded(query, emptyList()))
+                history?.remember(query)?.let { dispatch(SearchMsg.Recent(it)) }
+                return
+            }
             syncServers()
             val allServers = registry.data.value.servers
             val servers = state().serverId?.let { selected -> allServers.filter { it.id == selected } } ?: allServers

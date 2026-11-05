@@ -1,5 +1,8 @@
 package com.yfuse.core2.android
 
+import com.yfuse.core2.api.YBufferRangeCoverage
+import com.yfuse.core2.api.YBufferSnapshot
+import com.yfuse.core2.api.YBufferedRange
 import com.yfuse.core2.api.YOutputEvidenceResetReason
 import com.yfuse.core2.api.YPlaybackPhase
 import com.yfuse.core2.api.YPlayerDiagnostics
@@ -12,11 +15,52 @@ import com.yfuse.core2.subtitle.YSubtitleTimeBase
 import com.yfuse.core2.subtitle.YSubtitleTimeline
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class AndroidAdaptivePresentationStateTest {
+    @Test
+    fun `period mapping offsets sparse buffer ranges and clips the final period`() {
+        val target = YAdaptivePlaybackTarget("root", "period-two", 0, 60_000, 69_000, 2, 69_000, 3)
+        val local =
+            YPlayerState(
+                positionMs = 2_000,
+                bufferedPositionMs = 11_000,
+                durationMs = 12_000,
+                bufferSnapshot =
+                    YBufferSnapshot(
+                        sessionId = "child",
+                        generation = 9,
+                        coverage = YBufferRangeCoverage.SeekableRanges,
+                        ranges = listOf(YBufferedRange(1_000, 4_000), YBufferedRange(7_000, 11_000)),
+                    ),
+            )
+        val mapped = mapAdaptivePresentationState(local, target)
+        assertEquals(62_000L, mapped.positionMs)
+        assertEquals(69_000L, mapped.bufferedPositionMs)
+        assertEquals(
+            listOf(YBufferedRange(61_000, 64_000), YBufferedRange(67_000, 69_000)),
+            mapped.bufferSnapshot.ranges,
+        )
+        assertEquals("child", mapped.bufferSnapshot.sessionId)
+        assertEquals(9L, mapped.bufferSnapshot.generation)
+        assertFailsWith<IllegalArgumentException> {
+            target.copy(presentationOffsetMs = Long.MAX_VALUE - 1_000, presentationDurationMs = 0)
+        }
+        val enormous =
+            target.copy(
+                presentationOffsetMs = Long.MAX_VALUE - 1_000,
+                presentationDurationMs = 0,
+                periodEndGlobalMs = null,
+            )
+        val saturated = mapAdaptivePresentationState(local, enormous)
+        assertEquals(Long.MAX_VALUE, saturated.durationMs)
+        assertEquals(Long.MAX_VALUE, saturated.positionMs)
+        assertEquals(Long.MAX_VALUE, saturated.bufferedPositionMs)
+    }
+
     /**
      * The router as the generated-DASH test drives it: every seek across a Period rebuilds the
      * child. An enhanced child counts its own resets from zero: two opens when it starts a Period

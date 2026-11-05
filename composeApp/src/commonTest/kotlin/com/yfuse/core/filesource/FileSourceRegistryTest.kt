@@ -12,6 +12,18 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class FileSourceRegistryTest {
+    @Test
+    fun metadata_rename_with_same_credentials_keeps_revision_but_new_credentials_invalidate_it() = runTest {
+        val registry = registry()
+        val id = registry.newSourceId()
+        val initial = source(id)
+        registry.save(initial, "same-password")
+        registry.save(initial.copy(name = "New name"), "same-password")
+        assertEquals(0L, registry.source(id)?.revision)
+        registry.save(registry.source(id)!!, "different-password")
+        assertEquals(1L, registry.source(id)?.revision)
+    }
+
     private val settings = MapSettings()
     private val secureStore = TestSecureStore()
     private var ids = 0

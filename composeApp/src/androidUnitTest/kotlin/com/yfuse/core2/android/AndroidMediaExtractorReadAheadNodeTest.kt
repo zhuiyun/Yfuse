@@ -23,6 +23,23 @@ import kotlin.test.assertTrue
  */
 class AndroidMediaExtractorReadAheadNodeTest {
     @Test
+    fun `timestamp coverage intersects required tracks and moves past consumed packets`() {
+        val node = AndroidMediaExtractorReadAheadNode(FakeExtractorSource(10, 100_000L, true))
+        try {
+            node.open(SOURCE)
+            node.selectTracks(setOf(VIDEO_TRACK, AUDIO_TRACK))
+            node.awaitQueued(10)
+            assertEquals(100_000L, node.snapshot().bufferedFromUs)
+            assertEquals(800_000L, node.snapshot().bufferedThroughUs)
+            node.pollSample() // Remove video PTS 0; its first retained PTS is now 200 ms.
+            assertEquals(200_000L, node.snapshot().bufferedFromUs)
+            assertEquals(800_000L, node.snapshot().bufferedThroughUs)
+        } finally {
+            node.close()
+        }
+    }
+
+    @Test
     fun `cached seek retains keyframe and reordered frames without waiting for blocked tail`() {
         val blocked = CountDownLatch(1)
         val unblock = CountDownLatch(1)

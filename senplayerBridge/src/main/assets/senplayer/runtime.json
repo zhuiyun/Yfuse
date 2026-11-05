@@ -1,0 +1,36 @@
+{
+  "sourceApkSha256": "45a9deb5018cb705432604b564189cf067473e0f52706544706457655ec5fe4c",
+  "abi": "arm64-v8a",
+  "files": [
+    {
+      "asset": "classes.dex",
+      "apkEntry": "classes.dex",
+      "bytes": 8941816,
+      "sha256": "4acca79cc77a8f6ffd3dc13358dbba81d75aef09f083d0a215415a7789519445"
+    },
+    {
+      "asset": "license.json",
+      "apkEntry": "assets/license.json",
+      "bytes": 202,
+      "sha256": "c698c8e8989be9c9a06bee1d0489884899bf358159ea39049bda9e602e3d4d58"
+    },
+    {
+      "asset": "native/libFFmpegKit.so",
+      "apkEntry": "lib/arm64-v8a/libFFmpegKit.so",
+      "bytes": 54435336,
+      "sha256": "e6f26a53f8cf793cc1733ae4fbfed30a71794a2ca932c585048021e865aad1a3"
+    },
+    {
+      "asset": "native/libMLibKit.so",
+      "apkEntry": "lib/arm64-v8a/libMLibKit.so",
+      "bytes": 15671472,
+      "sha256": "cf963053a74a64d7325ef64ed5a466f516787fdd8fe1df6f94b48da1ed5f5f4d"
+    },
+    {
+      "asset": "native/libc++_shared.so",
+      "apkEntry": "lib/arm64-v8a/libc++_shared.so",
+      "bytes": 1292904,
+      "sha256": "f4e1e97c1943e60311e47e8b024d78f5b3b7229b3ccc65feb33af83d6025a670"
+    }
+  ]
+}

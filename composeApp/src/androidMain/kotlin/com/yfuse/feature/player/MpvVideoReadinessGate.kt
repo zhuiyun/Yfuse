@@ -5,12 +5,16 @@ internal class MpvVideoReadinessGate {
     private enum class Phase { AwaitingStart, Loading, Loaded, Started }
 
     private var phase = Phase.AwaitingStart
+    private var seekPending = false
+    private var bufferRevision = 0L
     private var requestedEntryId: Long? = null
     private var requestedPath: String? = null
 
     @Synchronized
     fun onLoadRequested() {
         phase = Phase.AwaitingStart
+        seekPending = false
+        bufferRevision++
         requestedEntryId = null
         requestedPath = null
     }
@@ -71,8 +75,23 @@ internal class MpvVideoReadinessGate {
             mpvMediaPathsMatch(requestedPath, next.playlistPath)
 
     @Synchronized
+    fun onSeekRequested() {
+        seekPending = true
+        bufferRevision++
+    }
+
+    @Synchronized
+    fun bufferGeneration(): Long = bufferRevision
+
+    @Synchronized
+    fun canReportBufferRanges(): Boolean = !seekPending && (phase == Phase.Loaded || phase == Phase.Started)
+
+    @Synchronized
     fun onPlaybackRestart() {
-        if (phase == Phase.Loaded) phase = Phase.Started
+        if (phase == Phase.Loaded || phase == Phase.Started) {
+            phase = Phase.Started
+            seekPending = false
+        }
     }
 
     @Synchronized

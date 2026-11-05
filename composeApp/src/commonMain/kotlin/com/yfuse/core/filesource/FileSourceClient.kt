@@ -7,6 +7,35 @@ package com.yfuse.core.filesource
  * from the address and in-memory credentials a playback item carries.
  */
 interface FileSourceClient {
+    /** Bounded producers stop decoding/enumerating once the requested window is full. */
+    suspend fun listBounded(
+        source: FileSource,
+        credentials: FileSourceCredentials,
+        path: List<String>,
+        maxEntries: Int,
+    ): FileSourceListing {
+        require(maxEntries in 1..MAX_FILE_SOURCE_LISTING_ENTRIES)
+        val entries = list(source, credentials, path)
+        return FileSourceListing(entries.take(maxEntries), entries.size > maxEntries)
+    }
+
+    fun capabilities(source: FileSource): Set<FileSourceCapability> = emptySet()
+
+    suspend fun move(
+        source: FileSource,
+        credentials: FileSourceCredentials,
+        from: List<String>,
+        to: List<String>,
+        directory: Boolean,
+    ): Unit = throw UnsupportedOperationException("此来源不支持移动或重命名")
+
+    suspend fun resolvePlayback(
+        source: FileSource,
+        credentials: FileSourceCredentials,
+        path: List<String>,
+    ): FileSourcePlaybackTarget =
+        FileSourcePlaybackTarget(source.url(path, false), credentials.transportCredentials(source.kind))
+
     /** The entries of the folder at [path] below [FileSource.rootSegments], unsorted. */
     suspend fun list(
         source: FileSource,
@@ -27,6 +56,25 @@ interface FileSourceClient {
         path: List<String>,
         entry: FileSourceEntry,
     ): String
+}
+
+const val MAX_FILE_SOURCE_LISTING_ENTRIES = 10_000
+
+data class FileSourceListing(
+    val entries: List<FileSourceEntry>,
+    val truncated: Boolean = false,
+)
+
+enum class FileSourceCapability { Rename, Move }
+
+data class FileSourcePlaybackTarget(
+    val url: String,
+    val credentials: com.yfuse.core2.network.YTransportCredentials? = null,
+    val headers: Map<String, String> = emptyMap(),
+    val objectIdentity: String? = null,
+    val expectedSizeBytes: Long? = null,
+) {
+    override fun toString(): String = "FileSourcePlaybackTarget([redacted])"
 }
 
 /** The platform's reader: OkHttp for WebDAV and jcifs-ng for SMB on Android. */
@@ -59,7 +107,14 @@ class FileSourceException(
 /** What the browser or the form says for [this] on a source of [kind]. */
 fun FileSourceFailure.userMessage(kind: FileSourceKind): String =
     when (this) {
-        FileSourceFailure.Unauthorized -> "用户名或密码错误"
+        FileSourceFailure.Unauthorized ->
+            if (kind == FileSourceKind.Pan123 ||
+                kind == FileSourceKind.Baidu
+            ) {
+                "令牌无效或授权已过期，请重新授权"
+            } else {
+                "用户名或密码错误"
+            }
         FileSourceFailure.Forbidden -> "没有访问这个文件夹的权限"
         FileSourceFailure.NotFound ->
             if (kind == FileSourceKind.Smb) "找不到这个共享或文件夹" else "找不到这个路径"

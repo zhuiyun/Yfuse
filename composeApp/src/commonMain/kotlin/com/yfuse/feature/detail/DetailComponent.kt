@@ -305,39 +305,65 @@ class DetailComponent(
             offline.items.value
                 .filter { it.playable }
                 .associateBy { it.serverId to it.itemId }
-        val alreadyDownloaded =
-            requests.count { request ->
-                val old = downloaded[request.serverId to request.itemId]
-                old != null &&
-                    sameOfflineDownloadVariant(
-                        itemId = request.itemId,
-                        oldSourceId = old.mediaSourceId,
-                        newSourceId = request.mediaSourceId,
-                        oldQuality = old.quality,
-                        newQuality = request.quality,
-                        oldSubtitleIndex = old.subtitleStreamIndex,
-                        newSubtitleIndex = request.subtitleStreamIndex,
-                    )
-            }
+        val alreadyDownloadedIds =
+            requests
+                .filter { request ->
+                    val old = downloaded[request.serverId to request.itemId]
+                    old != null &&
+                        sameOfflineDownloadVariant(
+                            itemId = request.itemId,
+                            oldSourceId = old.mediaSourceId,
+                            newSourceId = request.mediaSourceId,
+                            oldQuality = old.quality,
+                            newQuality = request.quality,
+                            oldSubtitleIndex = old.subtitleStreamIndex,
+                            newSubtitleIndex = request.subtitleStreamIndex,
+                        )
+                }.mapTo(mutableSetOf()) { it.itemId }
+        val alreadyDownloaded = alreadyDownloadedIds.size
         offline.enqueueAll(requests)
         // What the range named, against what survived: an episode with no file resembling the
         // chosen version is skipped rather than downloaded as some other cut.
-        val planned =
+        val plannedIds =
             selectOfflineBatchItems(
                 mode = selection.batchMode,
                 currentItemId = detail.id,
                 seasonItems = state.episodes.map { OfflineBatchItem(it.id, it.played) },
-            ).size
+            )
         val network = currentPlaybackNetworkClass()
         val queued = requests.size - alreadyDownloaded
         return OfflineEnqueueResult(
             queued = queued,
-            skipped = (planned - requests.size).coerceAtLeast(0),
+            skipped = (plannedIds.size - requests.size).coerceAtLeast(0),
             waitingForWifi =
                 queued > 0 &&
                     offline.wifiOnly.value &&
                     (network == PlaybackNetworkClass.Metered || network == PlaybackNetworkClass.Offline),
             alreadyDownloaded = alreadyDownloaded,
+            entries =
+                plannedIds.map { id ->
+                    val request = requests.firstOrNull { it.itemId == id }
+                    val episode = state.episodes.firstOrNull { it.id == id }
+                    OfflineEnqueueEntry(
+                        itemId = id,
+                        title =
+                            request?.title ?: episode?.let {
+                                listOfNotNull(
+                                    it.seasonNumber?.let { n ->
+                                        "S$n"
+                                    },
+                                    it.indexNumber?.let { n -> "E$n" },
+                                    it.name,
+                                ).joinToString(" ")
+                            } ?: detail.title,
+                        message =
+                            when {
+                                request == null -> "未加入：找不到与所选版本相符的文件，请到该集重新选择版本。"
+                                id in alreadyDownloadedIds -> "相同版本已下载，保留已有文件。"
+                                else -> "已提交下载；实际进度或失败原因可在下载页查看。"
+                            },
+                    )
+                },
         )
     }
 

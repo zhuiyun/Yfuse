@@ -39,6 +39,7 @@ class AndroidYCoreHttpProxyTest {
         assertNull(parseYCoreHttpByteRange("bytes=100-99"))
         assertNull(parseYCoreHttpByteRange("bytes=0-1,4-5"))
         assertNull(parseYCoreHttpByteRange("items=0-1"))
+        assertNull(parseYCoreHttpByteRange("bytes=0-9223372036854775808"))
     }
 
     @Test

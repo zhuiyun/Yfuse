@@ -10,6 +10,9 @@ enum class FileSourceKind(
 ) {
     WebDav("WebDAV"),
     Smb("SMB"),
+    Ftp("FTP"),
+    Pan123("123 云盘"),
+    Baidu("百度网盘"),
 
     /**
      * Alist or its fork OpenList, reached through the WebDAV endpoint both serve at `/dav`.
@@ -52,8 +55,12 @@ data class FileSource(
     val rootSegments: List<String> = emptyList(),
     /** Empty for guest access. `WORKGROUP\user` names an SMB domain. */
     val username: String = "",
+    /** Changes when the connection or credentials change; checkpoints belong to one revision. */
+    val revision: Long = 0,
 ) {
-    val usesWebDav: Boolean get() = kind != FileSourceKind.Smb
+    val usesWebDav: Boolean get() = kind == FileSourceKind.WebDav || kind == FileSourceKind.Alist
+
+    val isCloud: Boolean get() = kind == FileSourceKind.Pan123 || kind == FileSourceKind.Baidu
 
     /** `nas.local:5006` — what a card or a row says the source is, without scheme or path. */
     val hostLabel: String
@@ -63,7 +70,13 @@ data class FileSource(
     fun url(
         path: List<String>,
         directory: Boolean,
-    ): String = fileSourceUrl(origin, rootSegments + path, directory, encode = usesWebDav)
+    ): String = fileSourceUrl(origin, rootSegments + path, directory, encode = kind != FileSourceKind.Smb)
+
+    /** Stable, credential-free playback address. The transport obtains short-lived links on open. */
+    fun cloudPlaybackUrl(path: List<String>): String {
+        require(isCloud)
+        return fileSourceUrl("yfuse-cloud://$id", listOf(revision.toString()) + path, false, true)
+    }
 }
 
 /** What a connection needs beyond the [FileSource] itself. Never persisted in ordinary settings. */

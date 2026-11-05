@@ -81,9 +81,9 @@ internal fun createVideoEngine(
             decoderMode,
             capabilitySignature,
         )
-    // 文件来源 files are smb:// or WebDAV addresses whose login travels in memory beside them. Only
-    // YCore's transports read either, so such a queue takes YCore whichever engine is chosen.
-    val fileSourceQueue = items.any { it.isFileSourcePlayback }
+    // SMB/FTP, optical sources and in-memory transport credentials need YCore.
+    // A provider-resolved HTTP(S) URL with origin-bound headers uses the selected backend.
+    val fileSourceQueue = items.any { it.requiresYCoreFileTransport() }
     val yCoreAllowed =
         !remoteYCoreBlocked &&
             !yCoreDemuxBlocked &&
@@ -109,6 +109,7 @@ internal fun createVideoEngine(
                     NativePlaybackComponent.Mdk.takeUnless {
                         PlaybackRemotePolicyRegistry.isDisabled(PlaybackRemotePath.Mdk)
                     } ?: NativePlaybackComponent.Unknown
+                PlayerEngine.SenPlayer -> NativePlaybackComponent.SenPlayer
                 PlayerEngine.Exo -> NativePlaybackComponent.Unknown
             }
         }
@@ -188,6 +189,19 @@ internal fun createVideoEngine(
     }
 
     return when (kind) {
+        PlayerEngine.SenPlayer ->
+            SenPlayerVideoEngine(
+                context = context,
+                items = items,
+                startIndex = startIndex,
+                startPositionMs = startPositionMs,
+                startPlaybackRequested = startPlaybackRequested,
+                startSpeed = startSpeed,
+                decoderMode = resolvedDecoderMode,
+                autoNext = autoNext,
+                customUserAgent = customUserAgent,
+                videoCacheBytes = videoCacheBytes,
+            )
         PlayerEngine.Mdk ->
             if (
                 BuildConfig.YFUSE_MDK_INCLUDED &&
@@ -344,3 +358,11 @@ internal fun missingNativeBluRayCapability(
     }
     return null
 }
+
+internal fun PlayerMediaItem.requiresYCoreFileTransport(): Boolean =
+    isFileSourcePlayback &&
+        (
+            transportCredentials != null ||
+                activeVersion?.discSource == true ||
+                !(url.startsWith("http://", ignoreCase = true) || url.startsWith("https://", ignoreCase = true))
+        )

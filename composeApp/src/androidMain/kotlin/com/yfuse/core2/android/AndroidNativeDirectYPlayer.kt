@@ -188,6 +188,9 @@ internal class AndroidNativeDirectYPlayer(
                 subtitleCues = emptyList(),
                 secondarySubtitleCues = emptyList(),
                 bufferedPositionMs = it.bufferedPositionMs.coerceAtLeast(bounded),
+                bufferSnapshot =
+                    com.yfuse.core2.api
+                        .YBufferSnapshot(),
                 buffering = it.playbackRequested,
                 diagnostics = it.diagnostics.copy(renderedFrameRate = null),
                 phase = if (it.phase == YPlaybackPhase.Ended) YPlaybackPhase.Ready else it.phase,
@@ -289,6 +292,9 @@ internal class AndroidNativeDirectYPlayer(
                 buffering = it.playbackRequested,
                 positionMs = 0L,
                 bufferedPositionMs = 0L,
+                bufferSnapshot =
+                    com.yfuse.core2.api
+                        .YBufferSnapshot(),
                 currentIndex = index,
                 error = null,
             )

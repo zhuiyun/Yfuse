@@ -315,7 +315,7 @@ internal class AndroidYCoreBluRaySource private constructor(
                     )
                 }
 
-                "http", "https", "webdav", "webdavs", "smb" -> {
+                "http", "https", "webdav", "webdavs", "smb", "ftp", "yfuse-cloud" -> {
                     if (disc.kind == YDiscKind.Bdmv) return null
                     val scheme = uri.scheme?.lowercase().orEmpty()
                     val tls = scheme == "https" || scheme == "webdavs"
@@ -334,6 +334,8 @@ internal class AndroidYCoreBluRaySource private constructor(
                             protocol =
                                 when (scheme) {
                                     "smb" -> YSourceProtocol.Smb
+                                    "ftp" -> YSourceProtocol.Ftp
+                                    "yfuse-cloud" -> YSourceProtocol.CloudDrive
                                     "webdav" -> YSourceProtocol.WebDav
                                     "webdavs" -> YSourceProtocol.WebDavTls
                                     "https" -> YSourceProtocol.Https
@@ -342,7 +344,11 @@ internal class AndroidYCoreBluRaySource private constructor(
                             headers = item.headers,
                             credentials = item.transportCredentials,
                             createTransport =
-                                if (scheme == "smb") {
+                                if (scheme == "yfuse-cloud") {
+                                    { AndroidCloudDriveMediaTransport() }
+                                } else if (scheme == "ftp") {
+                                    ::AndroidFtpMediaTransport
+                                } else if (scheme == "smb") {
                                     ::AndroidSmbMediaTransport
                                 } else {
                                     { AndroidHttpMediaTransport(followSafeRedirects = false) }

@@ -8,6 +8,7 @@ import com.yfuse.core.data.CalendarMetadataPreferences
 import com.yfuse.core.data.CalendarMetadataRepository
 import com.yfuse.core.data.OfficialAiringScheduleCatalog
 import com.yfuse.core.data.SeriesAiringScheduleFallback
+import com.yfuse.core.data.TmdbDomesticAiringCalendarSource
 import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.data.TmdbSeriesIdentityCandidate
 import com.yfuse.core.security.SecureStore
@@ -62,6 +63,7 @@ internal fun calendarModule(calendarLocalStore: CalendarLocalStore): Module =
                 serverHealth = get(),
                 supplementalSchedules = get(),
                 metadataSources = get(),
+                domesticSchedules = TmdbDomesticAiringCalendarSource(get(named("tmdb-http"))),
             )
         }
     }

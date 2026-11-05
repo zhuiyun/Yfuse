@@ -3,9 +3,9 @@ package com.yfuse.harmony.entry
 import com.yfuse.harmony.entry.design.DesignTokens
 
 import ohos.base.*
-import ohos.component.*
-import ohos.state_manage.*
-import ohos.state_macro_manage.*
+import ohos.arkui.component.*
+import ohos.arkui.state_management.*
+import ohos.arkui.state_macro_manage.*
 
 @Entry
 @Component
@@ -121,9 +121,10 @@ class EntryView {
                 }
             } else {
                 if (profileRoute == 1) {
-                    DownloadsScreen()
+                    DownloadsScreen(onBrowseLibrary: { => profileRoute = 0; selectedTab = 1 })
                 } else if (profileRoute == 2) {
-                    AccountSettingsScreen(onOpenSessions: () => { profileRoute = 3 })
+                    AccountSettingsScreen(onOpenSessions: () => { profileRoute = 3 },
+                        onOpenServers: { => profileRoute = 0; selectedTab = 2 })
                 } else if (profileRoute == 3) {
                     AccountSessionsScreen()
                 }

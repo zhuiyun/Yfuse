@@ -221,6 +221,28 @@ internal fun DetailDownloadSheet(
     onClose: () -> Unit,
 ) {
     val target = state.playTarget ?: return
+    var batchResult by remember(target.id) { mutableStateOf<OfflineEnqueueResult?>(null) }
+    batchResult?.let { result ->
+        GlassDialog(onDismiss = onClose, scrollable = false) {
+            LazyColumn(
+                Modifier.fillMaxWidth().weight(1f, fill = false),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                item { OverlayHeader("逐项下载结果", subtitle = offlineEnqueueMessage(result, target.seriesId != null)) }
+                motionItems(result.entries, key = { it.itemId }) { entry ->
+                    androidx.compose.foundation.layout.Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+                        Text(entry.title, style = AppTypography.body.strong)
+                        Text(entry.message, style = AppTypography.caption.medium, color = LocalPalette.current.sub2)
+                    }
+                }
+                item {
+                    com.yfuse.core.designsystem
+                        .OverlayButton("完成", onClose, Modifier.fillMaxWidth())
+                }
+            }
+        }
+        return
+    }
     OfflineDownloadDialog(
         detail = target,
         episodes = state.episodes,
@@ -234,11 +256,11 @@ internal fun DetailDownloadSheet(
         seasonLabel = listedSeasonLabel(state.episodes, state.seasons),
         initialBatchMode = range,
         onConfirm = { selection ->
-            onClose()
             component.download(selection)?.let { result ->
                 val message = offlineEnqueueMessage(result, episode = target.seriesId != null)
                 component.store.accept(DetailIntent.ShowMessage(message))
-            }
+                if (result.entries.size > 1 || result.skipped > 0) batchResult = result else onClose()
+            } ?: onClose()
         },
         onDismiss = onClose,
     )
@@ -316,6 +338,13 @@ data class OfflineEnqueueResult(
     val waitingForWifi: Boolean,
     /** Already downloaded as the chosen version: kept as they are, not counted in [queued]. */
     val alreadyDownloaded: Int = 0,
+    val entries: List<OfflineEnqueueEntry> = emptyList(),
+)
+
+data class OfflineEnqueueEntry(
+    val itemId: String,
+    val title: String,
+    val message: String,
 )
 
 /**

@@ -29,6 +29,9 @@ internal fun PlaybackState.withRemoteCast(
         positionMs = cast.positionMs.takeIf { cast.positionConfirmed } ?: positionMs,
         durationMs = cast.durationMs.takeIf { it > 0L } ?: durationMs,
         bufferedPositionMs = cast.positionMs.takeIf { cast.positionConfirmed } ?: bufferedPositionMs,
+        bufferSnapshot =
+            com.yfuse.core2.api
+                .YBufferSnapshot(),
         videoHeight = 0,
         // Receiver command errors are actionable in the Cast panel, but are not a fatal
         // decoder/load error for the local engine and must not trigger its full-screen retry UI.

@@ -32,6 +32,10 @@ internal actual fun TrickplayImage(
     description: String,
     modifier: Modifier,
 ) {
+    if (isLocalFramePreview(frame)) {
+        LocalFramePreviewImage(frame, description, modifier)
+        return
+    }
     val context = LocalContext.current
     var lastFrameKey by remember(storyboard) { mutableStateOf<MemoryCache.Key?>(null) }
     val moving =

@@ -125,6 +125,10 @@ class ExoVideoEngine(
             .getOrNull(startIndex)
             ?.startsWithServerTranscode() == true
 
+    private val bufferSessionId =
+        java.util.UUID
+            .randomUUID()
+            .toString()
     private val _state =
         MutableStateFlow(
             PlaybackState(
@@ -1028,6 +1032,13 @@ class ExoVideoEngine(
                                 },
                             ),
                         bufferedPositionMs = if (sameMedia) it.bufferedPositionMs else 0L,
+                        bufferSnapshot =
+                            if (sameMedia) {
+                                it.bufferSnapshot
+                            } else {
+                                com.yfuse.core2.api
+                                    .YBufferSnapshot()
+                            },
                         error = null,
                         ended = false,
                         diagnostics =
@@ -1286,6 +1297,15 @@ class ExoVideoEngine(
                             positionMs = player.currentPosition,
                             durationMs = knownDuration(it.durationMs),
                             bufferedPositionMs = player.bufferedPosition.coerceAtLeast(0L),
+                            bufferSnapshot =
+                                com.yfuse.core2.api.forwardBufferSnapshot(
+                                    bufferSessionId,
+                                    it.diagnostics.outputEvidence.sessionRevision,
+                                    com.yfuse.core2.api.YBufferRangeSource.Media3Forward,
+                                    player.currentPosition,
+                                    player.bufferedPosition,
+                                    knownDuration(it.durationMs),
+                                ),
                             diagnostics =
                                 it.diagnostics.copy(
                                     bufferedDurationMs = bufferedDurationMs,
@@ -1335,6 +1355,9 @@ class ExoVideoEngine(
             it.copy(
                 positionMs = positionMs,
                 bufferedPositionMs = positionMs.coerceAtLeast(0L),
+                bufferSnapshot =
+                    com.yfuse.core2.api
+                        .YBufferSnapshot(),
                 ended = false,
             )
         }
@@ -1421,6 +1444,9 @@ class ExoVideoEngine(
                 error = null,
                 buffering = true,
                 bufferedPositionMs = 0L,
+                bufferSnapshot =
+                    com.yfuse.core2.api
+                        .YBufferSnapshot(),
                 ended = false,
                 transcoding = index in transcodedIndices,
                 fallbacksExhausted = false,
@@ -1443,6 +1469,9 @@ class ExoVideoEngine(
                 error = null,
                 buffering = true,
                 bufferedPositionMs = it.positionMs,
+                bufferSnapshot =
+                    com.yfuse.core2.api
+                        .YBufferSnapshot(),
                 ended = false,
                 automaticFallbackBlocked = false,
                 diagnostics = resetOutputDiagnostics(it.diagnostics),
@@ -1728,6 +1757,9 @@ class ExoVideoEngine(
                 error = null,
                 buffering = true,
                 bufferedPositionMs = position,
+                bufferSnapshot =
+                    com.yfuse.core2.api
+                        .YBufferSnapshot(),
                 transcoding = true,
                 diagnostics =
                     it.diagnostics.copy(
@@ -1868,6 +1900,9 @@ class ExoVideoEngine(
                 error = null,
                 buffering = true,
                 bufferedPositionMs = position,
+                bufferSnapshot =
+                    com.yfuse.core2.api
+                        .YBufferSnapshot(),
                 transcoding = true,
                 diagnostics =
                     it.diagnostics.copy(

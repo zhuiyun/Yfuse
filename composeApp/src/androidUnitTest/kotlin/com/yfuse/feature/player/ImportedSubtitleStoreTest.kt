@@ -12,6 +12,13 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ImportedSubtitleStoreTest {
+    @Test fun translated_copy_keeps_its_label_after_restart_and_preserves_original() =
+        withStore { root, store ->
+            store.save(owner, text, YSubtitleFormat.Srt)
+            store.save(owner, text, YSubtitleFormat.Srt, translated = true)
+            assertEquals(setOf("本地字幕", "翻译字幕"), ImportedSubtitleStore(root).load(owner).map { it.language }.toSet())
+        }
+
     private val owner = SubtitleItemKey("server-a", "movie", "version-1")
     private val text = "1\n00:00:01,000 --> 00:00:02,000\n中文字幕\n"
 

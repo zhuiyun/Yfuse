@@ -549,11 +549,16 @@ internal class AndroidMediaExtractorDemuxNode(
                 probeBudget?.ensureActive()
                 setDataSource(rangeSource)
             }
-            "smb" -> {
+            "smb", "ftp", "yfuse-cloud" -> {
                 val rangeSource =
                     AndroidTransportMediaDataSource(
                         uri = source.uri,
-                        protocol = YSourceProtocol.Smb,
+                        protocol =
+                            when (Uri.parse(source.uri).scheme) {
+                                "ftp" -> YSourceProtocol.Ftp
+                                "yfuse-cloud" -> YSourceProtocol.CloudDrive
+                                else -> YSourceProtocol.Smb
+                            },
                         headers = source.headers,
                         originBoundHeaderNames = source.originBoundHeaderNames,
                         credentials = source.credentials,
@@ -562,7 +567,13 @@ internal class AndroidMediaExtractorDemuxNode(
                         cacheIdentity = source.cacheIdentity,
                         cacheMaximumBytes = source.cacheMaximumBytes,
                         onBlockingReadStateChanged = onBlockingReadStateChanged,
-                        createTransport = ::AndroidSmbMediaTransport,
+                        createTransport = {
+                            when (Uri.parse(source.uri).scheme) {
+                                "ftp" -> AndroidFtpMediaTransport()
+                                "yfuse-cloud" -> AndroidCloudDriveMediaTransport()
+                                else -> AndroidSmbMediaTransport()
+                            }
+                        },
                     )
                 mediaDataSource = rangeSource
                 probeCancellation = probeBudget?.onCancel(rangeSource::cancelReads)

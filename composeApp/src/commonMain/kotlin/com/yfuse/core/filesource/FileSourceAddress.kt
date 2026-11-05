@@ -10,6 +10,9 @@ data class FileSourceDraft(
     val username: String = "",
     val password: String = "",
     val name: String = "",
+    val clientSecret: String = "",
+    val accessToken: String = "",
+    val refreshToken: String = "",
 )
 
 /** The verdict on a [FileSourceDraft]'s address; see [resolveAddress]. */
@@ -34,6 +37,8 @@ fun FileSourceKind.defaultPort(https: Boolean): Int =
         // Alist and OpenList listen on 5244 out of the box; behind a TLS proxy they are on 443.
         FileSourceKind.Alist -> if (https) HTTPS_PORT else ALIST_PORT
         FileSourceKind.Smb -> SMB_PORT
+        FileSourceKind.Ftp -> 21
+        FileSourceKind.Pan123, FileSourceKind.Baidu -> HTTPS_PORT
     }
 
 /**
@@ -44,6 +49,15 @@ fun FileSourceKind.defaultPort(https: Boolean): Int =
  * field resolve alike.
  */
 fun FileSourceDraft.resolveAddress(): FileSourceAddress {
+    if (kind == FileSourceKind.Pan123 || kind == FileSourceKind.Baidu) {
+        val root = path.split('/').filter(String::isNotBlank)
+        if (root.any { it == ".." || it.any(Char::isISOControl) }) return FileSourceAddress.Invalid("路径无效")
+        return FileSourceAddress.Valid(
+            if (kind == FileSourceKind.Pan123) "https://open-api.123pan.com" else "https://pan.baidu.com",
+            root,
+            name.trim().ifEmpty { kind.label },
+        )
+    }
     val draft = withPastedAddress()
     // `nas.local/dav` and a UNC `\\nas\share` both carry their path in the host field.
     val typed =
@@ -80,6 +94,7 @@ fun FileSourceDraft.resolveAddress(): FileSourceAddress {
     val scheme =
         when {
             draft.kind == FileSourceKind.Smb -> "smb"
+            draft.kind == FileSourceKind.Ftp -> "ftp"
             draft.https -> "https"
             else -> "http"
         }
@@ -87,6 +102,7 @@ fun FileSourceDraft.resolveAddress(): FileSourceAddress {
         when (scheme) {
             "https" -> HTTPS_PORT
             "http" -> HTTP_PORT
+            "ftp" -> 21
             else -> SMB_PORT
         }
     val authority = if (port == standardPort) host else "$host:$port"
@@ -113,8 +129,9 @@ fun FileSourceDraft.withPastedAddress(): FileSourceDraft {
     val (kind, https) =
         when (scheme) {
             "smb" -> FileSourceKind.Smb to false
-            "http", "webdav", "dav" -> (if (kind == FileSourceKind.Smb) FileSourceKind.WebDav else kind) to false
-            "https", "webdavs", "davs" -> (if (kind == FileSourceKind.Smb) FileSourceKind.WebDav else kind) to true
+            "ftp" -> FileSourceKind.Ftp to false
+            "http", "webdav", "dav" -> (if (kind == FileSourceKind.Alist) kind else FileSourceKind.WebDav) to false
+            "https", "webdavs", "davs" -> (if (kind == FileSourceKind.Alist) kind else FileSourceKind.WebDav) to true
             else -> return this
         }
     val remainder = text.substring(separator + 3).substringBefore('?').substringBefore('#')
@@ -201,6 +218,9 @@ private val FileSourceKind.shortLabel: String
             FileSourceKind.WebDav -> "WebDAV"
             FileSourceKind.Smb -> "SMB"
             FileSourceKind.Alist -> "Alist"
+            FileSourceKind.Ftp -> "FTP"
+            FileSourceKind.Pan123 -> "123云盘"
+            FileSourceKind.Baidu -> "百度网盘"
         }
 
 internal const val ALIST_DAV_SEGMENT = "dav"

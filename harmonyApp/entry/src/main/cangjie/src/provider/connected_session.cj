@@ -16,6 +16,7 @@ public class ConnectedMediaSession {
     public var activeServer: Option<SavedServer> = None
     public var source: String = ""
     public var sourceId: String = ""
+    public var sources: ArrayList<MediaSourceModel> = ArrayList<MediaSourceModel>()
     public var resumeMs: Int64 = 0
     public var loading: Bool = false
     public var ready: Bool = false
@@ -100,16 +101,24 @@ public class ConnectedMediaSession {
         let server = match (activeServer) { case Some(value) => value; case None => return }
         if (item.serverId != server.id) { return }
         generation++; let request = generation
-        route = 1; selected = None; loading = true; error = ""; changed()
+        route = 1; selected = None; sources = ArrayList<MediaSourceModel>(); loading = true; error = ""; changed()
         repository.detail(server, item.id, { result =>
             if (request != generation) { return }
             match (result) {
                 case Failure(problem) => failed(problem)
-                case Success(detail) => selected = Some(detail); loading = false; changed()
+                case Success(detail) =>
+                    selected = Some(detail); changed()
+                    repository.playbackSources(server, detail.item.id, "{}", { sourceResult =>
+                        if (request != generation) { return }
+                        match (sourceResult) {
+                            case Failure(problem) => failed(problem)
+                            case Success(values) => sources = values; loading = false; changed()
+                        }
+                    })
             }
         })
     }
-    public func play(): Unit {
+    public func play(selectedSourceId!: String = ""): Unit {
         if (!ready || loading) { return }
         let server = match (activeServer) { case Some(value) => value; case None => return }
         let detail = match (selected) { case Some(value) => value; case None => return }
@@ -123,10 +132,18 @@ public class ConnectedMediaSession {
                     if (sources.isEmpty()) {
                         failed(ApiFailure(FailureKind.NotFound, "此条目没有可播放片源，请打开具体电影或单集")); return
                     }
-                    match (repository.playbackUrl(server, sources[0])) {
+                    var chosen = sources[0]
+                    if (!selectedSourceId.isEmpty()) {
+                        var found = false
+                        for (candidate in sources) {
+                            if (candidate.id == selectedSourceId) { chosen = candidate; found = true }
+                        }
+                        if (!found) { failed(ApiFailure(FailureKind.NotFound, "所选片源已失效，请重新打开详情")); return }
+                    }
+                    match (repository.playbackUrl(server, chosen)) {
                         case Failure(problem) => failed(problem)
                         case Success(url) =>
-                            source = url; sourceId = sources[0].id
+                            source = url; sourceId = chosen.id
                             resumeMs = progress.position(server.id, detail.item.id, detail.resumePositionMs)
                             if (detail.durationMs > 0 && resumeMs >= detail.durationMs) { resumeMs = 0 }
                             checkpointMs = -15000; route = 2; loading = false; changed()

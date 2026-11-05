@@ -124,9 +124,7 @@ class HomeComponent(
         _calendar.update { it.copy(loading = true, error = null) }
         calendarLoad.launch(request) {
             loadCalendarWithDeadline {
-                // The home card only needs tracked/active shows. Global TMDB discovery
-                // belongs to the calendar screen and must not compete with the rest of
-                // the home feed during cold start.
+                // Share the foreground calendar's bounded domestic supplement and cached preview.
                 calendarRepository.homeCalendar(
                     forceRefresh = forceRefresh,
                     onPreview = { preview ->

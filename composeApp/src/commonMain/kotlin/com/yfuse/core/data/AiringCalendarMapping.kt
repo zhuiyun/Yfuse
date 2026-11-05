@@ -27,7 +27,7 @@ internal fun libraryAiringSchedule(
                 episodeNumber = number,
                 episodeTitle = episode.name,
                 airDate = date,
-                origin = ShowOrigin.Foreign,
+                origin = ShowOrigin.Unknown,
                 scheduleAuthority = AiringScheduleAuthority.Library,
             )
         }.distinctBy(AiringEpisode::mediaKey)

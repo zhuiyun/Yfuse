@@ -31,12 +31,16 @@ internal suspend fun loadAndroidMatroskaChapters(
                 "https" -> YSourceProtocol.Https
                 "http" -> YSourceProtocol.Http
                 "smb" -> YSourceProtocol.Smb
+                "ftp" -> YSourceProtocol.Ftp
+                "yfuse-cloud" -> YSourceProtocol.CloudDrive
                 "content", "file", "android.resource" -> YSourceProtocol.Local
                 else -> return@withContext emptyList()
             }
         val transport: YMediaTransport =
             when (protocol) {
                 YSourceProtocol.Smb -> AndroidSmbMediaTransport()
+                YSourceProtocol.Ftp -> AndroidFtpMediaTransport()
+                YSourceProtocol.CloudDrive -> AndroidCloudDriveMediaTransport()
                 YSourceProtocol.Local -> AndroidContentMediaTransport(context)
                 else -> AndroidHttpMediaTransport(followSafeRedirects = true, allowCrossProtocolRedirects = true)
             }

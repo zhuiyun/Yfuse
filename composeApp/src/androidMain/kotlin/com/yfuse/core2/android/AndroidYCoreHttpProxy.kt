@@ -856,6 +856,8 @@ internal class AndroidYCoreHttpProxy(
     private fun fileProtocolTransport(mediaUri: String): YMediaTransport? =
         when (mediaUri.sourceProtocolOrNull()) {
             YSourceProtocol.Smb -> AndroidSmbMediaTransport()
+            YSourceProtocol.Ftp -> AndroidFtpMediaTransport()
+            YSourceProtocol.CloudDrive -> AndroidCloudDriveMediaTransport()
             YSourceProtocol.Local -> appContext?.let { AndroidContentMediaTransport(it) }
             else -> null
         }
@@ -2124,7 +2126,8 @@ internal fun yCoreProxyUpstreamRequestContext(
 internal fun parseYCoreHttpByteRange(value: String?): YCoreHttpByteRange? {
     val match = value?.trim()?.let(HTTP_BYTE_RANGE::matchEntire) ?: return null
     val start = match.groupValues[1].toLongOrNull() ?: return null
-    val end = match.groupValues[2].takeIf(String::isNotEmpty)?.toLongOrNull()
+    val endText = match.groupValues[2]
+    val end = if (endText.isEmpty()) null else endText.toLongOrNull() ?: return null
     if (end != null && end < start) return null
     return YCoreHttpByteRange(startInclusive = start, endInclusive = end)
 }
@@ -2175,17 +2178,6 @@ internal fun mergeYCoreHlsReloadQuery(
         if (fragment.isNotEmpty()) append('#').append(fragment)
     }
 }
-
-// The scheme is read off the raw string: SMB paths are deliberately unencoded (jcifs reads them
-// literally), so an ordinary file name with a space makes java.net.URI reject the whole address.
-private fun String.sourceProtocolOrNull(): YSourceProtocol? =
-    when (rawUriScheme()) {
-        "http" -> YSourceProtocol.Http
-        "https" -> YSourceProtocol.Https
-        "smb" -> YSourceProtocol.Smb
-        "content" -> YSourceProtocol.Local
-        else -> null
-    }
 
 private fun String.isHlsManifestUri(): Boolean =
     runCatching {

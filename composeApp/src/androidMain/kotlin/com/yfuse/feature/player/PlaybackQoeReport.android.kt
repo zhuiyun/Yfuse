@@ -38,6 +38,7 @@ internal fun anonymousPlaybackQoeReport(
                 PlayerEngine.Exo -> QoeEngine.Exo
                 PlayerEngine.Mpv -> QoeEngine.Mpv
                 PlayerEngine.Mdk -> QoeEngine.Mdk
+                PlayerEngine.SenPlayer -> QoeEngine.SenPlayer
             },
         platformApi = platformApiLevel.qoeApiBucket(),
         deviceFamily = qoeDeviceFamily(socManufacturer, hardware),

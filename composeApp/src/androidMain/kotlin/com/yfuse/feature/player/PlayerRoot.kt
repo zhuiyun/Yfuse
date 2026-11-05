@@ -1001,12 +1001,14 @@ internal fun PlayerRoot(
         }
 
         val remoteSubtitleRepository = remember { GlobalContext.get().get<EmbyRepository>() }
+        ObservePlaybackProcessMemory(livePlayback)
         val remoteSubtitleRegistry = remember { GlobalContext.get().get<ServerRegistry>() }
         val currentTrickplay =
             rememberCurrentTrickplay(
                 currentItem = currentItem,
                 remoteSubtitleRepository = remoteSubtitleRepository,
                 remoteSubtitleRegistry = remoteSubtitleRegistry,
+                durationMs = state.durationMs,
             )
         // Selection is its own state, separate from position/buffering updates. Keying this on
         // the identifiers guarantees that a version-only change is handed back to the detail

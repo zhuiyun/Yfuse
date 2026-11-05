@@ -21,6 +21,7 @@ internal fun rememberCurrentTrickplay(
     currentItem: PlayerMediaItem?,
     remoteSubtitleRepository: EmbyRepository,
     remoteSubtitleRegistry: ServerRegistry,
+    durationMs: Long = currentItem?.durationMsHint ?: 0L,
 ): TrickplayStoryboard? {
     var trickplayCache by remember {
         mutableStateOf(emptyMap<TrickplayCacheKey, TrickplayStoryboard?>())
@@ -79,5 +80,7 @@ internal fun rememberCurrentTrickplay(
                 )
             }
     }
-    return currentItem?.trickplay ?: trickplayKey?.let(trickplayCache::get)
+    val storyboard = currentItem?.trickplay ?: trickplayKey?.let(trickplayCache::get)
+    val fallback = rememberLocalFrameStoryboard(currentItem.takeIf { storyboard == null }, durationMs)
+    return storyboard ?: fallback
 }

@@ -7,6 +7,8 @@ enum class YSourceProtocol {
     WebDav,
     WebDavTls,
     Smb,
+    Ftp,
+    CloudDrive,
     Nfs,
 }
 

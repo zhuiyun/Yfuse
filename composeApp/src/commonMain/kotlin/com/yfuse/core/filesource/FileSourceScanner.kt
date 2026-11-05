@@ -6,10 +6,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
 /** How far a scan has got, for the share's card while it runs. */
@@ -47,9 +47,15 @@ class FileSourceScanner(
         source: FileSource,
         credentials: FileSourceCredentials,
         previous: FileSourceLibrary?,
+        onCheckpoint: suspend (FileSourceScanCheckpoint) -> Unit = {},
         onProgress: (FileSourceScanProgress) -> Unit = {},
     ): FileSourceLibrary {
-        val walk = walk(source, credentials, onProgress)
+        val compatiblePrevious =
+            previous?.takeIf {
+                it.sourceVersion == source.scanVersion() ||
+                    (it.sourceVersion == null && source.revision == 0L)
+            }
+        val walk = walk(source, credentials, previous?.checkpoint, onCheckpoint, onProgress)
         // Thousands of names through a few dozen patterns: not on the thread that draws the tab.
         val named =
             withContext(parseDispatcher) {
@@ -57,7 +63,7 @@ class FileSourceScanner(
                 walk.videos.mapNotNull { video -> parser.parse(video.path)?.let { video to it } }
             }
         val groups = named.groupBy { (_, parsed) -> parsed.lookupKey() }
-        val matched = match(groups, previous, walk, onProgress)
+        val matched = match(groups, compatiblePrevious, walk, onProgress)
         val titles = matched.values.filterNotNull().distinctBy { it.key }
         val files =
             groups.flatMap { (key, members) ->
@@ -78,16 +84,12 @@ class FileSourceScanner(
             files = files,
             unmatchedCount = named.size - files.size,
             partial = walk.partial || matched.size < groups.size,
-        ).preservingUnreadFiles(previous)
+            sourceVersion = source.scanVersion(),
+        ).preservingUnreadFiles(compatiblePrevious)
     }
 
-    private data class Video(
-        val path: List<String>,
-        val sizeBytes: Long?,
-    )
-
     private class Walk(
-        val videos: List<Video>,
+        val videos: List<FileSourceScanVideo>,
         val partial: Boolean,
         val foldersRead: Int,
     )
@@ -96,48 +98,82 @@ class FileSourceScanner(
     private suspend fun walk(
         source: FileSource,
         credentials: FileSourceCredentials,
+        checkpoint: FileSourceScanCheckpoint?,
+        onCheckpoint: suspend (FileSourceScanCheckpoint) -> Unit,
         onProgress: (FileSourceScanProgress) -> Unit,
     ): Walk {
-        val videos = mutableListOf<Video>()
-        var frontier = listOf(emptyList<String>())
-        var foldersRead = 0
-        var partial = false
-        var depth = 0
-        val permits = Semaphore(LIST_CONCURRENCY)
+        val saved = checkpoint?.takeIf { it.sourceVersion == source.scanVersion() }
+        val videos =
+            saved
+                ?.videos
+                .orEmpty()
+                .take(MAX_VIDEOS)
+                .toMutableList()
+        var foldersRead = (saved?.foldersRead ?: 0).coerceIn(0, MAX_FOLDERS)
+        val frontier =
+            ArrayDeque(
+                (saved?.pending ?: listOf(FileSourceScanFolder(emptyList(), 0))).take(
+                    MAX_FOLDERS - foldersRead,
+                ),
+            )
+        var partial = saved?.partial ?: false
         while (frontier.isNotEmpty()) {
+            currentCoroutineContext().ensureActive()
+            val batch = List(minOf(LIST_CONCURRENCY, frontier.size)) { frontier.removeFirst() }
             val listings =
                 coroutineScope {
-                    frontier
-                        .map { path ->
-                            async { permits.withPermit { path to listOrNull(source, credentials, path) } }
+                    batch
+                        .map { folder ->
+                            async { folder to listOrNull(source, credentials, folder.path) }
                         }.awaitAll()
                 }
-            val next = mutableListOf<List<String>>()
-            listings.forEach { (path, entries) ->
+            listings.forEachIndexed { batchIndex, (folder, listing) ->
                 foldersRead++
-                if (entries == null) {
+                if (listing == null) {
                     partial = true
-                    return@forEach
+                    return@forEachIndexed
                 }
-                entries.filterNot { isHiddenFileSourceName(it.name) }.forEach { entry ->
+                partial = partial || listing.truncated || listing.entries.size > MAX_FILE_SOURCE_LISTING_ENTRIES
+                listing.entries.take(MAX_FILE_SOURCE_LISTING_ENTRIES).forEach entryLoop@{ entry ->
+                    if (isHiddenFileSourceName(entry.name)) return@entryLoop
                     when {
-                        entry.directory && !isLibraryNoiseFolder(entry.name) -> next += path + entry.name
-                        entry.isVideo -> videos += Video(path + entry.name, entry.sizeBytes)
+                        entry.directory && !isLibraryNoiseFolder(entry.name) -> {
+                            if (folder.depth < MAX_DEPTH &&
+                                foldersRead + frontier.size + batch.size - batchIndex - 1 < MAX_FOLDERS
+                            ) {
+                                frontier.addLast(FileSourceScanFolder(folder.path + entry.name, folder.depth + 1))
+                            } else {
+                                partial = true
+                            }
+                        }
+                        entry.isVideo -> {
+                            if (videos.size <
+                                MAX_VIDEOS
+                            ) {
+                                videos += FileSourceScanVideo(folder.path + entry.name, entry.sizeBytes)
+                            } else {
+                                partial = true
+                            }
+                        }
                     }
                 }
             }
             onProgress(FileSourceScanProgress(foldersRead = foldersRead, videosFound = videos.size))
-            depth++
-            val room = MAX_FOLDERS - foldersRead
-            if (next.isNotEmpty() &&
-                (depth > MAX_DEPTH || room < next.size || videos.size >= MAX_VIDEOS)
-            ) {
+            if (videos.size >= MAX_VIDEOS && frontier.isNotEmpty()) {
                 partial = true
+                frontier.clear()
             }
-            frontier =
-                if (depth > MAX_DEPTH || videos.size >= MAX_VIDEOS) emptyList() else next.take(room.coerceAtLeast(0))
+            onCheckpoint(
+                FileSourceScanCheckpoint(
+                    source.scanVersion(),
+                    frontier.toList(),
+                    videos.toList(),
+                    foldersRead,
+                    partial,
+                ),
+            )
         }
-        return Walk(videos.take(MAX_VIDEOS), partial || videos.size > MAX_VIDEOS, foldersRead)
+        return Walk(videos, partial, foldersRead)
     }
 
     /** The root has to list — it is the share — but one unreadable folder only leaves a gap. */
@@ -145,9 +181,9 @@ class FileSourceScanner(
         source: FileSource,
         credentials: FileSourceCredentials,
         path: List<String>,
-    ): List<FileSourceEntry>? =
+    ): FileSourceListing? =
         try {
-            client.list(source, credentials, path)
+            client.listBounded(source, credentials, path, MAX_FILE_SOURCE_LISTING_ENTRIES)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
@@ -161,7 +197,7 @@ class FileSourceScanner(
      * leaves the library partial. With no answer at all, the scan fails instead.
      */
     private suspend fun match(
-        groups: Map<String, List<Pair<Video, ParsedMediaName>>>,
+        groups: Map<String, List<Pair<FileSourceScanVideo, ParsedMediaName>>>,
         previous: FileSourceLibrary?,
         walk: Walk,
         onProgress: (FileSourceScanProgress) -> Unit,
@@ -182,39 +218,40 @@ class FileSourceScanner(
         var answered = 0
         var unavailable = 0
         var lastError: Throwable? = null
-        val permits = Semaphore(MATCH_CONCURRENCY)
         val report = {
             onProgress(FileSourceScanProgress(walk.foldersRead, walk.videos.size, lookups.size, lookedUp))
         }
         report()
-        coroutineScope {
-            lookups
-                .map { (key, parsed) ->
-                    async {
-                        val outcome = permits.withPermit { matcher.match(parsed) }
-                        lock.withLock {
-                            lookedUp++
-                            when (outcome) {
-                                is TitleMatch.Found -> results[key] = outcome.title
-                                TitleMatch.NotFound -> results[key] = null
-                                is TitleMatch.Unavailable -> {
-                                    unavailable++
-                                    lastError = outcome.error
+        lookups.chunked(MATCH_CONCURRENCY).forEach { chunk ->
+            coroutineScope {
+                chunk
+                    .map { (key, parsed) ->
+                        async {
+                            val outcome = matcher.match(parsed)
+                            lock.withLock {
+                                lookedUp++
+                                when (outcome) {
+                                    is TitleMatch.Found -> results[key] = outcome.title
+                                    TitleMatch.NotFound -> results[key] = null
+                                    is TitleMatch.Unavailable -> {
+                                        unavailable++
+                                        lastError = outcome.error
+                                    }
                                 }
+                                if (outcome !is TitleMatch.Unavailable) answered++
+                                // A missing token or no network fails every lookup alike; a few in a
+                                // row with nothing answered is enough to know, and to stop asking.
+                                if (outcome is TitleMatch.Unavailable &&
+                                    answered == 0 &&
+                                    unavailable >= UNAVAILABLE_BEFORE_GIVING_UP
+                                ) {
+                                    throw TmdbUnavailableException(outcome.error)
+                                }
+                                report()
                             }
-                            if (outcome !is TitleMatch.Unavailable) answered++
-                            // A missing token or no network fails every lookup alike; a few in a
-                            // row with nothing answered is enough to know, and to stop asking.
-                            if (outcome is TitleMatch.Unavailable &&
-                                answered == 0 &&
-                                unavailable >= UNAVAILABLE_BEFORE_GIVING_UP
-                            ) {
-                                throw TmdbUnavailableException(outcome.error)
-                            }
-                            report()
                         }
-                    }
-                }.awaitAll()
+                    }.awaitAll()
+            }
         }
         lastError?.takeIf { answered == 0 }?.let { throw TmdbUnavailableException(it) }
         return results

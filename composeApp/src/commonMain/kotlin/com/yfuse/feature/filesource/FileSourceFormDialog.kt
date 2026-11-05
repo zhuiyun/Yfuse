@@ -94,7 +94,7 @@ private fun FileSourceFormDialog(
                 if (state.editing) {
                     "改名直接保存；地址或账号变了会先重新连接"
                 } else {
-                    "WebDAV、SMB 共享，或经 Alist / OpenList 接入的网盘"
+                    "网络共享、FTP 或云盘原生接入"
                 },
             onClose = controller::dismissForm,
         )
@@ -108,17 +108,24 @@ private fun FileSourceFormDialog(
             FormLabel("来源信息")
             Column(Modifier.fillMaxWidth().glass(AppShapes.card, palette.card2, palette.border)) {
                 ServerFormRow(label = "类型", divider = true, labelBottomPadding = 6.dp) {
-                    Row(modifier = Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        FileSourceKind.entries.forEach { kind ->
-                            ServerProtocolSegment(
-                                label = kind.segmentLabel,
-                                selected = draft.kind == kind,
-                                modifier = Modifier.weight(1f),
-                            ) { controller.editDraft { it.copy(kind = kind) } }
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FileSourceKind.entries.chunked(3).forEach { kinds ->
+                            Row(
+                                modifier = Modifier.selectableGroup(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                kinds.forEach { kind ->
+                                    ServerProtocolSegment(
+                                        label = kind.segmentLabel,
+                                        selected = draft.kind == kind,
+                                        modifier = Modifier.weight(1f),
+                                    ) { controller.editDraft { it.copy(kind = kind) } }
+                                }
+                            }
                         }
                     }
                 }
-                if (draft.kind != FileSourceKind.Smb) {
+                if (draft.kind == FileSourceKind.WebDav || draft.kind == FileSourceKind.Alist) {
                     ServerFormRow(label = "协议", divider = true, labelBottomPadding = 6.dp) {
                         Row(modifier = Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             ServerProtocolSegment("HTTPS", draft.https, Modifier.weight(1f)) {
@@ -130,29 +137,31 @@ private fun FileSourceFormDialog(
                         }
                     }
                 }
-                ServerFormInput(
-                    label = "地址",
-                    value = draft.host,
-                    placeholder =
-                        if (draft.kind ==
-                            FileSourceKind.Smb
-                        ) {
-                            "192.168.1.2 或 nas.local"
-                        } else {
-                            "nas.local，也可粘贴完整链接"
-                        },
-                    enabled = !state.submitting,
-                    keyboardType = KeyboardType.Uri,
-                    divider = true,
-                ) { host -> controller.editDraft { it.copy(host = host).withPastedAddressFields() } }
-                ServerFormInput(
-                    label = "端口",
-                    value = draft.port,
-                    placeholder = "默认 ${draft.kind.defaultPort(draft.https)}",
-                    enabled = !state.submitting,
-                    keyboardType = KeyboardType.Number,
-                    divider = true,
-                ) { port -> controller.editDraft { it.copy(port = port.filter(Char::isDigit).take(5)) } }
+                if (draft.kind != FileSourceKind.Pan123 && draft.kind != FileSourceKind.Baidu) {
+                    ServerFormInput(
+                        label = "地址",
+                        value = draft.host,
+                        placeholder =
+                            if (draft.kind ==
+                                FileSourceKind.Smb
+                            ) {
+                                "192.168.1.2 或 nas.local"
+                            } else {
+                                "nas.local，也可粘贴完整链接"
+                            },
+                        enabled = !state.submitting,
+                        keyboardType = KeyboardType.Uri,
+                        divider = true,
+                    ) { host -> controller.editDraft { it.copy(host = host).withPastedAddressFields() } }
+                    ServerFormInput(
+                        label = "端口",
+                        value = draft.port,
+                        placeholder = "默认 ${draft.kind.defaultPort(draft.https)}",
+                        enabled = !state.submitting,
+                        keyboardType = KeyboardType.Number,
+                        divider = true,
+                    ) { port -> controller.editDraft { it.copy(port = port.filter(Char::isDigit).take(5)) } }
+                }
                 ServerFormInput(
                     label = if (draft.kind == FileSourceKind.Smb) "共享与路径" else "路径",
                     value = draft.path,
@@ -170,25 +179,29 @@ private fun FileSourceFormDialog(
             }
             Spacer(Modifier.height(4.dp))
             FormLabel("账号")
-            Column(Modifier.fillMaxWidth().glass(AppShapes.card, palette.card2, palette.border)) {
-                ServerFormInput(
-                    label = "用户名",
-                    value = draft.username,
-                    placeholder = if (draft.kind == FileSourceKind.Smb) "留空以访客身份连接" else "输入用户名",
-                    enabled = !state.submitting,
-                    divider = true,
-                    autofillType = ContentType.Username,
-                ) { username -> controller.editDraft { it.copy(username = username) } }
-                ServerFormInput(
-                    label = "密码",
-                    value = draft.password,
-                    placeholder = if (state.passwordStored) "不修改则留空" else "输入密码",
-                    enabled = !state.submitting,
-                    password = true,
-                    divider = false,
-                    autofillType = ContentType.Password,
-                    onSubmit = submit,
-                ) { password -> controller.editDraft { it.copy(password = password) } }
+            if (draft.kind == FileSourceKind.Pan123 || draft.kind == FileSourceKind.Baidu) {
+                CloudSourceFields(controller, state)
+            } else {
+                Column(Modifier.fillMaxWidth().glass(AppShapes.card, palette.card2, palette.border)) {
+                    ServerFormInput(
+                        label = "用户名",
+                        value = draft.username,
+                        placeholder = if (draft.kind == FileSourceKind.Smb) "留空以访客身份连接" else "输入用户名",
+                        enabled = !state.submitting,
+                        divider = true,
+                        autofillType = ContentType.Username,
+                    ) { username -> controller.editDraft { it.copy(username = username) } }
+                    ServerFormInput(
+                        label = "密码",
+                        value = draft.password,
+                        placeholder = if (state.passwordStored) "不修改则留空" else "输入密码",
+                        enabled = !state.submitting,
+                        password = true,
+                        divider = false,
+                        autofillType = ContentType.Password,
+                        onSubmit = submit,
+                    ) { password -> controller.editDraft { it.copy(password = password) } }
+                }
             }
             Text(
                 draft.hint(),
@@ -214,7 +227,8 @@ private fun FileSourceFormDialog(
             onClick = submit,
             modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
             tone = OverlayButtonTone.Primary,
-            enabled = draft.host.isNotBlank(),
+            enabled =
+                draft.host.isNotBlank() || draft.kind == FileSourceKind.Pan123 || draft.kind == FileSourceKind.Baidu,
             loading = state.submitting,
         )
 
@@ -263,6 +277,9 @@ private val FileSourceKind.segmentLabel: String
             FileSourceKind.WebDav -> "WebDAV"
             FileSourceKind.Smb -> "SMB"
             FileSourceKind.Alist -> "Alist"
+            FileSourceKind.Ftp -> "FTP"
+            FileSourceKind.Pan123 -> "123云盘"
+            FileSourceKind.Baidu -> "百度"
         }
 
 private val FileSourceKind.pathPlaceholder: String
@@ -271,6 +288,8 @@ private val FileSourceKind.pathPlaceholder: String
             FileSourceKind.WebDav -> "可选，如 /dav 或 /webdav"
             FileSourceKind.Smb -> "共享名/文件夹，留空列出全部共享"
             FileSourceKind.Alist -> "可选，如 /阿里云盘；默认 /dav"
+            FileSourceKind.Ftp -> "可选，FTP 根目录中的路径"
+            FileSourceKind.Pan123, FileSourceKind.Baidu -> "可选，云盘内的文件夹路径"
         }
 
 /** One line under the form that says what this kind needs, or what a choice costs. */
@@ -280,6 +299,8 @@ private fun FileSourceDraft.hint(): String =
             "在 Alist / OpenList 后台为该用户开启 WebDAV 读取权限；网盘只经它的 /dav 接入，不直连网盘接口。"
         kind == FileSourceKind.Smb ->
             "支持 SMB2 与 SMB3，Windows 共享、群晖与威联通 NAS 均可。域账号可写作 WORKGROUP\\用户名。"
+        kind == FileSourceKind.Ftp -> "支持被动 FTP、目录浏览与随机读取；不支持 FTPS。账号需具有读取权限，移动操作另需写入权限。"
+        kind == FileSourceKind.Pan123 || kind == FileSourceKind.Baidu -> "通过云盘开放平台原生接入，播放使用 YCore。应用密钥和访问令牌仅保存在本机安全存储中。"
         !https -> "HTTP 会以明文发送密码，建议只在家里的局域网使用。"
         else -> "群晖、威联通、Nextcloud 与 rclone 等 WebDAV 服务均可。"
     }

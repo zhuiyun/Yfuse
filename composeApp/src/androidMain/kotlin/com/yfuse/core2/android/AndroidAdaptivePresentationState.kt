@@ -12,12 +12,13 @@ internal fun mapAdaptivePresentationState(
     target: YAdaptivePlaybackTarget?,
 ): YPlayerState {
     if (target == null) return state
-    val duration =
-        target.presentationDurationMs.takeIf { it > 0L }
-            ?: state.durationMs + target.presentationOffsetMs
+    val offsetMs = target.presentationOffsetMs.coerceAtLeast(0L)
+
+    fun translatedMs(local: Long): Long = local.coerceIn(0L, Long.MAX_VALUE - offsetMs) + offsetMs
+    val duration = target.presentationDurationMs.takeIf { it > 0L } ?: translatedMs(state.durationMs)
 
     fun global(local: Long): Long =
-        (local + target.presentationOffsetMs).let {
+        translatedMs(local).let {
             if (duration > 0L) it.coerceAtMost(duration) else it
         }
     val offsetUs = target.presentationOffsetMs.coerceIn(0L, Long.MAX_VALUE / 1_000L) * 1_000L
@@ -41,6 +42,7 @@ internal fun mapAdaptivePresentationState(
     return state.copy(
         positionMs = global(state.positionMs),
         bufferedPositionMs = global(state.bufferedPositionMs),
+        bufferSnapshot = state.bufferSnapshot.shifted(target.presentationOffsetMs, duration),
         durationMs = duration,
         subtitleCues = subtitles(state.subtitleCues),
         secondarySubtitleCues = subtitles(state.secondarySubtitleCues),

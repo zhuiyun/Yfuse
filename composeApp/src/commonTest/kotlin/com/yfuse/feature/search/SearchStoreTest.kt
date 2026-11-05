@@ -53,6 +53,65 @@ class SearchStoreTest {
     }
 
     @Test
+    fun file_source_scope_keeps_queries_local_and_reenabling_servers_runs_current_query() =
+        runTest {
+            val registry = testRegistry().apply { addOrUpdate(SavedServer("a", "http://one", "A", "u", "u", "tok")) }
+            val searched = mutableListOf<String>()
+            val repo =
+                testRepo(dispatcher) { request ->
+                    request.url.parameters["SearchTerm"]?.let(searched::add)
+                    json("""{"Items":[]}""")
+                }
+            val store = SearchStoreFactory(DefaultStoreFactory(), repo, registry).create()
+            try {
+                store.accept(SearchIntent.SetRemoteSearchEnabled(false))
+                store.accept(SearchIntent.QueryChanged("private filename"))
+                store.accept(SearchIntent.Submit)
+                advanceUntilIdle()
+                assertTrue(searched.isEmpty())
+                assertEquals("private filename", store.state.searchedQuery)
+                assertFalse(store.state.loading)
+                assertNull(store.state.error)
+                store.accept(SearchIntent.SetRemoteSearchEnabled(true))
+                advanceUntilIdle()
+                assertTrue("private filename" in searched)
+            } finally {
+                store.dispose()
+            }
+        }
+
+    @Test
+    fun switching_to_file_scope_cancels_an_old_server_result() =
+        runTest {
+            val registry = testRegistry().apply { addOrUpdate(SavedServer("a", "http://one", "A", "u", "u", "tok")) }
+            val pending = CompletableDeferred<Unit>()
+            val repo =
+                testRepo(dispatcher) { request ->
+                    if (request.url.parameters["SearchTerm"] == "old") {
+                        pending.await()
+                        json("""{"Items":[{"Id":"old","Name":"old","Type":"Movie"}]}""")
+                    } else {
+                        json("""{"Items":[]}""")
+                    }
+                }
+            val store = SearchStoreFactory(DefaultStoreFactory(), repo, registry).create()
+            try {
+                store.accept(SearchIntent.QueryChanged("old"))
+                store.accept(SearchIntent.Submit)
+                runCurrent()
+                store.accept(SearchIntent.SetRemoteSearchEnabled(false))
+                pending.complete(Unit)
+                advanceUntilIdle()
+                assertTrue(store.state.groups.isEmpty())
+                assertTrue(store.state.items.isEmpty())
+                assertFalse(store.state.loading)
+            } finally {
+                pending.complete(Unit)
+                store.dispose()
+            }
+        }
+
+    @Test
     fun typing_a_new_query_immediately_invalidates_the_old_request_before_debounce() =
         runTest {
             val registry = testRegistry().apply { addOrUpdate(SavedServer("a", "http://one", "甲", "u", "u", "tok")) }

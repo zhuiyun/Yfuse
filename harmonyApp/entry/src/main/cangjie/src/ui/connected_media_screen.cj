@@ -3,9 +3,9 @@ package com.yfuse.harmony.entry
 import com.yfuse.harmony.entry.design.DesignTokens
 
 import ohos.base.*
-import ohos.component.*
-import ohos.state_manage.*
-import ohos.state_macro_manage.*
+import ohos.arkui.component.*
+import ohos.arkui.state_management.*
+import ohos.arkui.state_macro_manage.*
 import com.yfuse.harmony.entry.data.*
 import com.yfuse.harmony.entry.provider.*
 import com.yfuse.harmony.entry.storage.*
@@ -56,12 +56,9 @@ class ConnectedMediaScreen {
                             if (session.loading) { Text("正在加载…").fontColor(Color(DesignTokens.darkText)) }
                             if (session.route == 1) {
                                 Button("返回媒体库").backgroundColor(Color(DesignTokens.darkAccent)).fontColor(Color(DesignTokens.darkOnAccent)).borderRadius(DesignTokens.radiusSmall).onClick({ => session.back() })
-                                if (let Some(detail) <- session.selected) {
-                                    Text(detail.item.title).fontColor(Color(DesignTokens.darkText)).fontSize(22).fontWeight(FontWeight.Bold)
-                                    Text(detail.item.subtitle).fontColor(Color(DesignTokens.darkText))
-                                    Text(detail.item.overview).fontColor(Color(DesignTokens.darkText))
-                                    Button("播放 / 继续观看").backgroundColor(Color(DesignTokens.darkAccent)).fontColor(Color(DesignTokens.darkOnAccent)).borderRadius(DesignTokens.radiusSmall).enabled(!session.loading).onClick({ => session.play() })
-                                }
+                                DetailScreen(detail: session.selected, sources: session.sources, loading: session.loading,
+                                    onPlay: { => session.play() },
+                                    onPlaySource: { id => session.play(selectedSourceId: id) })
                             } else {
                                 if (mode == 2 || session.registry.servers.isEmpty()) { LoginForm() }
                                 ForEach(session.registry.servers.toArray(), { server: SavedServer =>

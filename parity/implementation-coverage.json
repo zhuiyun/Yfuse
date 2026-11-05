@@ -11,8 +11,8 @@
     "sourceWired": "UI and production adapters are connected in source, but matching SDK compilation and running-build evidence are missing."
   },
   "summary": {
-    "note": "Emby/Jellyfin login, Native Preferences metadata persistence, real item lists/details, same-origin system playback URLs and local/server progress calls are now wired through ConnectedMediaScreen. This source slice has NOT been compiled as a HAP or verified on Harmony hardware. Host tests cover 33 existing pure-logic cases; network/provider/storage/support still require stdx and matching UI SDK. Other feature gaps remain listed; no feature is promoted to implemented.",
-    "reviewedAt": "2026-09-10",
+    "note": "Connected Emby/Jellyfin source selection now uses real provider results. Video speed and image fit are wired to verified Cangjie API22 signatures; state uses actual playback callbacks. Unsupported secondary actions are explicitly disabled without fabricated progress, episodes or sessions. Source contracts pass, but the installed Cangjie host compiler crashes in unchanged packages and stdx/native host tools are incomplete. No HAP/device validation is claimed.",
+    "reviewedAt": "2026-11-05",
     "reviewedAgainst": "harmonyApp/entry/src/main/cangjie/src"
   },
   "features": [
@@ -94,8 +94,8 @@
     },
     {
       "id": "library.filterSort",
-      "status": "placeholderUi",
-      "note": "LibraryViewState carries sort, ascending and genre fields but implements no sorting or filtering. The 筛选 and 排序 buttons in the catalog screen have no handlers.",
+      "status": "logicOnly",
+      "note": "LibraryGridScreen now delegates to the actual connected paged library. Filter/sort logic remains unimplemented and no fake interactive controls are shown.",
       "sources": [
         "harmonyApp/entry/src/main/cangjie/src/app/screen_states.cj",
         "harmonyApp/entry/src/main/cangjie/src/ui/catalog_screens.cj"
@@ -112,17 +112,19 @@
     },
     {
       "id": "detail.multiSource",
-      "status": "logicOnly",
-      "note": "decodeSources parses media sources per provider. DetailScreen hardcodes 继续 · 00:42:10 and two fixed quality buttons with no handlers.",
+      "status": "sourceWired",
+      "note": "Connected detail renders provider metadata and resolved source list; selecting a source requests fresh playback info and rejects stale IDs. Same-origin credential checks remain. Requires matching API22 SDK/HAP and server validation.",
       "sources": [
         "harmonyApp/entry/src/main/cangjie/src/provider/provider_codec.cj",
-        "harmonyApp/entry/src/main/cangjie/src/ui/secondary_screens.cj"
+        "harmonyApp/entry/src/main/cangjie/src/ui/secondary_screens.cj",
+        "harmonyApp/entry/src/main/cangjie/src/provider/connected_session.cj",
+        "harmonyApp/entry/src/main/cangjie/src/ui/connected_media_screen.cj"
       ]
     },
     {
       "id": "calendar.tmdb",
       "status": "logicOnly",
-      "note": "TmdbRepository builds the discovery and on-the-air requests and fails closed without credentials. CalendarScreen renders two fixed rows and never calls it.",
+      "note": "TMDB request builders exist, but no calendar credentials/data integration. CalendarScreen now shows explicit unavailability rather than fabricated dates or episodes.",
       "sources": [
         "harmonyApp/entry/src/main/cangjie/src/provider/tmdb_repository.cj",
         "harmonyApp/entry/src/main/cangjie/src/ui/secondary_screens.cj"
@@ -157,7 +159,7 @@
     {
       "id": "player.dualSubtitle",
       "status": "logicOnly",
-      "note": "DualSubtitleState resolves both cue lists at a position and clamps the offset to thirty seconds. No track is ever loaded and the subtitle panel buttons have no handlers. Host tests cover both cue lists at a position and the thirty-second offset clamp.",
+      "note": "DualSubtitleState pure logic exists. Main/dual subtitle and offset controls are explicitly disabled because tracks/rendering are not connected. Existing host-test source covers cue/offset logic; this run could not execute it due compiler failure.",
       "sources": [
         "harmonyApp/entry/src/main/cangjie/src/player/subtitles.cj"
       ]
@@ -211,7 +213,7 @@
     {
       "id": "player.pip",
       "status": "sdkAdapter",
-      "note": "PlaybackSystemCoordinator routes remote commands through YPlayer, but PlaybackSystemPort has no implementation, so no picture-in-picture window is ever requested.",
+      "note": "PlaybackSystemPort has no platform implementation. PiP is explicitly disabled in the player.",
       "sources": [
         "harmonyApp/entry/src/main/cangjie/src/player/system_integration.cj"
       ]
@@ -235,7 +237,7 @@
     {
       "id": "offline.download",
       "status": "sdkAdapter",
-      "note": "DownloadCoordinator implements resume, ETag invalidation, contiguous-chunk enforcement and checksum verification. DownloadSourceResolver and DownloadSink have no implementations and the downloads screen is an empty state.",
+      "note": "DownloadCoordinator logic exists, but DownloadSourceResolver/DownloadSink have no implementations. The screen states downloads are unavailable and links to the real connected library; no false download-start promise.",
       "sources": [
         "harmonyApp/entry/src/main/cangjie/src/offline/downloads.cj",
         "harmonyApp/entry/src/main/cangjie/src/ui/secondary_screens.cj"
@@ -290,7 +292,7 @@
     {
       "id": "diagnostics.export",
       "status": "sdkAdapter",
-      "note": "DiagnosticSnapshot redacts Emby, Plex and Authorization headers before serializing. DiagnosticExportPort has no implementation, so nothing can be written or shared.",
+      "note": "The player shows observed system callbacks, position/duration and requested speed/fit; decoder/HDR/cache/output evidence remains unknown. Export is explicitly disabled because DiagnosticExportPort has no implementation.",
       "sources": [
         "harmonyApp/entry/src/main/cangjie/src/support/diagnostics_export.cj"
       ]

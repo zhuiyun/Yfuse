@@ -4,6 +4,7 @@ import com.yfuse.core.logging.AppLog
 import com.yfuse.core2.android.smbProperties
 import jcifs.CIFSContext
 import jcifs.SmbConstants
+import jcifs.SmbResource
 import jcifs.config.PropertyConfiguration
 import jcifs.context.BaseContext
 import jcifs.smb.NtStatus
@@ -51,15 +52,23 @@ internal class AndroidFileSourceClient(
         source: FileSource,
         credentials: FileSourceCredentials,
         path: List<String>,
-    ): List<FileSourceEntry> =
+    ): List<FileSourceEntry> = listBounded(source, credentials, path, MAX_FILE_SOURCE_LISTING_ENTRIES).entries
+
+    override suspend fun listBounded(
+        source: FileSource,
+        credentials: FileSourceCredentials,
+        path: List<String>,
+        maxEntries: Int,
+    ): FileSourceListing =
         if (source.usesWebDav) {
-            listWebDav(source, credentials, path)
+            listWebDav(source, credentials, path, maxEntries)
         } else {
-            smb.list(
+            smb.listBounded(
                 source.url(path, directory = true),
                 credentials,
                 sharesOnly =
                     source.rootSegments.isEmpty() && path.isEmpty(),
+                maxEntries = maxEntries,
             )
         }
 
@@ -85,7 +94,9 @@ internal class AndroidFileSourceClient(
         source: FileSource,
         credentials: FileSourceCredentials,
         path: List<String>,
-    ): List<FileSourceEntry> {
+        maxEntries: Int,
+    ): FileSourceListing {
+        require(maxEntries in 1..MAX_FILE_SOURCE_LISTING_ENTRIES)
         val request =
             Request
                 .Builder()
@@ -104,12 +115,46 @@ internal class AndroidFileSourceClient(
             }
         val resources =
             try {
-                parseWebDavMultistatus(body)
+                parseWebDavMultistatus(body, maxEntries + 2)
             } catch (error: WebDavParseException) {
                 // A 200 page that is not a multistatus is a website or a login portal, not a share.
                 throw FileSourceException(FileSourceFailure.NotWebDav, cause = error)
             }
-        return webDavChildren(source.rootSegments + path, resources)
+        val children = webDavChildren(source.rootSegments + path, resources)
+        return FileSourceListing(
+            children.take(maxEntries),
+            resources.size >= maxEntries + 2 || children.size > maxEntries,
+        )
+    }
+
+    override fun capabilities(source: FileSource): Set<FileSourceCapability> =
+        setOf(FileSourceCapability.Rename, FileSourceCapability.Move)
+
+    override suspend fun move(
+        source: FileSource,
+        credentials: FileSourceCredentials,
+        from: List<String>,
+        to: List<String>,
+        directory: Boolean,
+    ) {
+        validateFileSourceMove(from, to)
+        if (!source.usesWebDav) {
+            smb.move(source.url(from, directory), source.url(to, directory), credentials)
+            return
+        }
+        val request =
+            Request
+                .Builder()
+                .url(source.url(from, directory))
+                .method("MOVE", null)
+                .header("Destination", source.url(to, directory))
+                .header("Overwrite", "F")
+                .withBasicAuth(credentials)
+                .build()
+        // A move must stay on this exact server; do not replay a mutation on redirect.
+        http.newBuilder().followRedirects(false).followSslRedirects(false).build().newCall(request).await().use {
+            if (it.code !in setOf(201, 204)) throw FileSourceException(webDavFailureFor(it.code), it.code)
+        }
     }
 
     private suspend fun readWebDav(
@@ -155,6 +200,22 @@ internal class AndroidFileSourceClient(
 
 /** The jcifs half, behind an interface so the WebDAV half's tests need no SMB server. */
 internal interface SmbShareReader {
+    suspend fun listBounded(
+        url: String,
+        credentials: FileSourceCredentials,
+        sharesOnly: Boolean,
+        maxEntries: Int,
+    ): FileSourceListing {
+        val all = list(url, credentials, sharesOnly)
+        return FileSourceListing(all.take(maxEntries), all.size > maxEntries)
+    }
+
+    suspend fun move(
+        from: String,
+        to: String,
+        credentials: FileSourceCredentials,
+    ): Unit = throw UnsupportedOperationException("此来源不支持移动")
+
     suspend fun list(
         url: String,
         credentials: FileSourceCredentials,
@@ -179,14 +240,43 @@ internal class JcifsShareReader(
         url: String,
         credentials: FileSourceCredentials,
         sharesOnly: Boolean,
-    ): List<FileSourceEntry> =
+    ): List<FileSourceEntry> = listBounded(url, credentials, sharesOnly, MAX_FILE_SOURCE_LISTING_ENTRIES).entries
+
+    override suspend fun listBounded(
+        url: String,
+        credentials: FileSourceCredentials,
+        sharesOnly: Boolean,
+        maxEntries: Int,
+    ): FileSourceListing =
         runInterruptible(Dispatchers.IO) {
+            require(maxEntries in 1..MAX_FILE_SOURCE_LISTING_ENTRIES)
             withSmbContext(credentials) { context ->
                 SmbFile(url, context).use { folder ->
-                    folder.listFiles().mapNotNull { child -> child.use { it.toEntry(sharesOnly) } }
+                    folder.children().use { children ->
+                        val entries = ArrayList<FileSourceEntry>()
+                        var visited = 0
+                        while (children.hasNext() && visited < maxEntries) {
+                            if (Thread.currentThread().isInterrupted) throw InterruptedIOException()
+                            children.next().use { it.toEntry(sharesOnly)?.let(entries::add) }
+                            visited++
+                        }
+                        FileSourceListing(entries, children.hasNext())
+                    }
                 }
             }
         }
+
+    override suspend fun move(
+        from: String,
+        to: String,
+        credentials: FileSourceCredentials,
+    ) = runInterruptible(Dispatchers.IO) {
+        withSmbContext(credentials) { context ->
+            SmbFile(from, context).use { original ->
+                SmbFile(to, context).use { target -> original.renameTo(target, false) }
+            }
+        }
+    }
 
     override suspend fun read(
         url: String,
@@ -230,7 +320,7 @@ internal class JcifsShareReader(
      * no request per child. On a machine's share list the printers and pipes are left out, as are
      * the hidden `$` shares; see [isHiddenFileSourceName].
      */
-    private fun SmbFile.toEntry(sharesOnly: Boolean): FileSourceEntry? {
+    private fun SmbResource.toEntry(sharesOnly: Boolean): FileSourceEntry? {
         if (sharesOnly) {
             val type = runCatching { type }.getOrDefault(SmbConstants.TYPE_SHARE)
             if (type == SmbConstants.TYPE_PRINTER ||

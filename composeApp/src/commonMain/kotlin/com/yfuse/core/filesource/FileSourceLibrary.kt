@@ -37,6 +37,8 @@ data class FileSourceLibrary(
     @SerialName("unmatched") val unmatchedCount: Int = 0,
     /** The scan stopped at its limits, or lost TMDB, before everything was read and matched. */
     @SerialName("partial") val partial: Boolean = false,
+    @SerialName("checkpoint") val checkpoint: FileSourceScanCheckpoint? = null,
+    @SerialName("sourceVersion") val sourceVersion: String? = null,
 ) {
     fun title(key: String): FileSourceTitle? = titles.firstOrNull { it.key == key }
 
@@ -53,7 +55,7 @@ data class FileSourceLibrary(
 /** An incomplete walk cannot prove a missing path was deleted. A complete rescan can. */
 internal fun FileSourceLibrary.preservingUnreadFiles(previous: FileSourceLibrary?): FileSourceLibrary {
     if (!partial || previous == null) return this
-    val mergedFiles = (files + previous.files).distinctBy { it.path }
+    val mergedFiles = (files.asSequence() + previous.files.asSequence()).distinctBy { it.path }.take(5_000).toList()
     val referencedTitles = mergedFiles.mapTo(mutableSetOf()) { it.titleKey }
     return copy(
         files = mergedFiles,

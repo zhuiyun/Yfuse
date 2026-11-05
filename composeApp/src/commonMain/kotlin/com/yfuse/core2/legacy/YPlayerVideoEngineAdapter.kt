@@ -231,6 +231,7 @@ private fun YPlayerState.toLegacyPlaybackState(
         positionMs = positionMs,
         durationMs = durationMs,
         bufferedPositionMs = bufferedPositionMs,
+        bufferSnapshot = bufferSnapshot,
         speed = speed,
         videoHeight = diagnostics.videoHeight,
         currentIndex = currentIndex,

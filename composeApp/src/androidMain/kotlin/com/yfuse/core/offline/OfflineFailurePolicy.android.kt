@@ -6,6 +6,7 @@ import java.net.HttpURLConnection
 
 internal class OfflineHttpException(
     val statusCode: Int,
+    val accountAuthentication: Boolean = true,
 ) : IOException("HTTP $statusCode")
 
 internal class OfflineStorageException(
@@ -29,7 +30,8 @@ internal fun offlineFailureKind(error: Throwable): DownloadFailureKind =
         is OfflineHttpException ->
             when (error.statusCode) {
                 // 403 is a refusal, not an expired login: signing in again cannot change it.
-                HttpURLConnection.HTTP_UNAUTHORIZED -> DownloadFailureKind.Authentication
+                HttpURLConnection.HTTP_UNAUTHORIZED ->
+                    if (error.accountAuthentication) DownloadFailureKind.Authentication else DownloadFailureKind.Source
                 in 500..599, HttpURLConnection.HTTP_CLIENT_TIMEOUT, 429 -> DownloadFailureKind.Server
                 else -> DownloadFailureKind.Source
             }

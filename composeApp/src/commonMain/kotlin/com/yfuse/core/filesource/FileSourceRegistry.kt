@@ -31,6 +31,7 @@ private data class PersistedFileSource(
     @SerialName("o") val origin: String,
     @SerialName("r") val rootSegments: List<String> = emptyList(),
     @SerialName("u") val username: String = "",
+    @SerialName("rev") val revision: Long = 0,
 )
 
 /**
@@ -81,8 +82,17 @@ class FileSourceRegistry(
             require(replacing || current.size < MAX_FILE_SOURCES) { "文件来源数量已达上限" }
             require(source.id.matches(VALID_ID)) { "文件来源标识无效" }
             require(password == null || password.length <= MAX_PASSWORD_CHARS) { "密码过长" }
-            val normalized = source.copy(name = source.name.take(MAX_SOURCE_NAME_CHARS))
+            val old = current.firstOrNull { it.id == source.id }
             val key = passwordKey(source.id)
+            val credentialChanged = old != null && password != null && passwordDiffers(key, password)
+            val connectionChanged =
+                old != null &&
+                    (old.copy(name = source.name, revision = source.revision) != source || credentialChanged)
+            val normalized =
+                source.copy(
+                    name = source.name.take(MAX_SOURCE_NAME_CHARS),
+                    revision = if (connectionChanged) old!!.revision + 1 else old?.revision ?: source.revision,
+                )
             when {
                 normalized.username.isBlank() || password?.isEmpty() == true -> secureStore.remove(key)
                 password != null -> {
@@ -186,6 +196,7 @@ class FileSourceRegistry(
                             origin = it.origin,
                             rootSegments = it.rootSegments,
                             username = it.username,
+                            revision = it.revision,
                         )
                     },
             )
@@ -219,18 +230,33 @@ class FileSourceRegistry(
                     origin = it.origin,
                     rootSegments = it.rootSegments,
                     username = it.username,
+                    revision = it.revision,
                 )
             }
     }
 
     private fun passwordKey(id: String): String = PASSWORD_KEY_PREFIX + id
 
+    private fun passwordDiffers(
+        key: String,
+        password: String,
+    ): Boolean {
+        val previous = runCatching { secureStore.get(key) }.getOrElse { return true }
+        val replacement = password.encodeToByteArray()
+        return try {
+            !(previous ?: byteArrayOf()).contentEquals(replacement)
+        } finally {
+            previous?.fill(0)
+            replacement.fill(0)
+        }
+    }
+
     private companion object {
         const val SETTINGS_KEY = "filesources.v1"
         const val PERSISTED_VERSION = 1
         const val PASSWORD_KEY_PREFIX = "file-source-password:"
         const val MAX_FILE_SOURCES = 50
-        const val MAX_PASSWORD_CHARS = 1_024
+        const val MAX_PASSWORD_CHARS = 16_384
         val VALID_ID = Regex("fs[0-9a-f]{24}")
     }
 }

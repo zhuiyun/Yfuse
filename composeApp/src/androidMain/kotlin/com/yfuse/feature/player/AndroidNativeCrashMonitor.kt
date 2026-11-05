@@ -290,6 +290,7 @@ internal object AndroidNativeCrashMonitor {
         when (engine) {
             PlayerEngine.Mpv -> NativePlaybackComponent.Mpv
             PlayerEngine.Mdk -> NativePlaybackComponent.Mdk
+            PlayerEngine.SenPlayer -> NativePlaybackComponent.SenPlayer
             PlayerEngine.Exo -> NativePlaybackComponent.Unknown
         }
 

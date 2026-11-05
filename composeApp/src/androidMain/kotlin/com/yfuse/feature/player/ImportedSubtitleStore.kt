@@ -16,7 +16,7 @@ internal class ImportedSubtitleStore(
     fun load(owner: SubtitleItemKey): List<PlayerExternalSubtitle> =
         synchronized(lock) {
             files(owner).sortedBy { it.name }.map { file ->
-                PlayerExternalSubtitle(file.toURI().toString(), language = "本地字幕", codec = file.extension)
+                PlayerExternalSubtitle(file.toURI().toString(), language = file.subtitleLabel(), codec = file.extension)
             }
         }
 
@@ -25,6 +25,7 @@ internal class ImportedSubtitleStore(
         owner: SubtitleItemKey,
         text: String,
         format: YSubtitleFormat,
+        translated: Boolean = false,
         ensureCurrent: () -> Unit = {},
     ): PlayerExternalSubtitle =
         synchronized(lock) {
@@ -39,7 +40,8 @@ internal class ImportedSubtitleStore(
                     else -> format.name.lowercase()
                 }
             val directory = directory(owner)
-            val target = File(directory, "${digest(bytes)}.$extension")
+            val prefix = if (translated) "translated-" else ""
+            val target = File(directory, "$prefix${digest(bytes)}.$extension")
             if (!target.isFile) {
                 check(files(owner).size < 8) { "本片已保存 8 条字幕，请先清除本片已导入字幕。" }
                 val used = root.walkTopDown().filter(File::isFile).sumOf(File::length)
@@ -54,7 +56,7 @@ internal class ImportedSubtitleStore(
                     pending.delete()
                 }
             }
-            PlayerExternalSubtitle(target.toURI().toString(), language = "本地字幕", codec = extension)
+            PlayerExternalSubtitle(target.toURI().toString(), language = target.subtitleLabel(), codec = extension)
         }
 
     fun clear(owner: SubtitleItemKey) =
@@ -76,7 +78,9 @@ internal class ImportedSubtitleStore(
 
     private companion object {
         val lock = Any()
-        val fileName = Regex("[0-9a-f]{64}\\.(srt|vtt|ass|ssa|smi|sub|ttml)")
+        val fileName = Regex("(?:translated-)?[0-9a-f]{64}\\.(srt|vtt|ass|ssa|smi|sub|ttml)")
+
+        fun File.subtitleLabel(): String = if (name.startsWith("translated-")) "翻译字幕" else "本地字幕"
 
         fun digest(bytes: ByteArray): String =
             MessageDigest

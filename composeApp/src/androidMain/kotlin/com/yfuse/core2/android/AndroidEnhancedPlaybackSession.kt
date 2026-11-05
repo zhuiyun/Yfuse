@@ -1195,7 +1195,7 @@ internal class AndroidEnhancedPlaybackSession(
         val subtitleDroppedFuture =
             subtitleCues.droppedFutureDisplayCount + secondarySubtitleCues.droppedFutureDisplayCount
         val gpu = gpuVideoOutput
-        val readAhead = demuxReadAhead.snapshot()
+        val readAhead = demuxReadAhead.snapshot(includeTimestampRanges = true)
         val videoVerified = gpu?.outputVerified ?: firstVideoFrameRendered
         if (videoVerified && pausedPreview.resumePending) pausedPreview.frameRendered()
         if (gpu != null && videoVerified) firstVideoFrameRendered = true
@@ -1309,6 +1309,7 @@ internal class AndroidEnhancedPlaybackSession(
             avSyncOffsetUs = lastAvSyncOffsetUs,
             sourceQueueBytes = readAhead.queuedBytes,
             sourceBufferedUs = readAhead.bufferedDurationUs,
+            sourceBuffer = readAhead,
             sourceStarvationCount = readAhead.starvationCount,
             sourceNetworkBitsPerSecond = readAhead.throughputBitsPerSecond,
             subtitleCues = subtitleCues.toList(),

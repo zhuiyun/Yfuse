@@ -17,6 +17,7 @@ enum class PlaybackEngineSelection {
     LockExo,
     LockMpv,
     LockMdk,
+    LockSenPlayer,
     ;
 
     val lockedEngine: PlayerEngine?
@@ -26,6 +27,7 @@ enum class PlaybackEngineSelection {
                 LockExo -> PlayerEngine.Exo
                 LockMpv -> PlayerEngine.Mpv
                 LockMdk -> PlayerEngine.Mdk
+                LockSenPlayer -> PlayerEngine.SenPlayer
             }
 
     companion object {
@@ -37,6 +39,7 @@ enum class PlaybackEngineSelection {
                 PlayerEngine.Exo -> LockExo
                 PlayerEngine.Mpv -> LockMpv
                 PlayerEngine.Mdk -> LockMdk
+                PlayerEngine.SenPlayer -> LockSenPlayer
             }
     }
 }

@@ -11,6 +11,9 @@ internal data class PlaybackTransportState(
     val bufferedPositionMs: Long,
     val speed: Float,
     val buttons: PlaybackButtonState,
+    val bufferSnapshot: com.yfuse.core2.api.YBufferSnapshot =
+        com.yfuse.core2.api
+            .YBufferSnapshot(),
 )
 
 /** Transport buttons have no position or buffer subscription. */
@@ -29,6 +32,7 @@ internal fun PlaybackState.transportState(): PlaybackTransportState =
         positionMs = positionMs,
         durationMs = durationMs,
         bufferedPositionMs = bufferedPositionMs,
+        bufferSnapshot = bufferSnapshot.atPlaybackPosition(positionMs, durationMs),
         speed = speed,
         buttons = PlaybackButtonState(playing, buffering, hasPrevious, hasNext, durationMs > 0L),
     )

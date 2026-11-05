@@ -821,7 +821,23 @@ internal class AndroidOfflineMediaManager(
                     val resumeFrom = existing
                     val validatorToMatch = expectedValidator
                     connection =
-                        openOfflineTransfer(source, userAgent()) {
+                        openRenewableOfflineTransfer(
+                            initialSource = source,
+                            userAgent = userAgent(),
+                            negotiated = server.kind == MediaServerKind.Plex,
+                            renewSource = {
+                                val latestServer =
+                                    registry.serverById(snapshot.serverId)
+                                        ?: error("服务器已移除，无法续期下载地址")
+                                val renewed =
+                                    if (latestServer.kind == MediaServerKind.Plex) {
+                                        resolvePlexOfflineSourceUrl(snapshot, latestServer, repository)
+                                    } else {
+                                        resolveOfflineSourceUrl(snapshot, registry)
+                                    }
+                                requireAllowedOfflineTransferUrl(renewed, latestServer.localCleartextConfirmed)
+                            },
+                        ) {
                             if (resumeFrom > 0L) {
                                 setRequestProperty("Range", "bytes=$resumeFrom-")
                                 validatorToMatch?.let {
@@ -877,7 +893,10 @@ internal class AndroidOfflineMediaManager(
                         continue
                     }
                     if (code != HttpURLConnection.HTTP_OK && code != HttpURLConnection.HTTP_PARTIAL) {
-                        throw OfflineHttpException(code)
+                        throw OfflineHttpException(
+                            code,
+                            accountAuthentication = connection.url.offlineSameOrigin(java.net.URL(server.baseUrl)),
+                        )
                     }
                     if (code == HttpURLConnection.HTTP_PARTIAL && existing == 0L) {
                         error("服务器返回了无请求的分段响应")

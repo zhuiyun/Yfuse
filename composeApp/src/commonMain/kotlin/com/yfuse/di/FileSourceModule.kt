@@ -17,6 +17,13 @@ import org.koin.dsl.module
 /** 文件来源: the WebDAV, SMB and Alist shares, what has been played from them, and their 刮削. */
 internal fun fileSourceModule(): Module =
     module {
+        single {
+            com.yfuse.core.iptv
+                .IptvRepository(
+                    com.yfuse.core.iptv
+                        .createIptvStorage(),
+                )
+        }
         // 文件来源: a store of its own rather than entries in ServerRegistry, so nothing that speaks the
         // Emby API is ever handed a WebDAV share. Its passwords get their own Keystore namespace.
         single {

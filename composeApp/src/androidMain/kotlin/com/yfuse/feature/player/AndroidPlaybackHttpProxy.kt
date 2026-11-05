@@ -555,8 +555,10 @@ internal data class PlaybackHttpByteRange(
 internal fun parsePlaybackHttpByteRange(value: String?): PlaybackHttpByteRange? {
     val match = value?.trim()?.let(HTTP_BYTE_RANGE::matchEntire) ?: return null
     val start = match.groupValues[1].toLongOrNull() ?: return null
-    val endInclusive = match.groupValues[2].takeIf(String::isNotEmpty)?.toLongOrNull()
+    val endText = match.groupValues[2]
+    val endInclusive = if (endText.isEmpty()) null else endText.toLongOrNull() ?: return null
     if (endInclusive != null && endInclusive < start) return null
+    if (endInclusive != null && endInclusive - start == Long.MAX_VALUE) return null
     return PlaybackHttpByteRange(start = start, endInclusive = endInclusive)
 }
 

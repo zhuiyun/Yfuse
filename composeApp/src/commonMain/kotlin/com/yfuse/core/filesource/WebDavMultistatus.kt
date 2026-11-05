@@ -24,7 +24,11 @@ internal class WebDavParseException(
  * processing instructions are skipped, and no entity beyond the predefined five and numeric
  * references is ever expanded.
  */
-internal fun parseWebDavMultistatus(xml: String): List<WebDavResource> {
+internal fun parseWebDavMultistatus(
+    xml: String,
+    maxResources: Int = MAX_FILE_SOURCE_LISTING_ENTRIES + 2,
+): List<WebDavResource> {
+    require(maxResources > 0)
     val resources = mutableListOf<WebDavResource>()
     val namespaces = ArrayDeque<Map<String, String>>()
     val elements = ArrayDeque<String>()
@@ -77,7 +81,7 @@ internal fun parseWebDavMultistatus(xml: String): List<WebDavResource> {
                         propstat = null
                     }
                     name == DAV_RESPONSE && currentResponse != null -> {
-                        currentResponse.build()?.let(resources::add)
+                        if (resources.size < maxResources) currentResponse.build()?.let(resources::add)
                         response = null
                     }
                 }

@@ -62,6 +62,7 @@ sealed interface FolderListing {
         /** Everything the share returned, subtitles included: a queue pairs them from this. */
         val entries: List<FileSourceEntry>,
         val rows: List<FolderRow>,
+        val truncated: Boolean = false,
     ) : FolderListing
 
     data class Failed(
@@ -121,6 +122,7 @@ class FileSourcesController(
     private var submitJob: Job? = null
     private var playJob: Job? = null
     private var playGeneration = 0L
+    private var formGeneration = 0L
     private val folderJobs = mutableMapOf<List<String>, Job>()
 
     /** Decrypted once per browsing session, not once per folder; dropped when the browser closes. */
@@ -129,16 +131,49 @@ class FileSourcesController(
     // ------------------------------------------------------------------ the form
 
     fun openAdd() {
+        formGeneration++
         _form.value = FileSourceFormState()
     }
 
     fun openEdit(source: FileSource) {
+        val generation = ++formGeneration
+        val initialDraft = source.toDraft()
         _form.value =
             FileSourceFormState(
                 editingId = source.id,
-                draft = source.toDraft(),
+                draft = initialDraft,
                 passwordStored = source.username.isNotBlank(),
             )
+        if (source.isCloud) {
+            scope.launch {
+                val saved = registry.credentials(source.id)?.password ?: return@launch
+                val cloud =
+                    runCatching {
+                        com.yfuse.core.cloud.CloudDriveCredentials
+                            .decode(saved)
+                    }.getOrNull() ?: return@launch
+                _form.update { current ->
+                    current
+                        ?.takeIf {
+                            generation == formGeneration &&
+                                it.editingId == source.id &&
+                                it.draft.kind == initialDraft.kind &&
+                                it.draft.username == initialDraft.username &&
+                                it.draft.clientSecret == initialDraft.clientSecret &&
+                                it.draft.accessToken == initialDraft.accessToken &&
+                                it.draft.refreshToken == initialDraft.refreshToken
+                        }?.copy(
+                            draft =
+                                current.draft.copy(
+                                    username = cloud.clientId,
+                                    clientSecret = cloud.clientSecret,
+                                    accessToken = cloud.accessToken,
+                                    refreshToken = cloud.refreshToken,
+                                ),
+                        ) ?: current
+                }
+            }
+        }
     }
 
     fun editDraft(transform: (FileSourceDraft) -> FileSourceDraft) {
@@ -149,6 +184,7 @@ class FileSourcesController(
     }
 
     fun dismissForm() {
+        formGeneration++
         submitJob?.cancel()
         _form.value = null
     }
@@ -175,11 +211,22 @@ class FileSourcesController(
                 name = address.name,
                 origin = address.origin,
                 rootSegments = address.rootSegments,
-                username = draft.username.trim(),
+                username =
+                    draft.username.trim().ifEmpty {
+                        if (draft.kind == FileSourceKind.Pan123 ||
+                            draft.kind == FileSourceKind.Baidu
+                        ) {
+                            "token"
+                        } else {
+                            ""
+                        }
+                    },
+                revision = existing?.revision ?: 0,
             )
         // Blank while editing means 不修改; a guest source stores no password at all.
         val password =
             when {
+                source.isCloud -> draft.cloudCredentials().encode()
                 source.username.isBlank() -> ""
                 existing != null && draft.password.isEmpty() -> null
                 else -> draft.password
@@ -209,7 +256,7 @@ class FileSourcesController(
                         open(source)
                     } else {
                         _notice.value = "已保存「${source.name}」"
-                        if (_browser.value?.source?.id == source.id) open(source)
+                        if (_browser.value?.source?.id == source.id) open(registry.source(source.id) ?: source)
                     }
                 } catch (error: CancellationException) {
                     throw error
@@ -225,6 +272,10 @@ class FileSourcesController(
         scope.launch {
             try {
                 registry.remove(source.id)
+                if (source.isCloud) {
+                    com.yfuse.core.cloud
+                        .forgetCloudDriveAuthorization(source.id)
+                }
                 progressStore.removeSource(source.id)
                 scans.forget(source.id)
                 if (_browser.value?.source?.id == source.id) closeBrowser()
@@ -297,6 +348,43 @@ class FileSourcesController(
         load(browser.path)
     }
 
+    fun canMove(source: FileSource): Boolean =
+        com.yfuse.core.filesource.FileSourceCapability.Move in client.capabilities(source)
+
+    /** Destination is relative to the root. FTP checks first; WebDAV and SMB refuse overwrites atomically. */
+    fun move(
+        entry: FileSourceEntry,
+        destination: String,
+    ) {
+        val browser = _browser.value ?: return
+        if (!canMove(browser.source)) return
+        val to = destination.trim().trim('/').split('/')
+        val from = browser.path + entry.name
+        scope.launch {
+            try {
+                com.yfuse.core.filesource
+                    .validateFileSourceMove(from, to)
+                client.move(browser.source, credentials(browser.source), from, to, entry.directory)
+                scans.forget(browser.source.id)
+                if (_browser.value?.source?.id == browser.source.id) {
+                    _browser.update { it?.copy(folders = emptyMap()) }
+                    refresh()
+                }
+                showNotice("已移动，片库索引需重新扫描")
+            } catch (
+                error: CancellationException,
+            ) {
+                throw error
+            } catch (
+                error: Exception,
+            ) {
+                showNotice(
+                    if (error is IllegalArgumentException) error.message ?: "目标路径无效" else "移动失败，请确认目标不存在同名文件且账号有写入权限",
+                )
+            }
+        }
+    }
+
     /**
      * Plays [entry] and the folder around it. [fromStart] ignores the resume point — 从头播放 —
      * without forgetting it, so backing out early still leaves the old point in place.
@@ -353,6 +441,45 @@ class FileSourcesController(
         _launch.value = null
     }
 
+    /** Search/library entry point; resolve fresh credentials and links only when the user plays. */
+    fun playIndexed(
+        sourceId: String,
+        path: List<String>,
+    ) {
+        val source = registry.source(sourceId) ?: return
+        if (path.isEmpty()) return
+        cancelPlayback()
+        val generation = playGeneration
+        playJob =
+            scope.launch {
+                try {
+                    val credentials = registry.credentials(sourceId) ?: return@launch
+                    val entries =
+                        client
+                            .listBounded(
+                                source,
+                                credentials,
+                                path.dropLast(1),
+                                com.yfuse.core.filesource.MAX_FILE_SOURCE_LISTING_ENTRIES,
+                            ).entries
+                    val entry =
+                        entries.firstOrNull { it.name == path.last() && it.isVideo }
+                            ?: throw FileSourceException(com.yfuse.core.filesource.FileSourceFailure.NotFound)
+                    val plan = planFileSourceQueue(sourceId, path.dropLast(1), entries, entry)
+                    val prepared = prepareFileSourceLaunch(source, credentials, plan, client, progress.value)
+                    if (generation == playGeneration && registry.source(sourceId) == source) _launch.value = prepared
+                } catch (
+                    error: CancellationException,
+                ) {
+                    throw error
+                } catch (
+                    error: Exception,
+                ) {
+                    if (generation == playGeneration) showNotice(error.userMessageFor(source.kind))
+                }
+            }
+    }
+
     private fun cancelPlayback() {
         playGeneration++
         playJob?.cancel()
@@ -386,8 +513,15 @@ class FileSourcesController(
             scope.launch {
                 val listing =
                     try {
-                        val entries = client.list(source, credentials(source), path)
-                        FolderListing.Loaded(entries, folderRows(source.id, path, entries))
+                        val listing =
+                            client.listBounded(
+                                source,
+                                credentials(source),
+                                path,
+                                com.yfuse.core.filesource.MAX_FILE_SOURCE_LISTING_ENTRIES,
+                            )
+                        val entries = listing.entries.take(com.yfuse.core.filesource.MAX_FILE_SOURCE_LISTING_ENTRIES)
+                        FolderListing.Loaded(entries, folderRows(source.id, path, entries), listing.truncated)
                     } catch (error: CancellationException) {
                         throw error
                     } catch (error: Exception) {
@@ -467,6 +601,7 @@ internal fun FileSource.toDraft(): FileSourceDraft {
         when (scheme) {
             "https" -> "443"
             "http" -> "80"
+            "ftp" -> "21"
             else -> "445"
         }
     val impliedPort = schemePort.takeIf { it != kind.defaultPort(https).toString() }.orEmpty()

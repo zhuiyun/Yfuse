@@ -271,6 +271,10 @@ class MdkVideoEngine(
     private val pendingProgressiveSwitches = PendingProgressiveSwitches()
     private var fallbackJob: Job? = null
     private var mediaLoadJob: Job? = null
+    private val bufferSessionId =
+        java.util.UUID
+            .randomUUID()
+            .toString()
     private val _state =
         MutableStateFlow(
             PlaybackState(
@@ -444,6 +448,7 @@ class MdkVideoEngine(
         }
     }
 
+    @Synchronized
     override fun seekTo(positionMs: Long) {
         val target = positionMs.coerceAtLeast(0L)
         pendingSeek.request(target)
@@ -451,6 +456,9 @@ class MdkVideoEngine(
             it.copy(
                 positionMs = target,
                 bufferedPositionMs = target,
+                bufferSnapshot =
+                    com.yfuse.core2.api
+                        .YBufferSnapshot(),
                 ended = false,
             )
         }
@@ -583,9 +591,12 @@ class MdkVideoEngine(
                 currentIndex = index,
                 playing = true,
                 buffering = true,
-                positionMs = if (mediaChanged) 0L else it.positionMs,
+                positionMs = 0L,
                 durationMs = if (mediaChanged) 0L else it.durationMs,
-                bufferedPositionMs = if (mediaChanged) 0L else it.bufferedPositionMs,
+                bufferedPositionMs = 0L,
+                bufferSnapshot =
+                    com.yfuse.core2.api
+                        .YBufferSnapshot(),
                 videoHeight = nextItem?.sourceVideoHeight(transcoding) ?: 0,
                 audioTracks = emptyList(),
                 subtitleTracks = emptyList(),
@@ -639,6 +650,9 @@ class MdkVideoEngine(
                 error = null,
                 buffering = true,
                 bufferedPositionMs = it.positionMs,
+                bufferSnapshot =
+                    com.yfuse.core2.api
+                        .YBufferSnapshot(),
                 ended = false,
                 fallbacksExhausted = false,
                 automaticFallbackBlocked = false,
@@ -899,7 +913,7 @@ class MdkVideoEngine(
                         _state.value.positionMs
                     }
             val reportedDurationMs = snapshot.durationMs
-            val bufferedDurationMs = snapshot.bufferedDurationMs
+            val bufferedDurationMs = snapshot.timelineBufferedDurationMs(pendingSeek.positionMs >= 0L)
             val playbackEvidence = decodeMdkPlaybackEvidence(instance.playbackEvidence())
             items.getOrNull(_state.value.currentIndex)?.let { item ->
                 if (playbackEvidence.firstVideoFrameRendered ||
@@ -920,6 +934,15 @@ class MdkVideoEngine(
                     buffering = buffering,
                     positionMs = positionMs,
                     durationMs = durationMs,
+                    bufferSnapshot =
+                        com.yfuse.core2.api.forwardBufferSnapshot(
+                            bufferSessionId,
+                            epoch,
+                            com.yfuse.core2.api.YBufferRangeSource.MdkForward,
+                            positionMs,
+                            bufferedEndPositionMs(positionMs, durationMs, bufferedDurationMs),
+                            durationMs,
+                        ),
                     bufferedPositionMs =
                         bufferedEndPositionMs(
                             positionMs = positionMs,
@@ -1073,6 +1096,9 @@ class MdkVideoEngine(
                 error = null,
                 buffering = true,
                 bufferedPositionMs = it.positionMs,
+                bufferSnapshot =
+                    com.yfuse.core2.api
+                        .YBufferSnapshot(),
                 ended = false,
                 transcoding = true,
                 fallbacksExhausted = false,

@@ -724,6 +724,14 @@ internal fun DownloadsScreen(
                             }
                         }
 
+                        if (summary.failed > 0) {
+                            BatchAction(
+                                "仅重试失败项（${summary.failed}）",
+                                Modifier.fillMaxWidth().padding(horizontal = Dimens.pageHorizontal, vertical = 8.dp),
+                            ) {
+                                manager.resumeMany(items.filter { it.status == DownloadStatus.Failed }.map { it.id })
+                            }
+                        }
                         // Queue-wide actions, only while there is a queue to act on.
                         AnimatedVisibility(
                             visible = canPauseAll || canResumeAll,
