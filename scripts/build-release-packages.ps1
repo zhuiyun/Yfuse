@@ -86,7 +86,7 @@ function Assert-DexVerifies([string]$Apk, [string]$Mapping) {
         $classpath += $jar
     }
     & java -Xmx2g -cp ($classpath -join [IO.Path]::PathSeparator) `
-        (Join-Path $root 'scripts/dex-verify/DexRegisterTypeCheck.java') --mapping $Mapping $Apk
+        (Join-Path $root 'scripts/dex-verify/DexRegisterTypeCheck.java') --android-project $root --mapping $Mapping $Apk
     if ($LASTEXITCODE -ne 0) {
         throw "ART would reject DEX code in $Apk (findings above); do not distribute this package"
     }

@@ -50,4 +50,4 @@ while read -r expected path; do
 done <"$CHECKSUMS"
 [[ -n "$classpath" ]] || die "no tool jars listed in $CHECKSUMS"
 
-exec java -Xmx2g -cp "$classpath" "$ROOT/scripts/dex-verify/DexRegisterTypeCheck.java" "$@"
+exec java -Xmx2g -cp "$classpath" "$ROOT/scripts/dex-verify/DexRegisterTypeCheck.java" --android-project "$ROOT" "$@"

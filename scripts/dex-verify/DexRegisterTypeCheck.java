@@ -1,3 +1,5 @@
+import java.io.BufferedInputStream;
+import java.io.DataInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -7,10 +9,13 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 import org.jf.dexlib2.DexFileFactory;
 import org.jf.dexlib2.Opcode;
 import org.jf.dexlib2.Opcodes;
@@ -37,6 +42,7 @@ import org.jf.dexlib2.iface.reference.FieldReference;
 import org.jf.dexlib2.iface.reference.MethodReference;
 import org.jf.dexlib2.iface.reference.TypeReference;
 import org.jf.dexlib2.util.MethodUtil;
+import org.jf.dexlib2.immutable.ImmutableClassDef;
 
 /**
  * Flags DEX code that ART's verifier rejects because a register holds the wrong kind of value: an
@@ -58,7 +64,8 @@ import org.jf.dexlib2.util.MethodUtil;
  * R8's mapping file traces back to com.yfuse; without --mapping, only classes R8 left unrenamed
  * are recognised.
  *
- * Usage: java -cp <dexlib2 classpath> DexRegisterTypeCheck.java [--list-registers-over N]
+ * Usage: java -cp <dexlib2 classpath> DexRegisterTypeCheck.java [--android-jar <android.jar>]
+ *            [--android-project <project-root>] [--list-registers-over N]
  *            [--mapping <R8 mapping.txt>] <apk-or-dex> [[--mapping <file>] <apk-or-dex>]...
  * A --mapping belongs to the APK after it. --list-registers-over also prints every method, the
  * app's or a library's, that has more than N registers.
@@ -78,6 +85,7 @@ public final class DexRegisterTypeCheck {
     /** D8, R8 and L8 leave a marker string such as ~~R8{..."version":"9.1.31"} in their output. */
     private static final Pattern COMPILER_MARKER = Pattern.compile("^~~([DLR]8)\\{.*\"version\":\"([^\"]+)\"");
 
+    private final ClassProvider platform;
     private final Mapping mapping;
     private final int listOver;
     private int classes;
@@ -88,17 +96,27 @@ public final class DexRegisterTypeCheck {
     private final List<SizedMethod> largeMethods = new ArrayList<>();
     private SizedMethod largestOwn;
 
-    private DexRegisterTypeCheck(Mapping mapping, int listOver) {
+    private DexRegisterTypeCheck(Mapping mapping, int listOver, ClassProvider platform) {
+        this.platform = platform;
         this.mapping = mapping;
         this.listOver = listOver;
     }
 
     public static void main(String[] args) throws Exception {
+        ClassProvider platform = null;
         Mapping mapping = null;
         int listOver = -1;
         boolean checked = false;
         boolean failed = false;
         for (int i = 0; i < args.length; i++) {
+            if (args[i].equals("--android-project") && i + 1 < args.length) {
+                platform = new AndroidJarClassProvider(projectAndroidJar(new File(args[++i])));
+                continue;
+            }
+            if (args[i].equals("--android-jar") && i + 1 < args.length) {
+                platform = new AndroidJarClassProvider(existingFile(args[++i]));
+                continue;
+            }
             if (args[i].equals("--mapping") && i + 1 < args.length) {
                 mapping = Mapping.read(existingFile(args[++i]));
                 continue;
@@ -107,17 +125,112 @@ public final class DexRegisterTypeCheck {
                 listOver = Integer.parseInt(args[++i]);
                 continue;
             }
-            DexRegisterTypeCheck check = new DexRegisterTypeCheck(mapping, listOver);
+            DexRegisterTypeCheck check = new DexRegisterTypeCheck(mapping, listOver, platform);
             check.run(existingFile(args[i]));
             failed |= check.report(args[i]);
             checked = true;
             mapping = null;
         }
         if (!checked) {
-            System.err.println("usage: DexRegisterTypeCheck [--list-registers-over N] [--mapping <mapping.txt>] <apk-or-dex>...");
+            System.err.println("usage: DexRegisterTypeCheck [--android-jar <android.jar> | --android-project <root>] [--list-registers-over N] [--mapping <mapping.txt>] <apk-or-dex>...");
             System.exit(2);
         }
         System.exit(failed ? 1 : 0);
+    }
+
+    /** Match this project's compileSdk; an explicit jar override also supports auditing older releases. */
+    private static File projectAndroidJar(File root) throws IOException {
+        String explicit = System.getenv("DEX_VERIFY_ANDROID_JAR");
+        if (explicit != null && !explicit.isBlank()) return existingFile(explicit);
+        Properties local = new Properties();
+        File properties = new File(root, "local.properties");
+        if (properties.isFile()) {
+            try (var input = Files.newInputStream(properties.toPath())) { local.load(input); }
+        }
+        String sdk = local.getProperty("sdk.dir");
+        if (sdk == null || sdk.isBlank()) sdk = System.getenv("ANDROID_HOME");
+        if (sdk == null || sdk.isBlank()) sdk = System.getenv("ANDROID_SDK_ROOT");
+        if (sdk == null || sdk.isBlank()) {
+            throw new IOException("Android SDK is unavailable; pass --android-jar or set DEX_VERIFY_ANDROID_JAR");
+        }
+        // Kept aligned with composeApp/build.gradle.kts: release(37) { minorApiLevel = 0 }.
+        return existingFile(new File(sdk, "platforms/android-37.0/android.jar").getPath());
+    }
+
+    /** SDK class-file type headers only: no generated members, bodies, or guessed hierarchy. */
+    private static final class AndroidJarClassProvider implements ClassProvider {
+        private final Map<String, ClassDef> definitions = new HashMap<>();
+
+        AndroidJarClassProvider(File jar) throws IOException {
+            try (ZipFile zip = new ZipFile(jar)) {
+                var entries = zip.entries();
+                while (entries.hasMoreElements()) {
+                    ZipEntry entry = entries.nextElement();
+                    if (entry.isDirectory() || !entry.getName().endsWith(".class")) continue;
+                    try (DataInputStream in = new DataInputStream(new BufferedInputStream(zip.getInputStream(entry)))) {
+                        ClassDef definition = readHeader(in);
+                        String expectedType = "L" + entry.getName().substring(0, entry.getName().length() - 6) + ";";
+                        if (!definition.getType().equals(expectedType)) {
+                            throw new IOException("Class name/path mismatch: " + entry.getName());
+                        }
+                        if (definitions.putIfAbsent(definition.getType(), definition) != null) {
+                            throw new IOException("Duplicate platform type: " + definition.getType());
+                        }
+                    }
+                }
+            }
+            if (definitions.isEmpty()) throw new IOException("No platform class headers in " + jar);
+            System.out.printf("Platform type headers: %d from %s (no method bodies supplied)%n", definitions.size(), jar);
+        }
+
+        @Override public ClassDef getClassDef(String type) { return definitions.get(type); }
+
+        private static ClassDef readHeader(DataInputStream in) throws IOException {
+            if (in.readInt() != 0xCAFEBABE) throw new IOException("Invalid class-file magic");
+            in.readUnsignedShort(); // minor_version
+            in.readUnsignedShort(); // major_version
+            Object[] pool = new Object[in.readUnsignedShort()];
+            for (int i = 1; i < pool.length; i++) {
+                int tag = in.readUnsignedByte();
+                switch (tag) {
+                    case 1: pool[i] = in.readUTF(); break;
+                    case 7: pool[i] = in.readUnsignedShort(); break;
+                    case 3: case 4: in.readInt(); break;
+                    case 5: case 6:
+                        in.readLong();
+                        if (++i >= pool.length) throw new IOException("Invalid two-slot constant");
+                        break;
+                    case 8: case 16: case 19: case 20: in.readUnsignedShort(); break;
+                    case 9: case 10: case 11: case 12: case 17: case 18: in.readInt(); break;
+                    case 15: in.readUnsignedByte(); in.readUnsignedShort(); break;
+                    default: throw new IOException("Unsupported constant-pool tag " + tag);
+                }
+            }
+            int accessFlags = in.readUnsignedShort();
+            String type = descriptor(pool, in.readUnsignedShort());
+            int parent = in.readUnsignedShort();
+            String superclass = parent == 0 ? null : descriptor(pool, parent);
+            List<String> interfaces = new ArrayList<>();
+            int count = in.readUnsignedShort();
+            for (int i = 0; i < count; i++) interfaces.add(descriptor(pool, in.readUnsignedShort()));
+            // JVM ACC_SUPER (0x20) is an invocation-mode bit, not a DEX class access flag.
+            // The remaining class visibility/interface/abstract/final/enum flags are preserved.
+            return new ImmutableClassDef(type, accessFlags & ~0x0020, superclass, interfaces,
+                null, List.of(), List.of(), List.of());
+        }
+
+        private static String descriptor(Object[] pool, int index) throws IOException {
+            if (index <= 0 || index >= pool.length || !(pool[index] instanceof Integer)) {
+                throw new IOException("Invalid CONSTANT_Class index " + index);
+            }
+            int nameIndex = (Integer) pool[index];
+            if (nameIndex <= 0 || nameIndex >= pool.length || !(pool[nameIndex] instanceof String)) {
+                throw new IOException("Invalid class name index " + nameIndex);
+            }
+            String name = (String) pool[nameIndex];
+            if (name.isEmpty() || name.startsWith("[")) throw new IOException("Invalid class header type " + name);
+            return "L" + name + ";";
+        }
     }
 
     private static File existingFile(String path) {
@@ -134,13 +247,14 @@ public final class DexRegisterTypeCheck {
             DexFileFactory.loadDexContainer(file, Opcodes.forApi(MIN_API));
         List<DexBackedDexFile> dexFiles = new ArrayList<>();
         List<ClassProvider> providers = new ArrayList<>();
+        if (platform != null) providers.add(platform); // Framework parent resolves before application classes.
         for (String entry : container.getDexEntryNames()) {
             DexBackedDexFile dex = container.getEntry(entry).getDexFile();
             dexFiles.add(dex);
             providers.add(new DexClassProvider(dex));
         }
-        // Every dex of the APK is on the class path so cross-dex hierarchies merge as ART merges
-        // them; platform classes stay unresolved, which only ever widens a reference type.
+        // Input DEX share this analysis class path; isolated runtime payloads can also be checked
+        // separately. Platform headers come from the compile SDK; unresolved types still fail analysis.
         ClassPath classPath = new ClassPath(providers, false, ClassPath.NOT_SPECIFIED);
         for (DexBackedDexFile dex : dexFiles) {
             for (String string : dex.getStringSection()) {
