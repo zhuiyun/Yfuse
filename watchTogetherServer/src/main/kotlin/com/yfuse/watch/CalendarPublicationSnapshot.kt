@@ -1,10 +1,12 @@
 package com.yfuse.watch
 
+import com.yfuse.watch.protocol.SupplementalCalendarEntry
 import java.util.Collections
 
 /** Owns every list and preserves the same stable ordering used by the SQLite publication reader. */
 internal fun CalendarPublication.immutableCalendarSnapshot(): CalendarPublication =
     copy(
+        supplemental = supplemental.sortedBy(SupplementalCalendarEntry::coordinate).immutableCopy(),
         schedules =
             schedules
                 .sortedWith(compareBy(CalendarSeries::tmdbId, CalendarSeries::seasonNumber))

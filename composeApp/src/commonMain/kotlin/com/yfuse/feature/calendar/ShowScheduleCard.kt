@@ -164,6 +164,7 @@ internal fun ShowScheduleDialog(
     onRefresh: (() -> Unit)? = null,
     onOpenEntry: ((CalendarEntry) -> Unit)? = null,
     onRebindIdentity: (() -> Unit)? = null,
+    canFollow: Boolean = true,
     replacement: (@Composable ColumnScope.() -> Unit)? = null,
 ) {
     val uriHandler = LocalUriHandler.current
@@ -263,7 +264,7 @@ internal fun ShowScheduleDialog(
             if (pendingUnfollow && latestFollowed) latestToggleFollow()
         }
     }
-    val shownFollowed = !pendingUnfollow && (requestedFollow ?: followed)
+    val shownFollowed = canFollow && !pendingUnfollow && (requestedFollow ?: followed)
     var reminderOpen by remember { mutableStateOf(false) }
     LaunchedEffect(shownFollowed) {
         if (!shownFollowed) reminderOpen = false
@@ -409,7 +410,7 @@ internal fun ShowScheduleDialog(
                         null
                     },
                 onReminder =
-                    if (calendarShown) {
+                    if (calendarShown && canFollow) {
                         {
                             when {
                                 shownFollowed -> reminderOpen = !reminderOpen
@@ -432,7 +433,7 @@ internal fun ShowScheduleDialog(
                     },
                 onRefresh = onRefresh?.takeIf { calendarShown },
                 onFollow =
-                    if (calendarShown) {
+                    if (calendarShown && canFollow) {
                         {
                             when {
                                 pendingUnfollow -> pendingUnfollow = false

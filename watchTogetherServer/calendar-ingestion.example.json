@@ -1,5 +1,12 @@
 {
   "refreshMinutes": 30,
+  "re0": {
+    "enabled": false,
+    "baseUrl": "http://127.0.0.1:12366",
+    "usernameEnvironment": "YFUSE_RE0_USERNAME",
+    "passwordEnvironment": "YFUSE_RE0_PASSWORD",
+    "days": 30
+  },
   "verifiedAccounts": [
     {
       "publisherId": "1832974324",

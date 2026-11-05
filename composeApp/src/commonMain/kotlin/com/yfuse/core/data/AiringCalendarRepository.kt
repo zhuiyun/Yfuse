@@ -32,6 +32,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import java.time.OffsetDateTime
 
 /**
  * 追剧日历 — what is broadcasting, and what this library can do about it.
@@ -49,6 +50,9 @@ class AiringCalendarRepository(
     /** Null contacts every server, as hosts without a running monitor always did. */
     private val serverHealth: ServerHealthMonitor? = null,
     private val supplementalSchedules: SeriesAiringScheduleFallback? = null,
+    /** Broadcast instants can be tested independently of cache-expiration timing. */
+    private val broadcastEpochMillis: () -> Long = ::currentEpochMillis,
+    val metadataSources: CalendarMetadataRepository? = null,
 ) {
     private data class IdentityCatalogSnapshot(
         val fetchedAtEpochMs: Long,
@@ -488,6 +492,25 @@ class AiringCalendarRepository(
         onPreview: (List<CalendarDay>) -> Unit = {},
     ): Result<List<CalendarDay>> = calendar(pastDays, futureDays, today, forceRefresh, onPreview)
 
+    /** A movie refresh uses its own publication row, never the TV endpoint with the same id. */
+    suspend fun movieCalendar(
+        movie: AiringEpisode,
+        today: String = currentIsoDate(),
+        forceRefresh: Boolean = false,
+        onPreview: (List<CalendarDay>) -> Unit = {},
+    ): Result<List<CalendarDay>> {
+        require(movie.isMovie)
+
+        fun rows() =
+            officialSchedules
+                .between("0001-01-01", "9999-12-31")
+                .filter { it.titleKey == movie.titleKey }
+                .ifEmpty { listOf(movie) }
+        onPreview(unresolvedCalendarDays(rows(), today))
+        officialSchedules.refreshIfDue(force = forceRefresh)
+        return calendarDays(rows(), today, forceRefresh = forceRefresh, onPreview = onPreview)
+    }
+
     /** Loads the complete useful window for one title without opening global discovery. */
     suspend fun seriesCalendar(
         series: FollowedSeries,
@@ -529,7 +552,7 @@ class AiringCalendarRepository(
         val to = futureDays?.let { shiftIsoDate(today, it) } ?: "9999-12-31"
         val ids = series.map(FollowedSeries::tmdbId).toSet()
 
-        fun rows() = officialSchedules.between(from, to).filter { it.showTmdbId in ids }
+        fun rows() = officialSchedules.between(from, to).filter { !it.isMovie && it.showTmdbId in ids }
         val cached = rows()
         if (cached.isNotEmpty()) onPreview(unresolvedCalendarDays(cached, today))
         val refresh = officialSchedules.refreshIfDue(force = forceRefresh)
@@ -555,10 +578,20 @@ class AiringCalendarRepository(
         today: String,
     ): List<AiringEpisode> {
         val lookup = supplementalSchedules ?: return published
-        val covered = published.filter { it.airDate > today }.mapTo(hashSetOf(), AiringEpisode::showTmdbId)
+        val covered =
+            published
+                .filter {
+                    !it.isMovie &&
+                        it.airDate > today &&
+                        it.scheduleAuthority in
+                        setOf(AiringScheduleAuthority.Official, AiringScheduleAuthority.Verified)
+                }.mapTo(
+                    hashSetOf(),
+                    AiringEpisode::showTmdbId,
+                )
         val extra = mutableListOf<AiringEpisode>()
         val extraMutex = Mutex()
-        withTimeoutOrNull(8_000L) {
+        withTimeoutOrNull(12_000L) {
             coroutineScope {
                 series
                     .distinctBy(FollowedSeries::tmdbId)
@@ -603,6 +636,7 @@ class AiringCalendarRepository(
             val targetSeasons =
                 days
                     .flatMap(CalendarDay::entries)
+                    .filterNot { it.episode.isMovie }
                     .flatMap { entry ->
                         entry.sources.mapNotNull { source ->
                             source.seriesItemId?.let {
@@ -746,7 +780,7 @@ class AiringCalendarRepository(
                 ?.let { restoreLocalDays(it, today) }
                 ?.mapNotNull { day ->
                     day.entries
-                        .filter { it.episode.showTmdbId == showTmdbId }
+                        .filter { !it.episode.isMovie && it.episode.showTmdbId == showTmdbId }
                         .takeIf(List<CalendarEntry>::isNotEmpty)
                         ?.let { day.copy(entries = it) }
                 }.orEmpty()
@@ -785,7 +819,7 @@ class AiringCalendarRepository(
                 }
             }
         val initial = mergedSchedule()
-        if (initial.isNotEmpty()) onPreview(calendarPreviewDays(initial, today, hint))
+        if (initial.isNotEmpty()) onPreview(calendarPreviewDays(initial, today, hint, broadcastEpochMillis()))
 
         suspend fun resolve(scheduled: List<AiringEpisode>) =
             calendarDays(
@@ -839,14 +873,14 @@ class AiringCalendarRepository(
             resolveStatus(episodes, today, libraryHint, forceRefresh) { partial ->
                 onPreview(
                     partial
-                        .map { it.copy(followed = followStore.isFollowing(it.episode.showTmdbId)) }
+                        .map { it.copy(followed = followStore.isFollowing(it.episode)) }
                         .groupBy { it.episode.airDate }
                         .toSortedMap()
                         .map { (date, entries) -> CalendarDay(date, entries) },
                 )
             }.map { entry ->
                 entry.copy(
-                    followed = followStore.isFollowing(entry.episode.showTmdbId),
+                    followed = followStore.isFollowing(entry.episode),
                     availabilityCheckedAtEpochMs = checkedAt,
                     availabilityStale = false,
                 )
@@ -891,8 +925,18 @@ class AiringCalendarRepository(
             .map { episode ->
                 CalendarEntry(
                     episode = episode,
-                    status = if (!airingHasStarted(episode, today)) LibraryStatus.Unaired else LibraryStatus.Unknown,
-                    followed = followStore.isFollowing(episode.showTmdbId),
+                    status =
+                        if (!airingHasStarted(
+                                episode,
+                                today,
+                                broadcastEpochMillis(),
+                            )
+                        ) {
+                            LibraryStatus.Unaired
+                        } else {
+                            LibraryStatus.Unknown
+                        },
+                    followed = followStore.isFollowing(episode),
                     dataIssue =
                         CalendarDataIssue.NoServer.takeIf {
                             registry.data.value.servers
@@ -927,7 +971,17 @@ class AiringCalendarRepository(
             return episodes.map {
                 CalendarEntry(
                     episode = it,
-                    status = if (!airingHasStarted(it, today)) LibraryStatus.Unaired else LibraryStatus.Unknown,
+                    status =
+                        if (!airingHasStarted(
+                                it,
+                                today,
+                                broadcastEpochMillis(),
+                            )
+                        ) {
+                            LibraryStatus.Unaired
+                        } else {
+                            LibraryStatus.Unknown
+                        },
                     dataIssue = CalendarDataIssue.NoServer,
                 )
             }
@@ -1013,6 +1067,7 @@ class AiringCalendarRepository(
                                 received.map { it[index] } +
                                     if (received.size < servers.size) listOf(pending[index]) else emptyList(),
                             today = today,
+                            nowEpochMs = broadcastEpochMillis(),
                         )
                     }
                 onResolved(merged)
@@ -1030,7 +1085,17 @@ class AiringCalendarRepository(
         episodes.map {
             CalendarEntry(
                 episode = it,
-                status = if (!airingHasStarted(it, today)) LibraryStatus.Unaired else LibraryStatus.Unknown,
+                status =
+                    if (!airingHasStarted(
+                            it,
+                            today,
+                            broadcastEpochMillis(),
+                        )
+                    ) {
+                        LibraryStatus.Unaired
+                    } else {
+                        LibraryStatus.Unknown
+                    },
                 dataIssue = CalendarDataIssue.LibraryLookupFailed,
             )
         }
@@ -1293,7 +1358,7 @@ class AiringCalendarRepository(
                             lookupFailed -> LibraryStatus.Unknown
                             hit != null && hit.played -> LibraryStatus.Watched
                             hit != null -> LibraryStatus.Available
-                            !airingHasStarted(episode, today) -> LibraryStatus.Unaired
+                            !airingHasStarted(episode, today, broadcastEpochMillis()) -> LibraryStatus.Unaired
                             else -> LibraryStatus.Missing
                         },
                     itemId = hit?.itemId,
@@ -1331,8 +1396,14 @@ class AiringCalendarRepository(
                 // The show is not in the library at all, so no episode of it can be either.
                 return@map CalendarEntry(
                     episode = episode,
-                    status = classifyAiring(match = null, episode = episode, today = today),
-                    discoveryOnly = !followStore.isFollowing(episode.showTmdbId),
+                    status =
+                        classifyAiring(
+                            match = null,
+                            episode = episode,
+                            today = today,
+                            nowEpochMs = broadcastEpochMillis(),
+                        ),
+                    discoveryOnly = !followStore.isFollowing(episode),
                 )
             }
             val knownResult = episodesBySeries[seriesId] ?: Result.success(emptyList())
@@ -1340,7 +1411,17 @@ class AiringCalendarRepository(
             if (known == null) {
                 return@map CalendarEntry(
                     episode = episode,
-                    status = if (!airingHasStarted(episode, today)) LibraryStatus.Unaired else LibraryStatus.Unknown,
+                    status =
+                        if (!airingHasStarted(
+                                episode,
+                                today,
+                                broadcastEpochMillis(),
+                            )
+                        ) {
+                            LibraryStatus.Unaired
+                        } else {
+                            LibraryStatus.Unknown
+                        },
                     serverId = server.id,
                     seriesItemId = seriesId,
                     dataIssue = CalendarDataIssue.LibraryLookupFailed,
@@ -1353,7 +1434,7 @@ class AiringCalendarRepository(
                 }
             CalendarEntry(
                 episode = episode,
-                status = classifyAiring(match, episode, today),
+                status = classifyAiring(match, episode, today, broadcastEpochMillis()),
                 itemId = match?.id,
                 // The show is on this server whether or not tonight's episode is, so the
                 // server id travels with either — a 未入库 row still opens the series.
@@ -1366,7 +1447,7 @@ class AiringCalendarRepository(
                             serverName = server.serverName,
                             itemId = match?.id,
                             seriesItemId = seriesId,
-                            status = classifyAiring(match, episode, today),
+                            status = classifyAiring(match, episode, today, broadcastEpochMillis()),
                             playedPercentage = match?.playedPercentage,
                             qualityTags = match?.calendarQualityTags().orEmpty(),
                             libraryEpisodeCount = known.libraryEpisodeCount(),
@@ -1427,11 +1508,16 @@ class AiringCalendarRepository(
                                     status =
                                         when {
                                             cached.discoveryOnly -> cached.status
-                                            activeServers.isEmpty() && !airingHasStarted(cached.episode, today) ->
+                                            activeServers.isEmpty() &&
+                                                !airingHasStarted(cached.episode, today, broadcastEpochMillis()) ->
                                                 LibraryStatus.Unaired
                                             activeServers.isEmpty() -> LibraryStatus.Unknown
                                             selectedServerActive -> cached.status
-                                            !airingHasStarted(cached.episode, today) -> LibraryStatus.Unaired
+                                            !airingHasStarted(
+                                                cached.episode,
+                                                today,
+                                                broadcastEpochMillis(),
+                                            ) -> LibraryStatus.Unaired
                                             else -> LibraryStatus.Unknown
                                         },
                                     itemId = cached.itemId.takeIf { selectedServerActive },
@@ -1457,10 +1543,11 @@ class AiringCalendarRepository(
                                             )
                                         },
                                     today = today,
+                                    nowEpochMs = broadcastEpochMillis(),
                                 )
                             }
                         restored.copy(
-                            followed = followStore.isFollowing(cached.episode.showTmdbId),
+                            followed = followStore.isFollowing(cached.episode),
                             availabilityCheckedAtEpochMs = checkedAt,
                             availabilityStale = stale,
                         )
@@ -1510,6 +1597,7 @@ internal fun calendarPreviewDays(
     episodes: List<AiringEpisode>,
     today: String,
     libraryHint: SeriesCalendarLibraryHint?,
+    nowEpochMs: Long = currentEpochMillis(),
 ): List<CalendarDay> =
     episodes
         .map { scheduled ->
@@ -1524,17 +1612,27 @@ internal fun calendarPreviewDays(
             if (libraryHint == null || libraryHint.showTmdbId != scheduled.showTmdbId) {
                 return@map CalendarEntry(
                     episode = scheduled,
-                    status = if (!airingHasStarted(scheduled, today)) LibraryStatus.Unaired else LibraryStatus.Unknown,
+                    status =
+                        if (!airingHasStarted(
+                                scheduled,
+                                today,
+                                nowEpochMs,
+                            )
+                        ) {
+                            LibraryStatus.Unaired
+                        } else {
+                            LibraryStatus.Unknown
+                        },
                     availabilityStale = true,
                 )
             }
             // A detail page may hold only the selected season. An absent coordinate is
             // unresolved until the repository checks the server's complete episode list.
             val status =
-                if (match == null && airingHasStarted(scheduled, today)) {
+                if (match == null && airingHasStarted(scheduled, today, nowEpochMs)) {
                     LibraryStatus.Unknown
                 } else {
-                    classifyAiring(match, scheduled, today)
+                    classifyAiring(match, scheduled, today, nowEpochMs)
                 }
             CalendarEntry(
                 episode = scheduled,
@@ -1577,13 +1675,17 @@ internal fun mergeAiringSchedules(
     val merged = discovered.associateByTo(linkedMapOf(), AiringEpisode::mediaKey)
     val posterByShow =
         discovered
-            .mapNotNull { episode -> episode.posterPath?.let { episode.showTmdbId to it } }
+            .mapNotNull { episode -> episode.posterPath?.let { episode.titleKey to it } }
             .toMap()
-    official.forEach { verified ->
+    // RE0 supplements the existing TMDB/library fallback too; it cannot override those dates.
+    official.filter { it.scheduleProvider == "RE0" }.forEach { entry ->
+        if (entry.mediaKey !in merged) merged[entry.mediaKey] = entry
+    }
+    official.filterNot { it.scheduleProvider == "RE0" }.forEach { verified ->
         val existing = merged[verified.mediaKey]
         merged[verified.mediaKey] =
             verified.copy(
-                posterPath = verified.posterPath ?: existing?.posterPath ?: posterByShow[verified.showTmdbId],
+                posterPath = verified.posterPath ?: existing?.posterPath ?: posterByShow[verified.titleKey],
                 episodeTitle = verified.episodeTitle ?: existing?.episodeTitle,
             )
     }
@@ -1606,6 +1708,7 @@ internal fun mergeCalendarEntries(
     episode: AiringEpisode,
     candidates: List<CalendarEntry>,
     today: String,
+    nowEpochMs: Long = currentEpochMillis(),
 ): CalendarEntry {
     val sources = candidates.flatMap { it.sources }.distinctBy { it.serverId to (it.itemId ?: it.seriesItemId) }
     // Discovery-only misses cannot overrule a server that actually identified the series.
@@ -1646,7 +1749,17 @@ internal fun mergeCalendarEntries(
                     else -> 0
                 }
             }
-    val fallbackStatus = if (!airingHasStarted(episode, today)) LibraryStatus.Unaired else LibraryStatus.Missing
+    val fallbackStatus =
+        if (!airingHasStarted(
+                episode,
+                today,
+                nowEpochMs,
+            )
+        ) {
+            LibraryStatus.Unaired
+        } else {
+            LibraryStatus.Missing
+        }
     return CalendarEntry(
         episode = episode,
         status = best?.status ?: fallbackStatus,
@@ -1733,12 +1846,15 @@ internal fun airingHasStarted(
     today: String,
     nowEpochMs: Long = currentEpochMillis(),
 ): Boolean {
-    if (episode.airDate < today) return true
-    if (episode.airDate > today) return false
-    val time = episode.airTime ?: return true
-    val zone = episode.timeZoneId ?: return true
-    val scheduled = scheduledEpochMillis(episode.airDate, time, zone) ?: return true
-    return nowEpochMs >= scheduled
+    val exact =
+        episode.releaseAtUtc?.let {
+            runCatching { OffsetDateTime.parse(it).toInstant().toEpochMilli() }.getOrNull()
+        }
+    val scheduled =
+        exact ?: episode.airTime?.let { time ->
+            episode.timeZoneId?.let { zone -> scheduledEpochMillis(episode.airDate, time, zone) }
+        }
+    return if (scheduled != null) nowEpochMs >= scheduled else episode.airDate <= today
 }
 
 /** True when the day is the one the user is standing on, which the list marks 今天. */

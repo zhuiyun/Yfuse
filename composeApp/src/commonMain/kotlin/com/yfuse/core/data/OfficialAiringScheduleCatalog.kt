@@ -8,12 +8,14 @@ import com.yfuse.backend.OfficialScheduleEnvelope
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.AiringAccessTier
 import com.yfuse.core.model.AiringEpisode
+import com.yfuse.core.model.AiringKind
 import com.yfuse.core.model.AiringScheduleAuthority
 import com.yfuse.core.model.AiringScheduleEvidence
 import com.yfuse.core.model.ShowOrigin
 import com.yfuse.core.security.verifyEd25519Signature
 import com.yfuse.core.util.currentEpochMillis
 import com.yfuse.core.util.scheduledEpochMillis
+import com.yfuse.watch.protocol.SupplementalCalendarEntry
 import io.ktor.client.HttpClient
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -50,26 +52,44 @@ class OfficialAiringScheduleCatalog(
 
     // Written by the refresh on an IO thread and read by every calendar load; the refresh is
     // serialised below, and the reads need to see the swap without a lock of their own.
+    private data class CatalogSnapshot(
+        val schedules: Map<Int, OfficialSeriesSchedule>,
+        val supplemental: List<AiringEpisode>,
+    )
+
     @Volatile
-    private var schedules: Map<Int, OfficialSeriesSchedule> = loadCachedSchedules() ?: FALLBACK_SCHEDULES
+    private var publication = loadCachedSchedules() ?: CatalogSnapshot(FALLBACK_SCHEDULES, emptyList())
+
+    private val schedules: Map<Int, OfficialSeriesSchedule> get() = publication.schedules
 
     private val refreshMutex = Mutex()
 
     fun series(
         tmdbId: Int,
         fallbackTitle: String,
-    ): List<AiringEpisode>? =
-        schedules[tmdbId]
-            ?.episodes
-            ?.map { slot -> schedules.getValue(tmdbId).toEpisode(slot, fallbackTitle) }
+    ): List<AiringEpisode>? {
+        val snapshot = publication
+        return mergeRe0CalendarEpisodes(
+            snapshot.schedules[tmdbId]
+                ?.let { schedule ->
+                    schedule.episodes.map { schedule.toEpisode(it, fallbackTitle) }
+                }.orEmpty(),
+            snapshot.supplemental.filter { it.showTmdbId == tmdbId && it.kind == AiringKind.Episode },
+        ).takeIf(List<AiringEpisode>::isNotEmpty)
+    }
 
     fun between(
         fromDate: String,
         toDate: String,
-    ): List<AiringEpisode> =
-        schedules.values
-            .flatMap { schedule -> schedule.episodes.map { schedule.toEpisode(it, schedule.title) } }
-            .filter { it.airDate in fromDate..toDate }
+    ): List<AiringEpisode> {
+        val snapshot = publication
+        return mergeRe0CalendarEpisodes(
+            snapshot.schedules.values.flatMap { schedule ->
+                schedule.episodes.map { schedule.toEpisode(it, schedule.title) }
+            },
+            snapshot.supplemental,
+        ).filter { it.airDate in fromDate..toDate }
+    }
 
     /** Identity choices come from the same server publication as the calendar rows. */
     fun identityCandidates(title: String): List<TmdbSeriesIdentityCandidate> {
@@ -141,7 +161,8 @@ class OfficialAiringScheduleCatalog(
                     settings.putString(KEY_CHANGES, json.encodeToString(changes))
                 }
             }
-            schedules = updatedSchedules
+            publication =
+                CatalogSnapshot(updatedSchedules, re0CalendarEpisodes(payload.supplemental, envelope.revision))
             settings.putString(KEY_ENVELOPE, json.encodeToString(OfficialScheduleEnvelope.serializer(), envelope))
             settings.putString(KEY_REVISION, envelope.revision)
             settings.putLong(KEY_LAST_SUCCESS_EPOCH_MS, now)
@@ -214,7 +235,7 @@ class OfficialAiringScheduleCatalog(
             remoteConfigured = api.enabled,
         )
 
-    private fun loadCachedSchedules(): Map<Int, OfficialSeriesSchedule>? {
+    private fun loadCachedSchedules(): CatalogSnapshot? {
         val raw = settings.getStringOrNull(KEY_ENVELOPE) ?: return null
         return runCatching {
             val envelope = json.decodeFromString(OfficialScheduleEnvelope.serializer(), raw)
@@ -226,13 +247,16 @@ class OfficialAiringScheduleCatalog(
                     envelope.signature,
                 ),
             )
-            (
-                FALLBACK_SCHEDULES.values +
-                    validate(
-                        json.decodeFromString<OfficialSchedulePayload>(envelope.payload),
-                        expectedRevision = envelope.revision,
-                    )
-            ).associateBy(OfficialSeriesSchedule::tmdbId)
+            val payload = json.decodeFromString<OfficialSchedulePayload>(envelope.payload)
+            val restored =
+                (
+                    FALLBACK_SCHEDULES.values +
+                        validate(
+                            payload,
+                            expectedRevision = envelope.revision,
+                        )
+                ).associateBy(OfficialSeriesSchedule::tmdbId)
+            CatalogSnapshot(restored, re0CalendarEpisodes(payload.supplemental, envelope.revision))
         }.onFailure {
             settings.remove(KEY_ENVELOPE)
             settings.remove(KEY_REVISION)
@@ -594,6 +618,7 @@ internal fun calendarRevisionIsAtLeast(
 @Serializable
 internal data class OfficialSchedulePayload(
     val schedules: List<OfficialAiringScheduleCatalog.OfficialSeriesSchedule>,
+    val supplemental: List<SupplementalCalendarEntry> = emptyList(),
 )
 
 @Serializable

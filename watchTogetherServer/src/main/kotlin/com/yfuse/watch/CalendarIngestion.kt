@@ -75,6 +75,7 @@ private class CalendarIngestionRuntime(
     private val paddleRequests = Semaphore(PADDLE_REQUEST_CONCURRENCY)
     private val ocrSpaceRequests = Semaphore(OCR_SPACE_REQUEST_CONCURRENCY)
     private val imageFingerprintCache = ConcurrentHashMap<String, String>()
+    private val re0Feed = Re0CalendarFeed()
 
     suspend fun runOnce(): Boolean =
         withContext(Dispatchers.IO) {
@@ -140,18 +141,23 @@ private class CalendarIngestionRuntime(
                     .filter { schedule ->
                         schedule.episodes.maxOfOrNull(CalendarEpisode::airDate)?.let { it >= retentionDate } == true
                     }.map { it.copy(revision = provisionalRevision) }
-            val schedules = (refreshedSchedules + retainedSchedules).distinctBy(CalendarSeries::tmdbId)
-            if (schedules.isEmpty()) {
+            // Supplementary success must not bypass the existing empty-main-feed protection.
+            val schedules =
+                (refreshedSchedules + retainedSchedules)
+                    .distinctBy(CalendarSeries::tmdbId)
+                    .ifEmpty { existing?.schedules.orEmpty().map { it.copy(revision = provisionalRevision) } }
+            val supplemental = re0Feed.entries(config.re0, existing?.supplemental.orEmpty())
+            if (schedules.isEmpty() && supplemental.isEmpty() && existing?.supplemental.isNullOrEmpty()) {
                 CalendarIngestionHealth.succeeded(changed = false, publishedShows = 0)
                 return@withContext false
             }
             val contentFingerprint = semanticFingerprint(schedules)
             val oldFingerprint = existing?.schedules?.let(::semanticFingerprint)
-            if (contentFingerprint == oldFingerprint) {
+            if (contentFingerprint == oldFingerprint && supplemental == existing.supplemental) {
                 CalendarIngestionHealth.succeeded(changed = false, publishedShows = schedules.size)
                 return@withContext false
             }
-            val publication = CalendarPublication(provisionalRevision, generatedAt, schedules)
+            val publication = CalendarPublication(provisionalRevision, generatedAt, schedules, supplemental)
             validateCalendarPublication(publication)
             scheduleStore.replace(publication)
             runCatching { writeAtomically(publication) }
@@ -983,6 +989,7 @@ private class CalendarIngestionRuntime(
     }
 
     private fun validateConfig(config: CalendarIngestionConfig) {
+        config.re0.validate()
         require(config.refreshMinutes in 15..1_440)
         require(config.shows.size <= 1_000)
         require(config.discoveryFeeds.size <= MAX_DISCOVERY_FEEDS)

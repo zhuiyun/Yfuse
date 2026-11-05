@@ -17,6 +17,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 class SeriesAiringScheduleFallback(
     private val fetch: suspend (Int, String) -> Result<List<AiringEpisode>>,
     private val nowEpochMs: () -> Long = ::currentEpochMillis,
+    private val requestTimeoutMillis: Long = 6_000L,
 ) {
     private data class Cached(
         val result: Result<List<AiringEpisode>>,
@@ -48,7 +49,7 @@ class SeriesAiringScheduleFallback(
             val fetched =
                 requests
                     .withPermit {
-                        withTimeoutOrNull(6_000L) { fetch(tmdbId, title) }
+                        withTimeoutOrNull(requestTimeoutMillis) { fetch(tmdbId, title) }
                             ?: Result.failure(IllegalStateException("该剧播出日期查询超时"))
                     }.map { rows ->
                         rows.filter { row ->

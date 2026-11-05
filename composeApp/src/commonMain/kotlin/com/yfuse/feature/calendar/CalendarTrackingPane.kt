@@ -136,6 +136,7 @@ private fun CalendarTrackingList(
         remember(calendarDays) {
             calendarDays
                 .flatMap(CalendarDay::entries)
+                .filterNot { it.episode.isMovie }
                 .groupBy { it.episode.showTmdbId }
                 .mapValues { (_, entries) ->
                     entries

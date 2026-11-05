@@ -1773,17 +1773,23 @@ internal fun homeCalendarPreviews(
     days: List<com.yfuse.core.model.CalendarDay>,
     home: HomeState,
 ): List<HomeCalendarPreview> {
-    fun tmdbIds(entries: List<HomeResumeEntry>): Set<Int> =
+    fun tmdbIds(entries: List<HomeResumeEntry>): Set<Pair<Boolean, Int>> =
         entries
             .mapNotNull { entry ->
                 entry.item.providerIds.entries
                     .firstOrNull { it.key.equals("tmdb", ignoreCase = true) }
                     ?.value
                     ?.toIntOrNull()
+                    ?.let { id -> (entry.item.type == "Movie") to id }
             }.toSet()
 
-    fun titles(entries: List<HomeResumeEntry>): Set<String> =
-        entries.map { it.item.title.homeCalendarIdentityTitle() }.filter(String::isNotBlank).toSet()
+    fun titles(entries: List<HomeResumeEntry>): Set<Pair<Boolean, String>> =
+        entries
+            .mapNotNull { entry ->
+                entry.item.title.homeCalendarIdentityTitle().takeIf(String::isNotBlank)?.let {
+                    (entry.item.type == "Movie") to it
+                }
+            }.toSet()
 
     val favoriteIds = tmdbIds(home.favorites)
     val nextIds = tmdbIds(home.nextUp)
@@ -1794,22 +1800,18 @@ internal fun homeCalendarPreviews(
 
     fun matches(
         entry: CalendarEntry,
-        ids: Set<Int>,
-        normalizedTitles: Set<String>,
+        ids: Set<Pair<Boolean, Int>>,
+        normalizedTitles: Set<Pair<Boolean, String>>,
     ): Boolean =
         entry.episode.showTmdbId
             .takeIf { it > 0 }
-            ?.let(ids::contains) == true ||
-            entry.episode.showTitle.homeCalendarIdentityTitle() in normalizedTitles
+            ?.let { (entry.episode.isMovie to it) in ids } == true ||
+            (entry.episode.isMovie to entry.episode.showTitle.homeCalendarIdentityTitle()) in normalizedTitles
 
     return days
         .flatMap { it.entries }
-        .groupBy { entry ->
-            entry.episode.showTmdbId
-                .takeIf { it > 0 }
-                ?.let { "tmdb:$it" }
-                ?: "title:${entry.episode.showTitle.homeCalendarIdentityTitle()}"
-        }.mapNotNull { (_, showEntries) ->
+        .groupBy { it.episode.titleKey }
+        .mapNotNull { (_, showEntries) ->
             val ranked =
                 showEntries.sortedWith(
                     compareBy<CalendarEntry> { entry ->
@@ -1886,15 +1888,7 @@ internal fun HomeCalendarShelf(
         ) {
             motionItems(
                 items,
-                key = { preview ->
-                    val episode = preview.entry.episode
-                    val showKey =
-                        episode.showTmdbId
-                            .takeIf { it > 0 }
-                            ?.let { "tmdb:$it" }
-                            ?: "title:${episode.showTitle.homeCalendarIdentityTitle()}"
-                    "calendar:$showKey"
-                },
+                key = { preview -> "calendar:${preview.entry.episode.titleKey}" },
             ) { preview ->
                 val entry = preview.entry
                 CaptionedPoster(

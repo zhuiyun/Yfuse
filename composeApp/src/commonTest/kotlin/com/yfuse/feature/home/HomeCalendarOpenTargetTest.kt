@@ -1,6 +1,8 @@
 package com.yfuse.feature.home
 
 import com.yfuse.core.model.AiringEpisode
+import com.yfuse.core.model.AiringKind
+import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.CalendarEntry
 import com.yfuse.core.model.CalendarSource
 import com.yfuse.core.model.LibraryStatus
@@ -12,6 +14,18 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
 class HomeCalendarOpenTargetTest {
+    @Test
+    fun homepage_keeps_movie_and_tv_cards_with_the_same_tmdb_id_separate() {
+        val show = calendarEntry(tmdbId = 1234)
+        val movie =
+            show.copy(
+                episode = show.episode.copy(kind = AiringKind.Movie, seasonNumber = 0, episodeNumber = 0),
+            )
+        val cards = homeCalendarPreviews(listOf(CalendarDay(show.episode.airDate, listOf(show, movie))), HomeState())
+        assertEquals(setOf(show, movie), cards.map { it.entry }.toSet())
+        assertEquals(2, cards.size)
+    }
+
     @Test
     fun official_row_without_emby_identity_opens_matching_resume_series() {
         val server =

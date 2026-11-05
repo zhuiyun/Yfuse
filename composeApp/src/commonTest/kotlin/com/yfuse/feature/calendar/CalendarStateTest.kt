@@ -12,6 +12,32 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class CalendarStateTest {
+    @Test
+    fun upcoming_keeps_a_foreign_broadcast_whose_origin_date_is_yesterday() {
+        val upcoming = entry("美剧", "2026-11-03", status = LibraryStatus.Unaired)
+        val state =
+            CalendarState(
+                days = listOf(CalendarDay("2026-11-03", listOf(upcoming))),
+                today = "2026-11-04",
+                filter = CalendarFilter.Upcoming,
+            )
+        assertEquals(listOf(upcoming), state.visibleDays.single().entries)
+    }
+
+    @Test
+    fun refreshing_a_tv_series_preserves_the_movie_with_the_same_numeric_id() {
+        val show = entry("剧集", "2026-11-04")
+        val movie = show.copy(episode = show.episode.copy(kind = AiringKind.Movie, seasonNumber = 0, episodeNumber = 0))
+        val refreshed = show.copy(episode = show.episode.copy(episodeNumber = 2))
+        val merged =
+            mergeTrackedSeriesCalendar(
+                listOf(CalendarDay("2026-11-04", listOf(show, movie))),
+                listOf(CalendarDay("2026-11-04", listOf(refreshed))),
+                show.episode.showTmdbId,
+            )
+        assertEquals(setOf(movie, refreshed), merged.single().entries.toSet())
+    }
+
     private fun entry(
         title: String,
         date: String,

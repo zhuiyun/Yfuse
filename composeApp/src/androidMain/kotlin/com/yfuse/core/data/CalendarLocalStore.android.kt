@@ -86,7 +86,8 @@ class AndroidCalendarLocalStore(
                     } else if (ids.isEmpty()) {
                         null
                     } else {
-                        "$COL_AIR_DATE BETWEEN ? AND ? AND $COL_TMDB_ID IN (${ids.joinToString { "?" }})"
+                        "$COL_AIR_DATE BETWEEN ? AND ? AND $COL_TMDB_ID IN (${ids.joinToString { "?" }}) " +
+                            "AND $COL_MEDIA_KEY LIKE 'tmdb:%'"
                     }
                 val scopedArgs =
                     if (seriesScope == null) {

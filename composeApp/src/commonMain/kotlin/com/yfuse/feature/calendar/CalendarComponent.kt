@@ -30,9 +30,14 @@ class CalendarComponent(
     val onBack: () -> Unit,
     /** Opens an episode the library already has. Absent for everything else. */
     val onOpenItem: (serverId: String?, itemId: String) -> Unit,
+    val onPlayItem: (serverId: String?, itemId: String) -> Unit = onOpenItem,
 ) : ComponentContext by componentContext {
     private val scope = componentScope(lifecycle)
     val store = CalendarStoreFactory(storeFactory, repository, followStore).create()
+    val metadataPreferences get() = repository.metadataSources?.preferences
+
+    suspend fun featuredBackdrop(entry: CalendarEntry): String? =
+        repository.metadataSources?.backdrop(entry.episode.showTmdbId, entry.episode.isMovie)
 
     fun diagnosticReport(days: List<CalendarDay>): String = repository.diagnosticReport(days)
 
@@ -47,12 +52,10 @@ class CalendarComponent(
     }
 
     fun toggleFollow(entry: CalendarEntry) {
-        // A show TMDB has not identified has no id to follow it by, and the store refuses one
-        // outright: a press on it crashed the page.
-        if (entry.episode.showTmdbId <= 0) return
+        val candidate = entry.toFollowedSeries() ?: return
         val current = followStore.followed.value.firstOrNull { it.tmdbId == entry.episode.showTmdbId }
         if (current == null) {
-            followStore.follow(entry.toFollowedSeries())
+            followStore.follow(candidate)
         } else {
             followStore.unfollow(current.tmdbId)
         }
@@ -83,10 +86,18 @@ class CalendarComponent(
         forceRefresh: Boolean = false,
         onPreview: (List<CalendarDay>) -> Unit = {},
     ): Result<List<CalendarDay>> {
+        if (entry.episode.isMovie) {
+            return loadCalendarWithDeadline {
+                repository.movieCalendar(entry.episode, forceRefresh = forceRefresh, onPreview = onPreview)
+            }
+        }
         val current = followStore.followed.value.firstOrNull { it.tmdbId == entry.episode.showTmdbId }
+        val series =
+            entry.toFollowedSeries(current)
+                ?: return Result.success(listOf(CalendarDay(entry.episode.airDate, listOf(entry))))
         return loadCalendarWithDeadline {
             repository.seriesCalendar(
-                entry.toFollowedSeries(current),
+                series,
                 forceRefresh = forceRefresh,
                 onPreview = onPreview,
             )
@@ -171,8 +182,9 @@ class CalendarComponent(
     }
 }
 
-internal fun CalendarEntry.toFollowedSeries(existing: FollowedSeries? = null): FollowedSeries =
-    FollowedSeries(
+internal fun CalendarEntry.toFollowedSeries(existing: FollowedSeries? = null): FollowedSeries? {
+    if (!episode.canFollow) return null
+    return FollowedSeries(
         tmdbId = episode.showTmdbId,
         title = episode.showTitle,
         year = existing?.year,
@@ -182,3 +194,4 @@ internal fun CalendarEntry.toFollowedSeries(existing: FollowedSeries? = null): F
         reminderMode = existing?.reminderMode ?: CalendarReminderMode.Off,
         remindBeforeMinutes = existing?.remindBeforeMinutes ?: 30,
     )
+}

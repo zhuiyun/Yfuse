@@ -10,11 +10,60 @@ import com.yfuse.core.model.LibraryStatus
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.ShowOrigin
 import com.yfuse.core.util.scheduledEpochMillis
+import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class AiringCalendarTest {
+    @Test
+    fun exact_broadcast_is_compared_before_the_origin_and_device_calendar_dates() {
+        val foreign =
+            AiringEpisode(
+                showTmdbId = 42,
+                showTitle = "跨日剧集",
+                posterPath = null,
+                seasonNumber = 1,
+                episodeNumber = 1,
+                episodeTitle = null,
+                airDate = "2026-11-03",
+                origin = ShowOrigin.Foreign,
+                airTime = "21:00",
+                timeZoneId = "America/New_York",
+            )
+        val at = Instant.parse("2026-11-04T02:00:00Z").toEpochMilli()
+        assertEquals(LibraryStatus.Unaired, classifyAiring(null, foreign, "2026-11-04", at - 1))
+        assertEquals(LibraryStatus.Missing, classifyAiring(null, foreign, "2026-11-04", at))
+
+        val east = foreign.copy(airDate = "2026-11-04", airTime = "01:00", timeZoneId = "Asia/Tokyo")
+        val eastAt = Instant.parse("2026-11-03T16:00:00Z").toEpochMilli()
+        assertEquals(LibraryStatus.Missing, classifyAiring(null, east, "2026-11-03", eastAt))
+    }
+
+    @Test
+    fun published_instant_wins_even_without_a_wall_clock_time() {
+        val scheduled =
+            AiringEpisode(
+                showTmdbId = 42,
+                showTitle = "精确排期",
+                posterPath = null,
+                seasonNumber = 1,
+                episodeNumber = 1,
+                episodeTitle = null,
+                airDate = "2026-11-03",
+                origin = ShowOrigin.Foreign,
+                releaseAtUtc = "2026-11-04T02:00:00Z",
+            )
+        val at = Instant.parse("2026-11-04T02:00:00Z").toEpochMilli()
+        assertEquals(LibraryStatus.Unaired, classifyAiring(null, scheduled, "2026-11-04", at - 1))
+        assertEquals(LibraryStatus.Missing, classifyAiring(null, scheduled, "2026-11-04", at))
+        // Date-only metadata keeps its existing behavior; malformed precision cannot crash a row.
+        assertEquals(
+            LibraryStatus.Missing,
+            classifyAiring(null, scheduled.copy(releaseAtUtc = "invalid"), "2026-11-03", at - 1),
+        )
+    }
+
     private val today = "2026-07-31"
 
     @Test

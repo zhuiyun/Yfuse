@@ -56,6 +56,7 @@ internal fun CalendarSettingsPane(
             ),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        motionItem(key = "calendar-metadata-sources") { CalendarMetadataSettings(component) }
         motionItem {
             Column(
                 Modifier.fillMaxWidth().glass(AppShapes.card, palette.card2, palette.border).padding(12.dp),

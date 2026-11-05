@@ -53,6 +53,7 @@ internal fun buildCalendarIcs(days: List<CalendarDay>): String {
                             buildList {
                                 add(entry.status.name)
                                 addAll(episode.platforms)
+                                episode.scheduleProvider?.let { add("$it 补充排期") }
                                 episode.scheduleRevision?.let { add("排期版本 $it") }
                             }.joinToString(" · "),
                         )}",
@@ -68,7 +69,7 @@ internal fun buildCalendarIcs(days: List<CalendarDay>): String {
 
 /** UTC avoids exporting a TZID without the VTIMEZONE definition required by RFC 5545. */
 private fun AiringEpisode.calendarExportInstant(): Instant? {
-    if (origin == ShowOrigin.Foreign) {
+    if (origin == ShowOrigin.Foreign || scheduleProvider == "RE0") {
         releaseAtUtc?.let { runCatching { OffsetDateTime.parse(it).toInstant() }.getOrNull() }?.let { return it }
     }
     val time = airTime ?: return null

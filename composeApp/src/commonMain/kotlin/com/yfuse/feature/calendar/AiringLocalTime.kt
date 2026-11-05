@@ -93,7 +93,7 @@ internal fun broadcastTimeLabel(
     deviceZoneId: String = ZoneId.systemDefault().id,
 ): String? =
     episode.releaseAtUtc
-        ?.takeIf { episode.origin == ShowOrigin.Foreign }
+        ?.takeIf { episode.origin == ShowOrigin.Foreign || episode.scheduleProvider == "RE0" }
         ?.let { runCatching { OffsetDateTime.parse(it).toInstant().toEpochMilli() }.getOrNull() }
         ?.let { localAirTimeAt(it, episode.airDate, deviceZoneId)?.label }
         ?: airTimeLabel(episode, deviceZoneId)

@@ -1,6 +1,7 @@
 package com.yfuse.feature.calendar
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import com.yfuse.core.data.CalendarReminderMode
 import com.yfuse.core.data.FollowedSeries
@@ -11,12 +12,12 @@ import com.yfuse.core.network.TmdbImages
 /** One show's broadcasts out of the whole calendar, oldest first. */
 internal fun airingShowDays(
     days: List<CalendarDay>,
-    showTmdbId: Int,
+    titleKey: String,
 ): List<CalendarDay> =
     days
         .mapNotNull { day ->
             day.entries
-                .filter { it.episode.showTmdbId == showTmdbId }
+                .filter { it.episode.titleKey == titleKey }
                 .takeIf { it.isNotEmpty() }
                 ?.let { CalendarDay(day.date, it) }
         }.sortedBy(CalendarDay::date)
@@ -38,8 +39,8 @@ internal fun AiringShowCalendarDialog(
     onRefresh: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val showId = initialEntry.episode.showTmdbId
-    val showDays = remember(days, showId) { airingShowDays(days, showId) }
+    val titleKey = initialEntry.episode.titleKey
+    val showDays = remember(days, titleKey) { airingShowDays(days, titleKey) }
     if (showDays.isEmpty()) return
 
     val posterPath = initialEntry.episode.posterPath
@@ -52,22 +53,25 @@ internal fun AiringShowCalendarDialog(
                 ) + showDays.flatMap { day -> day.entries.flatMap(CalendarEntry::posterUrls) }
             ).distinct()
         }
-    ShowScheduleDialog(
-        title = initialEntry.episode.showTitle,
-        days = showDays,
-        today = today,
-        posterUrls = posterUrls,
-        followed = followedSeries != null,
-        reminderMode = followedSeries?.reminderMode ?: CalendarReminderMode.Off,
-        remindBeforeMinutes = reminderMinutes(followedSeries),
-        onToggleFollow = onToggleFollow,
-        onSetReminder = onReminderChanged,
-        onDismiss = onDismiss,
-        initialSelectedDate = initialEntry.episode.airDate,
-        refreshing = refreshing,
-        onRefresh = onRefresh,
-        onOpenEntry = onOpen,
-    )
+    key(titleKey) {
+        ShowScheduleDialog(
+            title = initialEntry.episode.showTitle,
+            days = showDays,
+            today = today,
+            posterUrls = posterUrls,
+            followed = followedSeries != null,
+            reminderMode = followedSeries?.reminderMode ?: CalendarReminderMode.Off,
+            remindBeforeMinutes = reminderMinutes(followedSeries),
+            onToggleFollow = onToggleFollow,
+            onSetReminder = onReminderChanged,
+            onDismiss = onDismiss,
+            initialSelectedDate = initialEntry.episode.airDate,
+            refreshing = refreshing,
+            onRefresh = onRefresh,
+            onOpenEntry = onOpen,
+            canFollow = initialEntry.episode.canFollow,
+        )
+    }
 }
 
 private const val DEFAULT_REMINDER_MINUTES = 30

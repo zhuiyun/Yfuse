@@ -1,6 +1,7 @@
 package com.yfuse.core.data
 
 import com.russhwolf.settings.Settings
+import com.yfuse.core.model.AiringEpisode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -110,6 +111,8 @@ class CalendarFollowStore(
     fun saveContentFilter(value: String) {
         settings.putString(KEY_CONTENT_FILTER, value)
     }
+
+    fun isFollowing(episode: AiringEpisode): Boolean = episode.canFollow && isFollowing(episode.showTmdbId)
 
     fun isFollowing(tmdbId: Int): Boolean =
         synchronized(stateLock) {

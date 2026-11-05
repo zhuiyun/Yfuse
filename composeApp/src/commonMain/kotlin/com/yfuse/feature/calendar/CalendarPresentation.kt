@@ -114,8 +114,7 @@ internal fun coalesceCalendarEntries(entries: List<CalendarEntry>): List<Calenda
     entries
         .groupBy { entry ->
             listOf(
-                entry.episode.kind.name,
-                entry.episode.showTmdbId.toString(),
+                entry.episode.titleKey,
                 entry.episode.seasonNumber.toString(),
                 entry.episode.airTime.orEmpty(),
                 entry.episode.platforms.joinToString("|"),
@@ -234,7 +233,9 @@ internal fun broadcastStateLabel(entry: CalendarEntry): String {
             LibraryStatus.Watched -> "已完成"
             LibraryStatus.Unknown -> "仅供播出参考"
         }
-    if (episode.scheduleAuthority == AiringScheduleAuthority.Tmdb) return state
+    if (episode.scheduleAuthority == AiringScheduleAuthority.Tmdb) {
+        return listOfNotNull(episode.scheduleProvider?.let { "$it 播出参考" }, state).joinToString(" · ")
+    }
     val tier =
         when (episode.accessTier) {
             AiringAccessTier.Member -> "会员"
@@ -251,6 +252,7 @@ internal fun broadcastStateLabel(entry: CalendarEntry): String {
                 else -> "预计排期"
             },
         )
+        episode.scheduleProvider?.let(::add)
         episode.scheduleConfidence?.let { add("可信度 $it") }
         broadcastTimeLabel(episode)?.let(::add)
         addAll(episode.platforms.take(2))
@@ -267,7 +269,7 @@ internal data class CalendarWeekStats(
 internal fun calendarWeeklyStats(
     days: List<CalendarDay>,
     today: String,
-): Map<Int, CalendarWeekStats> {
+): Map<String, CalendarWeekStats> {
     val weekdayIndex =
         listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
             .indexOf(isoWeekdayLabel(today))
@@ -277,7 +279,7 @@ internal fun calendarWeeklyStats(
         .filter { entry ->
             val delta = daysBetweenIso(today, entry.episode.airDate)
             delta in -weekdayIndex..(6 - weekdayIndex)
-        }.groupBy { it.episode.showTmdbId }
+        }.groupBy { it.episode.titleKey }
         .mapValues { (_, entries) ->
             CalendarWeekStats(
                 scheduled = entries.size,

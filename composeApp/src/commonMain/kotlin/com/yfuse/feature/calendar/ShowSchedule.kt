@@ -272,7 +272,7 @@ internal fun scheduleProvenance(
         when (trusted?.scheduleAuthority) {
             AiringScheduleAuthority.Official -> "官方会员日历"
             AiringScheduleAuthority.Verified -> "多源确认排期"
-            AiringScheduleAuthority.Estimated -> "预计排期"
+            AiringScheduleAuthority.Estimated -> trusted.scheduleProvider?.let { "$it 补充排期" } ?: "预计排期"
             AiringScheduleAuthority.Library -> "媒体服务器日期"
             else -> "按原产地播出日期"
         }

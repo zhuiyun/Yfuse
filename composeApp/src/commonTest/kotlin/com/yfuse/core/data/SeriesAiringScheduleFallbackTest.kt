@@ -14,6 +14,7 @@ import io.ktor.client.engine.mock.MockEngine
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
+import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -47,6 +48,7 @@ class SeriesAiringScheduleFallbackTest {
                                 ->
                                 Result.success(emptyList())
                             }),
+                        broadcastEpochMillis = { Instant.parse("2026-10-11T00:00:00Z").toEpochMilli() },
                     )
                 val days = repository.seriesCalendar(294446, "美人余", today = "2026-10-11").getOrThrow()
                 val future = days.filter { it.date > "2026-10-11" }

@@ -1,5 +1,6 @@
 package com.yfuse.watch
 
+import com.yfuse.watch.protocol.SupplementalCalendarEntry
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -44,6 +45,7 @@ private data class CalendarEnvelope(
 @Serializable
 private data class CalendarPayload(
     val schedules: List<CalendarSeries>,
+    val supplemental: List<SupplementalCalendarEntry> = emptyList(),
 )
 
 @Serializable
@@ -51,6 +53,7 @@ internal data class CalendarPublication(
     val revision: String,
     val generatedAt: String,
     val schedules: List<CalendarSeries>,
+    val supplemental: List<SupplementalCalendarEntry> = emptyList(),
 )
 
 @Serializable
@@ -105,7 +108,7 @@ internal class CalendarScheduleSigner private constructor(
         if (cachedPublication == publication) {
             cachedEnvelopeJson?.let { return it }
         }
-        val payload = calendarJson.encodeToString(CalendarPayload(publication.schedules))
+        val payload = calendarJson.encodeToString(CalendarPayload(publication.schedules, publication.supplemental))
         return calendarJson
             .encodeToString(
                 CalendarEnvelope(
@@ -232,6 +235,23 @@ internal fun loadCalendarPublication(): CalendarPublication {
 }
 
 internal fun validateCalendarPublication(publication: CalendarPublication) {
+    require(publication.supplemental.size <= MAX_RE0_ENTRIES)
+    val supplementalCoordinates = publication.supplemental.map(SupplementalCalendarEntry::coordinate)
+    require(supplementalCoordinates.toSet().size == supplementalCoordinates.size)
+    publication.supplemental.forEach { entry ->
+        require(entry.hasValidShape())
+        LocalDate.parse(entry.airDate)
+        Instant.parse(entry.updatedAt)
+        entry.releaseAtUtc?.let { timestamp ->
+            require(
+                Instant
+                    .parse(timestamp)
+                    .atZone(ZoneId.of("Asia/Shanghai"))
+                    .toLocalDate()
+                    .toString() == entry.airDate,
+            )
+        }
+    }
     require(publication.revision.matches(Regex("\\d{4}-\\d{2}-\\d{2}-r\\d+")))
     require(publication.generatedAt.length in 10..64)
     require(runCatching { Instant.parse(publication.generatedAt) }.isSuccess)

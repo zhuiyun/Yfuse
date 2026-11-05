@@ -19,6 +19,7 @@ import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.navigation.SingleFlightNavigationGuard
 import com.yfuse.core.sync.playback.PlaybackSyncStore
+import com.yfuse.core.util.componentScope
 import com.yfuse.core.widget.WidgetSourceContext
 import com.yfuse.core.widget.widgetDetailSeed
 import com.yfuse.core.widget.widgetRepository
@@ -29,6 +30,7 @@ import com.yfuse.feature.player.PlayerComponent
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.serializer
 import org.koin.core.context.GlobalContext
@@ -338,7 +340,8 @@ class HomeTabComponent(
                     ),
                 )
             }
-            Config.Calendar ->
+            Config.Calendar -> {
+                val calendarScope = componentScope(context.lifecycle)
                 Child.Calendar(
                     CalendarComponent(
                         componentContext = context,
@@ -350,8 +353,22 @@ class HomeTabComponent(
                         onOpenItem = { serverId, itemId ->
                             navigation.pushToFront(Config.Detail(serverId ?: registry.defaultServer?.id, itemId))
                         },
+                        onPlayItem = { serverId, itemId ->
+                            val server = if (serverId == null) registry.defaultServer else registry.serverById(serverId)
+                            if (server != null) {
+                                calendarScope.launch {
+                                    val detail = repo.playbackItemDetail(server, itemId).getOrNull()
+                                    if (detail != null) {
+                                        openPlayer(Config.Player(server.id, itemId, detail.resumePositionTicks ?: 0L))
+                                    } else {
+                                        navigation.pushToFront(Config.Detail(server.id, itemId))
+                                    }
+                                }
+                            }
+                        },
                     ),
                 )
+            }
             is Config.Info -> createInfo(config, context)
         }
 

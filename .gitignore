@@ -53,13 +53,15 @@ tmp/
 artifacts/
 artifacts-local/
 
-# Historical audit media belongs in CI/release artifacts, not every Git checkout.
-audit/**/*.png
-audit/**/*.jpg
-audit/**/*.jpeg
-audit/**/*.webp
-audit/**/*.gif
-audit/**/*.mp4
+# Audit evidence belongs in CI/release artifacts, not in every Git checkout.
+# Every record is reproducible from the commit it names, so only the written summaries stay
+# reviewable in-tree. Snapshots, extracted sources, APK/AAR/JAR blobs and captured media were
+# 12,400 tracked files and 2.0 GB of the repository; they polluted grep, IDE indexes and the
+# supply-chain scan, which already had to hard-code an exclusion for them.
+audit/**
+!audit/
+!audit/**/
+!audit/**/*.md
 
 # Extracted native AAR contents are fetched and verified during the build.
 mpvaar/

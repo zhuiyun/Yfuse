@@ -11,7 +11,7 @@ import kotlinx.serialization.Serializable
  * `TmdbRepository.home()` already makes for the home tab.
  */
 @Serializable
-enum class ShowOrigin { Domestic, Foreign }
+enum class ShowOrigin { Domestic, Foreign, Unknown }
 
 /**
  * Whether a dated row is an episode or a film opening.
@@ -87,8 +87,22 @@ data class AiringEpisode(
     val scheduleConfidence: Int? = null,
     /** Raw source material remains server-side; this is the auditable summary. */
     val scheduleEvidence: List<AiringScheduleEvidence> = emptyList(),
+    /** Aggregated provider label; never grants official schedule authority. */
+    val scheduleProvider: String? = null,
 ) {
     val isMovie: Boolean get() = kind == AiringKind.Movie
+
+    /** Follows and broadcast reminders are subscriptions to a TV series. */
+    val canFollow: Boolean get() = !isMovie && showTmdbId > 0
+
+    /** TMDB movie and TV ids have separate namespaces. */
+    val titleKey: String
+        get() =
+            if (isMovie) {
+                if (showTmdbId > 0) "tmdb-movie:$showTmdbId" else "title-movie:${showTitle.calendarIdentityTitle()}"
+            } else {
+                if (showTmdbId > 0) "tmdb:$showTmdbId" else "title:${showTitle.calendarIdentityTitle()}"
+            }
 
     /**
      * The cross-server coordinate for this row, in the form `EmbyRepository`'s
@@ -98,17 +112,9 @@ data class AiringEpisode(
     val mediaKey: String
         get() =
             if (isMovie) {
-                if (showTmdbId > 0) {
-                    "tmdb-movie:$showTmdbId"
-                } else {
-                    "title-movie:${showTitle.calendarIdentityTitle()}"
-                }
+                titleKey
             } else {
-                if (showTmdbId > 0) {
-                    "tmdb:$showTmdbId/s${seasonNumber}e$episodeNumber"
-                } else {
-                    "title:${showTitle.calendarIdentityTitle()}/s${seasonNumber}e$episodeNumber"
-                }
+                "$titleKey/s${seasonNumber}e$episodeNumber"
             }
 
     /** `第 3 集` — TMDB episode titles are often absent or a bare "第 3 集" repeat. */

@@ -4,11 +4,16 @@ import com.yfuse.core.data.AiringCalendarRepository
 import com.yfuse.core.data.CalendarFollowStore
 import com.yfuse.core.data.CalendarIdentityResolver
 import com.yfuse.core.data.CalendarLocalStore
+import com.yfuse.core.data.CalendarMetadataPreferences
+import com.yfuse.core.data.CalendarMetadataRepository
 import com.yfuse.core.data.OfficialAiringScheduleCatalog
 import com.yfuse.core.data.SeriesAiringScheduleFallback
 import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.data.TmdbSeriesIdentityCandidate
+import com.yfuse.core.security.SecureStore
+import com.yfuse.core.security.createSecureStore
 import org.koin.core.module.Module
+import org.koin.core.qualifier.named
 import org.koin.dsl.module
 
 /**
@@ -20,6 +25,17 @@ internal fun calendarModule(calendarLocalStore: CalendarLocalStore): Module =
         single<CalendarLocalStore> { calendarLocalStore }
         single { CalendarFollowStore(get(), personal = get()) }
         single { OfficialAiringScheduleCatalog(get<com.yfuse.backend.CalendarBackendApi>(), get()) }
+        single<SecureStore>(named("calendar-secrets")) { createSecureStore(get(), "calendar-metadata") }
+        single { CalendarMetadataPreferences(get(), get(named("calendar-secrets"))) }
+        single {
+            val tmdb = get<TmdbRepository>()
+            CalendarMetadataRepository(
+                primary = { id, title -> tmdb.seriesAiringCalendar(id, title) },
+                tmdbClient = get(named("tmdb-http")),
+                publicClient = get(named("theotherdb-http")),
+                preferences = get(),
+            )
+        }
         single {
             val tmdb = get<TmdbRepository>()
             CalendarIdentityResolver(get(), get(), search = { title, year ->
@@ -31,8 +47,8 @@ internal fun calendarModule(calendarLocalStore: CalendarLocalStore): Module =
             })
         }
         single {
-            val tmdb = get<TmdbRepository>()
-            SeriesAiringScheduleFallback(fetch = { id, title -> tmdb.seriesAiringCalendar(id, title) })
+            val metadata = get<CalendarMetadataRepository>()
+            SeriesAiringScheduleFallback(fetch = metadata::series, requestTimeoutMillis = 10_000L)
         }
         single {
             AiringCalendarRepository(
@@ -45,6 +61,7 @@ internal fun calendarModule(calendarLocalStore: CalendarLocalStore): Module =
                 // Skips servers the monitor has marked as needing re-login or backing off.
                 serverHealth = get(),
                 supplementalSchedules = get(),
+                metadataSources = get(),
             )
         }
     }

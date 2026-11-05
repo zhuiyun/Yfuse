@@ -1,5 +1,6 @@
 package com.yfuse.watch
 
+import com.yfuse.watch.protocol.SupplementalCalendarEntry
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -87,6 +88,15 @@ private class SqliteCalendarScheduleStore private constructor(
                         authority TEXT NOT NULL,
                         confidence INTEGER NOT NULL CHECK(confidence BETWEEN 0 AND 100),
                         PRIMARY KEY(publication_id, tmdb_id, season_number)
+                    )
+                    """.trimIndent(),
+                )
+                statement.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS calendar_supplemental (
+                        publication_id INTEGER PRIMARY KEY
+                            REFERENCES calendar_publications(id) ON DELETE CASCADE,
+                        entries_json TEXT NOT NULL
                     )
                     """.trimIndent(),
                 )
@@ -259,6 +269,7 @@ private class SqliteCalendarScheduleStore private constructor(
             revision = header.revision,
             generatedAt = header.generatedAt,
             schedules = schedules,
+            supplemental = readSupplemental(header.id),
         ).immutableCalendarSnapshot().also(::validateCalendarPublication)
     }
 
@@ -289,6 +300,14 @@ private class SqliteCalendarScheduleStore private constructor(
                             statement.executeUpdate()
                         }
                     val publicationId = publicationId(snapshot.revision)
+                    connection
+                        .prepareStatement(
+                            "INSERT INTO calendar_supplemental(publication_id, entries_json) VALUES (?, ?)",
+                        ).use { statement ->
+                            statement.setLong(1, publicationId)
+                            statement.setString(2, json.encodeToString(snapshot.supplemental))
+                            statement.executeUpdate()
+                        }
                     snapshot.schedules.forEach { schedule ->
                         insertSeries(publicationId, schedule)
                         insertEpisodes(publicationId, schedule)
@@ -314,6 +333,16 @@ private class SqliteCalendarScheduleStore private constructor(
                     snapshot,
                 )
             true
+        }
+    }
+
+    private fun readSupplemental(publicationId: Long): List<SupplementalCalendarEntry> {
+        val sql = "SELECT entries_json FROM calendar_supplemental WHERE publication_id = ?"
+        return connection.prepareStatement(sql).use { statement ->
+            statement.setLong(1, publicationId)
+            statement.executeQuery().use { result ->
+                if (result.next()) json.decodeFromString(result.getString(1)) else emptyList()
+            }
         }
     }
 

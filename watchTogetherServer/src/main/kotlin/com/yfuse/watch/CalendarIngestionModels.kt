@@ -5,6 +5,7 @@ import kotlinx.serialization.Serializable
 @Serializable
 internal data class CalendarIngestionConfig(
     val refreshMinutes: Int = 30,
+    val re0: Re0CalendarConfig = Re0CalendarConfig(),
     val verifiedAccounts: List<VerifiedCalendarAccount> = emptyList(),
     val ocrProviders: List<CalendarOcrProviderConfig> = emptyList(),
     val pageRenderer: CalendarPageRendererConfig? = null,

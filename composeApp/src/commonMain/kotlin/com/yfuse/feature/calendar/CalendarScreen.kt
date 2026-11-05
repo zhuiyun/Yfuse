@@ -45,7 +45,6 @@ import com.yfuse.core.designsystem.DisclosureContent
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.InlineLoadingContent
 import com.yfuse.core.designsystem.LocalAccentColors
-import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.PageHint
 import com.yfuse.core.designsystem.SkeletonHandoff
@@ -73,8 +72,7 @@ import com.yfuse.core.designsystem.flatGlass as glass
 /**
  * 追剧日历 — broadcasts by day, each marked with what this library has.
  *
- * Keeps the past week available in chronological order, while the first viewport opens
- * today's broadcasts. The week navigator jumps between dates without discarding older entries.
+ * Date navigation selects a day's featured poster and compact updates, using the app theme.
  */
 @Composable
 fun CalendarScreen(component: CalendarComponent) {
@@ -82,17 +80,11 @@ fun CalendarScreen(component: CalendarComponent) {
     val followedSeries by component.followStore.followed.collectAsState()
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
-    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val days = state.visibleDays
-    val weeklyStats =
-        remember(state.confirmedDays, state.days, state.today) {
-            // Refreshes retain the last confirmed statistic. Only a first-load preview has no
-            // trustworthy library count yet, so it deliberately shows no aggregate number.
-            state.confirmedDays
-                .takeIf { it.isNotEmpty() }
-                ?.let { calendarWeeklyStats(it, state.today) }
-                ?: emptyMap()
-        }
+    var selectedDate by remember(state.today) { mutableStateOf(state.today) }
+    LaunchedEffect(state.filter, state.platform, state.contentFilter, days.map(CalendarDay::date)) {
+        selectedDate = calendarDateAfterFiltering(days, state.today, selectedDate, state.filter)
+    }
     val bottomContentInset = systemNavigationContentInset()
     val share = rememberShareHandler()
     var scheduleChanges by remember(state.loading, state.days) {
@@ -109,7 +101,7 @@ fun CalendarScreen(component: CalendarComponent) {
     var dialogRefresh by remember { mutableStateOf<Job?>(null) }
     var filtersExpanded by remember { mutableStateOf(false) }
 
-    LaunchedEffect(dialogEntry?.episode?.showTmdbId) {
+    LaunchedEffect(dialogEntry?.episode?.titleKey) {
         dialogRefresh?.cancel()
         val entry = dialogEntry ?: return@LaunchedEffect
         dialogSeriesDays = null
@@ -157,7 +149,7 @@ fun CalendarScreen(component: CalendarComponent) {
                             .padding(10.dp),
                 )
                 Text(
-                    "追剧中心",
+                    "追剧日历",
                     style = AppTypography.section.strong,
                     color = palette.text,
                     modifier = Modifier.weight(1f),
@@ -201,6 +193,7 @@ fun CalendarScreen(component: CalendarComponent) {
                     CalendarWeekHeader(
                         days = state.days,
                         today = state.today,
+                        displayDate = selectedDate,
                         filter = state.filter,
                         filtersExpanded = filtersExpanded,
                         error = state.error,
@@ -294,7 +287,7 @@ fun CalendarScreen(component: CalendarComponent) {
                                     Modifier.align(Alignment.Center),
                                     actionLabel = "查看全部",
                                     onAction = {
-                                        component.store.accept(CalendarIntent.SelectFilter(CalendarFilter.All))
+                                        component.store.accept(CalendarIntent.ResetFilters)
                                     },
                                 )
 
@@ -310,11 +303,22 @@ fun CalendarScreen(component: CalendarComponent) {
                                 AdaptiveCalendarResults(
                                     days = days,
                                     today = state.today,
-                                    filter = state.filter,
-                                    weeklyStats = weeklyStats,
-                                    reduceMotion = reduceMotion,
+                                    selectedDate = selectedDate,
+                                    onSelectDate = { date ->
+                                        selectedDate = date
+                                        if (state.filter == CalendarFilter.Today && date != state.today) {
+                                            component.store.accept(CalendarIntent.SelectFilter(CalendarFilter.All))
+                                        }
+                                    },
                                     bottomContentInset = bottomContentInset,
                                     onOpen = { entry -> dialogEntry = entry },
+                                    onPlay = { entry ->
+                                        if (entry.canOpenCalendarPlayback()) {
+                                            entry.itemId?.let { component.onPlayItem(entry.serverId, it) }
+                                        }
+                                    },
+                                    onFollow = component::toggleFollow,
+                                    backdrop = component::featuredBackdrop,
                                     liftMenu = { display ->
                                         val entry = display.entry
                                         calendarEntryLiftMenu(
@@ -325,7 +329,7 @@ fun CalendarScreen(component: CalendarComponent) {
                                                     { component.onOpenItem(entry.serverId, itemId) }
                                                 },
                                             onFollow =
-                                                if (entry.followed || entry.episode.showTmdbId <= 0) {
+                                                if (entry.followed || !entry.episode.canFollow) {
                                                     null
                                                 } else {
                                                     { component.toggleFollow(entry) }
@@ -350,7 +354,10 @@ fun CalendarScreen(component: CalendarComponent) {
             }
         }
         dialogEntry?.let { entry ->
-            val followed = followedSeries.firstOrNull { it.tmdbId == entry.episode.showTmdbId }
+            val followed =
+                followedSeries.firstOrNull {
+                    entry.episode.canFollow && it.tmdbId == entry.episode.showTmdbId
+                }
             AiringShowCalendarDialog(
                 initialEntry = entry,
                 days = dialogSeriesDays ?: state.days,
@@ -365,7 +372,7 @@ fun CalendarScreen(component: CalendarComponent) {
                 },
                 onToggleFollow = { component.toggleFollow(entry) },
                 onReminderChanged = { mode, minutes ->
-                    component.setReminder(entry.episode.showTmdbId, mode, minutes)
+                    if (entry.episode.canFollow) component.setReminder(entry.episode.showTmdbId, mode, minutes)
                 },
                 onRefresh = {
                     dialogRefresh?.cancel()
@@ -375,7 +382,7 @@ fun CalendarScreen(component: CalendarComponent) {
                             val refreshed = component.seriesCalendar(entry, forceRefresh = true)
                             // Cancelled with its sheet, and checked as well: only that show's sheet
                             // may take the answer, or put its spinner away.
-                            if (dialogEntry?.episode?.showTmdbId != entry.episode.showTmdbId) return@launch
+                            if (dialogEntry?.episode?.titleKey != entry.episode.titleKey) return@launch
                             refreshed.onSuccess { loaded ->
                                 if (loaded.isNotEmpty()) dialogSeriesDays = loaded
                             }

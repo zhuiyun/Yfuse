@@ -115,7 +115,6 @@ data class CalendarState(
             val dateAccepted =
                 when (filter) {
                     CalendarFilter.Today -> day.date == today
-                    CalendarFilter.Upcoming -> day.date >= today
                     else -> true
                 }
             if (!dateAccepted) return@mapNotNull null
@@ -217,6 +216,9 @@ sealed interface CalendarIntent {
     /** Lifecycle/data invalidation refresh: reuses valid caches and only reloads stale data. */
     data object Reload : CalendarIntent
 
+    /** Clears every persisted and transient constraint behind the empty-results action. */
+    data object ResetFilters : CalendarIntent
+
     /** Applies a single-series refresh without reopening global discovery and every server. */
     data class ApplySeriesRefresh(
         val tmdbId: Int,
@@ -246,6 +248,8 @@ private sealed interface Action {
 
 private sealed interface Msg {
     data object Loading : Msg
+
+    data object FiltersReset : Msg
 
     data class Loaded(
         val days: List<CalendarDay>,
@@ -316,6 +320,11 @@ class CalendarStoreFactory(
             when (intent) {
                 CalendarIntent.Refresh -> load(forceRefresh = true)
                 CalendarIntent.Reload -> load(forceRefresh = false)
+                CalendarIntent.ResetFilters -> {
+                    preferences?.savePlatformFilter(null)
+                    preferences?.saveContentFilter(CalendarContentFilter.All.name)
+                    dispatch(Msg.FiltersReset)
+                }
                 // Merged into whatever is on screen; a full load still in flight keeps
                 // running and lands over it, since both read the same publication.
                 is CalendarIntent.ApplySeriesRefresh ->
@@ -361,6 +370,12 @@ class CalendarStoreFactory(
         override fun CalendarState.reduce(msg: Msg): CalendarState =
             when (msg) {
                 Msg.Loading -> copy(loading = true, error = null)
+                Msg.FiltersReset ->
+                    copy(
+                        filter = CalendarFilter.All,
+                        platform = null,
+                        contentFilter = CalendarContentFilter.All,
+                    )
                 is Msg.PreviewLoaded -> withCalendarPreview(msg.days)
                 is Msg.Loaded ->
                     copy(
@@ -399,10 +414,10 @@ internal fun mergeTrackedSeriesCalendar(
     (
         current
             .flatMap(CalendarDay::entries)
-            .filterNot { it.episode.showTmdbId == tmdbId } +
+            .filterNot { !it.episode.isMovie && it.episode.showTmdbId == tmdbId } +
             refreshed
                 .flatMap(CalendarDay::entries)
-                .filter { it.episode.showTmdbId == tmdbId }
+                .filter { !it.episode.isMovie && it.episode.showTmdbId == tmdbId }
     ).groupBy { it.episode.airDate }
         .toSortedMap()
         .map { (date, entries) -> CalendarDay(date, entries) }

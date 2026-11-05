@@ -75,7 +75,7 @@ internal fun CalendarResourcesPane(
         remember(enrichedDays) {
             enrichedDays
                 .flatMap(CalendarDay::entries)
-                .groupBy { it.episode.showTmdbId }
+                .groupBy { it.episode.titleKey }
                 .values
                 .map { entries ->
                     val representative =
@@ -150,7 +150,7 @@ internal fun CalendarResourcesPane(
                 )
             }
         }
-        motionItems(summaries, key = { it.entry.episode.showTmdbId }) { summary ->
+        motionItems(summaries, key = { it.entry.episode.titleKey }) { summary ->
             Row(
                 Modifier
                     .fillMaxWidth()

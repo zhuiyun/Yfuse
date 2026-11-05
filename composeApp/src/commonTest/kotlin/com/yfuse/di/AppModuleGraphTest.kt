@@ -178,6 +178,7 @@ class AppModuleGraphTest {
             single(named("tmdb-http")) { unreachableClient() } onClose { it?.close() }
             single(named("stremio-http")) { unreachableClient() } onClose { it?.close() }
             single<SecureStore>(named("stremio-secrets")) { TestSecureStore() }
+            single<SecureStore>(named("calendar-secrets")) { TestSecureStore() }
             single<SecureStore> { TestSecureStore() }
             single {
                 ServerRegistry(settings = get(), secureStore = TestSecureStore(), crypto = get(), personal = get())
@@ -330,6 +331,9 @@ class AppModuleGraphTest {
                 "Singleton com.yfuse.feature.player.PlaybackReportingCoordinator",
                 "Singleton com.yfuse.core.data.ServerHealthMonitor",
                 "Singleton com.yfuse.core.data.CalendarFollowStore",
+                "Singleton com.yfuse.core.data.CalendarMetadataPreferences",
+                "Singleton com.yfuse.core.data.CalendarMetadataRepository",
+                "Singleton com.yfuse.core.security.SecureStore named(calendar-secrets)",
                 "Singleton com.yfuse.core.data.OfficialAiringScheduleCatalog",
                 "Singleton com.yfuse.core.data.AiringCalendarRepository",
                 "Singleton io.ktor.client.HttpClient named(danmaku-http) onClose",
