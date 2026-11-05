@@ -60,8 +60,6 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -120,7 +118,6 @@ import com.yfuse.core.designsystem.touchTarget
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.abs
-import kotlin.math.min
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
@@ -1473,7 +1470,6 @@ internal fun StandardSeekBar(
                 .drawBehind {
                     val color = accent()
                     val played = shownFraction.value
-                    val playedWidth = size.width * played
                     // Read the engine's latest sample while drawing. Paused playback still buffers;
                     // a seek or engine change can also clear it without waiting for an animation.
                     val cachedRanges =
@@ -1483,48 +1479,13 @@ internal fun StandardSeekBar(
                             bufferedEndMs = scrubPositionMs(latestBufferedFraction.value, latestDurationMs),
                             durationMs = latestDurationMs,
                         )
-                    val bufferColor = Color.White.copy(alpha = 0.60f)
-                    // One brush across every part, so the played gradient runs on through the cuts.
-                    val playedBrush =
-                        Brush.horizontalGradient(
-                            listOf(lerp(color, Color.Black, 0.14f), lerp(color, Color.White, 0.24f)),
-                            endX = playedWidth.coerceAtLeast(1f),
-                        )
-                    // Without chapters this is one part from end to end: the rail as it always was.
-                    forEachRailPart(size.width, chapterCuts, SeekChapterGap.toPx()) { left, right ->
-                        drawRect(
-                            Color.White.copy(alpha = 0.16f),
-                            topLeft = Offset(left, 0f),
-                            size = Size(right - left, size.height),
-                        )
-                        for (range in cachedRanges) {
-                            val cachedLeft =
-                                maxOf(
-                                    left,
-                                    size.width * playbackProgressFraction(range.startMs, latestDurationMs),
-                                )
-                            val cachedRight =
-                                min(
-                                    right,
-                                    size.width * playbackProgressFraction(range.endMs, latestDurationMs),
-                                )
-                            if (cachedRight > cachedLeft) {
-                                drawRect(
-                                    bufferColor,
-                                    topLeft = Offset(cachedLeft, 0f),
-                                    size = Size(cachedRight - cachedLeft, size.height),
-                                )
-                            }
-                        }
-                        val playedRight = min(right, playedWidth)
-                        if (playedRight > left) {
-                            drawRect(
-                                playedBrush,
-                                topLeft = Offset(left, 0f),
-                                size = Size(playedRight - left, size.height),
-                            )
-                        }
-                    }
+                    drawSeekRail(
+                        color = color,
+                        played = played,
+                        cachedRanges = cachedRanges,
+                        durationMs = latestDurationMs,
+                        chapterCuts = chapterCuts,
+                    )
                 },
         )
 
@@ -1689,28 +1650,6 @@ internal fun StandardSeekBar(
         }
     }
 }
-
-/**
- * Calls [part] for each stretch of a [width]-wide rail between the chapter [cuts] (sorted
- * fractions), leaving [gap] pixels open at every cut. No cuts is a single part, end to end.
- */
-private inline fun forEachRailPart(
-    width: Float,
-    cuts: List<Float>,
-    gap: Float,
-    part: (left: Float, right: Float) -> Unit,
-) {
-    var left = 0f
-    for (cut in cuts) {
-        val at = width * cut
-        if (at - gap / 2f > left) part(left, at - gap / 2f)
-        left = at + gap / 2f
-    }
-    if (width > left) part(left, width)
-}
-
-/** The opening between two chapters on the rail: wide enough to read, too narrow to aim at. */
-private val SeekChapterGap = 2.dp
 
 /** The heat curve's strip: from just under the bar's top edge down to just above the rail. */
 private val SeekHeatTop = 4.dp
