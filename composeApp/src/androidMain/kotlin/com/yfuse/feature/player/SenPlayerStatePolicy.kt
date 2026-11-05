@@ -7,44 +7,6 @@ import com.yfuse.core2.api.YBufferSnapshot
 import com.yfuse.core2.api.YBufferedRange
 import com.yfuse.core2.api.normalizeBufferedRanges
 
-/** mediacodec_embed can report zero decoded/surface frame counters while draw evidence advances. */
-internal class SenPlayerVideoReadinessGate {
-    private var source = 0L
-    private var baseline = 0L
-    private var lastDraws = 0L
-    private var rendered = false
-
-    fun reset(
-        sourceId: Long = 0L,
-        draws: Long = lastDraws,
-    ) {
-        source = sourceId
-        baseline = draws.coerceAtLeast(0)
-        lastDraws = baseline
-        rendered = false
-    }
-
-    fun observe(
-        sourceId: Long,
-        draws: Long,
-        width: Int,
-        height: Int,
-        surfaceReady: Boolean,
-    ): Boolean {
-        if (sourceId == 0L || sourceId != source || !surfaceReady) return false
-        val current = draws.coerceAtLeast(0)
-        // Treat an observed decrease as a reset; a positive count already includes a draw.
-        // The exact JNI reset timing is not established by this policy's boundary tests.
-        if (current < lastDraws) {
-            baseline = 0
-            rendered = false
-        }
-        lastDraws = current
-        if (width > 0 && height > 0 && current > baseline) rendered = true
-        return rendered && width > 0 && height > 0
-    }
-}
-
 internal fun PlaybackState.forSenPlayerLoad(
     sessionId: String,
     generation: Long,

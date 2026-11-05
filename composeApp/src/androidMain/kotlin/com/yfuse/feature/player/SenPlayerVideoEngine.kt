@@ -2,12 +2,14 @@ package com.yfuse.feature.player
 
 import android.content.Context
 import android.graphics.PixelFormat
+import android.os.SystemClock
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.widget.FrameLayout
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.playback.PlaybackFailureKind
 import com.yfuse.core2.android.AndroidSerializedPlayerRelease
@@ -57,6 +59,14 @@ internal class SenPlayerVideoEngine(
     private var pauseAtEnd = false
     private val endGate = SenPlayerEndGate()
     private val videoGate = SenPlayerVideoReadinessGate()
+    private val surfaceProbe = SenPlayerSurfaceProbe()
+    private val outputGeneration = AtomicLong()
+    private var boundSurfaceEpoch = -1L
+    private var outputWatchdog = SenPlayerOutputWatchdog()
+    private var rebuffers = SenPlayerRebufferTracker()
+    private var surfaceRecoveries = 0
+    private var nextOutputLogAt = 0L
+    private var lastOutputPhase = ""
     private var loadPending = true
     private var pendingSeekMs: Long? = null
     private var mediaPoll = 0
@@ -130,7 +140,7 @@ internal class SenPlayerVideoEngine(
         session?.cancelPendingRead()
     }
 
-    private val surfaceCallback =
+    private val surfaceCallback: SurfaceHolder.Callback =
         object : SurfaceHolder.Callback {
             override fun surfaceCreated(holder: SurfaceHolder) {
                 val view = attached ?: return
@@ -169,12 +179,14 @@ internal class SenPlayerVideoEngine(
                             return@submit
                         }
                         session = created
+                        boundSurfaceEpoch = epoch
                         proxy = AndroidPlaybackHttpProxy(appContext, customUserAgent, videoCacheBytes)
                         loadCurrent()
                     } else {
                         val current = requireNotNull(session)
-                        videoGate.reset(current.sourceId(), current.snapshot().surfaceDraws)
+                        resetVideoEvidence(current.sourceId(), current.snapshot(), "surface_created")
                         current.surface(view.video.holder.surface, view.subtitles.holder.surface)
+                        boundSurfaceEpoch = epoch
                         if (loadPending) loadCurrent() else current.play(requested)
                     }
                     if (attached === view && surfaceEpoch.get() == epoch && !released.get()) {
@@ -194,6 +206,10 @@ internal class SenPlayerVideoEngine(
                 val epoch = surfaceEpoch.get()
                 submit {
                     if (attached === view && surfaceEpoch.get() == epoch && view.ready && state.value.error == null) {
+                        if (session == null) {
+                            surfaceCallback.surfaceCreated(holder)
+                            return@submit
+                        }
                         session?.resize(view.video.width.coerceAtLeast(1), view.video.height.coerceAtLeast(1))
                     }
                 }
@@ -235,7 +251,8 @@ internal class SenPlayerVideoEngine(
     }
 
     private fun detachNativeSurface() {
-        videoGate.reset(session?.sourceId() ?: 0L)
+        boundSurfaceEpoch = -1L
+        resetVideoEvidence(session?.sourceId() ?: 0L, reason = "surface_detached")
         session?.takeIf { it.isUsable() }?.surface(null, null)
         mutableState.update {
             if (released.get() || it.error != null) {
@@ -253,10 +270,13 @@ internal class SenPlayerVideoEngine(
         val item = queue.getOrNull(state.value.currentIndex) ?: error("Empty SenPlayer queue")
         loadPending = true
         endGate.reset()
-        videoGate.reset()
+        outputWatchdog = SenPlayerOutputWatchdog()
+        rebuffers = SenPlayerRebufferTracker()
+        surfaceRecoveries = 0
         bufferGeneration++
         mediaPoll = 0
         mutableState.update { it.forSenPlayerLoad(bufferSession, bufferGeneration) }
+        resetVideoEvidence(0L, reason = "source_loading")
         require(item.drmConfiguration == null) { "SenPlayer DRM is not integrated" }
         require(item.transportCredentials == null) { "SenPlayer file transport credentials require YCore" }
         if (session?.isUsable() == false) closeSession()
@@ -281,10 +301,10 @@ internal class SenPlayerVideoEngine(
                 require(item.customHeaders == null) { "Custom headers require an HTTP source" }
                 upstream
             }
-        val previousDraws = current.snapshot().surfaceDraws
+        val previousOutput = current.snapshot()
         current.open(url, emptyMap(), if (pendingSeekMs == null) state.value.positionMs else 0, requested)
         if (released.get()) return
-        videoGate.reset(current.sourceId(), previousDraws)
+        resetVideoEvidence(current.sourceId(), previousOutput, "source_opened")
         current.option("speed", state.value.speed.toString())
         // A pause can arrive while original native open is blocking on this worker.
         current.play(requested)
@@ -315,15 +335,60 @@ internal class SenPlayerVideoEngine(
         }
         val target = senPlayerPendingSeekTarget(pendingSeekMs, sample.durationMs, sample.phase)
         if (target != null) {
+            beginVideoSeek(current.sourceId(), sample)
             current.seek(target)
             pendingSeekMs = null
-            videoGate.reset(current.sourceId(), sample.surfaceDraws)
             mutableState.update { if (released.get()) it else it.copy(positionMs = target, ended = false) }
             return
         }
         val ended = sample.phase == "ended"
+        val now = SystemClock.elapsedRealtime()
+        val epoch = surfaceEpoch.get()
+        val view = attached
+        val surfaceReady = view?.ready == true && boundSurfaceEpoch == epoch
+        val token = SenPlayerOutputToken(sample.source, outputGeneration.get(), epoch)
+        val pixels = surfaceProbe.result(token)
         val rendered =
-            videoGate.observe(sample.source, sample.surfaceDraws, sample.width, sample.height, attached?.ready == true)
+            videoGate.observe(
+                sample.source,
+                sample.surfaceDraws,
+                sample.width,
+                sample.height,
+                surfaceReady,
+                surfaceFrames = sample.surfaceFrames,
+                changingPicture = pixels?.changingPicture == true,
+            )
+        rebuffers.observe(now, sample.phase, requested)
+        val outputAction =
+            outputWatchdog.observe(
+                now,
+                eligible =
+                    surfaceReady && requested && sample.phase == "playing" && sample.width > 0 && sample.height > 0,
+                rendered = rendered,
+                positionMs = sample.positionMs,
+                decodedFrames = sample.videoFrames,
+            )
+        if (!rendered &&
+            surfaceReady &&
+            view != null &&
+            sample.width > 0 &&
+            sample.height > 0 &&
+            requested &&
+            sample.phase == "playing"
+        ) {
+            surfaceProbe.request(view.video, token) {
+                !released.get() &&
+                    attached === view &&
+                    surfaceEpoch.get() == token.surfaceEpoch &&
+                    outputGeneration.get() == token.generation &&
+                    session?.sourceId() == token.source
+            }
+        }
+        recordOutputSample(sample, token, surfaceReady, rendered, pixels, now, outputAction)
+        if (outputAction == SenPlayerOutputAction.Rebind && view != null && surfaceReady) {
+            recoverVideoSurface(current, sample, view, epoch)
+            return
+        }
         val cache =
             senPlayerCacheState(
                 bufferSession,
@@ -352,9 +417,25 @@ internal class SenPlayerVideoEngine(
                         videoWidth = sample.width,
                         videoReadiness =
                             if (rendered) PlaybackOutputReadiness.Rendering else PlaybackOutputReadiness.Waiting,
-                        videoOutput = sample.videoOutput,
+                        videoOutput =
+                            when {
+                                rendered -> sample.videoOutput.ifBlank { "视频画面已输出" }
+                                outputWatchdog.warning -> "未确认视频画面，请尝试切换解码方式或内核"
+                                else -> "正在确认视频画面"
+                            },
                         audioOutput = sample.audioOutput,
                         bufferedDurationMs = cache.durationMs,
+                        bufferEvents = rebuffers.events,
+                        rebufferDurationMs = rebuffers.durationMs,
+                        longestRebufferMs = rebuffers.longestMs,
+                        outputEvidence =
+                            it.diagnostics.outputEvidence.copy(
+                                surfaceRebuildCount = surfaceRecoveries,
+                                rendererDetail =
+                                    "SenPlayer decoded=${sample.videoFrames} surface=${sample.surfaceFrames} " +
+                                        "draws=${sample.surfaceDraws} pixelCopy=${pixels?.result ?: "unavailable"} " +
+                                        "pixelChanging=${pixels?.changingPicture == true}",
+                            ),
                     ),
             )
         }
@@ -366,6 +447,104 @@ internal class SenPlayerVideoEngine(
             return
         }
         if (!ended && mediaPoll++ % 8 == 0) updateTracks(current.media())
+    }
+
+    private fun resetVideoEvidence(
+        source: Long,
+        sample: SenPlayerSession.Snapshot? = null,
+        reason: String,
+    ) {
+        val generation = outputGeneration.incrementAndGet()
+        surfaceProbe.invalidate()
+        videoGate.reset(source, sample?.surfaceDraws ?: 0, sample?.surfaceFrames ?: 0)
+        nextOutputLogAt = 0
+        mutableState.update {
+            if (released.get()) {
+                it
+            } else {
+                it.copy(
+                    diagnostics =
+                        it.diagnostics.copy(
+                            videoReadiness = PlaybackOutputReadiness.Waiting,
+                            outputEvidenceGeneration = generation,
+                            outputEvidenceResetReason = reason,
+                        ),
+                )
+            }
+        }
+    }
+
+    private fun beginVideoSeek(
+        source: Long,
+        sample: SenPlayerSession.Snapshot,
+    ) {
+        rebuffers.seeking(SystemClock.elapsedRealtime())
+        outputWatchdog = SenPlayerOutputWatchdog()
+        resetVideoEvidence(source, sample, "seek")
+    }
+
+    private fun recoverVideoSurface(
+        current: SenPlayerSession,
+        sample: SenPlayerSession.Snapshot,
+        view: SenPlayerSurfaceHost,
+        epoch: Long,
+    ) {
+        if (released.get() || attached !== view || surfaceEpoch.get() != epoch || !view.ready) return
+        resetVideoEvidence(sample.source, sample, "no_picture_surface_rebind")
+        current.surface(null, null)
+        // Surface destruction can race the native detach. Its queued callback owns cleanup.
+        if (released.get() || attached !== view || surfaceEpoch.get() != epoch || !view.ready) return
+        current.surface(view.video.holder.surface, view.subtitles.holder.surface)
+        current.resize(view.video.width.coerceAtLeast(1), view.video.height.coerceAtLeast(1))
+        current.play(requested)
+        surfaceRecoveries++
+    }
+
+    private fun recordOutputSample(
+        sample: SenPlayerSession.Snapshot,
+        token: SenPlayerOutputToken,
+        surfaceReady: Boolean,
+        rendered: Boolean,
+        pixels: SenPlayerSurfaceSample?,
+        now: Long,
+        action: SenPlayerOutputAction,
+    ) {
+        if (now < nextOutputLogAt && lastOutputPhase == sample.phase && action == SenPlayerOutputAction.None) return
+        nextOutputLogAt = now + 5_000
+        lastOutputPhase = sample.phase
+        val attributes =
+            mapOf(
+                "source" to token.source.toString(),
+                "generation" to token.generation.toString(),
+                "surfaceEpoch" to token.surfaceEpoch.toString(),
+                "phase" to sample.phase,
+                "positionMs" to sample.positionMs.toString(),
+                "decoder" to sample.decoder,
+                "nativeVideoOutput" to sample.videoOutput,
+                "width" to sample.width.toString(),
+                "height" to sample.height.toString(),
+                "decodedFrames" to sample.videoFrames.toString(),
+                "surfaceFrames" to sample.surfaceFrames.toString(),
+                "surfaceDraws" to sample.surfaceDraws.toString(),
+                "surfaceReady" to surfaceReady.toString(),
+                "rendered" to rendered.toString(),
+                "pixelCopyResult" to (pixels?.result?.toString() ?: "unavailable"),
+                "pixelLumaRange" to (pixels?.lumaRange?.toString() ?: "unavailable"),
+                "pixelChanging" to (pixels?.changingPicture == true).toString(),
+                "rebufferEvents" to rebuffers.events.toString(),
+                "rebufferMs" to rebuffers.durationMs.toString(),
+                "action" to action.name,
+            )
+        if (action == SenPlayerOutputAction.None) {
+            AppLog.info("player.senplayer", "video_output_sample", "SenPlayer video output evidence", attributes)
+        } else {
+            AppLog.warning(
+                category = "player.senplayer",
+                event = "video_output_recovery",
+                message = "SenPlayer has media progress without confirmed video output",
+                attributes = attributes,
+            )
+        }
     }
 
     private fun updateTracks(media: JSONObject) {
@@ -435,10 +614,9 @@ internal class SenPlayerVideoEngine(
                 return@submit
             }
             if (current != null) {
-                val draws = current.snapshot().surfaceDraws
+                beginVideoSeek(current.sourceId(), current.snapshot())
                 current.seek(position)
                 pendingSeekMs = null
-                videoGate.reset(current.sourceId(), draws)
             } else {
                 pendingSeekMs = position
                 // Saving intent has not moved the native source or invalidated its displayed frame.
@@ -524,6 +702,8 @@ internal class SenPlayerVideoEngine(
         attached?.removeCallbacks(surfaceCallback)
         attached = null
         surfaceEpoch.incrementAndGet()
+        outputGeneration.incrementAndGet()
+        surfaceProbe.invalidate()
         mutableState.update {
             it.copy(
                 playing = false,

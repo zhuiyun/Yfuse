@@ -262,6 +262,12 @@ internal fun PlayerRootSurface(
                 state.diagnostics.effectiveAudioReadiness == PlaybackOutputReadiness.Rendering &&
                     state.videoHeight <= 0 &&
                     currentItem?.activeVersion?.sourceVideoCodec.isNullOrBlank()
+            val revealUnconfirmedPicture =
+                rememberSenPlayerPictureCoverExpired(
+                    engine,
+                    state,
+                    waitingForPicture = !pictureReady && !audioOnly && state.error == null && !state.ended,
+                )
             PlaybackContinuityOverlay(
                 artworkUrls = continuityArtwork,
                 title = currentItem?.title.orEmpty(),
@@ -274,7 +280,8 @@ internal fun PlayerRootSurface(
                         state.error == null &&
                         !state.ended &&
                         !audioOnly &&
-                        !pictureReady,
+                        !pictureReady &&
+                        !revealUnconfirmedPicture,
                 message = continuityMessage,
                 modifier = Modifier.fillMaxSize(),
             )
@@ -282,7 +289,12 @@ internal fun PlayerRootSurface(
                 identity = currentItem?.let { it.serverId to it.id },
                 title = currentItem?.title.orEmpty(),
                 awaitingPicture =
-                    currentItem != null && !pictureReady && !audioOnly && state.error == null && !state.ended,
+                    currentItem != null &&
+                        !pictureReady &&
+                        !audioOnly &&
+                        state.error == null &&
+                        !state.ended &&
+                        !revealUnconfirmedPicture,
                 suppressed = inPictureInPicture || ambientPowerLimited,
                 modifier =
                     Modifier
@@ -291,14 +303,19 @@ internal fun PlayerRootSurface(
             )
             PlayerTransitionLayer(
                 state = transition,
-                ready = state.error != null || pictureReady || audioOnly,
+                ready = state.error != null || pictureReady || audioOnly || revealUnconfirmedPicture,
                 inPictureInPicture = inPictureInPicture,
                 aspectRatio = transitionAspectRatio(choices.scaleMode, state, currentItem),
                 layer = PlayerTransitionLayerKind.Entrance,
             )
             PlaybackStatusChip(
-                visible = pictureReady && (state.buffering || networkRecovery.pending),
-                message = statusChipMessage,
+                visible = revealUnconfirmedPicture || (pictureReady && (state.buffering || networkRecovery.pending)),
+                message =
+                    if (revealUnconfirmedPicture) {
+                        { PlaybackStatusLine("尚未确认视频画面", state.diagnostics.videoOutput) }
+                    } else {
+                        statusChipMessage
+                    },
                 modifier = statusChipModifier,
             )
 

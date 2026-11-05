@@ -77,3 +77,31 @@ bridge passes standalone compilation and 49 host assertions using doubles withou
 requesting a license. Kotlin policy and integration results are recorded in the local
 `audit/playback-buffer-review-20261105/` reports. The new fixes still need full UI, slow-network,
 Surface recreation and cross-device regression; the earlier device run cannot verify later changes.
+
+### Missing-picture handling
+
+The adapter accepts fresh native surface frames or draws for the current source and Surface.
+When neither counter reports output, it samples a 16×16 buffer through `PixelCopy`, at most 20
+times per source/seek/Surface generation and no more often than every 750 ms of polling while
+playing. Two distinct non-flat samples are required; a successful copy, media-clock advancement
+or decoded-frame count alone never declares the video rendered. Samples stay in memory and are
+recycled; logs contain result codes and a luminance range, never images or pixel fingerprints.
+
+For SenPlayer only, the artwork/entrance cover gives way after three seconds to expose the actual
+Surface and a compact waiting message. This does not change rendering diagnostics. After eight
+seconds of active playback progress with decoded frames but no output evidence, the adapter may
+detach/rebind the current valid Surface once per source or explicit seek. Buffering, pauses and
+missing Surfaces earn no recovery time. Continued missing output produces a decoder/engine hint;
+it does not reopen the source, choose another engine or modify the original runtime.
+
+`player.senplayer/video_output_sample` records native decoder/output labels, all three frame
+counters, Surface generation/readiness and pixel-copy results every five seconds or on a phase
+change. Recovery actions use `video_output_recovery`. Rebuffer counts and durations now include
+starvation after playback starts even if first-picture confirmation is missing; startup and seeks
+are excluded.
+
+`SenPlayerOutputPolicyTest` covers output evidence, stale generations, one-shot recovery and
+rebuffer accounting. Device regression must still cover the reported ProRes MOV, software and
+embedded decoding, rotation/background return, seeking, pause and slow-network buffering. Host
+tests and Android API compilation cannot establish that the reported movie displays on the OPPO
+device or that the original native decoder supports that source.
