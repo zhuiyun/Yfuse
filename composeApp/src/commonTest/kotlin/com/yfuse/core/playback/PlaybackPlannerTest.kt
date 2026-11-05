@@ -11,22 +11,24 @@ class PlaybackPlannerTest {
     @Test
     fun senplayer_requires_explicit_selection_and_stays_out_of_automatic_fallbacks() {
         val available = PlayerEngine.entries.toSet()
-        val automatic = planPlayback(
-            probe = probe(container = "mp4"),
-            capabilities = capabilities(),
-            preferredEngine = PlayerEngine.Exo,
-            preferredDecoderMode = DecoderMode.Auto,
-            availableEngines = available,
-        )
+        val automatic =
+            planPlayback(
+                probe = probe(container = "mp4"),
+                capabilities = capabilities(),
+                preferredEngine = PlayerEngine.Exo,
+                preferredDecoderMode = DecoderMode.Auto,
+                availableEngines = available,
+            )
         assertFalse(PlayerEngine.SenPlayer in automatic.engineOrder)
-        val selected = planPlayback(
-            probe = probe(container = "mp4"),
-            capabilities = capabilities(),
-            preferredEngine = PlayerEngine.SenPlayer,
-            preferredDecoderMode = DecoderMode.Auto,
-            engineSelection = PlaybackEngineSelection.LockSenPlayer,
-            availableEngines = available,
-        )
+        val selected =
+            planPlayback(
+                probe = probe(container = "mp4"),
+                capabilities = capabilities(),
+                preferredEngine = PlayerEngine.SenPlayer,
+                preferredDecoderMode = DecoderMode.Auto,
+                engineSelection = PlaybackEngineSelection.LockSenPlayer,
+                availableEngines = available,
+            )
         assertEquals(listOf(PlayerEngine.SenPlayer), selected.engineOrder)
     }
 
