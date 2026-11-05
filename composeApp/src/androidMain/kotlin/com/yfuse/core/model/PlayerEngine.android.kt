@@ -6,6 +6,11 @@ actual fun bundledPlayerEngines(): Set<PlayerEngine> =
     buildSet {
         add(PlayerEngine.Exo)
         add(PlayerEngine.Mpv)
-        if (com.yfuse.senplayer.SenPlayerSession.supportsProcess()) add(PlayerEngine.SenPlayer)
+        if (
+            com.yfuse.senplayer.SenPlayerSession
+                .supportsProcess()
+        ) {
+            add(PlayerEngine.SenPlayer)
+        }
         if (BuildConfig.YFUSE_MDK_INCLUDED) add(PlayerEngine.Mdk)
     }

@@ -31,6 +31,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.yfuse.MainActivity
 import com.yfuse.core.designsystem.AccessibilityOptions
 import com.yfuse.core.designsystem.YfuseTheme
+import com.yfuse.core2.api.YBufferedRange
 import com.yfuse.feature.detail.DETAIL_SPLIT_ARRIVAL_MS
 import com.yfuse.feature.detail.DETAIL_SPLIT_MS
 import com.yfuse.feature.detail.DetailActionDock
@@ -53,6 +54,7 @@ class SoftFeedbackInstrumentedTest {
     fun buffered_rail_is_visible_and_updates_while_the_playhead_is_stationary() {
         var fraction by mutableStateOf<State<Float>>(mutableFloatStateOf(0.2f))
         var buffered by mutableStateOf<State<Float>>(mutableFloatStateOf(0.4f))
+        var bufferedRanges by mutableStateOf(listOf(YBufferedRange(24_000L, 48_000L)))
         var reduced by mutableStateOf(false)
         var accent by mutableStateOf(Color.Black)
         val bounds = AtomicReference<Rect>()
@@ -68,6 +70,7 @@ class SoftFeedbackInstrumentedTest {
                             StandardSeekBar(
                                 fraction = fraction,
                                 bufferedFraction = buffered,
+                                bufferedRanges = { bufferedRanges },
                                 positionMs = { (fraction.value * 120_000).toLong() },
                                 durationMs = 120_000,
                                 progressMarkers = emptyList(),
@@ -93,17 +96,22 @@ class SoftFeedbackInstrumentedTest {
                         accent = color
                         fraction = mutableFloatStateOf(0.2f)
                         buffered = mutableFloatStateOf(0.4f)
+                        bufferedRanges = listOf(YBufferedRange(24_000L, 48_000L))
                     }
                     repeat(3) { frame() }
                     assertBufferContrast(track, bufferedAt = 0.3f, emptyAt = 0.8f)
                     // No position tick: paused playback must still show newly downloaded data.
-                    onMain { buffered = mutableFloatStateOf(0.75f) }
+                    onMain {
+                        buffered = mutableFloatStateOf(0.75f)
+                        bufferedRanges = listOf(YBufferedRange(24_000L, 90_000L))
+                    }
                     repeat(3) { frame() }
                     assertBufferContrast(track, bufferedAt = 0.6f, emptyAt = 0.85f)
                     // A seek/new engine discards its old buffer, even with unchanged duration.
                     onMain {
                         fraction = mutableFloatStateOf(0.05f)
                         buffered = mutableFloatStateOf(0.3f)
+                        bufferedRanges = listOf(YBufferedRange(6_000L, 36_000L))
                     }
                     repeat(3) { frame() }
                     assertBufferContrast(track, bufferedAt = 0.15f, emptyAt = 0.6f)
@@ -111,6 +119,20 @@ class SoftFeedbackInstrumentedTest {
                     assertEquals("A cleared buffer remained painted", pixels[0], pixels[1], 5f)
                 }
             }
+            // Unknown/cleared ranges must not fall back to the stale scalar endpoint.
+            onMain { bufferedRanges = emptyList() }
+            repeat(3) { frame() }
+            val clearedPixels = railBrightness(track, 0.15f, 0.6f)
+            assertEquals("An empty range snapshot painted a buffer", clearedPixels[0], clearedPixels[1], 5f)
+            // Native cache islands remain separate; the gap is not confirmed buffered data.
+            onMain {
+                bufferedRanges = listOf(YBufferedRange(12_000L, 30_000L), YBufferedRange(78_000L, 90_000L))
+            }
+            repeat(3) { frame() }
+            assertBufferContrast(track, bufferedAt = 0.15f, emptyAt = 0.45f)
+            assertBufferContrast(track, bufferedAt = 0.7f, emptyAt = 0.85f)
+            val gapPixels = railBrightness(track, 0.45f, 0.85f)
+            assertEquals("A gap between buffer ranges was painted", gapPixels[0], gapPixels[1], 5f)
             capture("seek-buffered.png")
         }
     }

@@ -298,7 +298,9 @@ data class PlaybackState(
     val durationMs: Long = 0L,
     /** Absolute media position reached by the active engine's forward buffer. */
     val bufferedPositionMs: Long = 0L,
-    val bufferSnapshot: com.yfuse.core2.api.YBufferSnapshot = com.yfuse.core2.api.YBufferSnapshot(),
+    val bufferSnapshot: com.yfuse.core2.api.YBufferSnapshot =
+        com.yfuse.core2.api
+            .YBufferSnapshot(),
     val speed: Float = 1f,
     /** Decoded picture height, for the "1080P" badge; 0 until the first frame. */
     val videoHeight: Int = 0,
