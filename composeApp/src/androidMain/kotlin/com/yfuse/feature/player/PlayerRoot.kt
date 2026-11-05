@@ -580,7 +580,12 @@ internal fun PlayerRoot(
         }
     }
 
-    PlaybackRuntimeContent(owner = engine, source = presentationState, items = items) { localState, liveLocalState ->
+    PlaybackRuntimeContent(
+        owner = player,
+        source = presentationState,
+        items = items,
+        seekRevision = { player.seekRevision },
+    ) { localState, liveLocalState ->
         PlayerEngineReconciliation(
             engine = engine,
             localState = localState,
@@ -1184,23 +1189,16 @@ internal fun PlayerRoot(
                 server = currentItem?.serverId?.let(remoteSubtitleRegistry::serverById),
                 casting = castState.hasActiveSession,
                 repository = remoteSubtitleRepository,
-                onImported = { owner, subtitle ->
+                onImportsChanged = { owner, subtitles ->
                     if (currentItem?.subtitleItemKey() == owner) {
                         val existing = sources.importedSubtitles[owner].orEmpty()
-                        if (existing.none { it.uri == subtitle.uri }) {
-                            if (existing.size < 8) {
-                                capturePlaybackHandover()
-                                player.pause()
-                                sources.importedSubtitles = sources.importedSubtitles + (owner to (existing + subtitle))
-                                build.engineGeneration++
-                                true
-                            } else {
-                                PlayerNotices.show("本片已导入 8 条字幕，请重新打开影片后再导入。", longer = true)
-                                false
-                            }
-                        } else {
-                            true
+                        if (existing != subtitles) {
+                            capturePlaybackHandover()
+                            player.pause()
+                            sources.importedSubtitles = sources.importedSubtitles + (owner to subtitles)
+                            build.engineGeneration++
                         }
+                        true
                     } else {
                         false
                     }

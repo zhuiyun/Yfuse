@@ -50,6 +50,17 @@ data class FileSourceLibrary(
             )
 }
 
+/** An incomplete walk cannot prove a missing path was deleted. A complete rescan can. */
+internal fun FileSourceLibrary.preservingUnreadFiles(previous: FileSourceLibrary?): FileSourceLibrary {
+    if (!partial || previous == null) return this
+    val mergedFiles = (files + previous.files).distinctBy { it.path }
+    val referencedTitles = mergedFiles.mapTo(mutableSetOf()) { it.titleKey }
+    return copy(
+        files = mergedFiles,
+        titles = (titles + previous.titles).distinctBy { it.key }.filter { it.key in referencedTitles },
+    )
+}
+
 /** Where every share's 片库 is kept: one JSON document, read once and written after each scan. */
 interface FileSourceLibraryStorage {
     fun read(): String?

@@ -38,6 +38,8 @@ internal class AndroidYCoreBlockCache(
     private val blockSizeBytes: Int,
     private val maximumBytes: Long,
     private val writeQueue: AndroidCacheWriteQueue = WRITER,
+    private val nowMs: () -> Long = { System.nanoTime() / 1_000_000L },
+    private val availableBytes: () -> Long = { cacheDirectory.usableSpace },
 ) {
     private val root = File(cacheDirectory, CACHE_ROOT_DIRECTORY)
     private val supersededRoots = SUPERSEDED_CACHE_ROOT_DIRECTORIES.map { name -> File(cacheDirectory, name) }
@@ -109,12 +111,15 @@ internal class AndroidYCoreBlockCache(
     private val writeFailures = AtomicLong()
     private val droppedWrites = AtomicLong()
 
+    @Volatile private var retryWritesAtMs = Long.MIN_VALUE
+
     val maximumWriteMs: Long get() = maximumWriteNs.get() / 1_000_000L
     val failedWriteCount: Long get() = writeFailures.get()
     val droppedWriteCount: Long get() = droppedWrites.get()
     val canAcceptWrite: Boolean
         get() =
             persistenceEnabled &&
+                nowMs() >= retryWritesAtMs &&
                 acceptedEpoch == representationEpoch.get() &&
                 writeQueue.hasCapacity(blockSizeBytes)
 
@@ -128,16 +133,31 @@ internal class AndroidYCoreBlockCache(
         contentLength: Long?,
     ) {
         if (!persistenceEnabled) return
+        if (nowMs() < retryWritesAtMs) {
+            droppedWrites.incrementAndGet()
+            return
+        }
         val scheduledEpoch = acceptedEpoch
         if (!writeQueue.enqueue(blockFile(blockIndex).absolutePath, bytes.size) {
                 val startedNs = System.nanoTime()
                 try {
                     synchronized(index.writeLock) {
-                        if (scheduledEpoch == representationEpoch.get()) writeBlock(blockIndex, bytes, contentLength)
+                        if (!persistenceEnabled || scheduledEpoch != representationEpoch.get()) return@synchronized
+                        if (nowMs() < retryWritesAtMs) {
+                            droppedWrites.incrementAndGet()
+                            return@synchronized
+                        }
+                        // This filesystem probe runs only on the writer, never on the reader.
+                        // Leave room for the index and the rest of the app when storage fills up.
+                        if (availableBytes() < bytes.size.toLong() + 16L * 1024L * 1024L) {
+                            throw IOException("Insufficient free space for optional media cache")
+                        }
+                        writeBlock(blockIndex, bytes, contentLength)
                     }
                 } catch (_: Exception) {
                     // Cache persistence is optional; it must never turn delivered media into an EOF.
                     writeFailures.incrementAndGet()
+                    retryWritesAtMs = nowMs() + 30_000L
                 } finally {
                     maximumWriteNs.accumulateAndGet(System.nanoTime() - startedNs, ::maxOf)
                 }

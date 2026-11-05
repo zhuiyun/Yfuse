@@ -112,6 +112,53 @@ class WidgetRepositoryTest {
             assertEquals(20, restored.state.value.items.size)
         }
 
+    @Test fun evicting_a_temporary_feed_cancels_its_request_but_saved_home_feeds_stay_alive() =
+        runTest {
+            val pending = CompletableDeferred<String>()
+            var cancelled = 0
+            val runtime =
+                object : WidgetRuntime by Runtime() {
+                    override suspend fun invoke(
+                        widget: InstalledWidget,
+                        function: String,
+                        argument: JsonElement,
+                        timeoutSeconds: Int,
+                    ): String {
+                        try {
+                            return pending.await()
+                        } finally {
+                            cancelled++
+                        }
+                    }
+                }
+            val repo = WidgetRepository(MemoryPersistence(), runtime, backgroundScope, { "id" }, { it }, { 0L })
+            repo.install(repo.inspect(metadata, "file:demo.js"))
+            val savedSection = WidgetSection("home", "demo", "list", "Home")
+            repo.savePage(WidgetPage("home", "Home", listOf(savedSection)))
+            val home = repo.feed(savedSection)
+            home.ensureLoaded()
+            val old = repo.feed(savedSection.copy(id = "preview-0"))
+            old.ensureLoaded()
+            runCurrent()
+            repeat(48) { repo.feed(savedSection.copy(id = "preview-${it + 1}")) }
+            runCurrent()
+            assertEquals(1, cancelled)
+            assertFalse(old.state.value.busy)
+            assertSame(home, repo.feed(savedSection))
+            pending.complete("""[{"id":"latest","title":"Latest"}]""")
+            runCurrent()
+            assertEquals(
+                "latest",
+                home.state.value.items
+                    .single()
+                    .id,
+            )
+            assertTrue(
+                old.state.value.items
+                    .isEmpty(),
+            )
+        }
+
     @Test fun process_restart_keeps_home_content_visible_until_fresh_content_arrives() =
         runTest {
             val disk = MemoryPersistence()

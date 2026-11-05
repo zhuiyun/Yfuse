@@ -26,6 +26,8 @@ import com.yfuse.core.logging.AppLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -392,6 +394,7 @@ class FileSourcesController(
                         logFailure("list_failed", source, error)
                         FolderListing.Failed(error.userMessageFor(source.kind))
                     }
+                currentCoroutineContext().ensureActive()
                 _browser.update { current ->
                     current?.takeIf { it.source.id == source.id }?.let {
                         val keep = listing is FolderListing.Failed && it.folders[path] is FolderListing.Loaded

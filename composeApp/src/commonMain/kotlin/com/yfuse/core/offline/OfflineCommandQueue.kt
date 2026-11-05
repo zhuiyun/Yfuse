@@ -8,6 +8,12 @@ import kotlinx.coroutines.launch
 
 internal class OfflineCommandRejectedException : IllegalStateException("Offline command queue is full or stopped")
 
+internal class OfflineBatchCommandException(
+    val completedCount: Int,
+    val failedCount: Int,
+    cause: Throwable,
+) : IllegalStateException("Offline batch: $completedCount completed, $failedCount failed", cause)
+
 /** A bounded FIFO: callers never execute disk work, and one failed command cannot kill the consumer. */
 internal class OfflineCommandQueue(
     scope: CoroutineScope,
@@ -58,15 +64,21 @@ internal class OfflineCommandQueue(
         val snapshot = items.distinct()
         return submit {
             beforeBatch()
+            var completed = 0
+            var failed = 0
+            var firstFailure: Exception? = null
             snapshot.forEach { item ->
                 try {
                     action(item)
+                    completed++
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (error: Exception) {
-                    onFailure(error)
+                    failed++
+                    if (firstFailure == null) firstFailure = error
                 }
             }
+            firstFailure?.let { onFailure(OfflineBatchCommandException(completed, failed, it)) }
         }
     }
 

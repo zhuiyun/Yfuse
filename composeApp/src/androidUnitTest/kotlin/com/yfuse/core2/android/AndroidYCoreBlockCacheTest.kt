@@ -12,6 +12,41 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class AndroidYCoreBlockCacheTest {
+    @Test fun full_disk_pauses_optional_writes_without_disabling_reads_and_recovers_after_cooldown() {
+        val directory = Files.createTempDirectory("ycore-cache-space-test").toFile()
+        val tasks = mutableListOf<() -> Unit>()
+        var now = 100L
+        var available = 0L
+        val cache =
+            AndroidYCoreBlockCache(
+                directory,
+                YCacheIdentity("scope", "media", "v1"),
+                64,
+                128,
+                AndroidCacheWriteQueue(execute = { tasks.add(it) }),
+                nowMs = { now },
+                availableBytes = { available },
+            )
+        try {
+            cache.writeBlock(0, ByteArray(64) { 1 }, 128)
+            cache.enqueueWriteBlock(1, ByteArray(64) { 2 }, 128)
+            tasks.removeAt(0).invoke()
+            assertEquals(1L, cache.failedWriteCount)
+            assertFalse(cache.canAcceptWrite)
+            assertContentEquals(ByteArray(64) { 1 }, cache.readBlock(0))
+            cache.enqueueWriteBlock(1, ByteArray(64) { 2 }, 128)
+            assertTrue(tasks.isEmpty())
+            available = 32L * 1024 * 1024
+            now += 30_000L
+            assertTrue(cache.canAcceptWrite)
+            cache.enqueueWriteBlock(1, ByteArray(64) { 2 }, 128)
+            tasks.removeAt(0).invoke()
+            assertContentEquals(ByteArray(64) { 2 }, cache.readBlock(1))
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     @Test
     fun deferred_corruption_cleanup_never_deletes_a_new_valid_commit() {
         val directory = Files.createTempDirectory("ycore-cache-repair-test").toFile()

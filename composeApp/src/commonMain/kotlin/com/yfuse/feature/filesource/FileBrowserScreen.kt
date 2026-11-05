@@ -23,6 +23,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -157,6 +158,14 @@ private fun FolderPage(
     returnedFolder: String?,
 ) {
     val palette = LocalPalette.current
+    var query by rememberSaveable(source.id, path) { mutableStateOf("") }
+    var sortName by rememberSaveable(source.id, path) { mutableStateOf(FolderSort.Name.name) }
+    var descending by rememberSaveable(source.id, path) { mutableStateOf(false) }
+    val sort = FolderSort.entries.firstOrNull { it.name == sortName } ?: FolderSort.Name
+    val rows =
+        remember(listing, query, sort, descending) {
+            browseFolderRows((listing as? FolderListing.Loaded)?.rows.orEmpty(), query, sort, descending)
+        }
     LazyColumn(
         modifier = Modifier.fillMaxSize().statusBarsPadding(),
         contentPadding =
@@ -181,6 +190,18 @@ private fun FolderPage(
         if (path.isNotEmpty()) {
             motionItem(key = "breadcrumbs") { FolderBreadcrumbs(source.name, path, onNavigateDepth) }
         }
+        if (listing is FolderListing.Loaded && listing.rows.isNotEmpty()) {
+            motionItem(key = "browse-tools") {
+                FolderBrowseTools(
+                    query,
+                    sort,
+                    descending,
+                    onQuery = { query = it },
+                    onSort = { sortName = it.name },
+                    onDescending = { descending = it },
+                )
+            }
+        }
         when (listing) {
             null, FolderListing.Loading ->
                 motionItem(key = "loading") { PageLoadingSkeleton(rows = 6, horizontalPadding = 0.dp) }
@@ -201,17 +222,19 @@ private fun FolderPage(
                     motionItem(key = "empty") {
                         PageHint("这个文件夹里没有视频，也没有子文件夹", modifier = Modifier.fillMaxWidth())
                     }
+                } else if (rows.isEmpty()) {
+                    motionItem(key = "no-matches") { PageHint("当前文件夹没有匹配项，可修改或清除搜索。") }
                 } else {
                     motionItem(key = "summary") {
                         Text(
-                            listing.rows.summary(),
+                            if (query.isBlank()) rows.summary() else "找到 ${rows.size} 项 · 共 ${listing.rows.size} 项",
                             style = AppTypography.caption.medium,
                             color = palette.sub2,
                             modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 2.dp),
                         )
                     }
                     motionItems(
-                        listing.rows,
+                        rows,
                         key = { "entry:${it.entry.name}" },
                         contentType = { if (it.entry.directory) "folder" else "video" },
                     ) { row ->

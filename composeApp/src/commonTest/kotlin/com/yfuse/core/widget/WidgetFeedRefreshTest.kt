@@ -43,7 +43,7 @@ class WidgetFeedRefreshTest {
             assertEquals(films.reversed(), feed.state.value.items)
         }
 
-    @Test fun failed_background_refresh_keeps_selection_and_waits_for_retry() =
+    @Test fun failed_background_refresh_keeps_content_and_recovers_after_backoff() =
         runTest {
             var now = 0L
             var calls = 0
@@ -57,16 +57,42 @@ class WidgetFeedRefreshTest {
             now = 1_000L
             feed.refreshIfStale()
             runCurrent()
-            now += 120_000L
+            now += 29_999L
             repeat(3) { feed.refreshIfStale() }
             runCurrent()
             assertEquals(2, calls)
             assertEquals(selected, feed.state.value.homeItems)
             assertEquals(films, feed.state.value.items)
-            feed.retry()
+            now++
+            feed.refreshIfStale()
             runCurrent()
             assertEquals(3, calls)
             assertNotEquals(selected, feed.state.value.homeItems)
+        }
+
+    @Test fun persistent_background_errors_stop_after_three_retries_until_manual_retry() =
+        runTest {
+            var now = 0L
+            var calls = 0
+            var offline = true
+            val feed =
+                WidgetFeed(backgroundScope, { now }, 1, false) { _, _ ->
+                    if (++calls > 1 && offline) error("offline") else films
+                }
+            feed.ensureLoaded()
+            runCurrent()
+            repeat(8) {
+                now += 120_000L
+                feed.refreshIfStale()
+                runCurrent()
+            }
+            assertEquals(5, calls)
+            assertEquals(films, feed.state.value.items)
+            offline = false
+            feed.retry()
+            runCurrent()
+            assertEquals(6, calls)
+            assertEquals(null, feed.state.value.error)
         }
 
     @Test fun batches_cover_the_pool_before_repeating_and_leave_browse_order_untouched() =

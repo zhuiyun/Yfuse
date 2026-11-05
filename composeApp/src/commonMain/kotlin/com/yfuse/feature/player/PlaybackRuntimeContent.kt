@@ -15,9 +15,11 @@ internal fun PlaybackRuntimeContent(
     owner: Any,
     source: StateFlow<PlaybackState>,
     items: List<PlayerMediaItem>,
+    seekRevision: () -> Long = { 0L },
     content: @Composable (PlaybackState, State<PlaybackState>) -> Unit,
 ) {
     val latestItems = rememberUpdatedState(items)
+    val latestSeekRevision = rememberUpdatedState(seekRevision)
     val memory = remember { arrayOf(PlaybackTimelineMemory()) }
     val live =
         remember(owner, source) {
@@ -30,6 +32,8 @@ internal fun PlaybackRuntimeContent(
                     memory[0],
                     item?.let { PlaybackTimelineIdentity(reported.currentIndex, it.serverId, it.id) },
                     reported,
+                    owner = owner,
+                    seekRevision = seekRevision(),
                 ).state,
             )
         }
@@ -41,6 +45,8 @@ internal fun PlaybackRuntimeContent(
                     memory = memory[0],
                     media = item?.let { PlaybackTimelineIdentity(reported.currentIndex, it.serverId, it.id) },
                     reported = reported,
+                    owner = owner,
+                    seekRevision = latestSeekRevision.value(),
                 )
             memory[0] = resolution.memory
             live.value = resolution.state

@@ -1540,6 +1540,14 @@ dependencies {
     androidTestImplementation(libs.androidx.test.junit)
     androidTestImplementation(libs.androidx.test.runner)
 
+    if (nativeOnlyRuntime) {
+        // Only the YCore device gates execute in this profile. Compatibility fixtures still
+        // need their API types to compile without packaging third-party playback runtimes.
+        androidTestCompileOnly(project(":mdkAndroid"))
+        androidTestCompileOnly(libs.media3.exoplayer)
+        androidTestCompileOnly(files("libs/libmpv-release.aar"))
+    }
+
     if (includeMdk) {
         implementation(project(":mdkAndroid"))
     } else {

@@ -13,7 +13,10 @@ import com.yfuse.core.filesource.userMessage
 import com.yfuse.core.logging.AppLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -50,24 +53,32 @@ class FileSourceLibraryScans(
     fun scan(source: FileSource) {
         if (jobs[source.id]?.isActive == true) return
         _progress.update { it + (source.id to FileSourceScanProgress()) }
-        jobs[source.id] =
-            scope.launch {
+        val job =
+            scope.launch(start = CoroutineStart.LAZY) {
                 try {
                     store.ensureLoaded()
                     val credentials =
                         registry.credentials(source.id) ?: throw IllegalStateException("File source is gone")
+                    val scanJob = currentCoroutineContext()[Job]
                     val library =
                         scanner.scan(source, credentials, store.libraries.value[source.id]) { progress ->
                             _progress.update { current ->
-                                if (source.id in
-                                    current
-                                ) {
+                                if (jobs[source.id] === scanJob && scanJob?.isActive == true) {
                                     current + (source.id to progress)
                                 } else {
                                     current
                                 }
                             }
                         }
+                    currentCoroutineContext().ensureActive()
+                    // Editing or removing a connection invalidates a scan of its old address.
+                    val currentCredentials = registry.credentials(source.id)
+                    if (registry.source(source.id)?.copy(name = source.name) != source ||
+                        currentCredentials?.username != credentials.username ||
+                        currentCredentials?.password != credentials.password
+                    ) {
+                        return@launch
+                    }
                     store.save(source.id, library)
                     log("library_scan_finished", source, library)
                     notify(library.summary(source.name))
@@ -77,10 +88,14 @@ class FileSourceLibraryScans(
                     logFailure(source, error)
                     notify(error.scanMessage(source))
                 } finally {
-                    _progress.update { it - source.id }
-                    jobs.remove(source.id)
+                    if (jobs[source.id] === currentCoroutineContext()[Job]) {
+                        _progress.update { it - source.id }
+                        jobs.remove(source.id)
+                    }
                 }
             }
+        jobs[source.id] = job
+        job.start()
     }
 
     fun cancel(sourceId: String) {
@@ -161,7 +176,7 @@ internal fun FileSourceLibrary.summary(sourceName: String): String {
     val notes =
         listOfNotNull(
             "$unmatchedCount 个视频未能识别".takeIf { unmatchedCount > 0 },
-            "其余内容下次刮削时补全".takeIf { partial },
+            "部分目录未读完，已保留原有片库，可重新刮削补全".takeIf { partial },
         )
     return (listOf(head) + notes).joinToString("，")
 }
