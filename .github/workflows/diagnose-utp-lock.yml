@@ -1,0 +1,60 @@
+name: Diagnose UTP dependency lock
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/diagnose-utp-lock.yml
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    name: Generate a narrowly updated UTP lock candidate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out the exact PR head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Set up Java
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+      - name: Resolve and update the UTP work-action lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/resolve-utp.gradle" <<'GROOVY'
+          gradle.projectsEvaluated {
+              def app = rootProject.project(':composeApp')
+              app.tasks.register('resolveUtpForLock') {
+                  doLast {
+                      def configuration = app.configurations.getByName('unified-test-platform-gradle-work-action')
+                      configuration.resolve()
+                      configuration.incoming.resolutionResult.allComponents.each { println it.id }
+                  }
+              }
+          }
+          GROOVY
+          ./gradlew -I "$RUNNER_TEMP/resolve-utp.gradle" \
+            :composeApp:resolveUtpForLock \
+            --update-locks com.android.tools.utp:gradle-work-action \
+            --no-daemon | tee "$RUNNER_TEMP/utp-resolution.txt"
+          git diff --check
+          git diff -- composeApp/gradle.lockfile | tee "$RUNNER_TEMP/utp-lock.diff"
+          changed_locks="$(git diff --name-only -- '**/gradle.lockfile' settings-gradle.lockfile)"
+          test "$changed_locks" = "composeApp/gradle.lockfile"
+      - name: Keep generated lock and resolution evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: utp-lock-candidate-${{ github.event.pull_request.head.sha }}
+          path: |
+            composeApp/gradle.lockfile
+            ${{ runner.temp }}/utp-resolution.txt
+            ${{ runner.temp }}/utp-lock.diff
+          retention-days: 3
