@@ -2230,7 +2230,10 @@ class MpvVideoEngine(
     }
 
     /** Only current-source byte cursor/cache growth may extend a slow startup. */
-    private fun markFileLoadProgress(position: Long? = null, bufferedMs: Long? = null) {
+    private fun markFileLoadProgress(
+        position: Long? = null,
+        bufferedMs: Long? = null,
+    ) {
         if (fileLoadStartedAtMs.get() < 0L) return
         val attempt = fileLoadAttempt.get()
         if (!videoReadinessGate.acceptsStartupProgress(mpv.currentMpvFileIdentity())) return

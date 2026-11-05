@@ -191,8 +191,14 @@ internal fun createVideoEngine(
     return when (kind) {
         PlayerEngine.SenPlayer ->
             SenPlayerVideoEngine(
-                items, startIndex, startPositionMs, startPlaybackRequested,
-                startSpeed, decoderMode, autoNext, customUserAgent,
+                items,
+                startIndex,
+                startPositionMs,
+                startPlaybackRequested,
+                startSpeed,
+                decoderMode,
+                autoNext,
+                customUserAgent,
             )
 
         PlayerEngine.Mdk ->

@@ -691,7 +691,12 @@ private fun RefinedBottomBarContent(
                     bufferedFraction = bufferedFraction,
                     bufferedRanges = {
                         val current = timeline.value
-                        displayedBufferedRanges(current.bufferedRanges, current.positionMs, current.bufferedPositionMs, current.durationMs)
+                        displayedBufferedRanges(
+                            current.bufferedRanges,
+                            current.positionMs,
+                            current.bufferedPositionMs,
+                            current.durationMs,
+                        )
                     },
                     positionMs = shownPositionMs,
                     durationMs = durationMs,
@@ -1471,12 +1476,13 @@ internal fun StandardSeekBar(
                     val playedWidth = size.width * played
                     // Read the engine's latest sample while drawing. Paused playback still buffers;
                     // a seek or engine change can also clear it without waiting for an animation.
-                    val cachedRanges = displayedBufferedRanges(
-                        reported = latestBufferedRanges(),
-                        positionMs = latestPositionMs(),
-                        bufferedEndMs = scrubPositionMs(latestBufferedFraction.value, latestDurationMs),
-                        durationMs = latestDurationMs,
-                    )
+                    val cachedRanges =
+                        displayedBufferedRanges(
+                            reported = latestBufferedRanges(),
+                            positionMs = latestPositionMs(),
+                            bufferedEndMs = scrubPositionMs(latestBufferedFraction.value, latestDurationMs),
+                            durationMs = latestDurationMs,
+                        )
                     val bufferColor = Color.White.copy(alpha = 0.60f)
                     // One brush across every part, so the played gradient runs on through the cuts.
                     val playedBrush =
@@ -1492,8 +1498,16 @@ internal fun StandardSeekBar(
                             size = Size(right - left, size.height),
                         )
                         for (range in cachedRanges) {
-                            val cachedLeft = maxOf(left, size.width * playbackProgressFraction(range.startMs, latestDurationMs))
-                            val cachedRight = min(right, size.width * playbackProgressFraction(range.endMs, latestDurationMs))
+                            val cachedLeft =
+                                maxOf(
+                                    left,
+                                    size.width * playbackProgressFraction(range.startMs, latestDurationMs),
+                                )
+                            val cachedRight =
+                                min(
+                                    right,
+                                    size.width * playbackProgressFraction(range.endMs, latestDurationMs),
+                                )
                             if (cachedRight > cachedLeft) {
                                 drawRect(
                                     bufferColor,

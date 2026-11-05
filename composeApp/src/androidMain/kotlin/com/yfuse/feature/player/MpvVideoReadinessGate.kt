@@ -61,8 +61,7 @@ internal class MpvVideoReadinessGate {
     fun awaitingInitialization(): Boolean = phase == Phase.Loading
 
     @Synchronized
-    fun acceptsStartupProgress(identity: MpvNativeFileIdentity?): Boolean =
-        phase == Phase.Loading && matches(identity)
+    fun acceptsStartupProgress(identity: MpvNativeFileIdentity?): Boolean = phase == Phase.Loading && matches(identity)
 
     @Synchronized
     fun defersPlaylistExpansionEnd(next: MpvNativeFileIdentity?): Boolean =

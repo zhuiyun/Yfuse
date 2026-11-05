@@ -16,7 +16,11 @@ internal class MpvStartupProgress {
     }
 
     @Synchronized
-    fun observe(owner: Long, position: Long? = null, bufferedMs: Long? = null): Boolean {
+    fun observe(
+        owner: Long,
+        position: Long? = null,
+        bufferedMs: Long? = null,
+    ): Boolean {
         if (owner != attempt) return false
         var advanced = false
         if (position != null && position >= 0L) {

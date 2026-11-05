@@ -5,15 +5,15 @@ import android.view.Surface
 import com.mplaykit.Player
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.playback.PlaybackFailureKind
-import java.util.concurrent.Executors
-import java.util.concurrent.RejectedExecutionException
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import org.json.JSONObject
+import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** Native commands, snapshots and teardown share one worker and one session owner. */
 internal class SenPlayerVideoEngine(
@@ -37,15 +37,16 @@ internal class SenPlayerVideoEngine(
     private var metadataPoll = 0
 
     @Volatile private var requested = startPlaybackRequested
-    private val mutableState = MutableStateFlow(
-        PlaybackState(
-            currentIndex = startIndex.coerceIn(0, (items.size - 1).coerceAtLeast(0)),
-            itemCount = items.size,
-            positionMs = startPositionMs.coerceAtLeast(0),
-            speed = startSpeed.takeIf { it.isFinite() && it in 0.25f..4f } ?: 1f,
-            diagnostics = PlaybackDiagnostics(engine = "SenPlayer", decoder = "等待初始化"),
-        ),
-    )
+    private val mutableState =
+        MutableStateFlow(
+            PlaybackState(
+                currentIndex = startIndex.coerceIn(0, (items.size - 1).coerceAtLeast(0)),
+                itemCount = items.size,
+                positionMs = startPositionMs.coerceAtLeast(0),
+                speed = startSpeed.takeIf { it.isFinite() && it in 0.25f..4f } ?: 1f,
+                diagnostics = PlaybackDiagnostics(engine = "SenPlayer", decoder = "等待初始化"),
+            ),
+        )
     override val state: StateFlow<PlaybackState> = mutableState.asStateFlow()
     override val playbackRequested: Boolean get() = requested
 
@@ -74,18 +75,22 @@ internal class SenPlayerVideoEngine(
         }
     }
 
-    fun attachSurface(value: Surface, targetDisplay: Display?) = command {
+    fun attachSurface(
+        value: Surface,
+        targetDisplay: Display?,
+    ) = command {
         if (!value.isValid) return@command
         surface = value
         display = targetDisplay
         if (output == null && mutableState.value.error == null) openCurrent() else output?.surface(value, null)
     }
 
-    fun detachSurface(value: Surface) = command {
-        if (surface !== value) return@command
-        surface = null
-        output?.surface(null, null)
-    }
+    fun detachSurface(value: Surface) =
+        command {
+            if (surface !== value) return@command
+            surface = null
+            output?.surface(null, null)
+        }
 
     private fun openCurrent() {
         val item = queue.getOrNull(mutableState.value.currentIndex) ?: return
@@ -98,13 +103,23 @@ internal class SenPlayerVideoEngine(
         output = null
         source = 0L
         mutableState.update {
-            it.copy(error = null, errorKind = null, ended = false, playing = false, buffering = true,
-                bufferedPositionMs = 0L, bufferedRanges = emptyList(), audioTracks = emptyList(), subtitleTracks = emptyList())
+            it.copy(
+                error = null,
+                errorKind = null,
+                ended = false,
+                playing = false,
+                buffering = true,
+                bufferedPositionMs = 0L,
+                bufferedRanges = emptyList(),
+                audioTracks = emptyList(),
+                subtitleTracks = emptyList(),
+            )
         }
-        val options = linkedMapOf(
-            "hwdec" to if (decoderMode == DecoderMode.Software) "no" else "auto",
-            "android-subtitle-fp16" to "no",
-        )
+        val options =
+            linkedMapOf(
+                "hwdec" to if (decoderMode == DecoderMode.Software) "no" else "auto",
+                "android-subtitle-fp16" to "no",
+            )
         val created = Player(target, null, display, options)
         output = created
         val openOptions = if (userAgent.isBlank()) emptyMap() else mapOf("user-agent" to userAgent)
@@ -135,13 +150,18 @@ internal class SenPlayerVideoEngine(
                 positionMs = secondsToMs(snapshot.position),
                 durationMs = secondsToMs(snapshot.duration),
                 bufferedPositionMs = progress?.bufferedEnd?.let(::secondsToMs) ?: previous.bufferedPositionMs,
-                bufferedRanges = progress?.ranges?.toList()?.chunked(2)?.mapNotNull { pair ->
-                    if (pair.size == 2 && pair.all(Double::isFinite)) {
-                        PlaybackBufferedRange(secondsToMs(pair[0]), secondsToMs(pair[1]))
-                    } else {
-                        null
-                    }
-                }?.let { normalizeBufferedRanges(it, secondsToMs(snapshot.duration)) },
+                bufferedRanges =
+                    progress
+                        ?.ranges
+                        ?.toList()
+                        ?.chunked(2)
+                        ?.mapNotNull { pair ->
+                            if (pair.size == 2 && pair.all(Double::isFinite)) {
+                                PlaybackBufferedRange(secondsToMs(pair[0]), secondsToMs(pair[1]))
+                            } else {
+                                null
+                            }
+                        }?.let { normalizeBufferedRanges(it, secondsToMs(snapshot.duration)) },
                 videoHeight = snapshot.height,
                 ended = ended,
                 diagnostics = previous.diagnostics.copy(videoWidth = snapshot.width),
@@ -167,7 +187,10 @@ internal class SenPlayerVideoEngine(
             if (id < 0) continue
             val language = track.optString("language").takeIf(String::isNotBlank)
             val codec = track.optString("codec").takeIf(String::isNotBlank)
-            val label = track.optString("title").ifBlank { listOfNotNull(language, codec).joinToString(" · ").ifBlank { id.toString() } }
+            val label =
+                track.optString("title").ifBlank {
+                    listOfNotNull(language, codec).joinToString(" · ").ifBlank { id.toString() }
+                }
             val model = EngineTrack(id.toString(), label, language, track.optBoolean("selected"), codec)
             when (kind) {
                 "audio" -> audio += model
@@ -177,7 +200,10 @@ internal class SenPlayerVideoEngine(
         mutableState.update { it.copy(audioTracks = audio, subtitleTracks = subtitles) }
     }
 
-    private fun fail(message: String, kind: PlaybackFailureKind) {
+    private fun fail(
+        message: String,
+        kind: PlaybackFailureKind,
+    ) {
         val old = output
         output = null
         source = 0L
@@ -195,31 +221,42 @@ internal class SenPlayerVideoEngine(
         command { output?.paused(true) }
     }
 
-    override fun seekTo(positionMs: Long) = command {
-        val position = positionMs.coerceAtLeast(0L)
-        if (output?.seek(position / 1000.0) == 0) mutableState.update {
-            it.copy(positionMs = position, ended = false, bufferedPositionMs = position, bufferedRanges = emptyList())
+    override fun seekTo(positionMs: Long) =
+        command {
+            val position = positionMs.coerceAtLeast(0L)
+            if (output?.seek(position / 1000.0) == 0) {
+                mutableState.update {
+                    it.copy(
+                        positionMs = position,
+                        ended = false,
+                        bufferedPositionMs = position,
+                        bufferedRanges = emptyList(),
+                    )
+                }
+            }
         }
-    }
 
-    override fun setSpeed(speed: Float) = command {
-        if (!speed.isFinite() || speed !in 0.25f..4f) return@command
-        if (output?.property("speed", speed.toString()) == 0) mutableState.update { it.copy(speed = speed) }
-    }
-
-    override fun selectAudioTrack(id: String) = command {
-        if (id == EngineTrack.OFF || state.value.audioTracks.any { it.id == id }) {
-            output?.select(source, 0, id.toLongOrNull() ?: 0L, id == EngineTrack.OFF)
-            metadataPoll = 0
+    override fun setSpeed(speed: Float) =
+        command {
+            if (!speed.isFinite() || speed !in 0.25f..4f) return@command
+            if (output?.property("speed", speed.toString()) == 0) mutableState.update { it.copy(speed = speed) }
         }
-    }
 
-    override fun selectSubtitleTrack(id: String) = command {
-        if (id == EngineTrack.OFF || state.value.subtitleTracks.any { it.id == id }) {
-            output?.select(source, 1, id.toLongOrNull() ?: 0L, id == EngineTrack.OFF)
-            metadataPoll = 0
+    override fun selectAudioTrack(id: String) =
+        command {
+            if (id == EngineTrack.OFF || state.value.audioTracks.any { it.id == id }) {
+                output?.select(source, 0, id.toLongOrNull() ?: 0L, id == EngineTrack.OFF)
+                metadataPoll = 0
+            }
         }
-    }
+
+    override fun selectSubtitleTrack(id: String) =
+        command {
+            if (id == EngineTrack.OFF || state.value.subtitleTracks.any { it.id == id }) {
+                output?.select(source, 1, id.toLongOrNull() ?: 0L, id == EngineTrack.OFF)
+                metadataPoll = 0
+            }
+        }
 
     override fun selectItem(index: Int) = command { moveTo(index) }
 
@@ -233,12 +270,16 @@ internal class SenPlayerVideoEngine(
     }
 
     override fun setPauseAtEndOfCurrentItem(enabled: Boolean) = command { stopAtEnd = enabled }
+
     override fun currentPositionMs(): Long = state.value.positionMs
+
     override fun retry() = command { openCurrent() }
-    override fun retryFrom(positionMs: Long) = command {
-        mutableState.update { it.copy(positionMs = positionMs.coerceAtLeast(0L)) }
-        openCurrent()
-    }
+
+    override fun retryFrom(positionMs: Long) =
+        command {
+            mutableState.update { it.copy(positionMs = positionMs.coerceAtLeast(0L)) }
+            openCurrent()
+        }
 
     override fun release() {
         if (!released.compareAndSet(false, true)) return

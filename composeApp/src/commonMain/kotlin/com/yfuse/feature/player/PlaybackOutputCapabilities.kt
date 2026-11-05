@@ -73,7 +73,10 @@ data class PlaybackOutputCapabilities(
             androidApiLevel: Int,
         ): PlaybackOutputCapabilities {
             if (engine == PlayerEngine.SenPlayer) {
-                val unsupported = PlaybackFeatureCapability.Unsupported(PlaybackOutputUnsupportedReason.BackendApiNotVerified)
+                val unsupported =
+                    PlaybackFeatureCapability.Unsupported(
+                        PlaybackOutputUnsupportedReason.BackendApiNotVerified,
+                    )
                 return PlaybackOutputCapabilities(frameRateMatching = unsupported, audioPassthrough = unsupported)
             }
             if (engine == PlayerEngine.Mdk) {

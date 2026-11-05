@@ -7,7 +7,8 @@ actual fun bundledPlayerEngines(): Set<PlayerEngine> =
         add(PlayerEngine.Exo)
         add(PlayerEngine.Mpv)
         if (com.yfuse.senplayer.bridge.BuildConfig.RUNTIME_INCLUDED &&
-            android.os.Build.VERSION.SDK_INT >= 28 && android.os.Process.is64Bit() &&
+            android.os.Build.VERSION.SDK_INT >= 28 &&
+            android.os.Process.is64Bit() &&
             "arm64-v8a" in android.os.Build.SUPPORTED_ABIS
         ) {
             add(PlayerEngine.SenPlayer)

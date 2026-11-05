@@ -10,9 +10,12 @@ class PlaybackBufferedRangesTest {
             listOf(PlaybackBufferedRange(0, 30), PlaybackBufferedRange(60, 100)),
             normalizeBufferedRanges(
                 listOf(
-                    PlaybackBufferedRange(80, 120), PlaybackBufferedRange(-10, 20),
-                    PlaybackBufferedRange(60, 90), PlaybackBufferedRange(10, 30),
-                    PlaybackBufferedRange(50, 40), PlaybackBufferedRange(10, 10),
+                    PlaybackBufferedRange(80, 120),
+                    PlaybackBufferedRange(-10, 20),
+                    PlaybackBufferedRange(60, 90),
+                    PlaybackBufferedRange(10, 30),
+                    PlaybackBufferedRange(50, 40),
+                    PlaybackBufferedRange(10, 10),
                 ),
                 durationMs = 100,
             ),

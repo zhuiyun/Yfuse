@@ -14,27 +14,32 @@ internal fun SenPlayerSurface(
 ) {
     key(engine) {
         AndroidView(
-        modifier = modifier,
-        factory = { context ->
-            SurfaceView(context).apply {
-                holder.addCallback(
-                    object : SurfaceHolder.Callback {
-                        override fun surfaceCreated(holder: SurfaceHolder) {
-                            engine.attachSurface(holder.surface, display)
-                        }
+            modifier = modifier,
+            factory = { context ->
+                SurfaceView(context).apply {
+                    holder.addCallback(
+                        object : SurfaceHolder.Callback {
+                            override fun surfaceCreated(holder: SurfaceHolder) {
+                                engine.attachSurface(holder.surface, display)
+                            }
 
-                        override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-                            engine.attachSurface(holder.surface, display)
-                        }
+                            override fun surfaceChanged(
+                                holder: SurfaceHolder,
+                                format: Int,
+                                width: Int,
+                                height: Int,
+                            ) {
+                                engine.attachSurface(holder.surface, display)
+                            }
 
-                        override fun surfaceDestroyed(holder: SurfaceHolder) {
-                            engine.detachSurface(holder.surface)
-                        }
-                    },
-                )
-            }
-        },
-        onRelease = { view -> engine.detachSurface(view.holder.surface) },
+                            override fun surfaceDestroyed(holder: SurfaceHolder) {
+                                engine.detachSurface(holder.surface)
+                            }
+                        },
+                    )
+                }
+            },
+            onRelease = { view -> engine.detachSurface(view.holder.surface) },
         )
     }
 }
