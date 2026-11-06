@@ -8,6 +8,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.yfuse.BuildConfig
 import com.yfuse.MainActivity
 import com.yfuse.core.logging.DiagnosticLogStore
+import com.yfuse.launchMainActivityForInput
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
@@ -54,7 +55,7 @@ internal class PlaybackReleaseTestHost private constructor(
 
     companion object {
         suspend fun open(): PlaybackReleaseTestHost {
-            val scenario = ActivityScenario.launch(MainActivity::class.java)
+            val scenario = launchMainActivityForInput()
             val ready = CompletableDeferred<Unit>()
             var view: SurfaceView? = null
             val callback =

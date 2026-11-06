@@ -11,10 +11,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
-import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import com.yfuse.MainActivity
+import com.yfuse.launchMainActivityForInput
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -32,7 +31,7 @@ class NavigationMotionInstrumentedTest {
         val contentMeasures = AtomicInteger()
         val viewportWidth = AtomicInteger()
         val instrumentation = InstrumentationRegistry.getInstrumentation()
-        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+        launchMainActivityForInput().use { scenario ->
             scenario.onActivity { activity ->
                 activity.setContent {
                     SideEffect { compositions.incrementAndGet() }
