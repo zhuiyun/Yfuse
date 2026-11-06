@@ -126,7 +126,7 @@ class ExternalPlaybackActivity : Activity() {
                     items = listOf(externalPlaybackItem(url = target.uri, title = title)),
                     startIndex = 0,
                     startPositionMs = 0L,
-                    engine = preferences?.engine?.value ?: PlayerEngine.Exo,
+                    engine = preferences?.engine?.value ?: PlayerEngine.YCore,
                     decoder = preferences?.decoder?.value ?: DecoderMode.Hardware,
                     autoNext = false,
                 ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)

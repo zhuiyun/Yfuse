@@ -1,46 +1,23 @@
 package com.yfuse.feature.player
 
-import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.playback.PlaybackFailureKind
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
-/**
- * PlayerRoot's ladder once an engine has exhausted its streams: another engine, another version,
- * another server. PlaybackRecoveryStepTest covers the order of the three; this pins the rules each
- * rung picks its candidate by and what it remembers.
- */
+/** Source recovery stays within the selected engine: other files, then other servers. */
 class PlaybackSourceLadderTest {
-    private val everyEngine = listOf(PlayerEngine.Exo, PlayerEngine.Mpv, PlayerEngine.Mdk)
-
     private fun step(
         failure: PlaybackFailureKind,
-        engineOrder: List<PlayerEngine> = everyEngine,
-        enginesTried: Set<PlayerEngine> = setOf(PlayerEngine.Exo),
         nextVersionId: String? = "v2",
         servers: List<PlayerMediaItem> = listOf(ladderItem(serverId = "s2")),
         serversTried: Set<String> = setOf("s1"),
     ) = nextPlaybackRecoveryStep(
-        engineOrder = engineOrder,
-        enginesTried = enginesTried,
         backendFallbackEligible = failure.allowsBackendFallback,
         nextVersionId = nextVersionId,
         serverCandidates = servers,
         serversTried = serversTried,
     )
-
-    @Test
-    fun engines_are_tried_in_the_plans_order_not_the_enums() {
-        assertEquals(
-            PlaybackRecoveryStep.Engine(PlayerEngine.Exo),
-            step(
-                PlaybackFailureKind.Decoder,
-                engineOrder = listOf(PlayerEngine.Mdk, PlayerEngine.Exo, PlayerEngine.Mpv),
-                enginesTried = setOf(PlayerEngine.Mdk),
-            ),
-        )
-    }
 
     @Test
     fun only_transport_and_account_failures_skip_straight_to_another_server() {
@@ -52,7 +29,7 @@ class PlaybackSourceLadderTest {
                     PlaybackFailureKind.Authorization,
                     PlaybackFailureKind.Drm,
                     -> server
-                    else -> PlaybackRecoveryStep.Engine(PlayerEngine.Mpv)
+                    else -> PlaybackRecoveryStep.Version("v2")
                 }
             assertEquals(expected, step(kind), kind.name)
         }
@@ -63,7 +40,7 @@ class PlaybackSourceLadderTest {
         for (kind in PlaybackFailureKind.entries) {
             assertEquals(
                 PlaybackRecoveryStep.Server(ladderItem(serverId = "s2"), "s2"),
-                step(kind, enginesTried = everyEngine.toSet(), nextVersionId = null),
+                step(kind, nextVersionId = null),
                 kind.name,
             )
         }

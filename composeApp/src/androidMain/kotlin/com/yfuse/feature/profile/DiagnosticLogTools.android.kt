@@ -38,9 +38,7 @@ import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.DiagnosticLogStats
 import com.yfuse.core.logging.DiagnosticLogStore
 import com.yfuse.core.logging.exportVerifiedDiagnostics
-import com.yfuse.core.playback.OpticalPlaybackValidationInput
-import com.yfuse.core.playback.evaluateOpticalPlaybackRelease
-import com.yfuse.feature.player.installedMpvNativeBuildCapabilities
+import com.yfuse.core2.android.FfmpegNativeBridge
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -66,13 +64,8 @@ actual fun DiagnosticLogTools() {
     var status by remember { mutableStateOf<String?>(null) }
     var exporting by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
-    val nativeCapabilities = remember { installedMpvNativeBuildCapabilities }
-    val opticalReleaseReport =
-        evaluateOpticalPlaybackRelease(
-            OpticalPlaybackValidationInput(
-                nativeAarBuiltAndVerified = nativeCapabilities.pinnedYfuseBluRayArtifact,
-            ),
-        )
+    val yCoreDemuxAvailable = remember { FfmpegNativeBridge.available }
+    val yCoreDiscAvailable = remember { FfmpegNativeBridge.discNavigationAvailable }
 
     fun exportTo(uri: Uri) {
         scope.launch {
@@ -194,43 +187,25 @@ actual fun DiagnosticLogTools() {
             Text("原生播放能力", style = sc(13f, 550), color = palette.text)
             Spacer(Modifier.height(3.dp))
             Text(
-                nativeCapabilities.description,
+                "YCore 自研管线 · SenPlayer 独立内核",
                 style = mr(10.5f, 400),
                 color = palette.sub2,
             )
         }
         DiagnosticDivider()
         DiagnosticValueRow(
-            title = "原生制品",
-            value =
-                if (nativeCapabilities.pinnedYfuseBluRayArtifact) {
-                    "Yfuse 蓝光 AAR"
-                } else {
-                    "未安装已验证蓝光 AAR"
-                },
+            title = "YCore 解封装",
+            value = if (yCoreDemuxAvailable) "原生接口已加载" else "原生接口不可用",
         )
         DiagnosticDivider()
         DiagnosticValueRow(
-            title = "libmpv-android",
-            value = nativeCapabilities.libmpvAndroidRevision.shortRevision(),
+            title = "YCore 蓝光接口",
+            value = if (yCoreDiscAvailable) "原生接口已加载" else "原生接口不可用",
         )
         DiagnosticDivider()
         DiagnosticValueRow(
-            title = "libbluray / libudfread",
-            value =
-                "${nativeCapabilities.libblurayRevision.shortRevision()} / " +
-                    nativeCapabilities.libudfreadRevision.shortRevision(),
-        )
-        DiagnosticDivider()
-        DiagnosticValueRow(
-            title = "蓝光发布门禁",
-            value =
-                if (opticalReleaseReport.releaseReady) {
-                    "全部通过"
-                } else {
-                    "${opticalReleaseReport.failed.size} 失败 · " +
-                        "${opticalReleaseReport.notMeasured.size} 待实测"
-                },
+            title = "实际输出能力",
+            value = "以当前播放会话的输出证据为准",
         )
     }
 
@@ -333,8 +308,6 @@ private fun DiagnosticValueRow(
         showChevron = false,
     )
 }
-
-private fun String?.shortRevision(): String = this?.take(12)?.takeIf(String::isNotBlank) ?: "未提供"
 
 @Composable
 private fun DiagnosticDivider() {

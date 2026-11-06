@@ -93,7 +93,7 @@ internal fun YCore2RouteDecision.toFailureKey(): YCore2FailureKey =
  * executor reports when it has no route of its own; the plan's label then stays.
  */
 internal fun YCore2FailureKey.forExecutedRoute(executedRoute: YPlaybackRoute): YCore2FailureKey =
-    if (executedRoute == YPlaybackRoute.Legacy || executedRoute == route) this else copy(route = executedRoute)
+    if (executedRoute == YPlaybackRoute.Unknown || executedRoute == route) this else copy(route = executedRoute)
 
 private fun String?.encodeOpaque(): String =
     this

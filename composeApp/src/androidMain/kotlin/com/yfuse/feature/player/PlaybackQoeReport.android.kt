@@ -35,9 +35,7 @@ internal fun anonymousPlaybackQoeReport(
         appVersion = appVersion.normalizedQoeVersion(),
         engine =
             when (engine) {
-                PlayerEngine.Exo -> QoeEngine.Exo
-                PlayerEngine.Mpv -> QoeEngine.Mpv
-                PlayerEngine.Mdk -> QoeEngine.Mdk
+                PlayerEngine.YCore -> QoeEngine.YCore
                 PlayerEngine.SenPlayer -> QoeEngine.SenPlayer
             },
         platformApi = platformApiLevel.qoeApiBucket(),
@@ -189,4 +187,10 @@ private fun PlaybackHdrFormat?.qoeDynamicRange(): QoeDynamicRange =
         -> QoeDynamicRange.Hdr10
         PlaybackHdrFormat.Hlg -> QoeDynamicRange.Hlg
         PlaybackHdrFormat.DolbyVision -> QoeDynamicRange.DolbyVision
+    }
+
+/** Only wire engine identities confirmed against the deployed backend may enter its outbox. */
+internal fun publishedQoeEngineSupported(engine: PlayerEngine): Boolean =
+    when (engine) {
+        PlayerEngine.YCore, PlayerEngine.SenPlayer -> false
     }

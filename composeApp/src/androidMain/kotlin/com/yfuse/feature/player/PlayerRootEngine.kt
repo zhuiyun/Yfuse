@@ -8,7 +8,6 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.platform.LocalContext
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.playback.PlaybackDeviceCapabilities
@@ -22,15 +21,8 @@ import com.yfuse.core.playback.PlaybackProbeResult
 import com.yfuse.core.playback.PlaybackProbeStatus
 import com.yfuse.core.playback.planPlayback
 import com.yfuse.core2.api.YPlayer
-import com.yfuse.core2.legacy.YPlayerVideoEngineAdapter
 
-/**
- * Rebuilds the engine when what it was built for stops holding. A YCore 2.0 trial that has exhausted
- * its streams hands over to the selected Legacy engine, unless YCore Native is the only engine this
- * session may use, which reports the failure instead. A new output route or optimisation mode is
- * planned again for the current item, and rebuilds only when the plan asks for another engine,
- * decoder or server transcode.
- */
+/** Replans the selected engine after a real output-route or optimisation change. */
 @Composable
 internal fun PlayerEngineReconciliation(
     engine: VideoEngine,
@@ -51,60 +43,7 @@ internal fun PlayerEngineReconciliation(
     performanceMemory: PlaybackPerformanceMemory,
     dolbyVisionRuntime: PlaybackDolbyVisionRuntimeCapabilities,
 ) {
-    val context = LocalContext.current
     val capabilityRevision by capabilityRevisionState
-    LaunchedEffect(
-        engine,
-        localState.error,
-        localState.fallbacksExhausted,
-        core2NativeOnlyActive,
-    ) {
-        if (
-            engine !is YPlayerVideoEngineAdapter ||
-            localState.error == null ||
-            !localState.fallbacksExhausted
-        ) {
-            return@LaunchedEffect
-        }
-        if (core2NativeOnlyActive) {
-            AppLog.warning(
-                category = "player.core2",
-                event = "native_only_failure",
-                message = "YCore Native failed without invoking a compatibility engine",
-                attributes =
-                    mapOf(
-                        "engine" to attachedEngineLabel,
-                        "itemIndex" to localState.currentIndex.toString(),
-                        "failureKind" to (localState.errorKind?.name ?: "Unknown"),
-                        "failure" to localState.error.orEmpty(),
-                    ),
-            )
-            PlayerNotices.show(core2NativeOnlyFailureToast(localState.errorKind))
-            return@LaunchedEffect
-        }
-        build.resume =
-            choices.handover(
-                state = localState,
-                positionMs = player.currentPositionMs(),
-                playbackRequested = player.playbackRequested,
-            )
-        backendExtensions.prepareForHandover()
-        build.core2DisabledForSession = true
-        build.engineGeneration++
-        AppLog.warning(
-            category = "player.core2",
-            event = "trial_fallback_to_legacy",
-            message = "YCore 2.0 trial failed; rebuilt the selected Legacy engine",
-            attributes =
-                mapOf(
-                    "engine" to attachedEngineLabel,
-                    "itemIndex" to localState.currentIndex.toString(),
-                    "failureKind" to (localState.errorKind?.name ?: "Unknown"),
-                    "failure" to localState.error.orEmpty(),
-                ),
-        )
-        PlayerNotices.show("原生内核播放失败，已切换到兼容内核")
-    }
     var appliedCapabilityRevision by remember { mutableLongStateOf(capabilityRevision) }
     var appliedOptimizationMode by remember { mutableStateOf(effectiveOptimizationMode) }
     LaunchedEffect(capabilityRevision, effectiveOptimizationMode) {
@@ -182,7 +121,7 @@ internal fun PlayerEngineReconciliation(
  * Once the deep probe has read the source, moves playback to what the probe found it needs: the
  * server for a remote disc image or a source this device cannot present, or a rebuilt engine when
  * the plan now prefers another engine or decoder, or a disc image turned out to hold another kind
- * of disc. Neither applies while casting, or when YCore Native is the only engine allowed.
+ * of disc. Neither applies while casting; source fallback still requires the selected item policy.
  */
 @Composable
 internal fun PlayerProbeReconciliation(
@@ -200,16 +139,8 @@ internal fun PlayerProbeReconciliation(
 ) {
     LaunchedEffect(activeProbe.probeDepth, activeProbe.capabilitySignature) {
         if (castAuthoritative) return@LaunchedEffect
-        // Pure YCore is fail-closed: an unsupported local path is reported to the user and must
-        // never be rewritten to a server transcode behind the playback engine.
-        if (core2NativeOnlyActive) return@LaunchedEffect
-
-        // A remote disc image is never probed. `PlaybackMediaProbeService` returns Skipped for
-        // it on purpose — the answer is already settled, because libdvdnav and libbluray need a
-        // device path that an http URL cannot be, so only the server can parse a main feature
-        // out of it. The Complete gate below then withheld the transcode switch from the one
-        // source that can never play without it, and the engine was left holding an `.iso` URL
-        // no demuxer will open. It has to be decided before that gate, not behind it.
+        // A source whose plan needs server main-feature resolution is handled before the
+        // optional deep probe completes; runtime policy still owns transcode approval.
         val remoteDiscNeedsServer =
             activeProbe.discSource &&
                 !activeProbe.localSource &&
@@ -231,7 +162,7 @@ internal fun PlayerProbeReconciliation(
                 .playbackMediaProbe(usingServerTranscode = localState.transcoding)
                 .discKind
         val resolvedDiscRouteChanged =
-            build.kind == PlayerEngine.Mpv &&
+            build.kind == PlayerEngine.YCore &&
                 baselineDiscKind == com.yfuse.core.playback.PlaybackDiscKind.Iso &&
                 activeProbe.discKind != baselineDiscKind
         if (

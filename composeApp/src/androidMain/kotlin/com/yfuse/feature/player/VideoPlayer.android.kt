@@ -6,7 +6,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.platform.LocalContext
 import com.arkivanov.mvikotlin.core.store.Store
-import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.designsystem.MotionTheme
 import com.yfuse.core.designsystem.PlayerHandoff
@@ -73,9 +72,7 @@ actual fun PlayerLauncher(
     LaunchedEffect(items, startIndex, startPositionMs, startPlaybackRequested) {
         if (items.isEmpty()) return@LaunchedEffect
         val koin = GlobalContext.get()
-        val serverRegistry = runCatching { koin.get<ServerRegistry>() }.getOrNull()
-        val localPrepared = prepareNativeLocalBluRayRoute(items, startIndex, context)
-        val preparedItems = prepareNativeRemoteBluRayRoutes(localPrepared, startIndex, serverRegistry)
+        val preparedItems = items
         PlaybackSelection.update(preparedItems.getOrNull(startIndex))
         val preferences = runCatching { koin.get<ThemePreferences>() }.getOrNull()
         var launchIntent: Intent? = null
@@ -88,7 +85,7 @@ actual fun PlayerLauncher(
                     startPositionMs = startPositionMs,
                     engine =
                         offlineSubtitlePlaybackEngine(
-                            preferred = preferences?.engine?.value ?: PlayerEngine.Exo,
+                            preferred = preferences?.engine?.value ?: PlayerEngine.YCore,
                             items = preparedItems,
                         ),
                     decoder = preferences?.decoder?.value ?: com.yfuse.core.model.DecoderMode.Hardware,

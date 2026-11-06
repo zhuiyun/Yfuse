@@ -65,6 +65,8 @@ class NativeEnhancedCommandPolicyTest {
     fun enhanced_remote_files_use_the_transport_proxy() {
         assertTrue(shouldProxyEnhancedSourceUri("https://media.example/video.mkv?token=secret"))
         assertTrue(shouldProxyEnhancedSourceUri("webdav://media.example/video.mkv"))
+        assertTrue(shouldProxyEnhancedSourceUri("ftp://media.example/video.mkv"))
+        assertTrue(shouldProxyEnhancedSourceUri("yfuse-cloud://source/1/video.mkv"))
     }
 
     @Test

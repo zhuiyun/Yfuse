@@ -4,7 +4,6 @@ import com.yfuse.core2.capability.YHdrType
 
 enum class YGpuBackend {
     Vulkan,
-    MpvGpu,
 }
 
 enum class YToneMapper {
@@ -98,7 +97,6 @@ object YGpuPipelinePlanner {
             when {
                 YGpuBackend.Vulkan in capabilities.backends && capabilities.nativeVulkanExecutorVerified ->
                     YGpuBackend.Vulkan
-                YGpuBackend.MpvGpu in capabilities.backends -> YGpuBackend.MpvGpu
                 else -> return null
             }
         val canRetainHdr =

@@ -13,7 +13,7 @@ import com.yfuse.core.playback.evaluateDolbyVisionP7Output
 internal fun PlayerMediaItem.startsWithServerTranscode(): Boolean =
     transcodeUrl.isNotBlank() &&
         playMethod == PlaybackMethod.Transcode &&
-        !requiresLocalDolbyPipeline
+        allowsServerTranscodeFallback(viewerRequested = forcedTranscodeByViewer)
 
 /** Dolby decode/output belongs to the app; negotiated server transcode is only an explicit choice. */
 internal val PlayerMediaVersion.requiresLocalDolbyPipeline: Boolean
@@ -30,6 +30,7 @@ internal const val VIEWER_TRANSCODE_REASON = "用户手动选择服务器转码"
  * Dolby title leaves its original file only when [viewerRequested] it (转码播放).
  */
 internal fun PlayerMediaItem.allowsServerTranscodeFallback(viewerRequested: Boolean): Boolean {
+    if (drmConfiguration != null || activeVersion?.drmConfiguration != null) return false
     val serverApproved =
         serverTranscodeSupported ||
             activeVersion?.serverTranscodeSupported == true ||
@@ -42,7 +43,7 @@ internal fun PlayerMediaItem.allowsServerTranscodeFallback(viewerRequested: Bool
 
 /** Evaluates P7 output from source-layer facts plus explicit runtime trace evidence. */
 internal fun PlayerMediaVersion.dolbyVisionP7Output(diagnostics: PlaybackDiagnostics): DolbyVisionP7ValidationResult {
-    val mpvEvidence = diagnostics.mpvDolbyRuntimeEvidence()
+    val outputEvidence = diagnostics.outputEvidence
     return evaluateDolbyVisionP7Output(
         DolbyVisionP7ValidationEvidence(
             profile = dolbyProfile,
@@ -51,9 +52,9 @@ internal fun PlayerMediaVersion.dolbyVisionP7Output(diagnostics: PlaybackDiagnos
             sourceBaseLayerPresent = sourceDolbyBaseLayerPresent,
             outputBaseLayerDecoded =
                 diagnostics.effectiveVideoReadiness == PlaybackOutputReadiness.Rendering,
-            outputRpuApplied = diagnostics.dolbyVisionRpuApplied || mpvEvidence.rpuRendered,
+            outputRpuApplied = diagnostics.dolbyVisionRpuApplied || outputEvidence.dolbyVisionRpuRendered,
             outputEnhancementLayerComposed =
-                diagnostics.dolbyVisionEnhancementLayerComposed || mpvEvidence.felComposed,
+                diagnostics.dolbyVisionEnhancementLayerComposed || outputEvidence.dolbyVisionFelComposed,
         ),
     )
 }
@@ -69,19 +70,19 @@ internal fun PlayerMediaVersion.dolbyVisionP7Output(diagnostics: PlaybackDiagnos
 internal fun PlayerMediaItem.effectivePlaybackMethod(): PlaybackMethod =
     when {
         startsWithServerTranscode() -> PlaybackMethod.Transcode
-        requiresLocalDolbyPipeline && playMethod == PlaybackMethod.Transcode -> PlaybackMethod.DirectPlay
+        playMethod == PlaybackMethod.Transcode -> PlaybackMethod.DirectPlay
         else -> playMethod
     }
 
 /** Human-readable cause paired with the actual method, never inferred from a badge. */
 internal fun PlayerMediaItem.initialFallbackReason(): String? =
     when {
-        url.isYfuseNativeRemoteBluRayUrl() -> "远程 Blu-ray 原盘使用客户端随机块读取"
-        forcedTranscodeReason != null && transcodeUrl.isNotBlank() -> forcedTranscodeReason
+        forcedTranscodeReason != null && startsWithServerTranscode() -> forcedTranscodeReason
         requiresLocalDolbyPipeline && playMethod == PlaybackMethod.Transcode ->
             "服务器建议转码，已保留杜比原始流并由客户端本地解码"
         playMethod == PlaybackMethod.DirectStream -> "服务器协商为直串流"
-        playMethod == PlaybackMethod.Transcode -> "服务器协商要求转码"
+        startsWithServerTranscode() -> "服务器协商要求转码"
+        playMethod == PlaybackMethod.Transcode -> "转码条件未满足，已保留原始流"
         else -> null
     }
 
@@ -90,6 +91,7 @@ internal fun PlayerMediaItem.withForcedServerTranscode(
     reason: String,
     byViewer: Boolean = false,
 ): PlayerMediaItem {
+    if (!allowsServerTranscodeFallback(byViewer)) return this
     val preparedUrl = transcodeUrl.ifBlank { fallbackTranscodeUrl }
     if (preparedUrl.isBlank()) return this
     return copy(
@@ -129,7 +131,6 @@ internal fun PlayerMediaItem?.playbackMediaProbe(usingServerTranscode: Boolean =
         } else {
             item?.url
         }.orEmpty()
-    val nativeRemoteDisc = !usingServerTranscode && sourceUrl.isYfuseNativeRemoteBluRayUrl()
     val serverResolvedDiscMainFeature =
         version?.discSource == true &&
             !usingServerTranscode &&
@@ -144,12 +145,9 @@ internal fun PlayerMediaItem?.playbackMediaProbe(usingServerTranscode: Boolean =
                     needsDolbyDecoder = false,
                     dynamicRange = null,
                 ),
-        // The custom native route deliberately keeps transcode URLs on the item as a recovery
-        // chain. They must not win initial disc planning, otherwise YCore would immediately undo
-        // the registered raw-ISO route before libbluray gets one attempt.
+        // A spare URL alone is not server authorization to replace the original media.
         hasServerTranscode =
-            !nativeRemoteDisc &&
-                version?.requiresLocalDolbyPipeline != true &&
+            version?.requiresLocalDolbyPipeline != true &&
                 item?.let { media ->
                     (
                         media.serverTranscodeSupported ||

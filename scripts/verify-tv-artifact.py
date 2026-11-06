@@ -24,8 +24,8 @@ FORBIDDEN_TV_PERMISSIONS = {
     "android.permission.REQUEST_INSTALL_PACKAGES",
     "android.permission.SCHEDULE_EXACT_ALARM",
 }
-REQUIRED_ABIS = {"arm64-v8a", "armeabi-v7a"}
-FORBIDDEN_PLAYER_LIBRARIES = {"libmpv.so", "libplayer.so", "libmdk.so"}
+REQUIRED_ABIS = {"arm64-v8a"}
+FORBIDDEN_PLAYER_LIBRARIES = {"libmpv.so", "libplayer.so", "libmdk.so", "libyfuse-mdk-jni.so", "libvlc.so", "libvlccore.so"}
 BADGING_NAMED_RECORD = re.compile(
     r"^\s*(?P<kind>[a-z][a-z0-9-]*):\s*(?:name=)?'(?P<name>[^']+)'(?:\s|$)",
     re.MULTILINE,
@@ -107,9 +107,7 @@ def verify_native_code(apk: pathlib.Path, readelf: str) -> None:
             if re.fullmatch(r"lib/[^/]+/[^/]+\.so", name)
         )
         if not libraries:
-            # A Java/MediaCodec-only TV artifact is ABI-neutral and therefore installable on both
-            # 32- and 64-bit TVs.  Native-enabled artifacts must provide both variants below.
-            return
+            fail("YCore + SenPlayer TV APK must include its arm64 native runtime")
         forbidden = {
             pathlib.PurePosixPath(name).name
             for name in libraries
@@ -120,6 +118,9 @@ def verify_native_code(apk: pathlib.Path, readelf: str) -> None:
                 + ", ".join(sorted(forbidden))
             )
         present_abis = {name.split("/")[1] for name in libraries}
+        unexpected = present_abis - REQUIRED_ABIS
+        if unexpected:
+            fail("unsupported TV native ABI(s): " + ", ".join(sorted(unexpected)))
         missing = REQUIRED_ABIS - present_abis
         if missing:
             fail(

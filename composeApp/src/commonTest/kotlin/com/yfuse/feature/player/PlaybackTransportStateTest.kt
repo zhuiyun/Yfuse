@@ -17,7 +17,7 @@ class PlaybackTransportStateTest {
             YBufferSnapshot(
                 sessionId = "source-a",
                 generation = 8,
-                source = YBufferRangeSource.Media3Forward,
+                source = YBufferRangeSource.YCoreQueue,
                 coverage = YBufferRangeCoverage.ForwardOnly,
                 ranges = listOf(YBufferedRange(1_000, 5_000), YBufferedRange(8_000, 12_000)),
             )

@@ -9,9 +9,7 @@ import java.security.MessageDigest
 import java.security.spec.X509EncodedKeySpec
 import java.util.Base64
 import java.util.Properties
-import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
-import java.util.zip.ZipOutputStream
 
 plugins {
     alias(libs.plugins.android.application)
@@ -19,47 +17,33 @@ plugins {
     alias(libs.plugins.serialization)
 }
 
-val nativeOnlyRuntime =
-    providers.gradleProperty("yfuseNativeOnlyRuntime").orNull?.let { raw ->
-        when (raw.trim().lowercase()) {
-            "", "true" -> true
-            "false" -> false
-            else -> error("yfuseNativeOnlyRuntime must be omitted, true, or false")
-        }
-    } ?: false
-
-val includeMdk =
-    !nativeOnlyRuntime &&
-        (
-            providers.gradleProperty("yfuseIncludeMdk").orNull?.let { raw ->
-                when (raw.trim().lowercase()) {
-                    "", "true" -> true
-                    "false" -> false
-                    else -> error("yfuseIncludeMdk must be omitted, true, or false")
-                }
-            } ?: true
-        )
-
-val releasePackageProfile =
-    when {
-        nativeOnlyRuntime -> "native-only"
-        includeMdk -> "full"
-        else -> "compact"
-    }
-
-val confirmNativeOnlyRelease =
+// Standard Android delivery has exactly two backends: standalone YCore and the pinned SenPlayer runtime.
+// The historical flag now means no legacy fallback; it does not exclude SenPlayer.
+val nativeOnlyRuntime = true
+val releasePackageProfile = "ycore-senplayer"
+require(
     providers
-        .gradleProperty("confirmNativeOnlyRelease")
+        .gradleProperty("yfuseNativeOnlyRuntime")
         .orNull
         ?.trim()
-        ?.equals("true", ignoreCase = true) == true
-
-// Both APK profiles consume one dependency-closed YCore runtime. The full MPV carrier is stripped
-// of identical shared dependencies below, so an old bundled demux cannot win JNI packaging order.
-val packagedYCoreGpu =
-    layout.projectDirectory
-        .file("libs/ycore-native.aar")
-        .asFile.isFile
+        ?.lowercase() != "false",
+) {
+    "Legacy playback runtimes were removed; yfuseNativeOnlyRuntime must be omitted or true."
+}
+require(
+    providers
+        .gradleProperty("yfuseIncludeMdk")
+        .orNull
+        ?.trim()
+        ?.lowercase() !in setOf("", "true"),
+) {
+    "MDK was removed; yfuseIncludeMdk must be omitted or false."
+}
+val requestedPlaybackProfile = providers.gradleProperty("yfusePlaybackProfile").orNull
+require(requestedPlaybackProfile == null || requestedPlaybackProfile == releasePackageProfile) {
+    "Only yfusePlaybackProfile=ycore-senplayer is supported."
+}
+val packagedYCoreGpu = true
 
 /**
  * Keeps feature code on the semantic design-system surface. These are deliberately simple
@@ -204,102 +188,9 @@ val verifyDesignSystemUsage by tasks.registering {
     }
 }
 
-val verifyCustomMpvArtifact by tasks.registering {
-    group = "verification"
-    description = "Rejects stock or unverified libmpv AARs before Android compilation or packaging."
-    val aar = layout.projectDirectory.file("libs/libmpv-release.aar")
-    val checksum = layout.projectDirectory.file("libs/libmpv-release.aar.sha256")
-    val sources = layout.projectDirectory.file("libs/libmpv-release.sources.txt")
-    val pinnedChecksum = layout.projectDirectory.file("../scripts/engine-checksums.sha256")
-    inputs.files(aar, checksum, sources, pinnedChecksum)
-
-    doLast {
-        val aarFile = aar.asFile
-        val checksumFile = checksum.asFile
-        val sourcesFile = sources.asFile
-        require(aarFile.isFile) { "Missing native player artifact: ${aarFile.path}" }
-        require(checksumFile.isFile && sourcesFile.isFile) {
-            "libmpv must include Yfuse SHA-256 and native-source sidecars; run scripts/fetch-engines.sh"
-        }
-        val pinnedLines = pinnedChecksum.asFile.readLines().map(String::trim)
-        val accepted =
-            pinnedLines
-                .filter { line ->
-                    line.endsWith("  libmpv-release.aar") ||
-                        line.endsWith("  libmpv-dolby-release.aar") ||
-                        line.endsWith("  libmpv-dolby-installed.aar") ||
-                        line.endsWith("  libmpv-stable-release.aar")
-                }.map { it.substringBefore(' ').lowercase() }
-                .toSet()
-        require(accepted.isNotEmpty()) { "Pinned Yfuse libmpv checksums are missing" }
-        val dolbyChecksums =
-            pinnedLines
-                .filter {
-                    it.endsWith("  libmpv-dolby-release.aar") || it.endsWith("  libmpv-dolby-installed.aar")
-                }.map { it.substringBefore(' ').lowercase() }
-                .toSet()
-        val sidecar =
-            checksumFile
-                .readText()
-                .trim()
-                .substringBefore(' ')
-                .lowercase()
-        val digest = MessageDigest.getInstance("SHA-256")
-        aarFile.inputStream().use { input ->
-            val buffer = ByteArray(128 * 1024)
-            while (true) {
-                val count = input.read(buffer)
-                if (count < 0) break
-                digest.update(buffer, 0, count)
-            }
-        }
-        val actual = digest.digest().joinToString("") { "%02x".format(it) }
-        require(sidecar == actual && actual in accepted) {
-            "Unverified libmpv AAR: accepted=${accepted.sorted()} sidecar=$sidecar actual=$actual"
-        }
-        val provenance = sourcesFile.readText()
-        require(
-            !provenance.contains(Regex("(?im)^(?:libdvdnav|libdvdread|ycore-dvd-runtime)=")),
-        ) {
-            "The ordinary native-only profile must not silently enable the GPL DVD runtime"
-        }
-        listOf(
-            "remote-raw-bluray=true",
-            "bdmv-vfs=true",
-            "hdmv-menu=true",
-            "multi-angle=true",
-            "capability-class=dev/yfuse/mpv/YfuseMpvCapabilities.class",
-            "ycore-demux=true",
-            "ycore-demux-source=scripts/native/ycore_demux_jni.cpp",
-        ).forEach { marker -> require(marker in provenance) { "libmpv provenance is missing $marker" } }
-        if (actual in dolbyChecksums) {
-            listOf(
-                "ycore-demux-ffmpeg=b79d4c4c0a160fc46988e98505af6039a53ad53e",
-                "dolby-vision-rpu=true",
-                "dolby-vision-fel=true",
-                "ffmpeg-dovi-split=true",
-                "libplacebo-enhancement-layer=true",
-                "dolby-renderer=gpu-next",
-                "dolby-runtime-jni=true",
-            ).forEach { marker ->
-                require(marker in provenance) { "Dolby libmpv provenance is missing $marker" }
-            }
-        } else {
-            require("ycore-demux-ffmpeg=n8.1" in provenance) {
-                "Stable libmpv provenance is missing ycore-demux-ffmpeg=n8.1"
-            }
-        }
-        ZipFile(aarFile).use { archive ->
-            require(archive.getEntry("jni/arm64-v8a/libycore_demux.so") != null) {
-                "libmpv AAR is missing arm64-v8a/libycore_demux.so; build and install the YCore native artifact"
-            }
-        }
-    }
-}
-
 val verifyStandaloneYCoreArtifact by tasks.registering {
     group = "verification"
-    description = "Verifies the dependency-closed YCore AAR used by native-only packages."
+    description = "Verifies the dependency-closed YCore AAR used by YCore + SenPlayer packages."
     val aar = layout.projectDirectory.file("libs/ycore-native.aar")
     val checksum = layout.projectDirectory.file("libs/ycore-native.aar.sha256")
     val sources = layout.projectDirectory.file("libs/ycore-native.sources.txt")
@@ -408,136 +299,56 @@ val verifyStandaloneYCoreArtifact by tasks.registering {
     }
 }
 
-val verifyYCoreGpuCompanionArtifact by tasks.registering {
+val verifySenPlayerArtifact by tasks.registering {
     group = "verification"
-    description = "Verifies the GPU-only YCore companion packaged beside MPV/MDK."
-    val aar = layout.projectDirectory.file("libs/ycore-gpu.aar")
-    val checksum = layout.projectDirectory.file("libs/ycore-gpu.aar.sha256")
-    val sources = layout.projectDirectory.file("libs/ycore-gpu.sources.txt")
-    val mpv = layout.projectDirectory.file("libs/libmpv-release.aar")
-    inputs.files(aar, checksum, sources, mpv)
-
+    description = "Verifies the five pinned original SenPlayer assets without executing or contacting the runtime."
+    val assets = rootProject.layout.projectDirectory.dir("senplayerBridge/src/main/assets/senplayer")
+    inputs.dir(assets)
     doLast {
-        val aarFile = aar.asFile
-        val checksumFile = checksum.asFile
-        val sourcesFile = sources.asFile
-        require(aarFile.isFile && checksumFile.isFile && sourcesFile.isFile) {
-            "Missing YCore GPU companion; build and install the YCore native artifacts"
-        }
-        val expected =
-            checksumFile
-                .readText()
-                .trim()
-                .substringBefore(' ')
-                .lowercase()
-        require(expected.matches(Regex("[0-9a-f]{64}"))) {
-            "Invalid YCore GPU companion SHA-256 sidecar"
-        }
-        val digest = MessageDigest.getInstance("SHA-256")
-        aarFile.inputStream().use { input ->
-            val buffer = ByteArray(128 * 1024)
-            while (true) {
-                val count = input.read(buffer)
-                if (count < 0) break
-                digest.update(buffer, 0, count)
+        val directory = assets.asFile
+        val manifestFile = directory.resolve("runtime.json")
+        require(manifestFile.isFile) { "Missing SenPlayer runtime manifest; import the reviewed source APK first" }
+        val manifest = JsonSlurper().parse(manifestFile) as Map<*, *>
+        require(manifest["abi"] == "arm64-v8a") { "SenPlayer runtime must target arm64-v8a" }
+        val records = manifest["files"] as? List<*> ?: error("SenPlayer manifest has no pinned files")
+        val expectedAssets =
+            setOf(
+                "classes.dex",
+                "license.json",
+                "native/libFFmpegKit.so",
+                "native/libMLibKit.so",
+                "native/libc++_shared.so",
+            )
+        require(
+            records.size == expectedAssets.size &&
+                records.map { (it as Map<*, *>)["asset"] }.toSet() == expectedAssets,
+        ) { "SenPlayer manifest must pin exactly the five reviewed assets" }
+        records.forEach { record ->
+            val entry = record as Map<*, *>
+            val relative = entry["asset"] as String
+            val file = directory.resolve(relative)
+            require(file.isFile && file.length() == (entry["bytes"] as Number).toLong()) {
+                "Missing or truncated SenPlayer asset: $relative"
             }
-        }
-        val actual = digest.digest().joinToString("") { "%02x".format(it) }
-        require(actual == expected) { "YCore GPU companion SHA-256 mismatch" }
-
-        val provenance = sourcesFile.readText()
-        listOf(
-            "ycore-gpu-source=scripts/native/ycore_vulkan_jni.cpp",
-            "ycore-gpu-renderer-source=scripts/native/ycore_vulkan_renderer.cpp",
-            "ycore-gpu-entry=libycore_gpu.so",
-        ).forEach { marker ->
-            require(marker in provenance) {
-                "YCore GPU companion provenance is missing $marker"
-            }
-        }
-        require(Regex("(?m)^ycore-gpu-api=[23]$").containsMatchIn(provenance)) {
-            "YCore GPU companion provenance is missing ycore-gpu-api=2 or 3"
-        }
-        ZipFile(aarFile).use { archive ->
-            require(archive.getEntry("jni/arm64-v8a/libycore_gpu.so") != null) {
-                "YCore GPU companion is missing arm64-v8a/libycore_gpu.so"
-            }
-            val nativeEntries =
-                archive
-                    .entries()
-                    .asSequence()
-                    .map { it.name }
-                    .filter { it.endsWith(".so") }
-                    .toList()
-            require(nativeEntries == listOf("jni/arm64-v8a/libycore_gpu.so")) {
-                "YCore GPU companion must contain only libycore_gpu.so: $nativeEntries"
-            }
-            val embedded =
-                archive.getEntry("META-INF/ycore-gpu-sources.txt")
-                    ?: throw GradleException("YCore GPU companion is missing embedded provenance")
-            require(archive.getEntry("META-INF/NOTICE") != null) {
-                "YCore GPU companion is missing third-party notices"
-            }
-            val embeddedProvenance = archive.getInputStream(embedded).bufferedReader().use { it.readText() }
-            require(embeddedProvenance == provenance) {
-                "YCore GPU companion embedded provenance differs from its sidecar"
-            }
-        }
-        ZipFile(mpv.asFile).use { archive ->
-            require(archive.getEntry("jni/arm64-v8a/libc++_shared.so") != null) {
-                "Full runtime must provide libc++_shared.so for libycore_gpu.so"
-            }
-            require(archive.getEntry("jni/arm64-v8a/libycore_demux.so") != null) {
-                "Full runtime must provide libycore_demux.so for the YCore GPU bridge"
-            }
-        }
-    }
-}
-
-val fullMpvCarrier = layout.buildDirectory.file("generated/ycore/libmpv-runtime.aar")
-val prepareFullMpvCarrier by tasks.registering {
-    group = "build"
-    description = "Uses the same verified YCore native runtime in full and native-only APKs."
-    dependsOn(verifyCustomMpvArtifact, verifyStandaloneYCoreArtifact)
-    val mpv = layout.projectDirectory.file("libs/libmpv-release.aar")
-    val ycore = layout.projectDirectory.file("libs/ycore-native.aar")
-    inputs.files(mpv, ycore)
-    outputs.file(fullMpvCarrier)
-    doLast {
-        val output = fullMpvCarrier.get().asFile
-        output.parentFile.mkdirs()
-        val staged = File(output.parentFile, "${output.name}.tmp")
-        try {
-            ZipFile(mpv.asFile).use { original ->
-                ZipFile(ycore.asFile).use { runtime ->
-                    ZipOutputStream(staged.outputStream().buffered()).use { archive ->
-                        original.entries().asSequence().forEach { entry ->
-                            val replacement = runtime.getEntry(entry.name)
-                            val replaced =
-                                entry.name.startsWith("jni/") && entry.name.endsWith(".so") && replacement != null
-                            if (replaced) {
-                                if (!entry.name.endsWith("/libycore_demux.so") &&
-                                    !entry.name.endsWith("/libycore_gpu.so")
-                                ) {
-                                    val oldBytes = original.getInputStream(entry).use { it.readBytes() }
-                                    val newBytes = runtime.getInputStream(replacement).use { it.readBytes() }
-                                    require(oldBytes.contentEquals(newBytes)) {
-                                        "MPV and YCore shared dependency differs: ${entry.name}; rebuild both from the same pinned native sources"
-                                    }
-                                }
-                            } else {
-                                archive.putNextEntry(ZipEntry(entry.name).apply { time = 0L })
-                                if (!entry.isDirectory) original.getInputStream(entry).use { it.copyTo(archive) }
-                                archive.closeEntry()
-                            }
-                        }
-                    }
+            val digest = MessageDigest.getInstance("SHA-256")
+            file.inputStream().use { input ->
+                val buffer = ByteArray(128 * 1024)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    digest.update(buffer, 0, count)
                 }
             }
-            Files.move(staged.toPath(), output.toPath(), StandardCopyOption.REPLACE_EXISTING)
-        } finally {
-            staged.delete()
+            val actual = digest.digest().joinToString("") { "%02x".format(it) }
+            require(actual == entry["sha256"]) { "SenPlayer asset checksum mismatch: $relative" }
         }
+        val actualAssets =
+            directory
+                .walkTopDown()
+                .filter { it.isFile }
+                .map { it.relativeTo(directory).invariantSeparatorsPath }
+                .toSet()
+        require(actualAssets == expectedAssets + "runtime.json") { "Unexpected files in SenPlayer asset directory" }
     }
 }
 
@@ -546,49 +357,8 @@ val verifyProductionYCoreGpu by tasks.registering {
     description = "Fails release packaging when the selected profile has no YCore Vulkan runtime."
     dependsOn(verifyStandaloneYCoreArtifact)
     doLast {
-        require(nativeOnlyRuntime || packagedYCoreGpu) {
+        require(packagedYCoreGpu) {
             "Release builds require the YCore GPU runtime; run scripts/install-ycore-native.sh first"
-        }
-    }
-}
-
-val verifyMdkArtifact by tasks.registering {
-    group = "verification"
-    description = "Rejects a missing, unpinned, or incomplete MDK SDK before packaging."
-    val archive = layout.projectDirectory.file("libs/mdk-sdk-android.7z")
-    val sdk = layout.projectDirectory.dir("libs/mdk-sdk")
-    val pinnedChecksum = layout.projectDirectory.file("../scripts/engine-checksums.sha256")
-    inputs.files(archive, sdk, pinnedChecksum)
-
-    doLast {
-        val archiveFile = archive.asFile
-        require(archiveFile.isFile) { "Missing MDK archive; run scripts/fetch-engines.sh" }
-        val expected =
-            pinnedChecksum.asFile
-                .readLines()
-                .map(String::trim)
-                .firstOrNull { it.endsWith("  mdk-sdk-android.7z") }
-                ?.substringBefore(' ')
-                ?.lowercase()
-                ?: throw GradleException("Pinned MDK checksum is missing")
-        val digest = MessageDigest.getInstance("SHA-256")
-        archiveFile.inputStream().use { input ->
-            val buffer = ByteArray(128 * 1024)
-            while (true) {
-                val count = input.read(buffer)
-                if (count < 0) break
-                digest.update(buffer, 0, count)
-            }
-        }
-        val actual = digest.digest().joinToString("") { "%02x".format(it) }
-        require(actual == expected) { "Unverified MDK SDK: expected=$expected actual=$actual" }
-        listOf(
-            "README.md",
-            "include/mdk/Player.h",
-            "lib/cmake/FindMDK.cmake",
-            "lib/arm64-v8a/libmdk.so",
-        ).forEach { relative ->
-            require(sdk.file(relative).asFile.isFile) { "MDK SDK is incomplete: missing $relative" }
         }
     }
 }
@@ -975,15 +745,6 @@ val allowDebugSigning =
             else -> error("allowDebugSigning must be omitted, true, or false")
         }
     } ?: false
-val confirmMdkDistributionRights =
-    providers.gradleProperty("confirmMdkDistributionRights").orNull?.let { raw ->
-        when (raw.trim().lowercase()) {
-            "", "true" -> true
-            "false" -> false
-            else -> error("confirmMdkDistributionRights must be omitted, true, or false")
-        }
-    } ?: false
-
 // Passed only by publish-android.yml for a manual run with `publish` turned off: the signed APK is
 // kept as that run's artifact and never reaches the updater.
 val packageOnlyRelease =
@@ -1116,7 +877,7 @@ android {
         buildConfigField("String", "TMDB_TOKEN", "\"$tmdbToken\"")
         buildConfigField("String", "UPDATE_MANIFEST_PUBLIC_KEY", "\"$updateManifestPublicKey\"")
         buildConfigField("String", "BUILD_REVISION", "\"$diagnosticBuildRevision\"")
-        buildConfigField("boolean", "YFUSE_MDK_INCLUDED", includeMdk.toString())
+        buildConfigField("boolean", "YFUSE_MDK_INCLUDED", "false")
         buildConfigField("boolean", "YFUSE_NATIVE_ONLY_RUNTIME", nativeOnlyRuntime.toString())
         buildConfigField("boolean", "YFUSE_YCORE_GPU_INCLUDED", packagedYCoreGpu.toString())
         buildConfigField(
@@ -1335,34 +1096,6 @@ val verifyReleaseSigning by tasks.registering {
     }
 }
 
-val verifyReleasePlaybackRuntime by tasks.registering {
-    group = "verification"
-    description = "Prevents an experimental native-only runtime from being shipped accidentally."
-    doLast {
-        require(!nativeOnlyRuntime || confirmNativeOnlyRelease) {
-            "Native-only Release packages have no MPV/Exo compatibility fallback. " +
-                "Build the normal Full/Compact package, or pass " +
-                "-PconfirmNativeOnlyRelease=true only for an intentional test artifact."
-        }
-    }
-}
-
-val verifyProductionMdkRights by tasks.registering {
-    group = "verification"
-    description = "Requires an explicit MDK distribution-rights confirmation for production signing."
-    doLast {
-        // Debug-signed release builds are local/CI verification artifacts and are explicitly
-        // non-distributable. A production-signed artifact may not be assembled by accident without
-        // the release owner confirming the independent MDK SDK terms for that distribution.
-        if (includeMdk && releaseSigningReady && !allowDebugSigning && !confirmMdkDistributionRights) {
-            throw GradleException(
-                "Production MDK distribution rights were not confirmed. Complete the native-license " +
-                    "checklist, then pass -PconfirmMdkDistributionRights=true for this release.",
-            )
-        }
-    }
-}
-
 val verifyReleaseMetadata by tasks.registering {
     group = "verification"
     description = "Rejects a release whose human-readable notes do not name its exact version."
@@ -1471,12 +1204,7 @@ tasks.register<BumpVersionTask>("bumpVersion") {
 
 tasks.configureEach {
     if (name == "preBuild") {
-        if (nativeOnlyRuntime) {
-            dependsOn(verifyStandaloneYCoreArtifact)
-        } else {
-            dependsOn(verifyCustomMpvArtifact)
-        }
-        if (includeMdk) dependsOn(verifyMdkArtifact)
+        dependsOn(verifyStandaloneYCoreArtifact, verifySenPlayerArtifact)
         dependsOn(verifyMediaTestManifest)
     }
     val releasePackagingTask =
@@ -1484,8 +1212,6 @@ tasks.configureEach {
             listOf("assemble", "bundle", "package").any { name.startsWith(it, ignoreCase = true) }
     if (releasePackagingTask) {
         dependsOn(verifyReleaseSigning)
-        dependsOn(verifyReleasePlaybackRuntime)
-        dependsOn(verifyProductionMdkRights)
         dependsOn(verifyProductionYCoreGpu)
         dependsOn(verifyReleaseMetadata)
     }
@@ -1494,10 +1220,8 @@ tasks.configureEach {
 // Successful verification is reusable only for exactly the same inputs and validation code.
 // --rerun-tasks still forces every check; failure never writes a success marker.
 listOf(
-    verifyCustomMpvArtifact,
     verifyStandaloneYCoreArtifact,
-    verifyYCoreGpuCompanionArtifact,
-    verifyMdkArtifact,
+    verifySenPlayerArtifact,
     verifyMediaTestManifest,
     verifyBehavioralTestBoundaries,
 ).forEach { verification ->
@@ -1540,21 +1264,6 @@ dependencies {
     androidTestImplementation(libs.androidx.test.junit)
     androidTestImplementation(libs.androidx.test.runner)
 
-    if (nativeOnlyRuntime) {
-        // Only the YCore device gates execute in this profile. Compatibility fixtures still
-        // need their API types to compile without packaging third-party playback runtimes.
-        androidTestCompileOnly(project(":mdkAndroid"))
-        androidTestCompileOnly(libs.media3.exoplayer)
-        androidTestCompileOnly(files("libs/libmpv-release.aar"))
-    }
-
-    if (includeMdk) {
-        implementation(project(":mdkAndroid"))
-    } else {
-        // Keep the legacy adapter source-compatible during migration without defining or
-        // packaging the MDK facade/runtime in a pure-YCore APK.
-        compileOnly(project(":mdkAndroid"))
-    }
     implementation(libs.ktor.okhttp)
     implementation(libs.okhttp)
     implementation(libs.jcifs.ng)
@@ -1564,33 +1273,12 @@ dependencies {
     implementation(libs.androidx.camera.camera2)
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
-    // Cache/data-source utilities remain temporarily while their YCore replacements are
-    // completed. None of these modules contains the ExoPlayer playback runtime.
+    // YCore shares the Media3 cache/data-source utilities, not the ExoPlayer engine.
     implementation(libs.media3.common)
     implementation(libs.media3.database)
     implementation(libs.media3.datasource)
-    if (nativeOnlyRuntime) {
-        // Compatibility adapters remain source-compatible until the final deletion stage,
-        // but their third-party playback runtime must not enter a pure YCore APK.
-        compileOnly(libs.media3.exoplayer)
-        compileOnly(libs.media3.datasource.okhttp)
-        compileOnly(libs.media3.ui)
-        compileOnly(libs.media3.hls)
-        compileOnly(libs.media3.dash)
-    } else {
-        implementation(libs.media3.exoplayer)
-        implementation(libs.media3.datasource.okhttp)
-        implementation(libs.media3.ui)
-        implementation(libs.media3.hls)
-        implementation(libs.media3.dash)
-    }
-    if (nativeOnlyRuntime) {
-        implementation(files("libs/ycore-native.aar"))
-        compileOnly(files("libs/libmpv-release.aar"))
-    } else {
-        implementation(files(fullMpvCarrier).builtBy(prepareFullMpvCarrier))
-        implementation(files("libs/ycore-native.aar"))
-    }
+    implementation(libs.media3.datasource.okhttp)
+    implementation(files("libs/ycore-native.aar"))
     implementation(libs.androidx.palette)
     implementation(libs.androidx.work.runtime)
     implementation(libs.zxing.core)

@@ -10,6 +10,7 @@ import com.yfuse.core2.api.normalizeBufferedRanges
 internal fun PlaybackState.forSenPlayerLoad(
     sessionId: String,
     generation: Long,
+    item: PlayerMediaItem? = null,
 ): PlaybackState =
     copy(
         playing = false,
@@ -19,6 +20,7 @@ internal fun PlaybackState.forSenPlayerLoad(
         errorKind = null,
         automaticFallbackBlocked = false,
         fallbacksExhausted = false,
+        transcoding = item?.startsWithServerTranscode() == true,
         positionMs = positionMs.coerceAtLeast(0),
         durationMs = 0,
         videoHeight = 0,
@@ -30,13 +32,24 @@ internal fun PlaybackState.forSenPlayerLoad(
         secondarySubtitleOffsetMs = 0,
         chapters = emptyList(),
         diagnostics =
-            PlaybackDiagnostics(
+            initialPlaybackDiagnostics(
                 engine = diagnostics.engine,
                 decoder = "等待 SenPlayer 视频轨道",
+                item = item,
+            ).copy(
+                videoWidth = 0,
                 videoReadiness = PlaybackOutputReadiness.Waiting,
                 audioReadiness = PlaybackOutputReadiness.Unknown,
             ),
     )
+
+/** Keep the opened URL and the displayed method on the same negotiated playback route. */
+internal fun PlayerMediaItem.senPlayerPlaybackUrl(): String {
+    require(drmConfiguration == null && activeVersion?.drmConfiguration == null) {
+        "SenPlayer DRM is not integrated"
+    }
+    return if (startsWithServerTranscode()) transcodeUrl else url
+}
 
 internal fun PlaybackState.forSenPlayerFailure(
     message: String,

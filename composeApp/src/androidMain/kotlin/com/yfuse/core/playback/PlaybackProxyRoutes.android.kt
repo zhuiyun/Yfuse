@@ -62,8 +62,8 @@ internal class PlaybackProxyRoutes(
     ): String {
         val children = linkedSetOf<String>()
         val rewritten =
-            rewriteMpvHlsManifest(manifest, upstreamUrl) { url ->
-                if (closed || !shouldProxyMpvNetworkUrl(url)) {
+            rewritePlaybackHlsManifest(manifest, upstreamUrl) { url ->
+                if (closed || !shouldProxyPlaybackNetworkUrl(url)) {
                     url
                 } else {
                     val id =

@@ -65,35 +65,20 @@ data class PlaybackOutputCapabilities(
          * Backend/API support matrix, independent from the currently attached display/audio route.
          *
          * Android 11 can only request the effectively-seamless two-argument Surface API. Android
-         * 12 added the explicit non-seamless strategy used by [FrameRateMatchMode.Always]. MDK
-         * uses the same Android Surface API; its audio sink remains unverifiable.
+         * 12 added the explicit non-seamless strategy used by [FrameRateMatchMode.Always]. YCore
+         * applies these requests itself; actual activation still requires runtime evidence.
          */
         fun forEngine(
             engine: PlayerEngine,
             androidApiLevel: Int,
         ): PlaybackOutputCapabilities {
-            if (engine == PlayerEngine.Mdk) {
-                val audioUnsupported =
+            if (engine == PlayerEngine.SenPlayer) {
+                // The adapter exposes neither Surface frame-rate requests nor verified encoded audio output.
+                val unsupported =
                     PlaybackFeatureCapability.Unsupported(
                         PlaybackOutputUnsupportedReason.BackendApiNotVerified,
                     )
-                val frameRateMatching =
-                    when {
-                        androidApiLevel < ANDROID_FRAME_RATE_API ->
-                            PlaybackFeatureCapability.Unsupported(
-                                PlaybackOutputUnsupportedReason.PlatformApiTooOld,
-                            )
-                        androidApiLevel == ANDROID_FRAME_RATE_API ->
-                            PlaybackFeatureCapability.Available(setOf(FrameRateMatchMode.SeamlessOnly))
-                        else ->
-                            PlaybackFeatureCapability.Available(
-                                setOf(FrameRateMatchMode.SeamlessOnly, FrameRateMatchMode.Always),
-                            )
-                    }
-                return PlaybackOutputCapabilities(
-                    frameRateMatching = frameRateMatching,
-                    audioPassthrough = audioUnsupported,
-                )
+                return PlaybackOutputCapabilities(frameRateMatching = unsupported, audioPassthrough = unsupported)
             }
 
             val frameRateMatching =

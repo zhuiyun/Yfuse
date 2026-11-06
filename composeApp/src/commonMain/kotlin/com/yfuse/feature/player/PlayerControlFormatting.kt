@@ -59,16 +59,15 @@ internal fun Long.asClock(): String {
  * A short, evidence-based Dolby Vision grade for the always-visible playback readout.
  *
  * The order matters: FEL/RPU are stronger output claims than a generic native-DV signal. A source
- * badge by itself never authorizes either claim. mpv's native evidence is accepted only after its
- * video output is rendering and the libplacebo render path reports the exact frame facts.
+ * badge by itself never authorizes either claim. Only current rendered output evidence may
+ * authorize the label; choosing YCore or SenPlayer supplies no such evidence.
  */
 internal fun PlaybackState.dolbyVisionReadoutLabel(): String? {
-    val mpvEvidence = diagnostics.mpvDolbyRuntimeEvidence()
     val evidence = diagnostics.outputEvidence
     val outputRendering = diagnostics.effectiveVideoReadiness == PlaybackOutputReadiness.Rendering
     if (!outputRendering) return null
-    val rpuRendered = evidence.dolbyVisionRpuRendered || mpvEvidence.rpuRendered
-    val felComposed = evidence.dolbyVisionFelComposed || mpvEvidence.felComposed
+    val rpuRendered = evidence.dolbyVisionRpuRendered
+    val felComposed = evidence.dolbyVisionFelComposed
 
     return when {
         felComposed -> "P7 FEL 已合成"
@@ -98,7 +97,7 @@ internal fun PlaybackState.playbackMethodReadoutLabel(): String? {
 }
 
 /**
- * `alphatv · 1080P · EXO · HEVC · 18.1 Mbps · 60.0 fps` — the line under the title.
+ * `alphatv · 1080P · YCORE · HEVC · 18.1 Mbps · 60.0 fps` — the line under the title.
  *
  * Every part is dropped the moment it has nothing to say: one server means no server name,
  * a first frame that has not arrived means no resolution, an engine that has not measured a
@@ -125,16 +124,15 @@ internal fun PlaybackState.readoutLine(
 }
 
 /**
- * `Media3 / ExoPlayer` reads as a sentence; this line has room for a word.
+ * The readout uses a short engine label.
  *
  * Unmatched names pass through as their first word rather than being dropped — a future
  * engine should show up here without anyone remembering to add it to a list.
  */
 private fun engineShortLabel(engine: String): String =
     when {
-        engine.contains("exo", ignoreCase = true) -> "EXO"
-        engine.contains("mpv", ignoreCase = true) -> "MPV"
-        engine.contains("mdk", ignoreCase = true) -> "MDK"
+        engine.contains("ycore", ignoreCase = true) -> "YCORE"
+        engine.contains("senplayer", ignoreCase = true) -> "SenPlayer"
         else -> engine.substringBefore(' ').uppercase()
     }
 

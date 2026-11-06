@@ -147,7 +147,8 @@ internal fun RecordPlaybackSourceRoute(
                         "decoderMode" to effectiveDecoderMode.name,
                         "renderPath" to activePlan.renderPath.name,
                         "dolbyVisionPath" to activePlan.dolbyVisionPath.name,
-                        "fullFelGpuCapable" to dolbyVisionRuntime.fullFelGpuCapable.toString(),
+                        "verifiedNativeDolbyVision" to dolbyVisionRuntime.verifiedNativeDolbyVision.toString(),
+                        "verifiedHdr10BaseLayer" to dolbyVisionRuntime.verifiedHdr10BaseLayer.toString(),
                         "serverTranscode" to localState.transcoding.toString(),
                         "clientDolbyRequired" to
                             (localCastItem?.requiresLocalDolbyPipeline == true).toString(),

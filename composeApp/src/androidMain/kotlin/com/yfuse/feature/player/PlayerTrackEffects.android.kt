@@ -30,8 +30,8 @@ internal fun PlayerTrackEffects(
     audioControls: AudioControlState,
     handoverSnapshot: PlaybackHandoverSnapshot,
     scaleMode: VideoScaleMode,
+    onUnsupportedScaleMode: () -> Unit,
     pendingSubtitleLanguage: String?,
-    automaticEngineSelection: Boolean,
     onSecondarySubtitleTrackChanged: (String?) -> Unit,
     onPendingSubtitleLanguageApplied: () -> Unit,
     /** A setting the engine cannot honour; the player asks whether to switch for this entry. */
@@ -127,10 +127,7 @@ internal fun PlayerTrackEffects(
     LaunchedEffect(backendExtensions, engineKind, subtitleControls.offsetMs) {
         val applied = backendExtensions.setSubtitleOffsetMs(subtitleControls.offsetMs)
         if (!applied && subtitleControls.offsetMs != 0L) {
-            askIfAllowed(
-                engineKind,
-                automaticEngineSelection,
-            ) { onUnsupportedSetting(UnsupportedPlaybackSetting.SubtitleOffset) }
+            onUnsupportedSetting(UnsupportedPlaybackSetting.SubtitleOffset)
         }
     }
     LaunchedEffect(
@@ -142,31 +139,20 @@ internal fun PlayerTrackEffects(
     ) {
         val applied = backendExtensions.setAudioDelayMs(audioControls.delayMs)
         if (!applied && audioControls.delayMs != 0L) {
-            askIfAllowed(
-                engineKind,
-                automaticEngineSelection,
-            ) { onUnsupportedSetting(UnsupportedPlaybackSetting.AudioDelay) }
+            onUnsupportedSetting(UnsupportedPlaybackSetting.AudioDelay)
         }
     }
     LaunchedEffect(backendExtensions, engineKind, audioControls.enhancement) {
         val applied = backendExtensions.setAudioEnhancement(audioControls.enhancement)
         if (!applied && audioControls.enhancement != AudioEnhancementMode.Off) {
-            askIfAllowed(
-                engineKind,
-                automaticEngineSelection,
-            ) { onUnsupportedSetting(UnsupportedPlaybackSetting.AudioEnhancement) }
+            onUnsupportedSetting(UnsupportedPlaybackSetting.AudioEnhancement)
         }
     }
-    // Scale, position and appearance go to every engine, YCore included: YCore's compatibility
-    // route draws its subtitles inside mpv, which only learns the style from these calls. Exo and
-    // YCore's own routes style their captions in Compose and simply acknowledge them.
+    // YCore styles captions in Compose. Each backend acknowledges only supported controls.
     LaunchedEffect(backendExtensions, engineKind, subtitleControls.scale) {
         val applied = backendExtensions.setSubtitleScale(subtitleControls.scale)
         if (!applied && subtitleControls.scale != 1f) {
-            askIfAllowed(
-                engineKind,
-                automaticEngineSelection,
-            ) { onUnsupportedSetting(UnsupportedPlaybackSetting.SubtitleScale) }
+            onUnsupportedSetting(UnsupportedPlaybackSetting.SubtitleScale)
         }
     }
     LaunchedEffect(backendExtensions, engineKind, subtitleControls.brightness) {
@@ -177,18 +163,13 @@ internal fun PlayerTrackEffects(
                 backendExtensions.setSubtitleBrightness(subtitleControls.brightness)
             }
         if (!applied && subtitleControls.brightness != 1f) {
-            askIfAllowed(engineKind, automaticEngineSelection) {
-                onUnsupportedSetting(UnsupportedPlaybackSetting.SubtitleBrightness)
-            }
+            onUnsupportedSetting(UnsupportedPlaybackSetting.SubtitleBrightness)
         }
     }
     LaunchedEffect(backendExtensions, engineKind, subtitleControls.position) {
         val applied = backendExtensions.setSubtitlePosition(subtitleControls.position)
         if (!applied && subtitleControls.position != DEFAULT_SUBTITLE_POSITION) {
-            askIfAllowed(
-                engineKind,
-                automaticEngineSelection,
-            ) { onUnsupportedSetting(UnsupportedPlaybackSetting.SubtitlePosition) }
+            onUnsupportedSetting(UnsupportedPlaybackSetting.SubtitlePosition)
         }
     }
     LaunchedEffect(
@@ -202,13 +183,11 @@ internal fun PlayerTrackEffects(
                 subtitleControls.appearance.withBrightness(subtitleControls.brightness),
             )
         if (!applied && subtitleControls.appearance != SubtitleAppearance()) {
-            askIfAllowed(engineKind, automaticEngineSelection) {
-                onUnsupportedSetting(UnsupportedPlaybackSetting.SubtitleAppearance)
-            }
+            onUnsupportedSetting(UnsupportedPlaybackSetting.SubtitleAppearance)
         }
     }
     LaunchedEffect(backendExtensions, scaleMode) {
-        backendExtensions.setVideoScaleMode(scaleMode)
+        if (!backendExtensions.setVideoScaleMode(scaleMode)) onUnsupportedScaleMode()
     }
     LaunchedEffect(
         backendExtensions,
@@ -249,20 +228,8 @@ internal fun PlayerTrackEffects(
 }
 
 /**
- * Only an automatic engine choice may be offered another engine; a locked one keeps its controls
- * disabled instead. The switch itself is the viewer's call, asked by [onUnsupported]'s handler.
- */
-private inline fun askIfAllowed(
-    engineKind: PlayerEngine,
-    automaticEngineSelection: Boolean,
-    onUnsupported: () -> Unit,
-) {
-    if (engineKind != PlayerEngine.Mpv && automaticEngineSelection) onUnsupported()
-}
-
-/**
- * Whether [requested] still has to go to the engine. What it reports trails what it was sent — mpv
- * answers asynchronously — so a 2× hold let go before 2× had been reported compared 1× with 1× and
+ * Whether [requested] still has to go to the engine. What it reports trails what it was sent — engines
+ * answer asynchronously — so a 2× hold let go before 2× had been reported compared 1× with 1× and
  * left the engine settling at 2×; what was last sent ([lastSent], null before anything was) counts
  * as well as what is [reported].
  */

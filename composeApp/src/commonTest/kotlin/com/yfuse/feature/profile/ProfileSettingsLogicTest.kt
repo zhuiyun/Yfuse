@@ -47,10 +47,10 @@ class ProfileSettingsLogicTest {
             assertTrue(copy.description.isNotBlank())
         }
         assertTrue(
-            PlayerEngine.Mpv
+            PlayerEngine.YCore
                 .playbackOptionCopy()
                 .description
-                .contains("libmpv"),
+                .contains("自研"),
         )
         assertTrue(
             DecoderMode.Software

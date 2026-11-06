@@ -29,7 +29,7 @@ import kotlin.concurrent.Volatile
 /**
  * Temporary reverse bridge used while PlayerRoot presentation still speaks [VideoEngine].
  *
- * New Core2 players can be inserted behind today's UI without pretending to be Exo/mpv/MDK. The
+ * YCore players expose their real route and output evidence through today's UI. The
  * adapter owns no playback policy and no renderer; it only translates the stable product contract
  * into the legacy presentation contract. Remove it after the remaining UI and backend-specific
  * queue surfaces consume [YPlayer] directly.
@@ -76,11 +76,8 @@ internal class YPlayerVideoEngineAdapter(
 
     override fun setSecondarySubtitleOffsetMs(offsetMs: Long): Boolean = player.setSecondarySubtitleOffsetMs(offsetMs)
 
-    // Core2 subtitles are presented by Core2Surface above the direct video Surface. Reporting
-    // these capabilities here prevents the legacy compatibility layer from rebuilding Core2 as
-    // MPV even though the requested presentation change has already been applied by Compose.
-    // A route whose backend draws subtitles itself (the libmpv compatibility executor) publishes
-    // no cues for Compose, so the same settings are also handed to it; see YNativeSubtitleStyle.
+    // Core2Surface presents and styles subtitles above the direct video Surface. Capability
+    // changes stay in that presentation layer and never select a different playback engine.
     override val supportsSubtitleOffset: Boolean = true
 
     override val supportsSubtitleScale: Boolean = true
@@ -146,7 +143,7 @@ internal fun VideoEngine.asYPlayer(): YPlayer =
     if (this is YPlayerVideoEngineAdapter) {
         player
     } else {
-        LegacyYPlayerAdapter(this)
+        VideoEngineYPlayerAdapter(this)
     }
 
 /**
@@ -154,7 +151,7 @@ internal fun VideoEngine.asYPlayer(): YPlayer =
  * Legacy keeps its full state object; native Core2 state is translated once at the UI boundary.
  */
 internal fun YPlayer.asPlaybackStateFlow(): StateFlow<PlaybackState> =
-    if (this is LegacyYPlayerAdapter) {
+    if (this is VideoEngineYPlayerAdapter) {
         presentationState
     } else {
         ReverseMappedStateFlow(state, LegacyPlaybackStateMapper()::map)

@@ -21,6 +21,17 @@ import kotlin.test.assertTrue
 
 class ThemePreferencesTest {
     @Test
+    fun retired_engines_migrate_to_real_ycore_and_rewrite_storage() {
+        listOf("Exo", "Mpv", "Mdk", "Unknown").forEach { old ->
+            val settings = MapSettings().apply { putString("player.engine", old) }
+            assertEquals(PlayerEngine.YCore, ThemePreferences(settings).engine.value)
+            assertEquals("YCore", settings.getStringOrNull("player.engine"))
+            assertEquals(PlayerEngine.YCore, ThemePreferences(settings).engine.value)
+        }
+        assertEquals(PlayerEngine.YCore, ThemePreferences(MapSettings()).engine.value)
+    }
+
+    @Test
     fun legacy_home_startup_preference_migrates_to_library() {
         val settings = MapSettings().apply { putString("appearance.startupTab", "Home") }
         assertEquals(StartupTab.Library, ThemePreferences(settings).startupTab.value)
@@ -213,7 +224,7 @@ class ThemePreferencesTest {
     fun player_preferences_survive_recreation() {
         val settings = MapSettings()
         ThemePreferences(settings).apply {
-            setEngine(PlayerEngine.Mpv)
+            setEngine(PlayerEngine.YCore)
             setDecoder(DecoderMode.Software)
             setAutoNext(false)
             setMode(ThemeMode.System)
@@ -226,7 +237,7 @@ class ThemePreferencesTest {
 
         val restored = ThemePreferences(settings)
 
-        assertEquals(PlayerEngine.Mpv, restored.engine.value)
+        assertEquals(PlayerEngine.YCore, restored.engine.value)
         assertEquals(DecoderMode.Software, restored.decoder.value)
         assertFalse(restored.autoNext.value)
         assertEquals(ThemeMode.System, restored.mode.value)

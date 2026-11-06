@@ -1,22 +1,77 @@
 package com.yfuse.core2.android
 
 import com.yfuse.core2.api.YMediaItem
-import com.yfuse.core2.legacy.componentPlaybackHeaders
 import com.yfuse.core2.network.YMediaTransportRequest
 import com.yfuse.core2.network.YSourceProtocol
 import kotlinx.coroutines.runBlocking
+import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import java.net.HttpURLConnection
+import java.net.InetAddress
 import java.net.URL
 import java.nio.file.Files
 import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class WidgetHeaderScopeTransportTest {
+    @Test
+    fun enhanced_demux_proxy_drops_custom_private_headers_on_cross_origin_redirect() {
+        MockWebServer().use { origin ->
+            MockWebServer().use { target ->
+                origin.enqueue(MockResponse().setResponseCode(302).setHeader("Location", target.url("/actual")))
+                target.enqueue(MockResponse().setBody("video"))
+                // A literal loopback URL is deliberately not wrapped again by enhancedSource.
+                // Resolve this non-loopback fixture name locally so the real proxy route executes.
+                val upstreamUri =
+                    origin
+                        .url("/entry")
+                        .newBuilder()
+                        .host("origin.example.test")
+                        .build()
+                        .toString()
+                val client = OkHttpClient.Builder().dns { listOf(InetAddress.getLoopbackAddress()) }.build()
+                val directory = Files.createTempDirectory("enhanced-header-scope").toFile()
+                try {
+                    AndroidYCoreHttpProxy(
+                        userAgent = "test",
+                        cacheMaximumBytes = 0,
+                        cacheDirectory = directory,
+                        createTransport = { AndroidHttpMediaTransport(client = client, followSafeRedirects = true) },
+                        isMeteredNetwork = { false },
+                    ).use { proxy ->
+                        val source =
+                            proxy.enhancedSource(
+                                YMediaItem(
+                                    "movie",
+                                    upstreamUri,
+                                    headers =
+                                        mapOf(
+                                            "X-Private-Key" to "private",
+                                            "Referer" to "https://source/?secret",
+                                        ),
+                                    originBoundHeaderNames = setOf("X-Private-Key", "Referer"),
+                                ),
+                            )
+                        assertNotEquals(upstreamUri, source.uri)
+                        assertTrue(source.uri.startsWith("http://127.0.0.1:"))
+                        assertEquals("video", read(source.uri))
+                        assertEquals("private", origin.takeRequest(3, TimeUnit.SECONDS)?.getHeader("X-Private-Key"))
+                        val redirected = requireNotNull(target.takeRequest(3, TimeUnit.SECONDS))
+                        assertNull(redirected.getHeader("X-Private-Key"))
+                        assertNull(redirected.getHeader("Referer"))
+                    }
+                } finally {
+                    directory.deleteRecursively()
+                }
+            }
+        }
+    }
+
     @Test
     fun arbitrary_component_headers_are_removed_on_redirect_and_cached_redirect_reopen() =
         runBlocking {
@@ -134,7 +189,7 @@ class WidgetHeaderScopeTransportTest {
     }
 
     @Test
-    fun range_requests_probe_sources_and_mpv_fallback_keep_the_explicit_header_scope() {
+    fun range_requests_and_probe_sources_keep_the_explicit_header_scope() {
         val names = setOf("X-Private-Key", "Referer")
         val item =
             YMediaItem(
@@ -151,7 +206,6 @@ class WidgetHeaderScopeTransportTest {
         assertEquals(names, item.toAndroidSource().originBoundHeaderNames)
         val request = yCoreRandomAccessRequest(item.uri, YSourceProtocol.Https, 0, 100, item.headers, null, names)
         assertEquals(names, request.originBoundHeaderNames)
-        assertEquals(mapOf("X-Private-Key" to "private", "Referer" to "ref"), item.componentPlaybackHeaders()?.values)
         assertTrue(request.diagnosticSummary().contains("Https"))
     }
 

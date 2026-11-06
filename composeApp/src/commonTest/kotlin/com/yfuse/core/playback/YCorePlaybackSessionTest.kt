@@ -46,13 +46,13 @@ class YCorePlaybackSessionTest {
 
         assertTrue(first.enginePenaltyRecorded)
         assertFalse(second.enginePenaltyRecorded)
-        assertEquals(1, memory.failureCount(SIGNATURE, PlayerEngine.Exo))
+        assertEquals(1, memory.failureCount(SIGNATURE, PlayerEngine.YCore))
     }
 
     @Test
     fun healthy_session_clears_a_previous_engine_quirk() {
         val memory = PlaybackFailureMemory(failureThreshold = 1)
-        memory.record(SIGNATURE, PlayerEngine.Exo, PlaybackFailureKind.Renderer)
+        memory.record(SIGNATURE, PlayerEngine.YCore, PlaybackFailureKind.Renderer)
         val session = session(memory)
 
         session.observe(observation(now = 1_000L, droppedFrames = 0))
@@ -62,7 +62,7 @@ class YCorePlaybackSessionTest {
         val result = session.observe(observation(now = 31_000L, droppedFrames = 0))
 
         assertTrue(result.engineCapabilityConfirmed)
-        assertEquals(0, memory.failureCount(SIGNATURE, PlayerEngine.Exo))
+        assertEquals(0, memory.failureCount(SIGNATURE, PlayerEngine.YCore))
     }
 
     @Test
@@ -81,11 +81,11 @@ class YCorePlaybackSessionTest {
 
         assertEquals(PlaybackRuntimeFaultKind.StartupTimeout, first.runtimeFault?.kind)
         assertEquals(null, second.runtimeFault)
-        assertEquals(1, memory.failureCount(SIGNATURE, PlayerEngine.Exo))
+        assertEquals(1, memory.failureCount(SIGNATURE, PlayerEngine.YCore))
     }
 
     @Test
-    fun native_runtime_fault_does_not_penalize_the_compatibility_engine_identity() {
+    fun diagnostic_session_can_disable_persistent_engine_learning() {
         val memory = PlaybackFailureMemory(failureThreshold = 1)
         val session = session(memory, recordEngineLearning = false)
         val waiting =
@@ -100,7 +100,7 @@ class YCorePlaybackSessionTest {
         assertEquals(PlaybackRuntimeFaultKind.StartupTimeout, result.runtimeFault?.kind)
         assertFalse(result.enginePenaltyRecorded)
         assertFalse(result.engineCapabilityConfirmed)
-        assertEquals(0, memory.failureCount(SIGNATURE, PlayerEngine.Exo))
+        assertEquals(0, memory.failureCount(SIGNATURE, PlayerEngine.YCore))
     }
 
     @Test
@@ -118,7 +118,7 @@ class YCorePlaybackSessionTest {
             )
 
         assertEquals(null, result.runtimeFault)
-        assertEquals(0, memory.failureCount(SIGNATURE, PlayerEngine.Exo))
+        assertEquals(0, memory.failureCount(SIGNATURE, PlayerEngine.YCore))
     }
 
     @Test
@@ -154,15 +154,15 @@ class YCorePlaybackSessionTest {
         recordEngineLearning: Boolean = true,
     ): YCorePlaybackSession =
         YCorePlaybackSession(
-            engine = PlayerEngine.Exo,
+            engine = PlayerEngine.YCore,
             probe = probe(),
             plan =
                 PlaybackPlan(
-                    primaryEngine = PlayerEngine.Exo,
+                    primaryEngine = PlayerEngine.YCore,
                     decoderMode = DecoderMode.Hardware,
-                    renderPath = PlaybackRenderPath.PlatformDirect,
+                    renderPath = PlaybackRenderPath.NativeDirect,
                     requiresServerTranscode = false,
-                    engineOrder = listOf(PlayerEngine.Exo),
+                    engineOrder = listOf(PlayerEngine.YCore),
                 ),
             failureMemory = memory,
             recordEngineLearning = recordEngineLearning,

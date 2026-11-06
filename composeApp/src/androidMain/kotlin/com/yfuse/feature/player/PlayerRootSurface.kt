@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.State
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -95,14 +94,7 @@ internal fun PlayerRootSurface(
     // Each host places this above its surface and below its subtitle overlays: bars an engine
     // paints inside its own surface are lit, and captions placed in the letterbox stay legible.
     // The picture rectangle is clipped out, so it never draws over the frame.
-    val nativeCaptions =
-        engine is MdkVideoEngine ||
-            (
-                engine is MpvVideoEngine &&
-                    !engine.subtitleText
-                        .collectAsState()
-                        .value.stacked
-            )
+    val nativeCaptions = engine is SenPlayerVideoEngine
     val ambientLayer: @Composable () -> Unit = {
         AmbientLightLayer(
             light = ambient.light,
@@ -214,41 +206,6 @@ internal fun PlayerRootSurface(
                     ambientLayer = ambientLayer,
                 )
             is SenPlayerVideoEngine -> SenPlayerSurface(engine, pictureModifier)
-            is MdkVideoEngine ->
-                MdkSurface(
-                    engine,
-                    pictureModifier,
-                    ambientSampler = ambient.sampler,
-                    ambientLayer = ambientLayer,
-                    scaleMode = choices.scaleMode,
-                    videoSize = ambient.videoSize,
-                    subtitleControls = presentationSubtitleControls,
-                )
-            is MpvVideoEngine ->
-                MpvSurface(
-                    engine,
-                    pictureModifier,
-                    ambientSampler = ambient.sampler,
-                    ambientLayer = ambientLayer,
-                    scaleMode = choices.scaleMode,
-                    videoSize = ambient.videoSize,
-                    subtitleControls = presentationSubtitleControls,
-                )
-            is ExoVideoEngine ->
-                ExoSurface(
-                    engine = engine,
-                    scaleMode = choices.scaleMode,
-                    subtitleScale = presentationSubtitleControls.scale,
-                    secondarySubtitleScale = presentationSubtitleControls.secondaryScale,
-                    subtitleBrightness = presentationSubtitleControls.brightness,
-                    subtitlePosition = presentationSubtitleControls.position,
-                    subtitleRegion = presentationSubtitleControls.region,
-                    videoSize = ambient.videoSize,
-                    subtitleAppearance = presentationSubtitleControls.appearance,
-                    modifier = pictureModifier,
-                    ambientSampler = ambient.sampler,
-                    ambientLayer = ambientLayer,
-                )
         }
 
         // Placed outside the timeline scope so the chip's anchor is not rebuilt per tick.

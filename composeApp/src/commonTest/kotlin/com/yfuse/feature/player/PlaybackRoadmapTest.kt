@@ -368,7 +368,6 @@ class PlaybackRoadmapTest {
         assertEquals(89, subtitleBrightnessByte(0f))
         assertEquals(255, subtitleBrightnessByte(2f))
         assertEquals("0x999999ff", subtitleBrightnessRgba(0.6f))
-        assertEquals("#ff999999", subtitleBrightnessMpvColor(0.6f))
         assertEquals(15 * 60_000L, SleepTimerOption.Minutes15.durationMs)
         assertEquals(60 * 60_000L, SleepTimerOption.Minutes60.durationMs)
         assertNull(SleepTimerOption.EndOfEpisode.durationMs)

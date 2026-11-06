@@ -4,17 +4,7 @@ import com.yfuse.core.model.PlayerEngine
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
-/**
- * `engine_attached`/`engine_detached` (PlayerRoot.kt) used to log `engine=Exo implementation=yx7`
- * for a player that had not attached anything yet: PlaybackEngineSlot publishes the *target*
- * kind as soon as a switch starts (PlaybackEngineSlot.start), well before the placeholder
- * [PreparingVideoEngine] is replaced by a real engine, and `implementation` logged the attached
- * object's obfuscated class name outright.
- *
- * The [com.yfuse.core2.legacy.YPlayerVideoEngineAdapter] branch is unchanged by this fix and
- * needs a real [com.yfuse.core2.api.YPlayer] to construct, so it is left to that class's own
- * adapter tests; this file covers only the branches [engineAttachedLabel] adds/touches.
- */
+/** A pending or rejected attachment must not pretend a real decoder is already running. */
 class PlayerRootEngineLabelTest {
     private fun item(id: String) = PlayerMediaItem(id, "https://example.test/$id", "", id)
 
@@ -24,18 +14,18 @@ class PlayerRootEngineLabelTest {
     fun the_placeholder_is_labelled_preparing_even_when_the_target_kind_is_known() {
         assertEquals(
             "Preparing",
-            engineAttachedLabel(PreparingVideoEngine(input()), PlayerEngine.Exo),
+            engineAttachedLabel(PreparingVideoEngine(input()), PlayerEngine.YCore),
         )
     }
 
     @Test
     fun a_rejected_start_does_not_claim_that_any_decoder_engine_was_attached() {
         val engine = MissingNativeCapabilityVideoEngine("unsupported source", 0, 1, 0L)
-        assertEquals("Unavailable", engineAttachedLabel(engine, PlayerEngine.Exo))
+        assertEquals("Unavailable", engineAttachedLabel(engine, PlayerEngine.YCore))
         assertEquals("Unavailable", engine.state.value.diagnostics.engine)
         assertEquals(
             "Unavailable",
-            engineBindingLabel(engine.state.value.diagnostics, PlayerEngine.Exo, nativeOnly = true),
+            engineBindingLabel(engine.state.value.diagnostics, PlayerEngine.YCore, nativeOnly = true),
         )
     }
 
@@ -43,9 +33,9 @@ class PlayerRootEngineLabelTest {
     fun any_other_attached_engine_is_labelled_by_the_selected_kind() {
         // A concrete, non-YPlayerVideoEngineAdapter engine: only its *type* matters here (it
         // must not be PreparingVideoEngine), so a thin delegate stands in for a whole real
-        // backend such as Exo/mpv/MDK.
+        // backend such as SenPlayer.
         val attached = object : VideoEngine by PreparingVideoEngine(input()) {}
 
-        assertEquals(PlayerEngine.Mpv.name, engineAttachedLabel(attached, PlayerEngine.Mpv))
+        assertEquals(PlayerEngine.SenPlayer.name, engineAttachedLabel(attached, PlayerEngine.SenPlayer))
     }
 }

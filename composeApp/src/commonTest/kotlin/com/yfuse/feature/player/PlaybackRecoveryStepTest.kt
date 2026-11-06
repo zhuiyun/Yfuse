@@ -1,6 +1,5 @@
 package com.yfuse.feature.player
 
-import com.yfuse.core.model.PlayerEngine
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -15,15 +14,11 @@ class PlaybackRecoveryStepTest {
         )
 
     private fun step(
-        engineOrder: List<PlayerEngine> = listOf(PlayerEngine.Mpv, PlayerEngine.Exo, PlayerEngine.Mdk),
-        enginesTried: Set<PlayerEngine> = setOf(PlayerEngine.Mpv),
         eligible: Boolean = true,
         nextVersionId: String? = "v2",
         servers: List<PlayerMediaItem> = listOf(copyOn("s2")),
         serversTried: Set<String> = setOf("s1"),
     ) = nextPlaybackRecoveryStep(
-        engineOrder = engineOrder,
-        enginesTried = enginesTried,
         backendFallbackEligible = eligible,
         nextVersionId = nextVersionId,
         serverCandidates = servers,
@@ -31,20 +26,13 @@ class PlaybackRecoveryStepTest {
     )
 
     @Test
-    fun anotherEngineOnTheSameFileComesFirst() {
-        assertEquals(PlaybackRecoveryStep.Engine(PlayerEngine.Exo), step())
+    fun anotherVersionAfterSelectedEngineFailed() {
+        assertEquals(PlaybackRecoveryStep.Version("v2"), step())
     }
 
     @Test
-    fun anotherVersionOnceEveryEngineHasFailed() {
-        val allTried = setOf(PlayerEngine.Mpv, PlayerEngine.Exo, PlayerEngine.Mdk)
-        assertEquals(PlaybackRecoveryStep.Version("v2"), step(enginesTried = allTried))
-    }
-
-    @Test
-    fun anotherServerOnceNoEngineOrVersionIsLeft() {
-        val allTried = setOf(PlayerEngine.Mpv, PlayerEngine.Exo, PlayerEngine.Mdk)
-        val result = step(enginesTried = allTried, nextVersionId = null)
+    fun anotherServerOnceNoVersionIsLeft() {
+        val result = step(nextVersionId = null)
         assertEquals(PlaybackRecoveryStep.Server(copyOn("s2"), "s2"), result)
     }
 

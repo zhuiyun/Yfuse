@@ -13,7 +13,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
-import androidx.compose.ui.platform.LocalContext
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.playback.PlaybackDeviceCapabilities
@@ -30,7 +29,6 @@ import com.yfuse.core.playback.YCoreRuntimeAssessment
 import com.yfuse.core.playback.classifyPlaybackFailure
 import com.yfuse.core.playback.planPlayback
 import com.yfuse.core2.api.YPlayer
-import com.yfuse.core2.legacy.YPlayerVideoEngineAdapter
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -100,7 +98,6 @@ internal fun rememberPlayerSourceSwitching(
     failureMemory: PlaybackFailureMemory,
     performanceMemory: PlaybackPerformanceMemory,
 ): PlayerSourceSwitching {
-    val context = LocalContext.current
     val state by stateSource
     val latestState by livePlayback
     val latestActiveItems by latestActiveItemsSource
@@ -390,7 +387,7 @@ internal fun rememberPlayerSourceSwitching(
             )
         val decoderChanged = selectionPlan.decoderMode != build.effectiveDecoderMode
         build.effectiveDecoderMode = selectionPlan.decoderMode
-        if (!core2NativeOnlyActive && selectionPlan.requiresServerTranscode && !state.transcoding) {
+        if (selectionPlan.requiresServerTranscode && !state.transcoding) {
             backendExtensions.switchToTranscode(selectionPlan.reason)
         }
         if (selectionPlan.primaryEngine != build.kind) {
@@ -419,7 +416,7 @@ internal fun rememberPlayerSourceSwitching(
 /**
  * YCore's runtime faults — a source starved for too long, a silent output failure — answered with
  * the cheapest recovery left: reopening the transport, restarting the native pipeline in place,
- * leaving the YCore 2.0 trial, then the next engine or a server transcode. The order and the
+ * then an approved server transcode within the selected engine. The order and the
  * budgets are PlaybackFallbackLadder's; the budgets for the first two are earned back only by real
  * progress past the point that failed.
  */
@@ -443,7 +440,6 @@ internal fun PlayerRuntimeFaultRecovery(
     switchEngine: (PlayerEngine) -> Unit,
     attachedEngineLabel: String,
 ) {
-    val context = LocalContext.current
     val state by stateSource
     val runtimeAssessment by runtimeAssessmentSource
     var longBufferRecoveryAttempts by longBufferRecoveryAttemptsState
@@ -479,11 +475,10 @@ internal fun PlayerRuntimeFaultRecovery(
         build.kind,
         choices.sessionEngineSelection,
         engine,
-        build.core2DisabledForSession,
         core2NativeOnlyActive,
     ) {
         val fault = runtimeAssessment.runtimeFault ?: return@LaunchedEffect
-        if (choices.sessionEngineSelection != PlaybackEngineSelection.Auto || castAuthoritative) {
+        if (castAuthoritative) {
             return@LaunchedEffect
         }
         val tried = enginesTried + build.kind
@@ -492,12 +487,13 @@ internal fun PlayerRuntimeFaultRecovery(
                 PlaybackFallbackLadder.nextRuntimeFaultStep(
                     fault = fault.kind,
                     transportReopens = longBufferRecoveryAttempts,
-                    nativeOnly = core2NativeOnlyActive,
                     nativeRestarts = nativeOnlyRecoveryAttempts,
-                    inCore2Trial = engine is YPlayerVideoEngineAdapter && !build.core2DisabledForSession,
-                    engineOrder = activePlan.engineOrder,
-                    enginesTried = tried,
-                    serverTranscodeAvailable = activeProbe.hasServerTranscode && !state.transcoding,
+                    engine = build.kind,
+                    serverTranscodeAvailable =
+                        activeProbe.hasServerTranscode &&
+                            !state.transcoding &&
+                            !activeProbe.drmProtected &&
+                            !activeProbe.source.dolbyVision,
                 )
         ) {
             PlaybackRuntimeFaultStep.ReopenTransport -> {
@@ -580,7 +576,7 @@ internal fun PlayerRuntimeFaultRecovery(
                 AppLog.warning(
                     category = "player.core2",
                     event = "native_only_runtime_fault",
-                    message = "YCore Native exhausted local recovery without using Legacy fallback",
+                    message = "YCore exhausted local recovery with no approved server stream remaining",
                     attributes =
                         mapOf(
                             "engine" to attachedEngineLabel,
@@ -588,39 +584,13 @@ internal fun PlayerRuntimeFaultRecovery(
                             "fault" to fault.kind.name,
                         ),
                 )
-                PlayerNotices.show("原生内核恢复失败；纯原生模式不会改用兼容内核或服务器解码")
+                PlayerNotices.show("YCore 恢复失败，当前没有可用的服务器转码片源")
             }
 
-            PlaybackRuntimeFaultStep.LeaveCore2Trial -> {
-                build.resume =
-                    choices.handover(
-                        state = state,
-                        positionMs = player.currentPositionMs(),
-                        playbackRequested = player.playbackRequested,
-                    )
-                backendExtensions.prepareForHandover()
-                build.core2DisabledForSession = true
-                build.engineGeneration++
-                AppLog.warning(
-                    category = "player.core2",
-                    event = "trial_runtime_fault_fallback",
-                    message = "YCore 2.0 trial had a silent output fault; rebuilt the selected Legacy engine",
-                    attributes =
-                        mapOf(
-                            "engine" to attachedEngineLabel,
-                            "itemIndex" to state.currentIndex.toString(),
-                            "fault" to fault.kind.name,
-                        ),
-                )
-                PlayerNotices.show("原生内核画面输出异常，已切换到兼容内核")
-            }
-
-            is PlaybackRuntimeFaultStep.Engine,
             PlaybackRuntimeFaultStep.ServerTranscode,
             PlaybackRuntimeFaultStep.Exhausted,
             -> {
                 enginesTried = tried
-                val nextEngine = (step as? PlaybackRuntimeFaultStep.Engine)?.engine
                 AppLog.info(
                     category = "player.health",
                     event = "runtime_fault_recovery",
@@ -629,13 +599,10 @@ internal fun PlayerRuntimeFaultRecovery(
                         mapOf(
                             "engine" to attachedEngineLabel,
                             "fault" to fault.kind.name,
-                            "nextEngine" to (nextEngine?.name ?: "server"),
+                            "sourceFallback" to step.toString(),
                         ),
                 )
-                if (nextEngine != null) {
-                    enginesTried = tried + nextEngine
-                    switchEngine(nextEngine)
-                } else if (step == PlaybackRuntimeFaultStep.ServerTranscode) {
+                if (step == PlaybackRuntimeFaultStep.ServerTranscode) {
                     backendExtensions.switchToTranscode(fault.reason)
                 }
             }
@@ -729,7 +696,7 @@ internal fun PlayerHandoverValidation(
 
 /**
  * Once an engine has exhausted its streams: records the failure, then takes the next step of the
- * fallback chain (nextPlaybackRecoveryStep) — another engine, another version of the file, or the
+ * fallback chain (nextPlaybackRecoveryStep) — another version of the file, or the
  * same item on another server.
  */
 @Composable
@@ -754,7 +721,6 @@ internal fun PlaybackFailureRecovery(
     failureMemory: PlaybackFailureMemory,
     performanceMemory: PlaybackPerformanceMemory,
 ) {
-    val context = LocalContext.current
     val state by stateSource
     val versionsTried by switching.versionsTried
     var enginesTried by switching.enginesTried
@@ -772,8 +738,6 @@ internal fun PlaybackFailureRecovery(
         serverFallbackPlans[state.currentIndex],
     ) {
         if (
-            core2NativeOnlyActive ||
-            engine is YPlayerVideoEngineAdapter ||
             !state.fallbacksExhausted ||
             state.automaticFallbackBlocked
         ) {
@@ -792,56 +756,20 @@ internal fun PlaybackFailureRecovery(
         failureMemory.record(activeProbe.capabilitySignature, build.kind, failureKind)
         val triedEngines = enginesTried + build.kind
         enginesTried = triedEngines
-        val recoveryPlan =
-            planPlayback(
-                probe = activeProbe,
-                capabilities = deviceCapabilities,
-                preferredEngine = build.kind,
-                preferredDecoderMode = build.effectiveDecoderMode,
-                allowAudioPassthrough = allowAudioPassthrough,
-                optimizationMode = effectiveOptimizationMode,
-                engineSelection = choices.sessionEngineSelection,
-                excludedEngines = failureMemory.excludedEngines(activeProbe.capabilitySignature),
-                engineCosts = performanceMemory.engineCosts(activeProbe.capabilitySignature),
-                videoSupport =
-                    capabilityProvider?.videoSupport(activeProbe.source.videoRequirements)
-                        ?: deviceCapabilities.videoSupport(activeProbe.source.videoRequirements),
-                dolbyVisionRuntime = dolbyVisionRuntime,
-            )
         when (
             val step =
                 nextPlaybackRecoveryStep(
-                    engineOrder = recoveryPlan.engineOrder,
-                    enginesTried = triedEngines,
                     backendFallbackEligible = failureKind.allowsBackendFallback,
                     nextVersionId = currentItem?.nextFallbackVersionId(versionsTried),
                     serverCandidates = serverFallbackPlans[state.currentIndex].orEmpty(),
                     serversTried = serversTried,
                 )
         ) {
-            is PlaybackRecoveryStep.Engine -> {
-                AppLog.info(
-                    category = "player",
-                    event = "engine_fallback",
-                    message = "Playback exhausted its streams; trying another engine",
-                    attributes =
-                        mapOf(
-                            "from" to build.kind.name,
-                            "to" to step.engine.name,
-                            "itemIndex" to state.currentIndex.toString(),
-                            "failureKind" to failureKind.name,
-                            "plannedPath" to recoveryPlan.renderPath.name,
-                        ),
-                )
-                enginesTried = triedEngines + step.engine
-                switching.switchEngine(step.engine)
-            }
-
             is PlaybackRecoveryStep.Version -> {
                 AppLog.info(
                     category = "player",
                     event = "version_fallback",
-                    message = "Playback exhausted every engine; trying another media version",
+                    message = "The selected engine failed; trying another media version",
                     attributes =
                         mapOf(
                             "itemIndex" to state.currentIndex.toString(),
@@ -865,7 +793,7 @@ internal fun PlaybackFailureRecovery(
                 AppLog.warning(
                     category = "player",
                     event = "playback_server_failover",
-                    message = "Playback exhausted local engines and versions; switched to another server",
+                    message = "The selected engine exhausted media versions; switched to another server",
                     attributes =
                         mapOf(
                             "itemIndex" to state.currentIndex.toString(),

@@ -88,7 +88,15 @@ class ThemePreferences(
     @Deprecated("Emphasis is Brand.Primary; YfuseTheme no longer takes an accent.")
     internal val accent: StateFlow<Color> = MutableStateFlow<Color>(Brand.Primary).asStateFlow()
 
-    private val _engine = MutableStateFlow(load(KEY_ENGINE, PlayerEngine.selectable, PlayerEngine.Exo))
+    private val _engine =
+        MutableStateFlow(
+            load(KEY_ENGINE, PlayerEngine.selectable, PlayerEngine.YCore).also { resolved ->
+                // Persist migration of retired engines instead of resurrecting them on restart.
+                settings.getStringOrNull(KEY_ENGINE)?.let { stored ->
+                    if (stored != resolved.name) settings.putString(KEY_ENGINE, resolved.name)
+                }
+            },
+        )
     val engine: StateFlow<PlayerEngine> = _engine.asStateFlow()
 
     private val _decoder = MutableStateFlow(load(KEY_DECODER, DecoderMode.entries, DecoderMode.Hardware))

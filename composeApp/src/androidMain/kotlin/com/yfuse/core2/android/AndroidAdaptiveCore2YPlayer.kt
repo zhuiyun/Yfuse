@@ -40,11 +40,9 @@ import com.yfuse.core2.api.trackSelectionSkipReason
 import com.yfuse.core2.capability.YAudioOutputPath
 import com.yfuse.core2.capability.YContainer
 import com.yfuse.core2.capability.YHdrType
-import com.yfuse.core2.learning.YLearnedRouteAdvice
 import com.yfuse.core2.learning.YPlaybackLearningEngine
 import com.yfuse.core2.learning.YPlaybackLearningKey
 import com.yfuse.core2.learning.YPlaybackObservation
-import com.yfuse.core2.legacy.AndroidMpvCore2FallbackFactory
 import com.yfuse.core2.legacy.YNativeSubtitleStyle
 import com.yfuse.core2.legacy.YNativeSubtitleStyleTarget
 import com.yfuse.core2.quirk.YCore2FailureKey
@@ -91,16 +89,14 @@ import java.util.concurrent.atomic.AtomicReference
  * Per-item Core2 router. It never assumes one queue shares one codec/HDR/audio route.
  *
  * Each selected item is probed independently and receives NativeTunnel, NativeDirect,
- * NativeEnhanced, GpuEnhanced, or SoftwareFallback. GPU/software tiers use an injected
- * verified compatibility executor. If no executable route can be
- * proven, state becomes Failed/Unknown so the product-level Legacy fallback can take over without
- * poisoning any decoder-specific failure memory.
+ * NativeEnhanced, GpuEnhanced, or SoftwareFallback. GPU/software tiers stay inside YCore's native
+ * execution graph. If no executable route can be proven, playback fails with its source or decoder
+ * evidence; no other playback engine is started.
  */
 internal class AndroidAdaptiveCore2YPlayer(
     private val context: Context,
     private val request: YPlayerOpenRequest,
     private val routeEvaluator: AndroidCore2RouteEvaluator = AndroidCore2RouteEvaluator(context),
-    private val fallbackRouteFactory: AndroidCore2FallbackRouteFactory? = null,
     private val discRouteFactory: AndroidCore2DiscRouteFactory? = null,
     private val allowAudioPassthrough: Boolean = true,
     private val frameRateSwitchMode: YFrameRateSwitchMode = YFrameRateSwitchMode.SeamlessOnly,
@@ -124,7 +120,6 @@ internal class AndroidAdaptiveCore2YPlayer(
     YNativeSubtitleStyleTarget,
     AndroidVideoOutputDetach,
     AndroidSerializedPlayerRelease {
-    private val nativeOnly = fallbackRouteFactory == null
     private val queueLock = Any()
 
     /**
@@ -147,7 +142,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                 itemCount = queueItems.size,
                 diagnostics =
                     YPlayerDiagnostics(
-                        route = YPlaybackRoute.Legacy,
+                        route = YPlaybackRoute.Unknown,
                         reason = "YCore 2.0 route not evaluated yet",
                     ),
             ),
@@ -368,8 +363,8 @@ internal class AndroidAdaptiveCore2YPlayer(
     private var pauseAtEndOfCurrentItem = false
 
     /**
-     * 熄屏继续播放声音. YCore's own routes drop their video decoder with the Surface; the libmpv
-     * compatibility child would keep decoding video, so it is told, and so is every child attached
+     * 熄屏继续播放声音. YCore's routes drop their video decoder with the Surface; each child is told,
+     * including every child attached
      * while it holds.
      */
     override val videoOutputSuspended: Boolean get() = childSettings.videoSuspended
@@ -739,7 +734,6 @@ internal class AndroidAdaptiveCore2YPlayer(
         var forceEnhancedFallback = false
         var forceSoftwareFallback = false
         var lastRouteDecision: Pair<YMediaItem, YCore2RouteDecision>? = null
-        var bypassLearnedRouteMemoryOnce = false
         var pendingFailureKey: YCore2FailureKey? = null
 
         /** Whether the child being built plays an audio-only source, which never verifies video. */
@@ -843,7 +837,6 @@ internal class AndroidAdaptiveCore2YPlayer(
                         sourceFailure = sourceFailure,
                         keptFailure = keptRouteFailure,
                         protectedContent = item.drmConfiguration != null,
-                        nativeOnly = nativeOnly,
                         probeTimedOut = probeTimedOut,
                         currentError = it.error,
                         currentCategory = it.errorCategory,
@@ -857,12 +850,6 @@ internal class AndroidAdaptiveCore2YPlayer(
                     errorCategory = published.category,
                     diagnostics =
                         it.diagnostics.copy(
-                            route =
-                                if (nativeOnly) {
-                                    it.diagnostics.route
-                                } else {
-                                    YPlaybackRoute.Legacy
-                                },
                             reason = published.reason,
                             videoOutputVerified = false,
                             audioOutputVerified = false,
@@ -1087,23 +1074,10 @@ internal class AndroidAdaptiveCore2YPlayer(
             singleRequest: YPlayerOpenRequest,
             decision: YCore2RouteDecision? = null,
         ): YPlayer? {
-            val compatibility = fallbackRouteFactory
-            if (compatibility != null) {
-                return compatibility.create(
-                    item = item,
-                    request = singleRequest,
-                    plan = yCoreInconclusiveSourceCompatibilityPlan(item),
-                    startSpeed = speed,
-                )
-            }
             if (item.drmConfiguration != null) return null
             val preservedProbe =
                 decision?.probe
-                    ?: if (nativeOnly) {
-                        routeEvaluator.probePlatformForNativeAttempt(item, activeProbeBudget)
-                    } else {
-                        null
-                    }
+                    ?: routeEvaluator.probePlatformForNativeAttempt(item, activeProbeBudget)
             if (preservedProbe?.requiresEnhancedAudioDemux(item.sourceHints?.audioTrackCount ?: 0) == true) {
                 AppLog.info(
                     category = "player.core2",
@@ -1329,17 +1303,11 @@ internal class AndroidAdaptiveCore2YPlayer(
                             preferredRemoteBufferTargetUs = preferredRemoteBufferTargetUs,
                         )
                     } else {
-                        fallbackRouteFactory?.create(
-                            item,
-                            singleRequest,
-                            plan.withNativeGpuFallbackTruth(routeGpuProbe),
-                            speed,
-                        ) ?: createInconclusiveSourceRoute(item, singleRequest, decision)
+                        createInconclusiveSourceRoute(item, singleRequest, decision)
                     }
                 }
                 plan.route == YPlaybackRoute.SoftwareFallback ->
-                    fallbackRouteFactory?.create(item, singleRequest, plan, speed)
-                        ?: createInternalSoftwareRoute(item, singleRequest, decision)
+                    createInternalSoftwareRoute(item, singleRequest, decision)
                         ?: createInconclusiveSourceRoute(item, singleRequest, decision)
                 else -> createInconclusiveSourceRoute(item, singleRequest, decision)
             }
@@ -1414,12 +1382,6 @@ internal class AndroidAdaptiveCore2YPlayer(
             pendingVerifiedRoute = null
             pendingInputHdrType = null
             pendingChapters = emptyList()
-            val bypassLearnedRouteMemory =
-                shouldBypassLearnedYCoreRouteMemory(
-                    manualRetry = bypassLearnedRouteMemoryOnce,
-                    compatibilityRouteAvailable = fallbackRouteFactory != null,
-                )
-            bypassLearnedRouteMemoryOnce = false
             val queueItem = queueItems[currentIndex]
             val rootItem =
                 runtimeTrackSelections[queueItem.id]?.let { queueItem.copy(initialTrackSelection = it) }
@@ -1468,28 +1430,10 @@ internal class AndroidAdaptiveCore2YPlayer(
             // starts at planning; the device-side gates below still run on it.
             val adoptedCurrentItem =
                 target == null && warmedRoute == null && routeEvaluator.adoptCurrentItem(item, positionMs)
-            val rememberedProbe =
-                if (target == null &&
-                    warmedRoute == null &&
-                    !adoptedCurrentItem &&
-                    !bypassLearnedRouteMemory &&
-                    !forceSoftwareFallback
-                ) {
-                    verifiedRouteMemory.probeFor(item)
-                } else {
-                    null
-                }
-            if (rememberedProbe != null) {
-                AppLog.info(
-                    category = "player.core2",
-                    event = "verified_route_reused",
-                    message = "YCore reused the probe a verified playback of this media established",
-                    attributes = mapOf("itemIndex" to currentIndex.toString()),
-                )
-            }
+            // Persisted success/failure memory remains diagnostic evidence. A fresh explicit
+            // YCore request always probes its bytes; history cannot veto the only selected engine.
             if (target == null &&
                 warmedRoute == null &&
-                rememberedProbe == null &&
                 !adoptedCurrentItem &&
                 !forceSoftwareFallback &&
                 !preferSoftwareDecode &&
@@ -1499,13 +1443,12 @@ internal class AndroidAdaptiveCore2YPlayer(
                 routeEvaluator.closePreparedExtractor()
                 return createInternalEnhancedRoute(item, singleRequest, null)
             }
-            var decision =
+            val decision =
                 warmedRoute?.decision
                     ?: routeEvaluator.evaluate(
                         item,
                         preferTunnel = tunnelAllowed,
                         allowAudioPassthrough = allowAudioPassthrough,
-                        rememberedProbe = rememberedProbe,
                         budget = budget,
                     )
             currentCoroutineContext().ensureActive()
@@ -1519,74 +1462,8 @@ internal class AndroidAdaptiveCore2YPlayer(
                 videoHandoff.close()
                 routeEvaluator.closePreparedExtractor()
                 return createInternalSoftwareRoute(item, singleRequest, decision)
-                    ?: fallbackRouteFactory?.create(
-                        item,
-                        singleRequest,
-                        yCoreInconclusiveSourceCompatibilityPlan(item),
-                        speed,
-                    )
             }
             if (decision == null) return createInconclusiveSourceRoute(item, singleRequest)
-            if (
-                !bypassLearnedRouteMemory &&
-                !forceSoftwareFallback &&
-                decision.plan.route == YPlaybackRoute.NativeTunnel &&
-                (
-                    failureLedger.isBlocked(decision.toFailureKey()) ||
-                        learningEngine.advice(decision.toFailureKey().toLearningKey()) !=
-                        YLearnedRouteAdvice.Allow
-                )
-            ) {
-                decision =
-                    routeEvaluator.evaluate(
-                        item,
-                        preferTunnel = false,
-                        allowAudioPassthrough = allowAudioPassthrough,
-                        rememberedProbe = rememberedProbe,
-                        budget = budget,
-                    ) ?: return createInconclusiveSourceRoute(item, singleRequest)
-            }
-            currentCoroutineContext().ensureActive()
-            budget.ensureActive()
-            val learnedAdvice = learningEngine.advice(decision.toFailureKey().toLearningKey())
-            val memorySkipsPlannedRoute =
-                !bypassLearnedRouteMemory &&
-                    (
-                        failureLedger.isBlocked(decision.toFailureKey()) ||
-                            learnedAdvice == YLearnedRouteAdvice.Avoid
-                    )
-            // Memory against the platform demuxer steps down one tier, to YCore's own demuxer with
-            // the same hardware decoder, before software decode is considered at all.
-            if (
-                memorySkipsPlannedRoute &&
-                decision.plan.route in PLATFORM_DEMUX_ROUTES &&
-                decision.probe.playbackRequest.enhancedDemuxSupported &&
-                !decision.audioOnly
-            ) {
-                val enhancedKey = decision.toFailureKey().forExecutedRoute(YPlaybackRoute.NativeEnhanced)
-                val enhancedAllowed =
-                    !failureLedger.isBlocked(enhancedKey) &&
-                        learningEngine.advice(enhancedKey.toLearningKey()) != YLearnedRouteAdvice.Avoid
-                if (enhancedAllowed) {
-                    videoHandoff.close()
-                    routeEvaluator.closePreparedExtractor()
-                    createInternalEnhancedRoute(item, singleRequest, decision)?.let { enhanced ->
-                        pendingFailureKey = enhancedKey
-                        pendingAudioOnly = false
-                        return enhanced
-                    }
-                }
-            }
-            if (memorySkipsPlannedRoute) {
-                decision =
-                    decision.copy(
-                        plan =
-                            decision.plan.toSoftwareFallbackPlan(
-                                "Device failure and quality memory skipped the planned local route",
-                            ),
-                    )
-            }
-            if (!bypassLearnedRouteMemory && failureLedger.isBlocked(decision.toFailureKey())) return null
             recordPlannedChild(item, target, decision)
             return createPlannedChild(item, singleRequest, decision, tunnelAllowed)
         }
@@ -2107,9 +1984,6 @@ internal class AndroidAdaptiveCore2YPlayer(
                                 deterministic = attemptDeterministic,
                                 softwareFallbackAvailable =
                                     yCoreSoftwareRecoveryAvailable(
-                                        compatibilityRouteAvailable = fallbackRouteFactory != null,
-                                        discRouteAvailable =
-                                            failedItem.disc != null && discRouteFactory != null,
                                         protectedContent = failedItem.drmConfiguration != null,
                                         inputHdrType = childInputHdrType,
                                     ),
@@ -2189,11 +2063,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                 }
                 if (childState.phase == YPlaybackPhase.Ready) autoNextQueued = false
                 val publishedChildState =
-                    if (nativeOnly) {
-                        childState.withStartFailure(attemptRanOutOfTime, keptRouteFailure)
-                    } else {
-                        childState
-                    }
+                    childState.withStartFailure(attemptRanOutOfTime, keptRouteFailure)
                 mutableState.value =
                     publishedChildState.copy(
                         currentIndex = childIndex(),
@@ -2291,7 +2161,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                 currentCoroutineContext().ensureActive()
                 budget.ensureActive()
                 if (next == null) {
-                    publishUnavailable("No executable Core2 or compatibility route for item $currentIndex")
+                    publishUnavailable("No executable YCore route for item $currentIndex")
                 } else {
                     attachChild(next)
                     transferred = true
@@ -2761,7 +2631,6 @@ internal class AndroidAdaptiveCore2YPlayer(
             allowTunnel = true
             forceEnhancedFallback = false
             forceSoftwareFallback = false
-            bypassLearnedRouteMemoryOnce = true
             pendingFailureKey = null
             keptRouteFailure = null
             pendingPositionMs =
@@ -2776,7 +2645,6 @@ internal class AndroidAdaptiveCore2YPlayer(
                 active != null &&
                 activeState != null &&
                 shouldRetryActiveNativeChildInPlace(
-                    nativeOnly = nativeOnly,
                     phase = activeState.phase,
                     route = activeState.diagnostics.route,
                     enhancedChild = active is AndroidNativeEnhancedYPlayer,
@@ -2969,18 +2837,15 @@ internal class AndroidCore2PlayerFactory(
     private val context: Context,
 ) : YPlayerFactory {
     override fun create(request: YPlayerOpenRequest): YPlayer {
-        val compatibilityFactory = AndroidMpvCore2FallbackFactory(context)
         val discFactory =
             AndroidYCoreDiscRouteFactory(
                 context = context,
                 allowAudioPassthrough = true,
                 frameRateSwitchMode = YFrameRateSwitchMode.SeamlessOnly,
-                fallback = compatibilityFactory,
             )
         return AndroidAdaptiveCore2YPlayer(
             context = context,
             request = request,
-            fallbackRouteFactory = compatibilityFactory,
             discRouteFactory = discFactory,
         )
     }
@@ -3126,24 +2991,23 @@ internal data class YCoreUnavailableError(
  * What a start publishes when the router itself cannot produce another route.
  *
  * A typed source failure the router hit is current evidence and wins. A deadline remains a
- * deadline even when an earlier demuxer hid a track. With a compatibility engine the failure
- * stays Unknown on purpose: that is what hands the item to the product-level Legacy fallback.
+ * deadline even when an earlier demuxer hid a track. Failure remains in YCore and retains the
+ * most actionable category; it never silently hands the item to an external playback engine.
  */
 internal fun yCoreUnavailableError(
     routerReason: String,
     sourceFailure: YPlaybackException?,
     keptFailure: YCoreRouteFailure?,
     protectedContent: Boolean,
-    nativeOnly: Boolean,
     probeTimedOut: Boolean,
     currentError: String?,
     currentCategory: YPlaybackFailureCategory?,
 ): YCoreUnavailableError {
-    val kept = keptFailure?.takeIf { nativeOnly && it.concrete }
+    val kept = keptFailure?.takeIf { it.concrete }
     return when {
         sourceFailure != null ->
             YCoreUnavailableError(yCoreEnhancedFailureMessage(sourceFailure), sourceFailure.category, routerReason)
-        nativeOnly && probeTimedOut && !protectedContent ->
+        probeTimedOut && !protectedContent ->
             YCoreUnavailableError(
                 message = YCORE_STARTUP_TIMEOUT_MESSAGE,
                 category = YPlaybackFailureCategory.Network,
@@ -3156,22 +3020,15 @@ internal fun yCoreUnavailableError(
                 message = "YCore 2.0 无法打开当前受保护片源，设备未提供可执行的安全解码路径",
                 category =
                     when {
-                        !nativeOnly -> YPlaybackFailureCategory.Unknown
                         probeTimedOut -> YPlaybackFailureCategory.Network
                         else -> currentCategory ?: YPlaybackFailureCategory.Unknown
                     },
                 reason = routerReason,
             )
-        nativeOnly ->
+        else ->
             YCoreUnavailableError(
                 message = currentError ?: "YCore 2.0 纯内核路径无法打开当前片源",
                 category = currentCategory ?: YPlaybackFailureCategory.Unknown,
-                reason = routerReason,
-            )
-        else ->
-            YCoreUnavailableError(
-                message = "YCore 2.0 与兼容内核均无法打开当前片源",
-                category = YPlaybackFailureCategory.Unknown,
                 reason = routerReason,
             )
     }
@@ -3179,17 +3036,14 @@ internal fun yCoreUnavailableError(
 
 /**
  * Whether FallbackToSoftware has a route to build for this input (see createInternalSoftwareRoute).
- * Without a compatibility engine, Dolby Vision has none: YCore never decodes it in software.
+ * Dolby Vision and protected input have no software recovery: YCore never decodes them in software.
  */
 internal fun yCoreSoftwareRecoveryAvailable(
-    compatibilityRouteAvailable: Boolean,
-    discRouteAvailable: Boolean,
     protectedContent: Boolean,
     inputHdrType: YHdrType,
 ): Boolean =
-    compatibilityRouteAvailable ||
-        discRouteAvailable ||
-        (!protectedContent && yCoreInternalSoftwareRecoveryPlan(inputHdrType) != null)
+    !protectedContent &&
+        yCoreInternalSoftwareRecoveryPlan(inputHdrType) != null
 
 private fun AndroidProbeBudget.remainingMsOrZero(): Long =
     try {
@@ -3211,13 +3065,11 @@ private fun AndroidProbeBudget.hasStopped(): Boolean =
 internal fun androidCore2RouterDispatcher(): CoroutineDispatcher = Dispatchers.Default.limitedParallelism(1)
 
 internal fun shouldRetryActiveNativeChildInPlace(
-    nativeOnly: Boolean,
     phase: YPlaybackPhase,
     route: YPlaybackRoute,
     enhancedChild: Boolean = false,
 ): Boolean =
-    nativeOnly &&
-        phase != YPlaybackPhase.Failed &&
+    phase != YPlaybackPhase.Failed &&
         canRetryCore2RouteInPlace(route, enhancedChild)
 
 internal fun canRetryCore2RouteInPlace(
@@ -3271,11 +3123,6 @@ internal fun YPlaybackPlan.toSoftwareFallbackPlan(reason: String): YPlaybackPlan
     )
 }
 
-internal fun shouldBypassLearnedYCoreRouteMemory(
-    manualRetry: Boolean,
-    compatibilityRouteAvailable: Boolean,
-): Boolean = manualRetry || !compatibilityRouteAvailable
-
 internal fun yCoreInternalEnhancedRecoveryPlan(
     inputHdrType: YHdrType,
     decoderName: String? = null,
@@ -3309,21 +3156,6 @@ internal fun yCoreInternalSoftwareRecoveryPlan(inputHdrType: YHdrType): YPlaybac
         softwareVideoToneMap = inputHdrType != YHdrType.Sdr,
         usesHdrFallback = false,
         reason = "YCore internal FFmpeg software decode recovery",
-    )
-}
-
-private fun yCoreInconclusiveSourceCompatibilityPlan(item: YMediaItem): YPlaybackPlan {
-    val inputHdrType = item.hintedHdrType()
-    return YPlaybackPlan(
-        route = YPlaybackRoute.GpuEnhanced,
-        demuxPath = YDemuxPath.Enhanced,
-        decodePath = YDecodePath.Hardware,
-        renderPath = YRenderPath.Gpu,
-        outputHdrType = inputHdrType,
-        inputHdrType = inputHdrType,
-        nativeAudio = true,
-        audioPath = YAudioOutputPath.DecodePcm,
-        reason = "Compatibility executor after inconclusive YCore source probe",
     )
 }
 
@@ -3366,15 +3198,3 @@ internal fun yCoreSoftwarePlanPassesDolbyGuard(plan: YPlaybackPlan): Boolean =
                 plan.inputHdrType == YHdrType.DolbyVision ||
                 plan.outputHdrType == YHdrType.DolbyVision
         )
-
-internal fun YPlaybackPlan.withNativeGpuFallbackTruth(probe: YNativeGpuRuntimeProbe): YPlaybackPlan {
-    if (route != YPlaybackRoute.GpuEnhanced) return this
-    val reason =
-        probe.firstMissingRequirement()?.let { requirement ->
-            "$reason; native Vulkan blocked at $requirement"
-        } ?: "$reason; native Vulkan presentation executor is not installed"
-    return copy(reason = reason)
-}
-
-/** Routes whose demuxer is the platform's; memory against them first tries YCore's own demuxer. */
-private val PLATFORM_DEMUX_ROUTES = setOf(YPlaybackRoute.NativeDirect, YPlaybackRoute.NativeTunnel)

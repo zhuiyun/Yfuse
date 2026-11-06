@@ -135,7 +135,6 @@ class AndroidAdaptiveCore2RecoveryFailureTest {
                 sourceFailure = null,
                 keptFailure = kept,
                 protectedContent = false,
-                nativeOnly = true,
                 probeTimedOut = true,
                 currentError = null,
                 currentCategory = null,
@@ -161,7 +160,6 @@ class AndroidAdaptiveCore2RecoveryFailureTest {
                         reason = "stall",
                     ),
                 protectedContent = false,
-                nativeOnly = true,
                 probeTimedOut = true,
                 currentError = null,
                 currentCategory = null,
@@ -170,13 +168,13 @@ class AndroidAdaptiveCore2RecoveryFailureTest {
         assertEquals(YPlaybackFailureCategory.Network, timeout.category)
 
         val noRoute =
-            yCoreUnavailableError("router", null, null, false, nativeOnly = true, probeTimedOut = false, null, null)
+            yCoreUnavailableError("router", null, null, false, probeTimedOut = false, null, null)
         assertEquals("YCore 2.0 纯内核路径无法打开当前片源", noRoute.message)
         assertEquals(YPlaybackFailureCategory.Unknown, noRoute.category)
     }
 
     @Test
-    fun `a source failure and the compatibility hand-off keep their existing precedence`() {
+    fun `a source failure keeps precedence and recovery stays inside YCore`() {
         val kept = assertNotNull(yCoreRouteFailure(YPlaybackRoute.NativeDirect, null, null, null, hiddenAudio))
         val authorization =
             YPlaybackException(
@@ -185,14 +183,13 @@ class AndroidAdaptiveCore2RecoveryFailureTest {
             )
         assertEquals(
             YPlaybackFailureCategory.Authorization,
-            yCoreUnavailableError("router", authorization, kept, false, true, false, null, null).category,
+            yCoreUnavailableError("router", authorization, kept, false, false, null, null).category,
         )
-        // With a compatibility engine the router stays Unknown so the Legacy fallback takes over.
-        val compatibility = yCoreUnavailableError("router", null, kept, false, nativeOnly = false, true, null, null)
-        assertEquals("YCore 2.0 与兼容内核均无法打开当前片源", compatibility.message)
-        assertEquals(YPlaybackFailureCategory.Unknown, compatibility.category)
+        val exhausted = yCoreUnavailableError("router", null, kept, false, false, null, null)
+        assertEquals(kept.message, exhausted.message)
+        assertEquals(kept.category, exhausted.category)
         // A protected start that timed out keeps its message and the Network category it had.
-        val protectedStart = yCoreUnavailableError("router", null, null, true, nativeOnly = true, true, null, null)
+        val protectedStart = yCoreUnavailableError("router", null, null, true, true, null, null)
         assertTrue(protectedStart.message.contains("受保护片源"))
         assertEquals(YPlaybackFailureCategory.Network, protectedStart.category)
     }
@@ -223,19 +220,12 @@ class AndroidAdaptiveCore2RecoveryFailureTest {
     }
 
     @Test
-    fun `Dolby Vision has no software recovery unless another executor can carry it`() {
-        assertFalse(
-            yCoreSoftwareRecoveryAvailable(
-                compatibilityRouteAvailable = false,
-                discRouteAvailable = false,
-                protectedContent = false,
-                inputHdrType = YHdrType.DolbyVision,
-            ),
-        )
-        assertTrue(yCoreSoftwareRecoveryAvailable(false, false, false, YHdrType.Hdr10))
-        assertTrue(yCoreSoftwareRecoveryAvailable(true, false, false, YHdrType.DolbyVision))
-        assertTrue(yCoreSoftwareRecoveryAvailable(false, true, false, YHdrType.DolbyVision))
-        assertFalse(yCoreSoftwareRecoveryAvailable(false, false, protectedContent = true, YHdrType.Sdr))
+    fun `software recovery requires an unprotected format owned by YCore`() {
+        assertFalse(yCoreSoftwareRecoveryAvailable(protectedContent = false, YHdrType.DolbyVision))
+        assertTrue(yCoreSoftwareRecoveryAvailable(protectedContent = false, YHdrType.Hdr10))
+        assertTrue(yCoreSoftwareRecoveryAvailable(protectedContent = false, YHdrType.Sdr))
+        assertFalse(yCoreSoftwareRecoveryAvailable(protectedContent = true, YHdrType.Sdr))
+        assertFalse(yCoreSoftwareRecoveryAvailable(protectedContent = true, YHdrType.DolbyVision))
     }
 
     @Test
@@ -301,7 +291,7 @@ class AndroidAdaptiveCore2RecoveryFailureTest {
         val executed = planned.forExecutedRoute(YPlaybackRoute.NativeEnhanced)
 
         assertEquals(planned.copy(route = YPlaybackRoute.NativeEnhanced), executed)
-        assertSame(planned, planned.forExecutedRoute(YPlaybackRoute.Legacy))
+        assertSame(planned, planned.forExecutedRoute(YPlaybackRoute.Unknown))
         assertSame(planned, planned.forExecutedRoute(YPlaybackRoute.SoftwareFallback))
     }
 }

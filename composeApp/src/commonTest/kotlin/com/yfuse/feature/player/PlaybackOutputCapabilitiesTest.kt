@@ -1,11 +1,9 @@
 package com.yfuse.feature.player
 
 import com.yfuse.core.model.PlayerEngine
-import com.yfuse.core.playback.PlaybackAudioCodec
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
-import kotlin.test.assertNull
 
 class PlaybackOutputCapabilitiesTest {
     @Test
@@ -21,7 +19,7 @@ class PlaybackOutputCapabilitiesTest {
         val capability =
             assertIs<PlaybackFeatureCapability.Available<FrameRateMatchMode>>(
                 PlaybackOutputCapabilities
-                    .forEngine(PlayerEngine.Exo, androidApiLevel = 30)
+                    .forEngine(PlayerEngine.YCore, androidApiLevel = 30)
                     .frameRateMatching,
             )
 
@@ -29,8 +27,8 @@ class PlaybackOutputCapabilitiesTest {
     }
 
     @Test
-    fun android_12_exposes_explicit_non_seamless_matching_for_exo_and_mpv() {
-        listOf(PlayerEngine.Exo, PlayerEngine.Mpv).forEach { engine ->
+    fun android_12_exposes_explicit_non_seamless_matching_for_ycore() {
+        listOf(PlayerEngine.YCore).forEach { engine ->
             val capability =
                 assertIs<PlaybackFeatureCapability.Available<FrameRateMatchMode>>(
                     PlaybackOutputCapabilities
@@ -45,19 +43,27 @@ class PlaybackOutputCapabilitiesTest {
     }
 
     @Test
-    fun mdk_exposes_surface_frame_rate_but_not_unverified_audio_passthrough() {
-        val capabilities = PlaybackOutputCapabilities.forEngine(PlayerEngine.Mdk, androidApiLevel = 36)
+    fun ycore_exposes_audio_configuration_without_claiming_active_output() {
+        val capability = PlaybackOutputCapabilities.forEngine(PlayerEngine.YCore, 31)
+        assertEquals(
+            setOf(AudioPassthroughMode.Compatible),
+            assertIs<PlaybackFeatureCapability.Available<AudioPassthroughMode>>(capability.audioPassthrough).modes,
+        )
+    }
 
-        assertEquals(
-            setOf(FrameRateMatchMode.SeamlessOnly, FrameRateMatchMode.Always),
-            assertIs<PlaybackFeatureCapability.Available<FrameRateMatchMode>>(
-                capabilities.frameRateMatching,
-            ).modes,
-        )
-        assertEquals(
-            PlaybackOutputUnsupportedReason.BackendApiNotVerified,
-            assertIs<PlaybackFeatureCapability.Unsupported>(capabilities.audioPassthrough).reason,
-        )
+    @Test
+    fun senplayer_does_not_advertise_unverified_output_controls_on_newer_android() {
+        listOf(28, 30, 31, 37).forEach { apiLevel ->
+            val capabilities = PlaybackOutputCapabilities.forEngine(PlayerEngine.SenPlayer, apiLevel)
+            assertEquals(
+                PlaybackOutputUnsupportedReason.BackendApiNotVerified,
+                assertIs<PlaybackFeatureCapability.Unsupported>(capabilities.frameRateMatching).reason,
+            )
+            assertEquals(
+                PlaybackOutputUnsupportedReason.BackendApiNotVerified,
+                assertIs<PlaybackFeatureCapability.Unsupported>(capabilities.audioPassthrough).reason,
+            )
+        }
     }
 
     @Test
@@ -88,44 +94,5 @@ class PlaybackOutputCapabilitiesTest {
         assertEquals(false, seamless.allowNonSeamlessSwitch)
         assertEquals(true, always.allowNonSeamlessSwitch)
         assertEquals(true, always.useExplicitStrategyApi)
-    }
-
-    @Test
-    fun mpv_spdif_is_limited_to_formats_supported_by_the_active_route() {
-        val routeFormats =
-            setOf(
-                PlaybackAudioCodec.Ac3,
-                PlaybackAudioCodec.Eac3Joc,
-                PlaybackAudioCodec.TrueHd,
-            )
-        assertNull(mpvAudioSpdifOption(AudioPassthroughMode.Disabled, routeFormats))
-        assertNull(mpvAudioSpdifOption(AudioPassthroughMode.Compatible, emptySet()))
-        assertEquals(
-            "ac3,eac3,truehd",
-            mpvAudioSpdifOption(AudioPassthroughMode.Compatible, routeFormats),
-        )
-    }
-
-    @Test
-    fun mpv_does_not_report_active_until_output_proves_spdif() {
-        assertIs<PlaybackOutputStatus.Configured>(
-            mpvAudioPassthroughStatus(AudioPassthroughMode.Compatible, null, null),
-        )
-        assertIs<PlaybackOutputStatus.Inactive>(
-            mpvAudioPassthroughStatus(AudioPassthroughMode.Compatible, "float", "aac"),
-        )
-        assertIs<PlaybackOutputStatus.Active>(
-            mpvAudioPassthroughStatus(AudioPassthroughMode.Compatible, "spdif-eac3", "spdif_eac3"),
-        )
-    }
-
-    @Test
-    fun mpv_inactive_status_uses_decoder_when_output_format_is_missing() {
-        val status =
-            assertIs<PlaybackOutputStatus.Inactive>(
-                mpvAudioPassthroughStatus(AudioPassthroughMode.Compatible, null, "aac"),
-            )
-
-        assertEquals("mpv is decoding the current track to aac", status.detail)
     }
 }

@@ -7,9 +7,8 @@ import com.yfuse.core2.api.YPlayer
 /**
  * Temporary compatibility boundary for controls that are not part of the stable [YPlayer] API.
  *
- * Product UI depends on this capability facade while Legacy and Core2 coexist. Unsupported Core2
- * operations keep their existing false/default behavior, allowing PlayerRoot to rebuild or fall
- * back without leaking concrete backend types through the control layer.
+ * Product UI uses this facade for YCore and SenPlayer. Unsupported operations report false
+ * so controls can be disabled without switching engines behind the viewer.
  */
 internal class PlayerBackendExtensions(
     private val engine: VideoEngine,
@@ -84,20 +83,9 @@ internal class PlayerBackendExtensions(
         currentIndex: Int,
     ): Boolean = engine.updateQueue(items, currentIndex)
 
+    /** YCore's Compose surface applies the requested scale; SenPlayer currently exposes Fit only. */
     fun setVideoScaleMode(mode: VideoScaleMode): Boolean =
-        when (engine) {
-            is MpvVideoEngine -> {
-                engine.setScaleMode(mode)
-                true
-            }
-
-            is MdkVideoEngine -> {
-                engine.setFill(mode != VideoScaleMode.Fit)
-                true
-            }
-
-            else -> mode == VideoScaleMode.Fit
-        }
+        engine is com.yfuse.core2.legacy.YPlayerVideoEngineAdapter || mode == VideoScaleMode.Fit
 
     fun selectDiscTitle(index: Int): Boolean = ActiveDiscNavigation.selectTitle(index) || engine.selectDiscTitle(index)
 

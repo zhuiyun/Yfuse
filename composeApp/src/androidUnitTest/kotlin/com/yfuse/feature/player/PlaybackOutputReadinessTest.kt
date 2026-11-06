@@ -117,19 +117,6 @@ class PlaybackOutputReadinessTest {
     }
 
     @Test
-    fun mpv_audio_requires_output_driver_and_output_format() {
-        assertTrue(
-            mpvAudioOutputReadiness("aaudio", "s16", clockAdvancing = true) == PlaybackOutputReadiness.Rendering,
-        )
-        assertFalse(
-            mpvAudioOutputReadiness("", "s16", clockAdvancing = true) == PlaybackOutputReadiness.Rendering,
-        )
-        assertFalse(
-            mpvAudioOutputReadiness("aaudio", "", clockAdvancing = true) == PlaybackOutputReadiness.Rendering,
-        )
-    }
-
-    @Test
     fun dolby_badges_are_reported_facts_not_diagnostic_text() {
         val textOnly =
             PlaybackDiagnostics(

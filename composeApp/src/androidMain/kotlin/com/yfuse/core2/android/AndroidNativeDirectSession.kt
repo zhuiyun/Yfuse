@@ -63,6 +63,7 @@ internal class AndroidNativeDirectSession(
     private val preferredRemoteBufferTargetUs = configuration.preferredRemoteBufferTargetUs
     private val preparedExtractor = configuration.preparedExtractor
     private val videoHandoff = configuration.videoHandoff
+    private val audioDisabled = configuration.audioDisabled
     private val bufferSessionId =
         java.util.UUID
             .randomUUID()
@@ -530,80 +531,16 @@ internal class AndroidNativeDirectSession(
         // Audio-only media is a first-class source here: music, audiobooks and audio-only
         // versions have no video track and must not be rejected at the container stage.
         videoTrackIndex = demux.findFirstTrack(VIDEO_MIME_PREFIX)
-        val capabilities = capabilityProvider.current()
-        val platformAudioTrackIndices =
-            (0 until demux.trackCount).filter { index ->
-                demux
-                    .trackFormat(index)
-                    .getString(MediaFormat.KEY_MIME)
-                    .orEmpty()
-                    .startsWith(AUDIO_MIME_PREFIX)
-            }
-        val discoveredAudio = platformAudioTracks(demux.trackCount, demux::trackFormat)
-        val preferredAudioIndex =
-            discoveredAudio
-                .matchingPreference(item.initialTrackSelection?.audio)
-                ?.id
-                ?.substringAfter(':')
-                ?.toIntOrNull()
-                // A preference can land on DTS behind an AAC label, which nothing here can play;
-                // choosing among every track then beats failing on the one it named.
-                ?.takeUnless { index -> demux.trackFormat(index).aacLabelWithoutConfig() }
-        val audioCandidates = preferredAudioIndex?.let(::listOf) ?: platformAudioTrackIndices
-        val initialAudioTrack =
-            audioCandidates.firstNotNullOfOrNull { index ->
-                val format = demux.trackFormat(index)
-                if (format.aacLabelWithoutConfig()) {
-                    // DTS in an `mp4a` entry: the AAC decoder would play it as silence, so the
-                    // real AAC track behind it has to win (toCore2AudioTrackFormat agrees).
-                    logAacLabelWithoutConfig("NativeDirect", discoveredAudio, index, item.sourceHints)
-                    return@firstNotNullOfOrNull null
-                }
-                val coreFormat =
-                    runCatching { format.toCore2AudioTrackFormat(item.sourceHints) }.getOrNull()
-                        ?: return@firstNotNullOfOrNull null
-                val requirement =
-                    YAudioRequirement(
-                        codec = coreFormat.codec,
-                        channelCount = coreFormat.channelCount,
-                        sampleRate = coreFormat.sampleRate,
-                    )
-                val devicePath = capabilities.audioOutputPath(requirement)
-                val playable =
-                    if (plannedAudioOutputPath == YAudioOutputPath.DecodePcm) {
-                        devicePath == YAudioOutputPath.DecodePcm
-                    } else {
-                        devicePath != YAudioOutputPath.None
-                    }
-                index.takeIf { playable }?.let { it to format }
-            }
-        val sourceDeclaresAudio = (item.sourceHints?.audioTrackCount ?: 0) > 0
-        if (sourceDeclaresAudio && platformAudioTrackIndices.isEmpty()) {
-            throw YPlaybackException(
-                category = YPlaybackFailureCategory.Container,
-                stage = YPlaybackFailureStage.Demux,
-                safeDetail =
-                    hiddenServerAudioTrackDetail(NATIVE_DIRECT_HIDDEN_AUDIO_DETAIL, item.sourceHints),
+        val selectedAudio =
+            selectNativeDirectInitialAudio(
+                audioDisabled = audioDisabled,
+                item = item,
+                trackCount = { demux.trackCount },
+                trackFormat = demux::trackFormat,
+                plannedAudioOutputPath = plannedAudioOutputPath,
+                devicePath = { capabilityProvider.current().audioOutputPath(it) },
             )
-        }
-        if (platformAudioTrackIndices.isNotEmpty() && initialAudioTrack == null) {
-            // Name the codecs. Without them this failure is indistinguishable from a device
-            // that simply lacks the decoder, and a diagnostic bundle cannot tell the two apart.
-            val rejectedAudioMimes =
-                platformAudioTrackIndices
-                    .mapNotNull { index ->
-                        val format = demux.trackFormat(index)
-                        format.getString(MediaFormat.KEY_MIME)?.lowercase()?.let { mime ->
-                            if (format.aacLabelWithoutConfig()) "$mime without AudioSpecificConfig" else mime
-                        }
-                    }.distinct()
-                    .joinToString(",")
-            throw YPlaybackException(
-                category = YPlaybackFailureCategory.Container,
-                stage = YPlaybackFailureStage.Demux,
-                safeDetail = "NativeDirect has no playable platform audio path for $rejectedAudioMimes",
-            )
-        }
+        val initialAudioTrack = selectedAudio.track
         if (videoTrackIndex == null && initialAudioTrack == null) {
             throw YPlaybackException(
                 category = YPlaybackFailureCategory.Container,
@@ -615,7 +552,7 @@ internal class AndroidNativeDirectSession(
         logInitialAudioSelection(
             "NativeDirect",
             item.initialTrackSelection?.audio != null,
-            discoveredAudio,
+            selectedAudio.discovered,
             audioTrackIndex?.let { "audio:$it" },
         )
         videoFormat =
@@ -1088,6 +1025,7 @@ internal class AndroidNativeDirectSession(
     }
 
     private fun selectAudioTrack(trackIndex: Int) {
+        if (audioDisabled) return
         if (!prepared || trackIndex == audioTrackIndex || trackIndex !in 0 until demux.trackCount) return
         val format = demux.trackFormat(trackIndex)
         if (format.getString(MediaFormat.KEY_MIME)?.startsWith(AUDIO_MIME_PREFIX) != true) return
@@ -2114,6 +2052,12 @@ internal class AndroidNativeDirectSession(
     }
 
     private fun configureAudioPath(format: MediaFormat?) {
+        if (audioDisabled) {
+            audioTrackFormat = null
+            audioOutputPath = YAudioOutputPath.None
+            audioRendererConfigured = false
+            return
+        }
         audioTrackFormat =
             format?.toCore2AudioTrackFormat(request.items[currentIndex].sourceHints)
         val coreFormat = audioTrackFormat
@@ -2704,7 +2648,7 @@ internal class AndroidNativeDirectSession(
         }
 
     private fun audioTracks(): List<YTrack> =
-        (0 until demux.trackCount).mapNotNull { index ->
+        (if (audioDisabled) 0 until 0 else 0 until demux.trackCount).mapNotNull { index ->
             val format = demux.trackFormat(index)
             val mime = format.getString(MediaFormat.KEY_MIME) ?: return@mapNotNull null
             if (!mime.startsWith(AUDIO_MIME_PREFIX)) return@mapNotNull null

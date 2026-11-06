@@ -117,7 +117,7 @@ class PendingPlayerPreparationTest {
             items = listOf(PlayerMediaItem("movie", "https://media.example/movie", "", "Movie")),
             startIndex = 0,
             startPositionMs = 0L,
-            engine = PlayerEngine.Exo,
+            engine = PlayerEngine.YCore,
             decoder = DecoderMode.Hardware,
             autoNext = true,
         )

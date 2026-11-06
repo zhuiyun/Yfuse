@@ -5,7 +5,7 @@ import com.yfuse.core.account.AccountAccessTokenSource
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.core2.api.YPlayer
-import com.yfuse.core2.legacy.LegacyYPlayerAdapter
+import com.yfuse.core2.legacy.VideoEngineYPlayerAdapter
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -18,7 +18,7 @@ class PreparingPlaybackGateTest {
     @Test
     fun waiting_engine_can_pause_and_resume_through_the_real_adapter_and_gate() {
         val engine = preparing(requested = true)
-        val player = LegacyYPlayerAdapter(engine)
+        val player = VideoEngineYPlayerAdapter(engine)
         val gate = gate(player)
         assertFalse(player.state.value.playing)
         assertTrue(player.playbackRequested)
@@ -32,7 +32,7 @@ class PreparingPlaybackGateTest {
     @Test
     fun paused_engine_requests_play_and_playing_engine_requests_pause() {
         val engine = IntentEngine(playing = false, requested = false)
-        val gate = gate(LegacyYPlayerAdapter(engine))
+        val gate = gate(VideoEngineYPlayerAdapter(engine))
         gate.togglePlayPause()
         assertTrue(engine.playbackRequested)
         engine.presentation.value = engine.presentation.value.copy(playing = true)
@@ -43,7 +43,7 @@ class PreparingPlaybackGateTest {
     @Test
     fun a_second_click_reverses_pending_pause_even_if_output_has_not_stopped_yet() {
         val engine = IntentEngine(playing = true, requested = false)
-        val gate = gate(LegacyYPlayerAdapter(engine))
+        val gate = gate(VideoEngineYPlayerAdapter(engine))
         gate.togglePlayPause()
         assertTrue(engine.playbackRequested)
         gate.togglePlayPause()
@@ -54,7 +54,7 @@ class PreparingPlaybackGateTest {
     fun ended_engine_can_request_play_again() {
         val engine = IntentEngine(playing = false, requested = false)
         engine.presentation.value = engine.presentation.value.copy(ended = true)
-        val gate = gate(LegacyYPlayerAdapter(engine))
+        val gate = gate(VideoEngineYPlayerAdapter(engine))
         gate.togglePlayPause()
         assertTrue(engine.playbackRequested)
     }
@@ -65,7 +65,7 @@ class PreparingPlaybackGateTest {
         val request = focus.beginRequest()
         focus.lost(request, transient = true, playbackRequested = true)
         val engine = IntentEngine(playing = false, requested = false)
-        val gate = gate(LegacyYPlayerAdapter(engine), onPauseRequested = focus::cancelResume)
+        val gate = gate(VideoEngineYPlayerAdapter(engine), onPauseRequested = focus::cancelResume)
 
         assertTrue(gate.pause())
         assertFalse(focus.gained(request, canResume = true))
@@ -78,7 +78,7 @@ class PreparingPlaybackGateTest {
         val request = focus.beginRequest()
         focus.lost(request, transient = true, playbackRequested = true)
         val engine = preparing(requested = true)
-        val gate = gate(LegacyYPlayerAdapter(engine), onPauseRequested = focus::cancelResume)
+        val gate = gate(VideoEngineYPlayerAdapter(engine), onPauseRequested = focus::cancelResume)
 
         assertTrue(gate.togglePlayPause())
         assertFalse(focus.gained(request, canResume = true))
@@ -91,7 +91,7 @@ class PreparingPlaybackGateTest {
         val request = focus.beginRequest()
         focus.lost(request, transient = true, playbackRequested = true)
         val engine = preparing(requested = false)
-        val player = LegacyYPlayerAdapter(engine)
+        val player = VideoEngineYPlayerAdapter(engine)
         var attempts = 0
         val gate =
             gate(
@@ -117,7 +117,7 @@ class PreparingPlaybackGateTest {
         var allowed = false
         var attempts = 0
         val gate =
-            gate(LegacyYPlayerAdapter(engine), onPlayRequested = {
+            gate(VideoEngineYPlayerAdapter(engine), onPlayRequested = {
                 attempts++
                 allowed
             })
@@ -136,7 +136,7 @@ class PreparingPlaybackGateTest {
     @Test
     fun denied_retry_and_episode_selection_do_not_dispatch_or_preserve_an_old_play_intent() {
         val engine = IntentEngine(playing = false, requested = true)
-        val gate = gate(LegacyYPlayerAdapter(engine), onPlayRequested = { false })
+        val gate = gate(VideoEngineYPlayerAdapter(engine), onPlayRequested = { false })
 
         assertFalse(gate.retry())
         assertFalse(engine.playbackRequested)
@@ -152,7 +152,7 @@ class PreparingPlaybackGateTest {
         val engine = IntentEngine(playing = false, requested = false)
         var attempts = 0
         val gate =
-            gate(LegacyYPlayerAdapter(engine), onPlayRequested = {
+            gate(VideoEngineYPlayerAdapter(engine), onPlayRequested = {
                 attempts++
                 true
             })
@@ -170,7 +170,7 @@ class PreparingPlaybackGateTest {
         val engine = IntentEngine(playing = false, requested = false)
         var selections = 0
         val player =
-            object : YPlayer by LegacyYPlayerAdapter(engine) {
+            object : YPlayer by VideoEngineYPlayerAdapter(engine) {
                 override fun selectItem(index: Int) {
                     selections++
                     assertFalse(playbackRequested)
@@ -185,7 +185,7 @@ class PreparingPlaybackGateTest {
     fun a_denied_manual_selection_neither_selects_nor_resumes_a_paused_player() {
         val engine = IntentEngine(playing = false, requested = false)
         val player =
-            object : YPlayer by LegacyYPlayerAdapter(engine) {
+            object : YPlayer by VideoEngineYPlayerAdapter(engine) {
                 override fun selectItem(index: Int) = error("Selection must pass playback admission")
 
                 override fun play() = error("Play must pass playback admission")
@@ -202,7 +202,7 @@ class PreparingPlaybackGateTest {
     @Test
     fun returning_from_cast_retains_position_but_stays_paused_when_background_or_focus_denies_play() {
         val engine = preparing(requested = true)
-        val player = LegacyYPlayerAdapter(engine)
+        val player = VideoEngineYPlayerAdapter(engine)
         var admissions = 0
         var pauses = 0
         val gate =
@@ -225,7 +225,7 @@ class PreparingPlaybackGateTest {
     @Test
     fun returning_from_cast_resumes_only_after_playback_admission() {
         val engine = preparing(requested = false)
-        val player = LegacyYPlayerAdapter(engine)
+        val player = VideoEngineYPlayerAdapter(engine)
         var admissions = 0
         val gate =
             gate(player, onPlayRequested = {
@@ -242,7 +242,7 @@ class PreparingPlaybackGateTest {
     @Test
     fun a_paused_receiver_returns_paused_without_requesting_audio_focus() {
         val engine = preparing(requested = true)
-        val player = LegacyYPlayerAdapter(engine)
+        val player = VideoEngineYPlayerAdapter(engine)
         val gate = gate(player, onPlayRequested = { error("Paused handoff must not request playback") })
 
         assertTrue(gate.restoreLocalPlayback(12_000L, resumePlayback = false))

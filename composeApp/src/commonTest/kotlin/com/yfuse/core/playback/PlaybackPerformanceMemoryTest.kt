@@ -14,7 +14,7 @@ class PlaybackPerformanceMemoryTest {
                 nowEpochMs = { 1_000L },
                 onChanged = { persisted = it },
             )
-        memory.record("MKV|H264", PlayerEngine.Exo, healthyAssessment())
+        memory.record("MKV|H264", PlayerEngine.YCore, healthyAssessment())
 
         memory.clear()
 
@@ -27,11 +27,11 @@ class PlaybackPerformanceMemoryTest {
         var now = 1_000L
         val memory = PlaybackPerformanceMemory(nowEpochMs = { now })
         repeat(2) {
-            memory.record(SIGNATURE, PlayerEngine.Exo, degradedAssessment())
+            memory.record(SIGNATURE, PlayerEngine.YCore, degradedAssessment())
             now += 1_000L
         }
 
-        assertTrue(memory.engineCosts(SIGNATURE).getValue(PlayerEngine.Exo) > 0)
+        assertTrue(memory.engineCosts(SIGNATURE).getValue(PlayerEngine.YCore) > 0)
         assertEquals(2, memory.snapshot().single().sessions)
         assertEquals(SIGNATURE, memory.snapshot().single().signature)
     }
@@ -43,7 +43,7 @@ class PlaybackPerformanceMemoryTest {
             listOf(
                 PlaybackPerformanceRecord(
                     signature = SIGNATURE,
-                    engine = PlayerEngine.Exo,
+                    engine = PlayerEngine.YCore,
                     sessions = 3,
                     averageStartupMs = 8_000L,
                     averageRebufferEventsPerMinute = 0f,

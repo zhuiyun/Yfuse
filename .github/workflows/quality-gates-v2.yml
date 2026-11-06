@@ -105,17 +105,16 @@ jobs:
           test -x "$sdkmanager"
           yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
           "$sdkmanager" "platforms;android-37.0" "ndk;29.0.14206865" "cmake;3.22.1"
-      - name: Download player engines
+      - name: Prepare pinned YCore and SenPlayer inputs
+        env:
+          YCORE_NATIVE_AAR_URL: ${{ secrets.YCORE_NATIVE_AAR_URL }}
+          SENPLAYER_SOURCE_APK_URL: ${{ secrets.SENPLAYER_SOURCE_APK_URL }}
         shell: bash
         run: |
           set -euo pipefail
-          if ! command -v 7z >/dev/null 2>&1; then sudo apt-get update && sudo apt-get install -y p7zip-full; fi
           chmod +x gradlew scripts/fetch-engines.sh
           scripts/fetch-engines.sh
-          test -f composeApp/libs/libmpv-release.aar
-          test -f composeApp/libs/mdk-sdk/lib/cmake/FindMDK.cmake
-      - name: Build and install current YCore runtime
-        uses: ./.github/actions/build-current-ycore
+          test -s composeApp/libs/ycore-native.aar
       # Formatting is recorded here and enforced at the end of the job, so a line-wrap
       # violation can no longer hide the compile, test, lint and release signals behind it.
       - name: Record ktlint violations
@@ -222,7 +221,7 @@ jobs:
       - name: Build R8 release package
         run: >-
           ./gradlew :composeApp:assembleRelease
-          -PyfuseIncludeMdk=true -PyfuseNativeOnlyRuntime=false
+          -PyfuseIncludeMdk=false -PyfusePlaybackProfile=ycore-senplayer -PyfuseNativeOnlyRuntime=true
           -PallowDebugSigning=true "-Dorg.gradle.jvmargs=-Xmx6g -Dfile.encoding=UTF-8" --no-daemon
       # R8 can emit a method ART refuses to load; its class then throws VerifyError the first time
       # it is used, which nothing above runs. 1.0.97 (259) shipped a player that crashed that way.
@@ -232,7 +231,7 @@ jobs:
           scripts/verify-release-dex.sh
           --mapping composeApp/build/outputs/mapping/release/mapping.txt
           composeApp/build/outputs/apk/release/composeApp-release.apk
-      - name: Verify full release package
+      - name: Verify YCore + SenPlayer release package
         shell: bash
         run: |
           set -euo pipefail
@@ -264,9 +263,8 @@ jobs:
           grep -Fq "versionName='$version_name'" <<<"$package_line" ||
             fail "APK versionName differs from version.properties ($version_name): $package_line"
           unzip -Z1 "$apk" > build/apk-entries.txt
-          for library in libavcodec.so libavformat.so libmpv.so libmdk.so; do
-            grep -Fxq "lib/arm64-v8a/$library" build/apk-entries.txt || fail "lib/arm64-v8a/$library is missing from the APK"
-          done
+          python3 scripts/verify-playback-package.py "$apk" \
+            --mapping composeApp/build/outputs/mapping/release/mapping.txt
           # A committed app profile must reach the APK: AGP merges it with the libraries' rules and
           # compiles them into assets/dexopt/. Only the merged text shows Yfuse's own rules made it.
           # The libraries' own rules alone already produce assets/dexopt/baseline.prof, which is how a
@@ -301,7 +299,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ./gradlew :composeApp:dependencies :phoneShared:dependencies :tvApp:dependencies :tvShared:dependencies :macrobenchmark:dependencies :mdkAndroid:dependencies :watchTogetherProtocol:dependencies :watchTogetherServer:dependencies --no-daemon >/dev/null
+          ./gradlew :composeApp:dependencies :phoneShared:dependencies :tvApp:dependencies :tvShared:dependencies :macrobenchmark:dependencies :watchTogetherProtocol:dependencies :watchTogetherServer:dependencies --no-daemon >/dev/null
           git diff --exit-code -- '**/gradle.lockfile' settings-gradle.lockfile
       - name: Fail on recorded ktlint violations
         shell: bash
@@ -375,17 +373,16 @@ jobs:
           test -x "$sdkmanager"
           yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
           "$sdkmanager" "platforms;android-37.0" "ndk;29.0.14206865" "cmake;3.22.1"
-      - name: Download player engines
+      - name: Prepare pinned YCore and SenPlayer inputs
+        env:
+          YCORE_NATIVE_AAR_URL: ${{ secrets.YCORE_NATIVE_AAR_URL }}
+          SENPLAYER_SOURCE_APK_URL: ${{ secrets.SENPLAYER_SOURCE_APK_URL }}
         shell: bash
         run: |
           set -euo pipefail
-          if ! command -v 7z >/dev/null 2>&1; then sudo apt-get update && sudo apt-get install -y p7zip-full; fi
           chmod +x gradlew scripts/fetch-engines.sh
           scripts/fetch-engines.sh
-          test -f composeApp/libs/libmpv-release.aar
-          test -f composeApp/libs/mdk-sdk/lib/cmake/FindMDK.cmake
-      - name: Build and install current YCore runtime
-        uses: ./.github/actions/build-current-ycore
+          test -s composeApp/libs/ycore-native.aar
       # The playback tests refuse the production application id so they can never touch a real
       # installation's data; they install as com.yfuse.validation, as the device-gate docs do.
       - name: Build the debug app and its instrumented test APK

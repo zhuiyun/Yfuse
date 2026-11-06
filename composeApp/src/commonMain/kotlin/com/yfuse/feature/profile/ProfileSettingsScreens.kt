@@ -36,29 +36,19 @@ internal data class PlaybackOptionCopy(
 
 internal fun PlayerEngine.playbackOptionCopy(): PlaybackOptionCopy =
     when (this) {
-        PlayerEngine.Exo ->
+        PlayerEngine.YCore ->
             PlaybackOptionCopy(
-                label = "兼容优先（ExoPlayer）",
-                summary = "兼容优先",
-                description = "使用 Android Media3，适合作为默认选择",
-            )
-        PlayerEngine.Mpv ->
-            PlaybackOptionCopy(
-                label = "格式优先（MPV）",
-                summary = "格式优先",
-                description = "使用 libmpv，覆盖更多封装、编码与字幕格式",
+                label = "YCore（推荐）",
+                summary = "YCore 自研内核",
+                description = "使用 Yfuse 自研原生解封装、解码与渲染管线；具体格式能力由运行时验证",
             )
         PlayerEngine.SenPlayer ->
             PlaybackOptionCopy(
                 label = "SenPlayer（实验，需联网许可）",
                 summary = "SenPlayer 实验内核",
-                description = "仅 Android 9+ ARM64。选用播放时向 www.senmuse.com/api/license 校验，发送当前应用版本、原内核构建及临时公钥；许可失败会明确停止。",
-            )
-        PlayerEngine.Mdk ->
-            PlaybackOptionCopy(
-                label = "原生内核（MDK）",
-                summary = "原生内核",
-                description = "使用 MDK 原生播放栈，供高级兼容性选择",
+                description =
+                    "仅 Android 9+ ARM64。选用后按原许可规则决定是否向 www.senmuse.com/api/license 校验，" +
+                        "发送当前应用版本、原内核构建及临时公钥；许可失败会明确停止。",
             )
     }
 
@@ -68,24 +58,10 @@ internal fun PlaybackEngineSelection.playbackOptionCopy(): PlaybackOptionCopy =
             PlaybackOptionCopy(
                 label = "自动选择（推荐）",
                 summary = "智能自动",
-                description = "按片源、设备能力、稳定性和功耗动态选择并安全切换内核",
+                description = "使用 YCore 自研内核按片源选择解码路径；不会自动启用 SenPlayer",
             )
-        PlaybackEngineSelection.LockExo ->
-            PlayerEngine.Exo.playbackOptionCopy().copy(
-                label = "系统兼容模式",
-                description = "固定使用系统 Media3 内核，不进行常规内核切换",
-            )
-        PlaybackEngineSelection.LockMpv ->
-            PlayerEngine.Mpv.playbackOptionCopy().copy(
-                label = "格式兼容模式",
-                description = "固定使用 MPV；DRM 或系统 Dolby 安全路径会临时使用 Media3",
-            )
+        PlaybackEngineSelection.LockYCore -> PlayerEngine.YCore.playbackOptionCopy()
         PlaybackEngineSelection.LockSenPlayer -> PlayerEngine.SenPlayer.playbackOptionCopy()
-        PlaybackEngineSelection.LockMdk ->
-            PlayerEngine.Mdk.playbackOptionCopy().copy(
-                label = "实验原生模式",
-                description = "固定使用 MDK；DRM 或系统 Dolby 安全路径会临时使用 Media3",
-            )
     }
 
 internal fun DecoderMode.playbackOptionCopy(): PlaybackOptionCopy =
@@ -394,8 +370,6 @@ internal fun AdvancedPlaybackSettingsScreen(
     val frameRateMatch by outputPreferences.frameRateMatch.collectAsState()
     val showFrameRate by outputPreferences.showFrameRate.collectAsState()
     val audioPassthrough by outputPreferences.audioPassthrough.collectAsState()
-    val core2TrialEnabled by outputPreferences.core2TrialEnabled.collectAsState()
-    val core2NativeOnlyEnabled by outputPreferences.core2NativeOnlyEnabled.collectAsState()
 
     SettingsPage(
         title = "高级播放设置",
@@ -412,40 +386,6 @@ internal fun AdvancedPlaybackSettingsScreen(
                         onEngine,
                         icon = AppIcons.Menu,
                         iconTint = SettingTint.advanced,
-                    )
-                    SettingsDivider()
-                    SwitchRow(
-                        "YCore 2.0",
-                        core2TrialEnabled,
-                        true,
-                        icon = AppIcons.Play,
-                        iconTint = SettingTint.playback,
-                        enabled = engineSelection == PlaybackEngineSelection.Auto,
-                        description =
-                            if (engineSelection ==
-                                PlaybackEngineSelection.Auto
-                            ) {
-                                "下次播放生效"
-                            } else {
-                                "请先将播放内核设为自动选择"
-                            },
-                        onChange = outputPreferences::setCore2TrialEnabled,
-                    )
-                    SettingsDivider()
-                    SwitchRow(
-                        "纯原生模式（实验）",
-                        core2NativeOnlyEnabled,
-                        embedded = true,
-                        icon = AppIcons.Play,
-                        iconTint = SettingTint.playback,
-                        enabled = core2TrialEnabled && engineSelection == PlaybackEngineSelection.Auto,
-                        description =
-                            if (core2TrialEnabled && engineSelection == PlaybackEngineSelection.Auto) {
-                                "在自动模式中使用开发中的原生播放内核"
-                            } else {
-                                "先启用 YCore 2.0，并将播放内核设为自动选择"
-                            },
-                        onChange = outputPreferences::setCore2NativeOnlyEnabled,
                     )
                     SettingsDivider()
                     SettingRow(
@@ -490,17 +430,35 @@ internal fun AdvancedPlaybackSettingsScreen(
                         iconTint = SettingTint.playback,
                     )
                     SettingsDivider()
-                    SettingSegmentRow(
-                        title = "刷新率匹配",
-                        options = listOf("关闭", "仅无缝", "始终"),
-                        selectedIndex = PlaybackFrameRateMatch.entries.indexOf(frameRateMatch),
-                        onSelect = { outputPreferences.setFrameRateMatch(PlaybackFrameRateMatch.entries[it]) },
-                        icon = AppIcons.Refresh,
-                        iconTint = SettingTint.advanced,
-                    )
+                    if (engineSelection == PlaybackEngineSelection.LockSenPlayer) {
+                        SettingRow(
+                            "刷新率匹配",
+                            "SenPlayer 未验证",
+                            true,
+                            null,
+                            icon = AppIcons.Refresh,
+                            iconTint = SettingTint.advanced,
+                        )
+                    } else {
+                        SettingSegmentRow(
+                            title = "刷新率匹配",
+                            options = listOf("关闭", "仅无缝", "始终"),
+                            selectedIndex = PlaybackFrameRateMatch.entries.indexOf(frameRateMatch),
+                            onSelect = { outputPreferences.setFrameRateMatch(PlaybackFrameRateMatch.entries[it]) },
+                            icon = AppIcons.Refresh,
+                            iconTint = SettingTint.advanced,
+                        )
+                    }
                     SettingsDivider()
-                    if (engineSelection == PlaybackEngineSelection.LockMdk) {
-                        SettingRow("音频直通", "MDK 暂不支持", true, null, icon = AppIcons.Volume, iconTint = SettingTint.audio)
+                    if (engineSelection == PlaybackEngineSelection.LockSenPlayer) {
+                        SettingRow(
+                            "音频直通",
+                            "SenPlayer 未验证",
+                            true,
+                            null,
+                            icon = AppIcons.Volume,
+                            iconTint = SettingTint.audio,
+                        )
                     } else {
                         SettingSegmentRow(
                             title = "音频直通",

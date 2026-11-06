@@ -3,11 +3,11 @@ package com.yfuse.core.playback
 import java.net.URI
 
 /** Native players proxy only plain HTTP(S) URLs; local files and other schemes bypass the proxy. */
-internal fun shouldProxyMpvNetworkUrl(url: String): Boolean =
+internal fun shouldProxyPlaybackNetworkUrl(url: String): Boolean =
     runCatching { URI(url).scheme?.lowercase() in setOf("http", "https") }.getOrDefault(false)
 
 /** Rewrites an HLS manifest's child URLs (segments and `URI=` attributes) through the local proxy. */
-internal fun rewriteMpvHlsManifest(
+internal fun rewritePlaybackHlsManifest(
     manifest: String,
     upstreamUrl: String,
     localize: (String) -> String,

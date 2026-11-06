@@ -89,17 +89,16 @@ jobs:
           yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
           "$sdkmanager" "platforms;android-37.0" "build-tools;36.0.0"
 
-      - name: Fetch compile-only player APIs
+      - name: Prepare pinned YCore and SenPlayer inputs
+        env:
+          YCORE_NATIVE_AAR_URL: ${{ secrets.YCORE_NATIVE_AAR_URL }}
+          SENPLAYER_SOURCE_APK_URL: ${{ secrets.SENPLAYER_SOURCE_APK_URL }}
         shell: bash
         run: |
           set -euo pipefail
-          if ! command -v 7z >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y p7zip-full
-          fi
           chmod +x gradlew scripts/fetch-engines.sh
           scripts/fetch-engines.sh
-          test -s composeApp/libs/libmpv-release.aar
+          test -s composeApp/libs/ycore-native.aar
 
       # The signing branch is under explicit review before APK packaging. Its TV
       # checks compile and test; artifact assembly remains available on other branches.
@@ -125,6 +124,8 @@ jobs:
             --no-daemon
           # The R8 build is what ships; a debug APK proves nothing about shrinking.
           test -s tvApp/build/outputs/apk/release/tvApp-release.apk
+          python3 scripts/verify-playback-package.py tvApp/build/outputs/apk/release/tvApp-release.apk \
+            --mapping tvApp/build/outputs/mapping/release/mapping.txt
 
       - name: Reject DEX code ART would not verify
         if: github.ref != 'refs/heads/codex/ycore-sign-20260830'

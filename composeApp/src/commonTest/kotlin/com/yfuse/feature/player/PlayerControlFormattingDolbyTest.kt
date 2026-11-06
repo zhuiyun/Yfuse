@@ -29,12 +29,12 @@ class PlayerControlFormattingDolbyTest {
     }
 
     @Test
-    fun mpvToneMappingIsNotPresentedAsNativeDolby() {
+    fun verifiedToneMappingIsNotPresentedAsNativeDolby() {
         val state =
             PlaybackState(
                 diagnostics =
                     PlaybackDiagnostics(
-                        engine = "libmpv",
+                        engine = "YCore",
                         dynamicRange = "Dolby Vision Profile 5",
                         videoReadiness = PlaybackOutputReadiness.Rendering,
                         outputEvidence =
@@ -56,7 +56,7 @@ class PlayerControlFormattingDolbyTest {
             PlaybackState(
                 diagnostics =
                     PlaybackDiagnostics(
-                        engine = "libmpv",
+                        engine = "YCore",
                         dynamicRange = "HDR10",
                         videoReadiness = PlaybackOutputReadiness.Rendering,
                         outputEvidence =
@@ -94,55 +94,38 @@ class PlayerControlFormattingDolbyTest {
     }
 
     @Test
-    fun mpvPostRenderFelEvidenceUpgradesReadout() {
-        MpvDolbyRuntimeEvidenceRegistry.installProvider {
-            MpvDolbyRuntimeEvidence(
-                generation = 7L,
-                rpuRendered = true,
-                felComposed = true,
+    fun output_evidence_is_ignored_before_the_video_output_renders() {
+        val state =
+            PlaybackState(
+                diagnostics =
+                    PlaybackDiagnostics(
+                        engine = "YCore",
+                        dynamicRange = "Dolby Vision Profile 7",
+                        videoReadiness = PlaybackOutputReadiness.Waiting,
+                        outputEvidence =
+                            PlaybackOutputEvidence(
+                                sessionRevision = 8,
+                                videoReadiness = PlaybackOutputReadiness.Waiting,
+                                dolbyVisionRpuRendered = true,
+                                dolbyVisionFelComposed = true,
+                            ),
+                    ),
             )
-        }
-        try {
-            val state =
-                PlaybackState(
-                    diagnostics =
-                        PlaybackDiagnostics(
-                            engine = "libmpv",
-                            dynamicRange = "Dolby Vision Profile 7",
-                            videoReadiness = PlaybackOutputReadiness.Rendering,
-                        ),
-                )
-
-            assertEquals("P7 FEL 已合成", state.dolbyVisionReadoutLabel())
-        } finally {
-            MpvDolbyRuntimeEvidenceRegistry.clearProvider()
-        }
+        assertEquals(null, state.dolbyVisionReadoutLabel())
     }
 
     @Test
-    fun mpvEvidenceIsIgnoredBeforeVideoOutputRenders() {
-        MpvDolbyRuntimeEvidenceRegistry.installProvider {
-            MpvDolbyRuntimeEvidence(
-                generation = 8L,
-                rpuRendered = true,
-                felComposed = true,
+    fun a_source_badge_without_rendered_output_facts_is_not_dolby_proof() {
+        val state =
+            PlaybackState(
+                diagnostics =
+                    PlaybackDiagnostics(
+                        engine = "YCore",
+                        dynamicRange = "Dolby Vision Profile 7",
+                        videoReadiness = PlaybackOutputReadiness.Rendering,
+                    ),
             )
-        }
-        try {
-            val state =
-                PlaybackState(
-                    diagnostics =
-                        PlaybackDiagnostics(
-                            engine = "libmpv",
-                            dynamicRange = "Dolby Vision Profile 7",
-                            videoReadiness = PlaybackOutputReadiness.Waiting,
-                        ),
-                )
-
-            assertEquals(null, state.dolbyVisionReadoutLabel())
-        } finally {
-            MpvDolbyRuntimeEvidenceRegistry.clearProvider()
-        }
+        assertEquals(null, state.dolbyVisionReadoutLabel())
     }
 
     @Test
@@ -153,7 +136,7 @@ class PlayerControlFormattingDolbyTest {
                 diagnostics =
                     PlaybackDiagnostics(
                         playMethod = PlaybackMethod.Transcode.label,
-                        engine = "libmpv",
+                        engine = "YCore",
                     ),
             )
         val readout = state.readoutLine(sourceLabel = null, containerLabel = null)

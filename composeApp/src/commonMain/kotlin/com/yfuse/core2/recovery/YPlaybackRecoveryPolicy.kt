@@ -85,7 +85,7 @@ object YPlaybackRecoveryPolicy {
             YPlaybackRoute.NativeEnhanced,
             YPlaybackRoute.GpuEnhanced,
             -> afterEnhanced
-            YPlaybackRoute.Legacy,
+            YPlaybackRoute.Unknown,
             YPlaybackRoute.NativeTunnel,
             YPlaybackRoute.SoftwareFallback,
             -> YPlaybackRecoveryAction.Stop

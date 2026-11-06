@@ -1,5 +1,8 @@
 package com.yfuse.feature.player
 
+import com.yfuse.core.model.PlaybackMethod
+import com.yfuse.core.playback.PlaybackDrmConfiguration
+import com.yfuse.core.playback.PlaybackDrmScheme
 import com.yfuse.core.playback.PlaybackFailureKind
 import com.yfuse.core2.api.YBufferRangeCoverage
 import com.yfuse.core2.api.YBufferRangeSource
@@ -7,11 +10,66 @@ import com.yfuse.core2.api.YBufferSnapshot
 import com.yfuse.core2.api.YBufferedRange
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class SenPlayerStatePolicyTest {
+    @Test
+    fun approved_server_output_is_opened_and_reported_then_cleared_for_the_next_direct_item() {
+        val direct = PlayerMediaItem("movie", "http://media/original.mkv", "http://media/stream.m3u8", "Movie")
+        assertEquals(direct.url, direct.senPlayerPlaybackUrl())
+        val transcode =
+            direct
+                .copy(
+                    serverTranscodeSupported = true,
+                ).withForcedServerTranscode(VIEWER_TRANSCODE_REASON, byViewer = true)
+        val loading = populatedState().forSenPlayerLoad("s", 4, transcode)
+        assertEquals(transcode.transcodeUrl, transcode.senPlayerPlaybackUrl())
+        assertTrue(loading.transcoding)
+        assertEquals(PlaybackMethod.Transcode.label, loading.diagnostics.playMethod)
+        assertTrue(loading.diagnostics.viewerRequestedTranscode)
+        assertEquals(VIEWER_TRANSCODE_REASON, loading.diagnostics.fallbackReason)
+        assertEquals(0, loading.diagnostics.videoWidth)
+        val next = loading.forSenPlayerLoad("s", 5, direct)
+        assertFalse(next.transcoding)
+        assertFalse(next.diagnostics.viewerRequestedTranscode)
+        assertEquals(PlaybackMethod.DirectPlay.label, next.diagnostics.playMethod)
+        assertNull(next.diagnostics.fallbackReason)
+    }
+
+    @Test
+    fun dolby_keeps_its_original_stream_until_the_viewer_requests_approved_transcode() {
+        val version = PlayerMediaVersion("v", "Dolby", "", "original", "hls", "hls", dolbyVision = true)
+        val item =
+            PlayerMediaItem(
+                "movie",
+                "original",
+                "hls",
+                "Movie",
+                versions = listOf(version),
+                versionId = "v",
+                playMethod = PlaybackMethod.Transcode,
+            )
+        assertEquals("original", item.senPlayerPlaybackUrl())
+        assertFalse(PlaybackState().forSenPlayerLoad("s", 1, item).transcoding)
+        val manual = item.withForcedServerTranscode(VIEWER_TRANSCODE_REASON, byViewer = true)
+        assertEquals("hls", manual.senPlayerPlaybackUrl())
+        assertTrue(PlaybackState().forSenPlayerLoad("s", 2, manual).transcoding)
+    }
+
+    @Test
+    fun unsupported_drm_is_rejected_from_either_the_item_or_its_active_version() {
+        val drm = PlaybackDrmConfiguration(scheme = PlaybackDrmScheme.Widevine)
+        val item = PlayerMediaItem("movie", "original", "hls", "Movie")
+        assertFailsWith<IllegalArgumentException> { item.copy(drmConfiguration = drm).senPlayerPlaybackUrl() }
+        val version = PlayerMediaVersion("v", "DRM", "", "original", "hls", "hls", drmConfiguration = drm)
+        assertFailsWith<IllegalArgumentException> {
+            item.copy(versions = listOf(version), versionId = "v").senPlayerPlaybackUrl()
+        }
+    }
+
     @Test
     fun embedded_mediacodec_draws_confirm_output_without_optional_decode_frame_counters() {
         val gate = SenPlayerVideoReadinessGate()

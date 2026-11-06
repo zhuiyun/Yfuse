@@ -30,6 +30,7 @@ internal fun AndroidYCoreHttpProxy.enhancedSource(
         localUrl(
             upstreamUri = upstream.uri,
             upstreamHeaders = upstream.headers,
+            originBoundHeaderNames = upstream.originBoundHeaderNames,
             credentials = upstream.transportCredentials,
             cacheable = upstream.cacheIdentity != null && upstream.cacheMaximumBytes > 0L,
             cacheIdentity = upstream.cacheIdentity,

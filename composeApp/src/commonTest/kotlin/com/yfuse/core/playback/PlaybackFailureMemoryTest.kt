@@ -22,7 +22,7 @@ class PlaybackFailureMemoryTest {
     fun network_failures_never_blacklist_a_player_engine() {
         val memory = PlaybackFailureMemory(failureThreshold = 1)
 
-        memory.record("MKV|H264", PlayerEngine.Exo, PlaybackFailureKind.Network)
+        memory.record("MKV|H264", PlayerEngine.YCore, PlaybackFailureKind.Network)
 
         assertTrue(memory.excludedEngines("MKV|H264").isEmpty())
         assertFalse(PlaybackFailureKind.Network.allowsBackendFallback)
@@ -39,7 +39,7 @@ class PlaybackFailureMemoryTest {
                 failureThreshold = 1,
                 onChanged = persisted::add,
             )
-        memory.record("MKV|HEVC", PlayerEngine.Exo, PlaybackFailureKind.Decoder)
+        memory.record("MKV|HEVC", PlayerEngine.YCore, PlaybackFailureKind.Decoder)
 
         memory.clear()
 
@@ -52,19 +52,19 @@ class PlaybackFailureMemoryTest {
         val memory = PlaybackFailureMemory(failureThreshold = 2)
 
         repeat(2) {
-            memory.record("MKV|HEVC|2160", PlayerEngine.Exo, PlaybackFailureKind.Decoder)
+            memory.record("MKV|HEVC|2160", PlayerEngine.YCore, PlaybackFailureKind.Decoder)
         }
 
-        assertTrue(PlayerEngine.Exo in memory.excludedEngines("MKV|HEVC|2160"))
-        assertFalse(PlayerEngine.Exo in memory.excludedEngines("MP4|H264|1080"))
+        assertTrue(PlayerEngine.YCore in memory.excludedEngines("MKV|HEVC|2160"))
+        assertFalse(PlayerEngine.YCore in memory.excludedEngines("MP4|H264|1080"))
     }
 
     @Test
     fun confirmed_playback_clears_a_transient_device_quirk() {
         val memory = PlaybackFailureMemory(failureThreshold = 1)
-        memory.record("MKV|HEVC", PlayerEngine.Mdk, PlaybackFailureKind.Renderer)
+        memory.record("MKV|HEVC", PlayerEngine.YCore, PlaybackFailureKind.Renderer)
 
-        memory.recordSuccess("MKV|HEVC", PlayerEngine.Mdk)
+        memory.recordSuccess("MKV|HEVC", PlayerEngine.YCore)
 
         assertTrue(memory.excludedEngines("MKV|HEVC").isEmpty())
     }
@@ -72,13 +72,13 @@ class PlaybackFailureMemoryTest {
     @Test
     fun memory_evicts_old_signatures_instead_of_growing_without_bound() {
         val memory = PlaybackFailureMemory(failureThreshold = 1, maxSignatures = 2)
-        memory.record("first", PlayerEngine.Exo, PlaybackFailureKind.Decoder)
-        memory.record("second", PlayerEngine.Exo, PlaybackFailureKind.Decoder)
-        memory.record("third", PlayerEngine.Exo, PlaybackFailureKind.Decoder)
+        memory.record("first", PlayerEngine.YCore, PlaybackFailureKind.Decoder)
+        memory.record("second", PlayerEngine.YCore, PlaybackFailureKind.Decoder)
+        memory.record("third", PlayerEngine.YCore, PlaybackFailureKind.Decoder)
 
-        assertEquals(0, memory.failureCount("first", PlayerEngine.Exo))
-        assertEquals(1, memory.failureCount("second", PlayerEngine.Exo))
-        assertEquals(1, memory.failureCount("third", PlayerEngine.Exo))
+        assertEquals(0, memory.failureCount("first", PlayerEngine.YCore))
+        assertEquals(1, memory.failureCount("second", PlayerEngine.YCore))
+        assertEquals(1, memory.failureCount("third", PlayerEngine.YCore))
     }
 
     @Test
@@ -93,7 +93,7 @@ class PlaybackFailureMemoryTest {
                 onChanged = { persisted = it },
             )
         repeat(2) {
-            first.record("MKV|HEVC|2160", PlayerEngine.Exo, PlaybackFailureKind.Decoder)
+            first.record("MKV|HEVC|2160", PlayerEngine.YCore, PlaybackFailureKind.Decoder)
         }
 
         val restored =
@@ -105,7 +105,7 @@ class PlaybackFailureMemoryTest {
                 onChanged = { persisted = it },
             )
 
-        assertTrue(PlayerEngine.Exo in restored.excludedEngines("MKV|HEVC|2160"))
+        assertTrue(PlayerEngine.YCore in restored.excludedEngines("MKV|HEVC|2160"))
         now += 1_001L
         assertTrue(restored.excludedEngines("MKV|HEVC|2160").isEmpty())
         assertTrue(persisted.isEmpty())

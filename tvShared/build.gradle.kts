@@ -40,8 +40,6 @@ kotlin {
                 implementation(project(":senplayerBridge"))
                 implementation(libs.widget.quickjs)
                 implementation(libs.widget.jsoup)
-                compileOnly(project(":mdkAndroid"))
-                compileOnly(files("../composeApp/libs/libmpv-release.aar"))
                 compileOnly(libs.bundles.shared.android)
                 compileOnly(libs.androidx.window)
                 compileOnly(libs.androidx.lifecycle.process)
@@ -70,8 +68,6 @@ kotlin {
                 implementation(libs.androidx.lifecycle.process)
                 implementation(libs.google.cast.base)
                 implementation(libs.androidx.tvprovider)
-                implementation(project(":mdkAndroid"))
-                implementation(files("../composeApp/libs/libmpv-release.aar"))
 
                 implementation(kotlin("test"))
                 implementation(libs.coroutines.test)

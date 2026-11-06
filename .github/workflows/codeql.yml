@@ -35,7 +35,8 @@ jobs:
 
       - name: Prepare Android and player dependencies
         env:
-          GH_TOKEN: ${{ github.token }}
+          YCORE_NATIVE_AAR_URL: ${{ secrets.YCORE_NATIVE_AAR_URL }}
+          SENPLAYER_SOURCE_APK_URL: ${{ secrets.SENPLAYER_SOURCE_APK_URL }}
         shell: bash
         run: |
           set -euo pipefail
@@ -45,14 +46,10 @@ jobs:
           test -x "$manager"
           yes | "$manager" --licenses >/dev/null 2>&1 || true
           "$manager" 'platforms;android-37.0' 'ndk;29.0.14206865' 'cmake;3.22.1'
-          if ! command -v 7z >/dev/null 2>&1; then sudo apt-get update && sudo apt-get install -y p7zip-full; fi
           chmod +x gradlew scripts/fetch-engines.sh
           scripts/fetch-engines.sh
 
       # Bootstrap before extraction so the third-party carrier is not the Kotlin coverage.
-      - name: Build and install current YCore runtime
-        uses: ./.github/actions/build-current-ycore
-
       - name: Initialize CodeQL
         uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:

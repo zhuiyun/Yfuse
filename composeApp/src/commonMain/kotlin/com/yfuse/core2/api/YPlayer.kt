@@ -406,8 +406,8 @@ enum class YPlaybackFailureCategory {
 }
 
 enum class YPlaybackRoute {
-    /** Existing Exo/mpv/MDK implementation wrapped behind the new product API. */
-    Legacy,
+    /** No YCore execution route has been confirmed, including an independently selected SenPlayer. */
+    Unknown,
 
     /** Platform demux + hardware codec + tunneled/sideband presentation. */
     NativeTunnel,
@@ -469,7 +469,7 @@ data class YFrameRateSample(
 )
 
 data class YPlayerDiagnostics(
-    val route: YPlaybackRoute = YPlaybackRoute.Legacy,
+    val route: YPlaybackRoute = YPlaybackRoute.Unknown,
     val container: String = "",
     val demuxer: String = "",
     val decoder: String = "",

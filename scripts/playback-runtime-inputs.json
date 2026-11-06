@@ -1,0 +1,10 @@
+{
+  "profile": "ycore-senplayer",
+  "ycore": {
+    "sha256": "10873c704ecd5f9d7ddd555492e2e78661cc4548d59bc8dac374984249a41575",
+    "provenanceSha256": "fac404d0e6bd8a1149694636d85028ce6abf6d6066cc4143ba5a72312a771745",
+    "bytes": 10490195
+  },
+  "senPlayerSourceApkSha256": "45a9deb5018cb705432604b564189cf067473e0f52706544706457655ec5fe4c",
+  "provenance": "Existing audited standalone carrier, recovered from a signed APK and matching CI identities; no download URL has been independently established. Embedded provenance is preserved verbatim. Native JNI sources are not rebuilt by standard application CI."
+}

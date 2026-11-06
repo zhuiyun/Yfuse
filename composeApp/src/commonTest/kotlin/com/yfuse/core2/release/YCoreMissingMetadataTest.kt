@@ -18,7 +18,7 @@ class YCoreMissingMetadataTest {
         )
         assertEquals(
             Core2NativeBaselineBlock.UnsupportedScheme,
-            evaluateCore2NativeBaseline(source().copy(scheme = "ftp")),
+            evaluateCore2NativeBaseline(source().copy(scheme = "unimplemented")),
         )
     }
 

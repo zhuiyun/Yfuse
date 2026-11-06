@@ -288,10 +288,8 @@ internal object AndroidNativeCrashMonitor {
 
     private fun componentFor(engine: PlayerEngine): NativePlaybackComponent =
         when (engine) {
-            PlayerEngine.Mpv -> NativePlaybackComponent.Mpv
-            PlayerEngine.Mdk -> NativePlaybackComponent.Mdk
             PlayerEngine.SenPlayer -> NativePlaybackComponent.SenPlayer
-            PlayerEngine.Exo -> NativePlaybackComponent.Unknown
+            PlayerEngine.YCore -> NativePlaybackComponent.YCoreDemux
         }
 
     private fun traceState(

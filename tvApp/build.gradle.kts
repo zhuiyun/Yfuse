@@ -1,11 +1,9 @@
 import org.gradle.api.GradleException
 import org.gradle.api.provider.ProviderFactory
 import java.security.KeyFactory
-import java.security.MessageDigest
 import java.security.spec.X509EncodedKeySpec
 import java.util.Base64
 import java.util.Properties
-import java.util.zip.ZipFile
 
 plugins {
     alias(libs.plugins.android.application)
@@ -130,14 +128,9 @@ val allowDebugSigning = providers.strictBooleanProperty("allowDebugSigning")
 // Passed by the quality gate's lint step; see the lint block below.
 val lintSharedCode = providers.strictBooleanProperty("yfuseLintSharedCode")
 
-// Default TV is the actual YCore system-native path: MediaExtractor + MediaCodec + AudioTrack.
-// It contains no .so and therefore installs on arm64, armeabi-v7a and x86_64 UI-test devices.
-// The optional full-native carrier is fail-closed and must contain both production TV ABIs.
-val fullNativeRuntime = providers.strictBooleanProperty("yfuseTvFullNativeRuntime")
-val mpvCompileApi = rootProject.layout.projectDirectory.file("composeApp/libs/libmpv-release.aar")
+// Both Android applications ship the same pinned arm64 YCore + SenPlayer runtime.
+val fullNativeRuntime = true
 val ycoreAar = rootProject.layout.projectDirectory.file("composeApp/libs/ycore-native.aar")
-val ycoreChecksum = rootProject.layout.projectDirectory.file("composeApp/libs/ycore-native.aar.sha256")
-val ycoreSources = rootProject.layout.projectDirectory.file("composeApp/libs/ycore-native.sources.txt")
 
 android {
     // The application shell owns variant-specific BuildConfig values.
@@ -166,12 +159,12 @@ android {
         buildConfigField(
             "String",
             "YFUSE_PACKAGE_PROFILE",
-            "\"${if (fullNativeRuntime) "tv-ycore-full-native" else "tv-ycore-system-native"}\"",
+            "\"ycore-senplayer\"",
         )
 
         if (fullNativeRuntime) {
             ndk {
-                abiFilters += setOf("arm64-v8a", "armeabi-v7a")
+                abiFilters += setOf("arm64-v8a")
             }
         }
     }
@@ -270,68 +263,10 @@ android {
     }
 }
 
-val verifyTvCompileApi by tasks.registering {
+val verifyTvPlaybackRuntime by tasks.registering {
     group = "verification"
-    description = "Requires the pinned compatibility API used to compile isolated legacy adapters."
-    doLast {
-        require(mpvCompileApi.asFile.isFile) {
-            "Missing MPV compile API; run scripts/fetch-engines.sh. It remains compile-only in TV."
-        }
-    }
-}
-
-val verifyTvFullNativeRuntime by tasks.registering {
-    group = "verification"
-    description = "Verifies the optional full-native TV carrier and both production TV ABIs."
-    inputs.files(ycoreAar, ycoreChecksum, ycoreSources)
-    onlyIf { fullNativeRuntime }
-
-    doLast {
-        val aarFile = ycoreAar.asFile
-        val checksumFile = ycoreChecksum.asFile
-        val sourcesFile = ycoreSources.asFile
-        require(aarFile.isFile && checksumFile.isFile && sourcesFile.isFile) {
-            "Missing verified full-native YCore TV runtime"
-        }
-        val expected =
-            checksumFile
-                .readText()
-                .trim()
-                .substringBefore(' ')
-                .lowercase()
-        require(expected.matches(Regex("[0-9a-f]{64}"))) { "Invalid YCore SHA-256 sidecar" }
-        val digest = MessageDigest.getInstance("SHA-256")
-        aarFile.inputStream().use { input ->
-            val buffer = ByteArray(128 * 1024)
-            while (true) {
-                val count = input.read(buffer)
-                if (count < 0) break
-                digest.update(buffer, 0, count)
-            }
-        }
-        val actual = digest.digest().joinToString("") { "%02x".format(it) }
-        require(actual == expected) { "YCore TV runtime SHA-256 mismatch" }
-        ZipFile(aarFile).use { archive ->
-            setOf("arm64-v8a", "armeabi-v7a").forEach { abi ->
-                require(archive.getEntry("jni/$abi/libycore_demux.so") != null) {
-                    "YCore TV runtime is missing $abi/libycore_demux.so"
-                }
-                require(archive.getEntry("jni/$abi/libycore_gpu.so") != null) {
-                    "YCore TV runtime is missing $abi/libycore_gpu.so"
-                }
-            }
-            val nativeNames =
-                archive
-                    .entries()
-                    .asSequence()
-                    .map { it.name.substringAfterLast('/') }
-                    .filter { it.endsWith(".so") }
-                    .toSet()
-            require(nativeNames.intersect(setOf("libmpv.so", "libplayer.so", "libmdk.so")).isEmpty()) {
-                "YCore TV runtime contains a forbidden compatibility player"
-            }
-        }
-    }
+    description = "Verifies the same standalone YCore and pinned SenPlayer inputs as the phone application."
+    dependsOn(":composeApp:verifyStandaloneYCoreArtifact", ":composeApp:verifySenPlayerArtifact")
 }
 
 val verifyTvReleaseProfile by tasks.registering {
@@ -362,15 +297,13 @@ val verifyTvReleaseProfile by tasks.registering {
 
 tasks.configureEach {
     if (name == "preBuild") {
-        dependsOn(verifyTvCompileApi)
-        dependsOn(verifyTvFullNativeRuntime)
+        dependsOn(verifyTvPlaybackRuntime)
     }
     val releasePackagingTask =
         name.contains("Release", ignoreCase = true) &&
             listOf("assemble", "bundle", "package").any { name.startsWith(it, ignoreCase = true) }
     if (releasePackagingTask) {
-        dependsOn(verifyTvCompileApi)
-        dependsOn(verifyTvFullNativeRuntime)
+        dependsOn(verifyTvPlaybackRuntime)
         dependsOn(verifyTvReleaseProfile)
     }
 }
@@ -387,11 +320,10 @@ dependencies {
     implementation(libs.play.services.cronet)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.process)
-    implementation(libs.media3.exoplayer)
+    implementation(libs.media3.common)
+    implementation(libs.media3.database)
+    implementation(libs.media3.datasource)
     implementation(libs.media3.datasource.okhttp)
-    implementation(libs.media3.ui)
-    implementation(libs.media3.hls)
-    implementation(libs.media3.dash)
     implementation(libs.androidx.palette)
     implementation(libs.androidx.work.runtime)
     implementation(libs.google.cast.framework)
@@ -407,17 +339,13 @@ dependencies {
     implementation(libs.androidx.tvprovider)
 
     // Phone-only implementation source is compiled for a single source of truth but
-    // never exposed by the TV manifest. compileOnly prevents camera/QR/MDK runtimes
+    // never exposed by the TV manifest. compileOnly prevents camera/QR runtimes
     // entering the TV artifact.
-    compileOnly(project(":mdkAndroid"))
     compileOnly(libs.androidx.camera.core)
     compileOnly(libs.androidx.camera.camera2)
     compileOnly(libs.androidx.camera.lifecycle)
     compileOnly(libs.androidx.camera.view)
     compileOnly(libs.zxing.core)
-    compileOnly(files(mpvCompileApi))
 
-    if (fullNativeRuntime) {
-        implementation(files(ycoreAar))
-    }
+    implementation(files(ycoreAar))
 }

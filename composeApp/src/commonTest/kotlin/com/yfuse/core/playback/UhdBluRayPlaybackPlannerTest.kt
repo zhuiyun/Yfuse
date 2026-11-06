@@ -15,15 +15,15 @@ class UhdBluRayPlaybackPlannerTest {
             planPlayback(
                 probe = probe,
                 capabilities = hdr10Capabilities(),
-                preferredEngine = PlayerEngine.Exo,
+                preferredEngine = PlayerEngine.YCore,
                 preferredDecoderMode = DecoderMode.Hardware,
                 videoSupport = PlaybackVideoSupport.supported("HEVC Main10 3840x2160@23.976"),
             )
 
         assertFalse(probe.requiresNativeDemuxer)
         assertFalse(plan.requiresServerTranscode)
-        assertEquals(PlayerEngine.Exo, plan.primaryEngine)
-        assertEquals(PlaybackRenderPath.PlatformDirect, plan.renderPath)
+        assertEquals(PlayerEngine.YCore, plan.primaryEngine)
+        assertEquals(PlaybackRenderPath.NativeDirect, plan.renderPath)
         assertTrue(plan.reason.orEmpty().contains("保留原始音视频流"))
     }
 
@@ -34,18 +34,18 @@ class UhdBluRayPlaybackPlannerTest {
             planPlayback(
                 probe = probe,
                 capabilities = hdr10Capabilities(),
-                preferredEngine = PlayerEngine.Exo,
+                preferredEngine = PlayerEngine.YCore,
                 preferredDecoderMode = DecoderMode.Hardware,
                 videoSupport = PlaybackVideoSupport.supported("HEVC Main10 3840x2160@23.976"),
             )
 
         assertFalse(plan.requiresServerTranscode)
-        assertEquals(PlayerEngine.Mpv, plan.primaryEngine)
+        assertEquals(PlayerEngine.YCore, plan.primaryEngine)
         assertEquals(PlaybackRenderPath.NativeDirect, plan.renderPath)
     }
 
     @Test
-    fun dolby_vision_only_resolved_main_feature_uses_verified_platform_dolby_path() {
+    fun dolby_vision_only_resolved_main_feature_keeps_runtime_verification() {
         val probe =
             resolvedBluRayProbe().copy(
                 source =
@@ -64,15 +64,15 @@ class UhdBluRayPlaybackPlannerTest {
             planPlayback(
                 probe = probe,
                 capabilities = dolbyCapabilities(),
-                preferredEngine = PlayerEngine.Mpv,
+                preferredEngine = PlayerEngine.YCore,
                 preferredDecoderMode = DecoderMode.Auto,
                 videoSupport = PlaybackVideoSupport.supported("Dolby Vision decoder"),
             )
 
         assertFalse(plan.requiresServerTranscode)
-        assertEquals(PlayerEngine.Exo, plan.primaryEngine)
+        assertEquals(PlayerEngine.YCore, plan.primaryEngine)
         assertEquals(DecoderMode.Hardware, plan.decoderMode)
-        assertEquals(PlaybackRenderPath.PlatformDirect, plan.renderPath)
+        assertEquals(PlaybackRenderPath.NativeDirect, plan.renderPath)
     }
 
     @Test
@@ -87,7 +87,7 @@ class UhdBluRayPlaybackPlannerTest {
             planPlayback(
                 probe = probe,
                 capabilities = hdr10Capabilities(),
-                preferredEngine = PlayerEngine.Exo,
+                preferredEngine = PlayerEngine.YCore,
                 preferredDecoderMode = DecoderMode.Hardware,
                 videoSupport = PlaybackVideoSupport.supported("HEVC Main10"),
             )

@@ -36,7 +36,6 @@ internal class AndroidYCoreDiscRouteFactory(
     context: Context,
     private val allowAudioPassthrough: Boolean,
     private val frameRateSwitchMode: YFrameRateSwitchMode,
-    private val fallback: AndroidCore2DiscRouteFactory? = null,
 ) : AndroidCore2DiscRouteFactory {
     private val appContext = context.applicationContext
 
@@ -47,13 +46,8 @@ internal class AndroidYCoreDiscRouteFactory(
         forceSoftwareDecode: Boolean,
     ): YPlayer? {
         if (forceSoftwareDecode && item.drmConfiguration != null) return null
-        val yCore =
-            if (FfmpegNativeBridge.discNavigationAvailable) {
-                createYCore(item, request, startSpeed, forceSoftwareDecode)
-            } else {
-                null
-            }
-        return yCore ?: fallback?.create(item, request, startSpeed, forceSoftwareDecode)
+        if (!FfmpegNativeBridge.discNavigationAvailable) return null
+        return createYCore(item, request, startSpeed, forceSoftwareDecode)
     }
 
     private fun createYCore(

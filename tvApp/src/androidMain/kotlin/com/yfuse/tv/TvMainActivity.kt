@@ -178,7 +178,7 @@ class TvMainActivity : ComponentActivity() {
                             items = listOf(media),
                             startIndex = 0,
                             startPositionMs = action.positionMs,
-                            engine = PlayerEngine.Exo,
+                            engine = PlayerEngine.YCore,
                             decoder = DecoderMode.Hardware,
                             autoNext = false,
                             startPlaybackRequested = action.autoplay,

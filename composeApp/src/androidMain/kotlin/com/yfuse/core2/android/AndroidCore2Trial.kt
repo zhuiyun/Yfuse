@@ -16,7 +16,6 @@ import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.api.YMediaSourceHints
 import com.yfuse.core2.api.YPlayerOpenRequest
 import com.yfuse.core2.api.yMediaSourceKey
-import com.yfuse.core2.legacy.AndroidMpvCore2FallbackFactory
 import com.yfuse.core2.legacy.YPlayerVideoEngineAdapter
 import com.yfuse.core2.network.YCacheIdentity
 import com.yfuse.core2.release.Core2NativeBaselineBlock
@@ -29,6 +28,7 @@ import com.yfuse.core2.subtitle.YSubtitleFormat
 import com.yfuse.feature.filesource.isFileSourcePlayback
 import com.yfuse.feature.player.PlayerMediaItem
 import com.yfuse.feature.player.VideoEngine
+import com.yfuse.feature.player.allowsServerTranscodeFallback
 import com.yfuse.feature.player.externalSubtitleFormatHint
 import com.yfuse.feature.player.persistentPlaybackCacheUrl
 import com.yfuse.feature.player.playbackExternalSubtitles
@@ -36,10 +36,8 @@ import com.yfuse.feature.player.startsWithServerTranscode
 import kotlinx.coroutines.CancellationException
 
 /**
- * Separate construction boundary for the production Core2 route with a user-controlled rollback.
- *
- * The switch lives in PlaybackPreferences instead of the legacy PlayerEngine enum, so users can
- * explicitly return to the already-selected Legacy engine without changing its preference.
+ * Construction boundary for YCore's independently executable Android playback routes.
+ * Every child owns its platform or YCore native decode path; there is no external engine fallback.
  */
 internal object AndroidCore2TrialFactory {
     fun create(
@@ -59,13 +57,12 @@ internal object AndroidCore2TrialFactory {
         frameRateMatch: PlaybackFrameRateMatch,
         videoCacheBytes: Long = 0L,
         yCoreBufferTargetUs: Long? = null,
-        nativeOnly: Boolean = false,
         allowNativeGpu: Boolean = true,
         initialTrackSelections: Map<String, com.yfuse.core2.api.YInitialTrackSelection> = emptyMap(),
     ): VideoEngine? {
         if (!items.canUseCore2Trial(startIndex)) return null
         val yCoreProxy =
-            if (nativeOnly && items.any { item -> item.requiresYCoreAdaptiveProxy() }) {
+            if (items.any { item -> item.requiresYCoreAdaptiveProxy() }) {
                 runCatching {
                     AndroidYCoreHttpProxy(
                         context = context.applicationContext,
@@ -89,11 +86,13 @@ internal object AndroidCore2TrialFactory {
                             // cache. A loopback proxy in front would nest a second cache, repeat the
                             // upstream size probe for every block, and hand the queue an address no
                             // later queue update matches. Only authored adaptive manifests, which
-                            // need URI rewriting, use the native-only manifest proxy.
-                            if (nativeOnly && item.requiresYCoreAdaptiveProxy(upstreamUrl)) {
+                            // need URI rewriting, use YCore's manifest proxy.
+                            if (item.requiresYCoreAdaptiveProxy(upstreamUrl)) {
+                                val usingServerTranscode = item.usesApprovedCore2ServerTranscode()
+                                val sourceVersion = item.activeVersion.takeUnless { usingServerTranscode }
                                 val cacheable =
-                                    item.persistentPlaybackCacheUrl(item.startsWithServerTranscode()) ==
-                                        upstreamUrl.trim()
+                                    !usingServerTranscode &&
+                                        item.persistentPlaybackCacheUrl(false) == upstreamUrl.trim()
                                 requireNotNull(yCoreProxy).localUrl(
                                     upstreamUri = upstreamUrl,
                                     upstreamHeaders =
@@ -103,23 +102,19 @@ internal object AndroidCore2TrialFactory {
                                             ?.let { mapOf(USER_AGENT_HEADER to it) }
                                             .orEmpty() +
                                             embyPlaybackHeaders(upstreamUrl) { AppBuildConfig.VERSION_NAME } +
-                                            item.customHeaders?.values.orEmpty(),
-                                    credentials = item.transportCredentials,
-                                    originBoundHeaderNames =
-                                        item.customHeaders
-                                            ?.values
-                                            ?.keys
-                                            .orEmpty(),
+                                            item.core2CustomHeaders(upstreamUrl),
+                                    credentials = item.transportCredentials.takeUnless { usingServerTranscode },
+                                    originBoundHeaderNames = item.core2CustomHeaders(upstreamUrl).keys,
                                     cacheable = cacheable,
-                                    cacheIdentity = item.yCoreCacheIdentity(),
-                                    maximumWidth = item.activeVersion?.sourceWidth,
-                                    maximumHeight = item.activeVersion?.sourceHeight,
+                                    cacheIdentity = item.yCoreCacheIdentity().takeUnless { usingServerTranscode },
+                                    maximumWidth = sourceVersion?.sourceWidth,
+                                    maximumHeight = sourceVersion?.sourceHeight,
                                     hlsManifest =
                                         upstreamUrl.isHlsManifest() ||
-                                            item.activeVersion?.container.isHlsContainer(),
+                                            sourceVersion?.container.isHlsContainer(),
                                     dashManifest =
                                         upstreamUrl.isDashManifest() ||
-                                            item.activeVersion?.container.isDashContainer(),
+                                            sourceVersion?.container.isDashContainer(),
                                     drmProtected =
                                         item.drmConfiguration != null ||
                                             item.activeVersion?.drmConfiguration != null,
@@ -138,16 +133,6 @@ internal object AndroidCore2TrialFactory {
                 autoPlay = startPlaybackRequested,
                 autoNext = autoNext,
             )
-        val compatibilityFactory =
-            if (nativeOnly) {
-                null
-            } else {
-                AndroidMpvCore2FallbackFactory(
-                    context = context,
-                    sourceItems = items.associateBy(PlayerMediaItem::id),
-                    optimizationMode = optimizationMode,
-                )
-            }
         val frameRateSwitchMode = frameRateMatch.toCore2Mode()
         val nativeGpuRuntimeProbe =
             if (allowNativeGpu) {
@@ -167,7 +152,6 @@ internal object AndroidCore2TrialFactory {
                 context = context,
                 allowAudioPassthrough = allowAudioPassthrough,
                 frameRateSwitchMode = frameRateSwitchMode,
-                fallback = compatibilityFactory,
             )
         return try {
             val player =
@@ -175,7 +159,6 @@ internal object AndroidCore2TrialFactory {
                     context = context.applicationContext,
                     request = request,
                     routeEvaluator = routeEvaluator,
-                    fallbackRouteFactory = compatibilityFactory,
                     discRouteFactory = discFactory,
                     allowAudioPassthrough = allowAudioPassthrough,
                     frameRateSwitchMode = frameRateSwitchMode,
@@ -196,18 +179,32 @@ internal object AndroidCore2TrialFactory {
     }
 }
 
-private fun PlayerMediaItem.requiresYCoreAdaptiveProxy(): Boolean =
-    requiresYCoreAdaptiveProxy(url) ||
-        transcodeUrl.isHlsManifest() ||
-        transcodeUrl.isDashManifest() ||
-        fallbackTranscodeUrl.isHlsManifest() ||
-        fallbackTranscodeUrl.isDashManifest()
+private fun PlayerMediaItem.requiresYCoreAdaptiveProxy(): Boolean = requiresYCoreAdaptiveProxy(core2UpstreamUri())
 
-internal fun PlayerMediaItem.requiresYCoreAdaptiveProxy(upstreamUrl: String): Boolean =
-    upstreamUrl.isHlsManifest() ||
-        activeVersion?.container.isHlsContainer() ||
+internal fun PlayerMediaItem.requiresYCoreAdaptiveProxy(upstreamUrl: String): Boolean {
+    val sourceVersion = activeVersion.takeUnless { usesApprovedCore2ServerTranscode() }
+    return upstreamUrl.isHlsManifest() ||
+        sourceVersion?.container.isHlsContainer() ||
         upstreamUrl.isDashManifest() ||
-        activeVersion?.container.isDashContainer()
+        sourceVersion?.container.isDashContainer()
+}
+
+private fun PlayerMediaItem.usesApprovedCore2ServerTranscode(): Boolean =
+    startsWithServerTranscode() && allowsServerTranscodeFallback(forcedTranscodeByViewer)
+
+private fun PlayerMediaItem.core2CustomHeaders(upstreamUri: String): Map<String, String> =
+    customHeaders
+        ?.values
+        .orEmpty()
+        .takeIf { mediaCredentialOriginsMatch(url, upstreamUri) }
+        .orEmpty()
+
+private fun PlayerMediaItem.core2UpstreamUri(): String =
+    when {
+        usesApprovedCore2ServerTranscode() -> transcodeUrl
+        activeVersion?.discSource == true -> rawDiscUri?.takeIf(String::isNotBlank) ?: url
+        else -> url
+    }
 
 private fun PlaybackFrameRateMatch.toCore2Mode(): YFrameRateSwitchMode =
     when (this) {
@@ -234,13 +231,13 @@ private fun PlaybackOptimizationMode.toCore2Preference(): YOptimizationPreferenc
 /**
  * Whether the item at [startIndex] can open in YCore. Only that item decides: one episode with a
  * Dolby Vision profile or DRM YCore cannot take used to keep the whole season off YCore, and in
- * the native-only build that left nothing to play at all. A later item YCore cannot take fails
- * when it is reached: the native-only build reports that episode, the full build hands the
- * session to its Legacy engine there.
+ * earlier builds that left nothing to play at all. A later item YCore cannot take fails
+ * when it is reached and reports that episode's unsupported capability explicitly.
  */
 internal fun List<PlayerMediaItem>.canUseCore2Trial(startIndex: Int): Boolean {
     val item = getOrNull(startIndex) ?: return false
-    val version = item.activeVersion
+    if (item.startsWithServerTranscode() && !item.usesApprovedCore2ServerTranscode()) return false
+    val version = item.activeVersion.takeUnless { item.usesApprovedCore2ServerTranscode() }
     // Unknown server metadata is not evidence that the stream is unsupported. Let it reach
     // YCore's local MediaExtractor/FFmpeg truth probe, then keep routing fail-closed if that
     // probe still cannot identify a supported Dolby Vision profile.
@@ -253,27 +250,30 @@ internal fun List<PlayerMediaItem>.canUseCore2Trial(startIndex: Int): Boolean {
     // unsupported track must not veto this video's route.
     return !knownUnsupportedDolbyProfile &&
         (drmConfiguration == null || item.supportsCore2Drm(drmConfiguration.scheme)) &&
-        item.url.substringBefore(':').lowercase() in CORE2_SOURCE_SCHEMES
+        item.core2UpstreamUri().substringBefore(':').lowercase() in CORE2_SOURCE_SCHEMES
 }
 
 internal fun List<PlayerMediaItem>.core2NativeBaselineBlockReason(startIndex: Int): String? {
     val item = getOrNull(startIndex) ?: return "YCore Native 缺少当前播放项"
-    val version = item.activeVersion
-    val hlsManifest = item.url.isHlsManifest() || version?.container.isHlsContainer()
-    val dashManifest = item.url.isDashManifest() || version?.container.isDashContainer()
-    val drmConfiguration = item.drmConfiguration ?: version?.drmConfiguration
+    val usingServerTranscode = item.usesApprovedCore2ServerTranscode()
+    val version = item.activeVersion.takeUnless { usingServerTranscode }
+    val upstreamUri = item.core2UpstreamUri()
+    val hlsManifest = upstreamUri.isHlsManifest() || version?.container.isHlsContainer()
+    val dashManifest = upstreamUri.isDashManifest() || version?.container.isDashContainer()
+    val drmConfiguration = item.drmConfiguration ?: item.activeVersion?.drmConfiguration
     val source =
         Core2NativeBaselineSource(
             hasMetadata = version != null,
-            scheme = item.url.substringBefore(':').lowercase(),
+            scheme = upstreamUri.substringBefore(':').lowercase(),
             container = version?.container,
             videoCodec = version?.sourceVideoCodec,
             serverTranscode = item.startsWithServerTranscode(),
-            adaptiveManifest = item.url.isAdaptiveManifest() || version?.container.isAdaptiveContainer(),
+            serverTranscodeAuthorized = usingServerTranscode,
+            adaptiveManifest = upstreamUri.isAdaptiveManifest() || version?.container.isAdaptiveContainer(),
             adaptiveManifestSupported = hlsManifest || dashManifest,
             disc = version?.discSource == true,
             discSupported = item.supportsYCoreNativeBluRay(version),
-            drm = item.drmConfiguration != null || version?.drmConfiguration != null,
+            drm = drmConfiguration != null,
             drmSupported = drmConfiguration?.let { item.supportsCore2Drm(it.scheme) } == true,
             dolbyVision = version?.dolbyVision == true,
             dolbyVisionSupported =
@@ -282,7 +282,7 @@ internal fun List<PlayerMediaItem>.core2NativeBaselineBlockReason(startIndex: In
                     version?.dolbyProfile in CORE2_DOLBY_TRIAL_PROFILES,
             // PlaybackInfo may fail while the authenticated media URL still works. Missing
             // server metadata must reach the same bounded local truth probes as a file source.
-            probedBeforeRouting = item.isFileSourcePlayback || version == null,
+            probedBeforeRouting = usingServerTranscode || item.isFileSourcePlayback || version == null,
         )
     return evaluateCore2NativeBaseline(source)?.userMessage()
 }
@@ -291,7 +291,7 @@ private fun Core2NativeBaselineBlock.userMessage(): String =
     when (this) {
         Core2NativeBaselineBlock.MissingMetadata -> "YCore Native 缺少片源格式元数据"
         Core2NativeBaselineBlock.UnsupportedScheme -> "YCore Native 暂不支持当前来源协议"
-        Core2NativeBaselineBlock.ServerTranscode -> "YCore Native 基线仅验证直连片源"
+        Core2NativeBaselineBlock.ServerTranscode -> "当前片源未允许所选服务器转码输出"
         Core2NativeBaselineBlock.AdaptiveManifest -> "YCore Native 不支持当前 HLS / DASH 清单结构"
         Core2NativeBaselineBlock.UnsupportedContainer -> "YCore Native 不支持当前封装格式"
         Core2NativeBaselineBlock.UnsupportedVideoCodec ->
@@ -335,7 +335,7 @@ internal fun supportsYCoreNativeDiscSource(
     when (kind) {
         PlaybackDiscKind.BluRay,
         PlaybackDiscKind.Iso,
-        -> scheme in setOf("file", "content", "http", "https", "webdav", "webdavs", "smb")
+        -> scheme in setOf("file", "content", "http", "https", "webdav", "webdavs", "smb", "ftp", "yfuse-cloud")
         PlaybackDiscKind.Bdmv -> scheme in setOf("file", "content")
         PlaybackDiscKind.Dvd,
         PlaybackDiscKind.None,
@@ -393,18 +393,12 @@ private fun PlayerMediaItem.toCore2MediaItem(
     localize: (PlayerMediaItem, String) -> String,
     appVersion: () -> String,
 ): YMediaItem {
-    val usingServerTranscode = startsWithServerTranscode()
+    val usingServerTranscode = usesApprovedCore2ServerTranscode()
     val version = activeVersion
-    val upstreamUri =
-        if (usingServerTranscode) {
-            transcodeUrl.ifBlank { fallbackTranscodeUrl }
-        } else if (version?.discSource == true) {
-            rawDiscUri?.takeIf(String::isNotBlank) ?: url
-        } else {
-            url
-        }
+    val upstreamUri = core2UpstreamUri()
     val localizedUri = localize(this, upstreamUri)
-    val upstreamHeaders = headers + embyPlaybackHeaders(upstreamUri, appVersion) + customHeaders?.values.orEmpty()
+    val customSourceHeaders = core2CustomHeaders(upstreamUri)
+    val upstreamHeaders = headers + embyPlaybackHeaders(upstreamUri, appVersion) + customSourceHeaders
     return YMediaItem(
         id = id,
         uri = localizedUri,
@@ -423,7 +417,7 @@ private fun PlayerMediaItem.toCore2MediaItem(
                     localizedUri,
                 )
             ) {
-                customHeaders?.values?.keys.orEmpty()
+                customSourceHeaders.keys
             } else {
                 emptySet()
             },
@@ -431,9 +425,10 @@ private fun PlayerMediaItem.toCore2MediaItem(
         providerKey = serverId,
         playbackSessionId = playSessionId,
         allowNextItemPreparation = canPreloadSource && !usingServerTranscode,
-        cacheIdentity = yCoreCacheIdentity(),
+        cacheIdentity = yCoreCacheIdentity().takeUnless { usingServerTranscode },
         cacheMaximumBytes =
-            if (customHeaders?.values?.isNotEmpty() ==
+            if (usingServerTranscode ||
+                customHeaders?.values?.isNotEmpty() ==
                 true
             ) {
                 0L
@@ -463,7 +458,7 @@ private fun PlayerMediaItem.toCore2MediaItem(
                         dolbyBaseLayerCompatibilityId = source.sourceDolbyBaseLayerCompatibility,
                     )
                 },
-        transportCredentials = transportCredentials,
+        transportCredentials = transportCredentials.takeUnless { usingServerTranscode },
         externalSubtitles =
             playbackExternalSubtitles().map { subtitle ->
                 YExternalSubtitleSource(
@@ -541,10 +536,10 @@ private val CORE2_SOURCE_SCHEMES =
         "smb",
         "webdav",
         "webdavs",
+        "ftp",
+        "yfuse-cloud",
         "file",
         "content",
         "android.resource",
-        "yfusebd",
-        "yfusebdmv",
     )
 private const val USER_AGENT_HEADER = "User-Agent"

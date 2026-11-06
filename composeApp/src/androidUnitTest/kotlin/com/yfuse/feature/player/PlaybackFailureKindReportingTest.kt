@@ -1,6 +1,5 @@
 package com.yfuse.feature.player
 
-import androidx.media3.common.PlaybackException
 import com.yfuse.core.playback.PlaybackFailureKind
 import com.yfuse.core.playback.classifyPlaybackFailure
 import kotlin.test.Test
@@ -57,43 +56,5 @@ class PlaybackFailureKindReportingTest {
             PlaybackFailureKind.Network.allowsBackendFallback,
             PlaybackFailureKind.Unknown.allowsBackendFallback,
         )
-    }
-
-    @Test
-    fun media3_error_codes_map_to_the_category_media3_already_decided() {
-        val cases =
-            mapOf(
-                PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED to PlaybackFailureKind.Network,
-                PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT to PlaybackFailureKind.Network,
-                PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS to PlaybackFailureKind.Authorization,
-                PlaybackException.ERROR_CODE_DRM_LICENSE_ACQUISITION_FAILED to PlaybackFailureKind.Drm,
-                PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED to PlaybackFailureKind.Container,
-                PlaybackException.ERROR_CODE_DECODER_INIT_FAILED to PlaybackFailureKind.Decoder,
-                PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED to PlaybackFailureKind.Decoder,
-                PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED to PlaybackFailureKind.AudioSink,
-                PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSING_FAILED to PlaybackFailureKind.Renderer,
-            )
-
-        cases.forEach { (code, expected) ->
-            val exception =
-                PlaybackException(
-                    "test",
-                    null,
-                    code,
-                )
-            assertEquals(expected, exception.playbackFailureKind(), "errorCode $code")
-        }
-    }
-
-    @Test
-    fun an_unrecognised_code_stays_unknown_rather_than_guessing() {
-        val exception =
-            PlaybackException(
-                "test",
-                null,
-                PlaybackException.ERROR_CODE_UNSPECIFIED,
-            )
-
-        assertEquals(PlaybackFailureKind.Unknown, exception.playbackFailureKind())
     }
 }

@@ -42,7 +42,6 @@ import com.yfuse.tv.player.TvPlayerChromeBridge
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
-import com.yfuse.core.platform.AppBuildConfig as BuildConfig
 
 /**
  * PlayerControls wired to the player root: each callback the chrome has, answered on the engine,
@@ -292,20 +291,21 @@ internal fun PlayerRootControls(
         pictureActions =
             PlayerPictureActions(
                 onToggleFill = { stretch ->
-                    choices.scaleMode = choices.scaleMode.toggled(stretch)
-                    backendExtensions.setVideoScaleMode(choices.scaleMode)
-                    rememberSeriesPlayback { remembered ->
-                        remembered.copy(aspectMode = choices.scaleMode.name)
+                    val nextMode = choices.scaleMode.toggled(stretch)
+                    if (backendExtensions.setVideoScaleMode(nextMode)) {
+                        choices.scaleMode = nextMode
+                        rememberSeriesPlayback { remembered -> remembered.copy(aspectMode = nextMode.name) }
+                        PlayerNotices.show("画面：${nextMode.label}")
+                    } else {
+                        PlayerNotices.show("当前内核不支持此画面比例")
                     }
-                    PlayerNotices.show("画面：${choices.scaleMode.label}")
                 },
                 // 捏合填充 and F: the same state and series memory as the 画面 button, set to a mode
                 // rather than cycled. The controls' HUD says which, so no toast.
                 onSetFill = { fill ->
                     val mode = if (fill) VideoScaleMode.Fill else VideoScaleMode.Fit
-                    if (choices.scaleMode != mode) {
+                    if (choices.scaleMode != mode && backendExtensions.setVideoScaleMode(mode)) {
                         choices.scaleMode = mode
-                        backendExtensions.setVideoScaleMode(mode)
                         rememberSeriesPlayback { remembered ->
                             remembered.copy(aspectMode = mode.name)
                         }
@@ -328,99 +328,35 @@ internal fun PlayerRootControls(
                     choices.audioControls.copy(
                         measuredAvOffsetMs = state.diagnostics.avSyncOffsetMs,
                         available =
-                            backendExtensions.supportsAudioDelay ||
-                                (
-                                    choices.sessionEngineSelection == PlaybackEngineSelection.Auto &&
-                                        !core2NativeOnlyActive
-                                ),
+                            backendExtensions.supportsAudioDelay,
                         enhancementAvailable =
-                            backendExtensions.supportsAudioEnhancement ||
-                                (
-                                    choices.sessionEngineSelection == PlaybackEngineSelection.Auto &&
-                                        !core2NativeOnlyActive
-                                ),
-                        unavailableReason =
-                            if (
-                                build.kind == PlayerEngine.Mpv ||
-                                choices.sessionEngineSelection == PlaybackEngineSelection.Auto
-                            ) {
-                                null
-                            } else {
-                                "当前锁定模式不支持音频延迟，请在高级设置中改回自动选择。"
-                            },
+                            backendExtensions.supportsAudioEnhancement,
+                        unavailableReason = "当前播放管线不支持此项音频调节。",
                     ),
                 subtitles =
                     choices.subtitleControls.copy(
                         secondaryTrackId = choices.secondarySubtitleTrackId,
-                        independentScaleAvailable =
-                            engine is YPlayerVideoEngineAdapter ||
-                                engine is ExoVideoEngine ||
-                                (
-                                    engine is MpvVideoEngine &&
-                                        mpvCanStackSubtitles(
-                                            state.subtitleTracks,
-                                            state.subtitleTracks
-                                                .firstOrNull {
-                                                    it.selected
-                                                }?.id,
-                                            choices.secondarySubtitleTrackId,
-                                        )
-                                ),
-                        dualLayoutNote =
-                            when (engine) {
-                                is MpvVideoEngine -> "文本双字幕在底部排列；图片字幕保留原排版，可切换 YCore 或 Exo 调整。"
-                                is MdkVideoEngine -> "此内核保留字幕原排版；底部双字幕与独立字号请切换 YCore 或 Exo。"
-                                else -> null
-                            },
+                        independentScaleAvailable = engine is YPlayerVideoEngineAdapter,
+                        dualLayoutNote = if (engine is SenPlayerVideoEngine) "此内核保留字幕原排版。" else null,
                         secondarySupported = backendExtensions.supportsSecondarySubtitleTrack,
                         secondaryOffsetAvailable = backendExtensions.supportsSecondarySubtitleOffset,
                         secondaryUnavailableReason =
                             if (backendExtensions.supportsSecondarySubtitleTrack) {
                                 null
                             } else {
-                                "当前播放管线仅支持单字幕；切换至 Exo、MPV 或 MDK 可启用副字幕。"
+                                "当前播放管线不支持副字幕。"
                             },
                         offsetAvailable =
-                            backendExtensions.supportsSubtitleOffset ||
-                                (
-                                    choices.sessionEngineSelection == PlaybackEngineSelection.Auto &&
-                                        !core2NativeOnlyActive
-                                ),
+                            backendExtensions.supportsSubtitleOffset,
                         scaleAvailable =
-                            backendExtensions.supportsSubtitleScale ||
-                                (
-                                    choices.sessionEngineSelection == PlaybackEngineSelection.Auto &&
-                                        !core2NativeOnlyActive
-                                ),
+                            backendExtensions.supportsSubtitleScale,
                         brightnessAvailable =
-                            backendExtensions.supportsSubtitleBrightness ||
-                                (
-                                    choices.sessionEngineSelection == PlaybackEngineSelection.Auto &&
-                                        !core2NativeOnlyActive
-                                ),
+                            backendExtensions.supportsSubtitleBrightness,
                         positionAvailable =
-                            backendExtensions.supportsSubtitlePosition ||
-                                (
-                                    choices.sessionEngineSelection == PlaybackEngineSelection.Auto &&
-                                        !core2NativeOnlyActive
-                                ),
+                            backendExtensions.supportsSubtitlePosition,
                         appearanceAvailable =
-                            backendExtensions.supportsSubtitleAppearance ||
-                                (
-                                    choices.sessionEngineSelection == PlaybackEngineSelection.Auto &&
-                                        !core2NativeOnlyActive
-                                ),
-                        unavailableReason =
-                            if (
-                                choices.sessionEngineSelection == PlaybackEngineSelection.Auto &&
-                                !core2NativeOnlyActive
-                            ) {
-                                "当前内核不支持此项；调整后会先询问是否本集改用兼容内核。"
-                            } else if (core2NativeOnlyActive) {
-                                "YCore Native 纯内核模式不允许兼容内核接管此项调节。"
-                            } else {
-                                "当前锁定内核不支持此项调节，请在播放内核中选择自动或 MPV。"
-                            },
+                            backendExtensions.supportsSubtitleAppearance,
+                        unavailableReason = "当前播放管线不支持此项字幕调节。",
                     ),
                 remoteSubtitles = remoteSubtitles,
             ),
@@ -508,31 +444,6 @@ internal fun PlayerRootControls(
                             remembered.copy(
                                 primarySubtitlesOff = true,
                                 primarySubtitle = null,
-                            )
-                        }
-                    } else if (
-                        track?.requiresStyledRenderer == true &&
-                        build.kind != PlayerEngine.Mpv &&
-                        choices.sessionEngineSelection == PlaybackEngineSelection.Auto &&
-                        !core2NativeOnlyActive
-                    ) {
-                        choices.pendingSubtitleLanguage = track.language ?: track.label
-                        switchEngine(PlayerEngine.Mpv)
-                        choices.handoverItemId = currentItem?.id
-                        choices.subtitleRestore = state.subtitleTracks.restorePreferenceFor(track)
-                        choices.restoreSubtitlesOff = false
-                        if (choices.secondarySubtitleTrackId == id) {
-                            choices.secondarySubtitleTrackId = null
-                            choices.secondarySubtitleRestore = null
-                        }
-                        rememberSeriesPlayback { remembered ->
-                            remembered.copy(
-                                primarySubtitlesOff = false,
-                                primarySubtitle = track.toRememberedPlaybackTrack(),
-                                secondarySubtitle =
-                                    remembered.secondarySubtitle.takeUnless {
-                                        it == track.toRememberedPlaybackTrack()
-                                    },
                             )
                         }
                     } else {
@@ -1066,10 +977,5 @@ internal fun PlayerRootControls(
     )
 }
 
-/**
- * The per-video engine choices this package can honour, for the settings panel and the error
- * layer's alternatives alike. A native-only package, such as the television build, plays through
- * YCore whatever is locked: offering Exo or mpv only reloaded the same path to fail the same way.
- */
-private fun packagedEngineStrategies(): List<PlaybackEngineSelection> =
-    PlaybackEngineSelection.selectable.filter { !BuildConfig.YFUSE_NATIVE_ONLY_RUNTIME || it.lockedEngine == null }
+/** The two packaged backends remain selectable regardless of the old native-only flag. */
+private fun packagedEngineStrategies(): List<PlaybackEngineSelection> = PlaybackEngineSelection.selectable

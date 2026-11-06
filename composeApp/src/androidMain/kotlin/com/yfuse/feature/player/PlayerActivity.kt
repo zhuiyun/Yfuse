@@ -56,7 +56,6 @@ import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.data.dto.toMediaVersion
 import com.yfuse.core.data.preferredVersion
-import com.yfuse.core.data.runCatchingCancellable
 import com.yfuse.core.designsystem.DialogAnimation
 import com.yfuse.core.designsystem.GlassMaterials
 import com.yfuse.core.designsystem.GlassStyle
@@ -610,24 +609,7 @@ class PlayerActivity :
                 currentCoroutineContext().ensureActive()
                 if (launchViewModel.pending !== pending || stopRequested || isFinishing || isDestroyed) return@launch
                 val koin = GlobalContext.get()
-                val registry = runCatching { koin.get<ServerRegistry>() }.getOrNull()
-                val preparedItems =
-                    runCatchingCancellable {
-                        val localPrepared =
-                            prepareNativeLocalBluRayRoute(
-                                state.items,
-                                state.startIndex,
-                                this@PlayerActivity,
-                            )
-                        prepareNativeRemoteBluRayRoutes(localPrepared, state.startIndex, registry)
-                    }.onFailure { error ->
-                        AppLog.warning(
-                            category = "feature.player",
-                            event = "native_disc_route_preparation_failed",
-                            message = "Optional native disc route preparation failed; using resolved source",
-                            throwable = error,
-                        )
-                    }.getOrDefault(state.items)
+                val preparedItems = state.items
                 currentCoroutineContext().ensureActive()
                 val preferences = runCatching { koin.get<ThemePreferences>() }.getOrNull()
                 val request =
@@ -637,7 +619,7 @@ class PlayerActivity :
                         startPositionMs = state.startPositionMs,
                         engine =
                             offlineSubtitlePlaybackEngine(
-                                preferred = preferences?.engine?.value ?: PlayerEngine.Exo,
+                                preferred = preferences?.engine?.value ?: PlayerEngine.YCore,
                                 items = preparedItems,
                             ),
                         decoder = preferences?.decoder?.value ?: DecoderMode.Hardware,

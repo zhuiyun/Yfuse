@@ -345,7 +345,7 @@ class PlayerLaunchRegistryTest {
                 },
             startIndex = 0,
             startPositionMs = 12_345L,
-            engine = PlayerEngine.Exo,
+            engine = PlayerEngine.YCore,
             decoder = DecoderMode.Hardware,
             autoNext = true,
         )

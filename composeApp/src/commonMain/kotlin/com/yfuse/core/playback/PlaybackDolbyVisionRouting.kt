@@ -3,34 +3,21 @@ package com.yfuse.core.playback
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
 
-/** Concrete Dolby pipeline selected before constructing a backend. */
+/** A Dolby route must be distinguished from an unverified request to the native runtime. */
 enum class PlaybackDolbyVisionPath {
     None,
-
-    /** Android MediaCodec plus a Dolby-capable display surface. */
+    Unverified,
     MediaCodecNative,
-
-    /** Verified mpv gpu-next/libplacebo RPU and P7 enhancement-layer processing. */
-    MpvGpuNext,
-
-    /** RPU and enhancement layer are removed; the HDR10 base layer is rendered. */
     Hdr10BaseLayer,
-
-    /** Client-side HDR/Dolby processing followed by SDR tone mapping. */
-    SdrToneMap,
 }
 
-/** Runtime facts not inferable from the screen or MediaCodec registry. */
+/** Positive facts from the current YCore runtime, never inferred from its engine name. */
 data class PlaybackDolbyVisionRuntimeCapabilities(
-    val verifiedMpvRpu: Boolean,
-    val verifiedMpvFel: Boolean,
-    val fullFelGpuCapable: Boolean,
+    val verifiedNativeDolbyVision: Boolean = false,
+    val verifiedHdr10BaseLayer: Boolean = false,
 ) {
-    val canProcessProfileSevenEnhancementLayer: Boolean
-        get() = verifiedMpvRpu && verifiedMpvFel && fullFelGpuCapable
-
     companion object {
-        fun conservative() = PlaybackDolbyVisionRuntimeCapabilities(false, false, false)
+        fun conservative() = PlaybackDolbyVisionRuntimeCapabilities()
     }
 }
 
@@ -42,10 +29,8 @@ data class PlaybackDolbyVisionRoute(
     val reason: String,
 )
 
-/**
- * Selects a wholly local Dolby route. The server is intentionally absent: Yfuse preserves the
- * original stream and lets MediaCodec or the verified mpv/libplacebo stack process it on-device.
- */
+/** Display capabilities alone prove neither native Dolby output nor FEL/RPU processing. */
+@Suppress("UNUSED_PARAMETER")
 fun playbackDolbyVisionRoute(
     source: PlaybackSourceRequirements,
     capabilities: PlaybackDeviceCapabilities,
@@ -53,103 +38,40 @@ fun playbackDolbyVisionRoute(
     requiresNativeDemuxer: Boolean = false,
 ): PlaybackDolbyVisionRoute {
     require(source.dolbyVision) { "Dolby routing requires a Dolby Vision source" }
-
-    val profile = source.dolbyVisionProfile
-    val profileSevenWithEnhancement =
-        profile == 7 && source.dolbyEnhancementLayerPresent != false
-    val hdr10BaseAvailable =
+    val enhancementLayer = source.dolbyVisionProfile == 7 && source.dolbyEnhancementLayerPresent != false
+    val compatibleBase =
         source.dolbyBaseLayerPresent != false &&
             (
-                profile == 7 ||
-                    (profile == 8 && source.dolbyBaseLayerCompatibilityId == 1) ||
-                    (!source.needsDolbyDecoder && profile == null)
+                source.dolbyVisionProfile == 7 ||
+                    (source.dolbyVisionProfile == 8 && source.dolbyBaseLayerCompatibilityId == 1) ||
+                    (!source.needsDolbyDecoder && source.dolbyVisionProfile == null)
             )
-    val hdr10Output =
-        capabilities.supportsHdrOutput(
-            PlaybackHdrFormat.Hdr10,
-            source.videoCodec ?: PlaybackVideoCodec.Hevc,
-        )
-
-    if (profileSevenWithEnhancement && runtime.canProcessProfileSevenEnhancementLayer) {
-        val output =
-            when {
-                capabilities.supportsDolbyVisionOutput -> "Dolby 屏幕"
-                hdr10Output -> "HDR10 屏幕"
-                else -> "SDR 色调映射"
-            }
+    if (runtime.verifiedNativeDolbyVision && !enhancementLayer && capabilities.supportsDolbyVisionOutput) {
         return PlaybackDolbyVisionRoute(
-            path = PlaybackDolbyVisionPath.MpvGpuNext,
-            engine = PlayerEngine.Mpv,
-            decoderMode = DecoderMode.Hardware,
-            stripDolbyVisionToBaseLayer = false,
-            reason = "P7 增强层使用 MPV gpu-next 完整处理，输出到$output",
+            PlaybackDolbyVisionPath.MediaCodecNative,
+            PlayerEngine.YCore,
+            DecoderMode.Hardware,
+            false,
+            "当前 YCore 管线已确认原生 Dolby Vision 输出",
         )
     }
-
-    val profileEightOne =
-        profile == 8 && source.dolbyBaseLayerCompatibilityId == 1
-    if (
-        profileEightOne &&
-        capabilities.supportsDolbyVisionOutput &&
-        !requiresNativeDemuxer
+    if (runtime.verifiedHdr10BaseLayer &&
+        compatibleBase &&
+        capabilities.supportsHdrOutput(PlaybackHdrFormat.Hdr10, source.videoCodec ?: PlaybackVideoCodec.Hevc)
     ) {
         return PlaybackDolbyVisionRoute(
-            path = PlaybackDolbyVisionPath.MediaCodecNative,
-            engine = PlayerEngine.Exo,
-            decoderMode = DecoderMode.Hardware,
-            stripDolbyVisionToBaseLayer = false,
-            reason = "Dolby Vision P8.1 使用 MediaCodec 原生 Dolby Vision 输出",
+            PlaybackDolbyVisionPath.Hdr10BaseLayer,
+            PlayerEngine.YCore,
+            DecoderMode.Hardware,
+            true,
+            "当前 YCore 管线已确认 HDR10 兼容基础层；不代表完整 Dolby Vision 或 FEL 输出",
         )
     }
-
-    if (
-        !profileSevenWithEnhancement &&
-        capabilities.supportsDolbyVisionOutput &&
-        !requiresNativeDemuxer
-    ) {
-        return PlaybackDolbyVisionRoute(
-            path = PlaybackDolbyVisionPath.MediaCodecNative,
-            engine = PlayerEngine.Exo,
-            decoderMode = DecoderMode.Hardware,
-            stripDolbyVisionToBaseLayer = false,
-            reason = "片源使用 MediaCodec 原生 Dolby Vision 输出",
-        )
-    }
-
-    if (hdr10BaseAvailable) {
-        val outputPath =
-            if (hdr10Output) {
-                PlaybackDolbyVisionPath.Hdr10BaseLayer
-            } else {
-                PlaybackDolbyVisionPath.SdrToneMap
-            }
-        val why =
-            when {
-                profileSevenWithEnhancement && !runtime.fullFelGpuCapable ->
-                    "GPU 性能预算不足，P7 使用 HDR10 基础层"
-                profileSevenWithEnhancement ->
-                    "当前原生包未验证 P7 完整处理，使用 HDR10 基础层"
-                else -> "当前屏幕不支持 Dolby Vision，使用 HDR10 兼容基础层"
-            }
-        return PlaybackDolbyVisionRoute(
-            path = outputPath,
-            engine = PlayerEngine.Mpv,
-            decoderMode = DecoderMode.Hardware,
-            stripDolbyVisionToBaseLayer = true,
-            reason =
-                if (hdr10Output) {
-                    why
-                } else {
-                    "${why}并在客户端映射到 SDR"
-                },
-        )
-    }
-
     return PlaybackDolbyVisionRoute(
-        path = PlaybackDolbyVisionPath.SdrToneMap,
-        engine = PlayerEngine.Mpv,
-        decoderMode = DecoderMode.Software,
-        stripDolbyVisionToBaseLayer = false,
-        reason = "设备没有可用 Dolby Vision 输出，使用 MPV 在客户端解码并映射到 SDR",
+        PlaybackDolbyVisionPath.Unverified,
+        PlayerEngine.YCore,
+        DecoderMode.Hardware,
+        false,
+        "Dolby Vision 交由 YCore 运行时验证；当前未确认原生输出、基础层转换或增强层处理",
     )
 }

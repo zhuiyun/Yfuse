@@ -13,6 +13,20 @@ import kotlin.test.assertTrue
 
 class PlaybackTruthTest {
     @Test
+    fun a_generated_url_or_drm_source_cannot_be_forced_into_server_transcoding() {
+        val unapproved = PlayerMediaItem("source", "original", "generated-hls", "Source")
+        assertEquals(unapproved, unapproved.withForcedServerTranscode("automatic"))
+        assertEquals(unapproved, unapproved.withForcedServerTranscode("viewer", byViewer = true))
+        val protected =
+            unapproved.copy(
+                serverTranscodeSupported = true,
+                drmConfiguration = PlaybackDrmConfiguration(scheme = PlaybackDrmScheme.Widevine),
+            )
+        assertFalse(protected.allowsServerTranscodeFallback(viewerRequested = true))
+        assertEquals(protected, protected.withForcedServerTranscode("viewer", byViewer = true))
+    }
+
+    @Test
     fun auto_preserves_the_server_negotiated_direct_stream_truth() {
         val item =
             PlayerMediaItem(
@@ -45,6 +59,7 @@ class PlaybackTruthTest {
                 url = "direct-dolby",
                 transcodeUrl = "safe-hls",
                 title = "杜比视界",
+                serverTranscodeSupported = true,
             ).withForcedServerTranscode("设备不支持 4K60 Dolby Vision")
 
         assertTrue(item.startsWithServerTranscode())
@@ -57,7 +72,14 @@ class PlaybackTruthTest {
 
     @Test
     fun only_the_viewers_own_transcode_is_reported_as_asked_for_whatever_its_wording() {
-        val item = PlayerMediaItem(id = "movie", url = "direct", transcodeUrl = "safe-hls", title = "电影")
+        val item =
+            PlayerMediaItem(
+                id = "movie",
+                url = "direct",
+                transcodeUrl = "safe-hls",
+                title = "电影",
+                serverTranscodeSupported = true,
+            )
 
         val viewer = item.withForcedServerTranscode("任意说明", byViewer = true)
         val device = item.withForcedServerTranscode(VIEWER_TRANSCODE_REASON)
@@ -240,6 +262,10 @@ class PlaybackTruthTest {
         assertFalse(item.playbackMediaProbe().hasServerTranscode)
         assertFalse(item.allowsServerTranscodeFallback(viewerRequested = false))
         assertTrue(item.allowsServerTranscodeFallback(viewerRequested = true))
+        assertEquals(item, item.withForcedServerTranscode("automatic"))
+        val manual = item.withForcedServerTranscode("viewer", byViewer = true)
+        assertTrue(manual.startsWithServerTranscode())
+        assertEquals(PlaybackMethod.Transcode, manual.effectivePlaybackMethod())
     }
 
     @Test

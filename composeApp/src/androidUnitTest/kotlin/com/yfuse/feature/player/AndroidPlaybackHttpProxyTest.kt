@@ -1,7 +1,7 @@
 package com.yfuse.feature.player
 
-import com.yfuse.core.playback.rewriteMpvHlsManifest
-import com.yfuse.core.playback.shouldProxyMpvNetworkUrl
+import com.yfuse.core.playback.rewritePlaybackHlsManifest
+import com.yfuse.core.playback.shouldProxyPlaybackNetworkUrl
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.SocketPolicy
@@ -189,11 +189,11 @@ class AndroidPlaybackHttpProxyTest {
 
     @Test
     fun onlyWebMediaUsesPlatformTransportBridge() {
-        assertTrue(shouldProxyMpvNetworkUrl("https://media.example/video.mkv"))
-        assertTrue(shouldProxyMpvNetworkUrl("http://192.168.1.2/video.m2ts"))
-        assertFalse(shouldProxyMpvNetworkUrl("file:///storage/video.mkv"))
-        assertFalse(shouldProxyMpvNetworkUrl("bd://longest"))
-        assertFalse(shouldProxyMpvNetworkUrl("not a URL"))
+        assertTrue(shouldProxyPlaybackNetworkUrl("https://media.example/video.mkv"))
+        assertTrue(shouldProxyPlaybackNetworkUrl("http://192.168.1.2/video.m2ts"))
+        assertFalse(shouldProxyPlaybackNetworkUrl("file:///storage/video.mkv"))
+        assertFalse(shouldProxyPlaybackNetworkUrl("bd://longest"))
+        assertFalse(shouldProxyPlaybackNetworkUrl("not a URL"))
     }
 
     @Test
@@ -221,7 +221,7 @@ class AndroidPlaybackHttpProxyTest {
     fun hlsVariantsSegmentsAndKeysStayOnThePlatformTransportBridge() {
         val localized = linkedMapOf<String, String>()
         val rewritten =
-            rewriteMpvHlsManifest(
+            rewritePlaybackHlsManifest(
                 manifest =
                     """
                     #EXTM3U

@@ -1,10 +1,12 @@
 package com.yfuse.feature.player
 
-import androidx.media3.common.C
-import androidx.media3.common.MimeTypes
 import com.yfuse.core.model.PlayerEngine
+import com.yfuse.core2.android.toCore2MediaItems
+import com.yfuse.core2.api.YExternalSubtitleSource
+import com.yfuse.core2.subtitle.YSubtitleFormat
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -12,7 +14,7 @@ class OfflineSubtitleConfigurationTest {
     @Test
     fun local_sidecar_becomes_default_subrip_track() {
         val subtitle =
-            offlineSubtitleConfiguration(
+            nativeSubtitleConfiguration(
                 PlayerMediaItem(
                     id = "episode",
                     url = "file:///offline/episode.media",
@@ -23,25 +25,25 @@ class OfflineSubtitleConfigurationTest {
                 ),
             )!!
 
-        assertEquals(MimeTypes.APPLICATION_SUBRIP, subtitle.mimeType)
+        assertEquals(YSubtitleFormat.Srt, subtitle.format)
         assertEquals("chi", subtitle.language)
-        assertTrue(subtitle.selectionFlags and C.SELECTION_FLAG_DEFAULT != 0)
+        assertTrue(subtitle.default)
     }
 
     @Test
-    fun supported_sidecar_formats_use_their_media3_mime_type() {
+    fun supported_sidecar_formats_reach_the_native_subtitle_loader() {
         val cases =
             mapOf(
-                "file:///offline/episode.vtt" to MimeTypes.TEXT_VTT,
-                "file:///offline/episode.ass" to MimeTypes.TEXT_SSA,
-                "file:///offline/episode.ssa?token=secret" to MimeTypes.TEXT_SSA,
-                "https://media.example.test/subtitle?format=ttml" to MimeTypes.APPLICATION_TTML,
-                "file:///offline/episode.dfxp" to MimeTypes.APPLICATION_TTML,
+                "file:///offline/episode.vtt" to YSubtitleFormat.WebVtt,
+                "file:///offline/episode.ass" to YSubtitleFormat.Ass,
+                "file:///offline/episode.ssa?token=secret" to YSubtitleFormat.Ssa,
+                "https://media.example.test/subtitle?format=ttml" to YSubtitleFormat.Ttml,
+                "file:///offline/episode.dfxp" to YSubtitleFormat.Ttml,
             )
 
         cases.forEach { (uri, expectedMimeType) ->
             val subtitle =
-                offlineSubtitleConfiguration(
+                nativeSubtitleConfiguration(
                     PlayerMediaItem(
                         id = uri,
                         url = "file:///offline/episode.media",
@@ -50,22 +52,27 @@ class OfflineSubtitleConfigurationTest {
                         externalSubtitleUri = uri,
                     ),
                 )!!
-            assertEquals(expectedMimeType, subtitle.mimeType, uri)
+            assertEquals(expectedMimeType, subtitle.format, uri)
         }
     }
 
     @Test
-    fun unknown_sidecar_format_keeps_the_previous_subrip_fallback() {
-        assertEquals(
-            MimeTypes.APPLICATION_SUBRIP,
-            externalSubtitleMimeType("content://offline/subtitle/42"),
-        )
+    fun unknown_sidecar_format_remains_unconfirmed_for_content_detection() {
+        val item =
+            PlayerMediaItem(
+                "episode",
+                "file:///movie",
+                "",
+                "Episode",
+                externalSubtitleUri = "content://offline/subtitle/42",
+            )
+        assertNull(assertNotNull(nativeSubtitleConfiguration(item)).format)
     }
 
     @Test
     fun ordinary_stream_has_no_external_subtitle() {
         assertNull(
-            offlineSubtitleConfiguration(
+            nativeSubtitleConfiguration(
                 PlayerMediaItem("movie", "https://media/movie", "https://media/movie", "Movie"),
             ),
         )
@@ -74,7 +81,7 @@ class OfflineSubtitleConfigurationTest {
     @Test
     fun plex_sidecars_are_all_attached_with_codec_and_selection_metadata() {
         val configurations =
-            externalSubtitleConfigurations(
+            nativeSubtitleConfigurations(
                 PlayerMediaItem(
                     id = "movie",
                     url = "https://plex/movie.mkv",
@@ -98,9 +105,9 @@ class OfflineSubtitleConfigurationTest {
             )
 
         assertEquals(2, configurations.size)
-        assertEquals(MimeTypes.APPLICATION_SUBRIP, configurations[0].mimeType)
-        assertTrue(configurations[0].selectionFlags and C.SELECTION_FLAG_DEFAULT != 0)
-        assertEquals(MimeTypes.TEXT_SSA, configurations[1].mimeType)
+        assertEquals(YSubtitleFormat.Srt, configurations[0].format)
+        assertTrue(configurations[0].default)
+        assertEquals(YSubtitleFormat.Ass, configurations[1].format)
         assertEquals("eng", configurations[1].language)
     }
 
@@ -109,7 +116,15 @@ class OfflineSubtitleConfigurationTest {
         val plain = PlayerMediaItem("movie", "file:///movie", "file:///movie", "Movie")
         val withSubtitle = plain.copy(externalSubtitleUri = "file:///movie.srt")
 
-        assertEquals(PlayerEngine.Mpv, offlineSubtitlePlaybackEngine(PlayerEngine.Mpv, listOf(plain)))
-        assertEquals(PlayerEngine.Mpv, offlineSubtitlePlaybackEngine(PlayerEngine.Mpv, listOf(withSubtitle)))
+        for (engine in PlayerEngine.entries) {
+            assertEquals(engine, offlineSubtitlePlaybackEngine(engine, listOf(plain)))
+            assertEquals(engine, offlineSubtitlePlaybackEngine(engine, listOf(withSubtitle)))
+        }
     }
+
+    private fun nativeSubtitleConfigurations(item: PlayerMediaItem): List<YExternalSubtitleSource> =
+        listOf(item).toCore2MediaItems("").single().allExternalSubtitles
+
+    private fun nativeSubtitleConfiguration(item: PlayerMediaItem): YExternalSubtitleSource? =
+        nativeSubtitleConfigurations(item).firstOrNull()
 }

@@ -61,19 +61,16 @@ jobs:
               assert os.environ['PERFORMANCE_MODE'] == 'benchmark', 'Profiles do not contain performance measurements'
               assert math.isfinite(float(limit)) and float(limit) >= 0, 'Invalid regression limit'
           PY
-      - name: Fetch and verify pinned player engines
+      - name: Prepare pinned YCore and SenPlayer inputs
         env:
-          GH_TOKEN: ${{ github.token }}
+          YCORE_NATIVE_AAR_URL: ${{ secrets.YCORE_NATIVE_AAR_URL }}
+          SENPLAYER_SOURCE_APK_URL: ${{ secrets.SENPLAYER_SOURCE_APK_URL }}
         shell: bash
         run: |
           set -euo pipefail
-          if ! command -v 7z >/dev/null 2>&1; then sudo apt-get update && sudo apt-get install -y p7zip-full; fi
           chmod +x gradlew scripts/fetch-engines.sh
           scripts/fetch-engines.sh
-          test -s composeApp/libs/libmpv-release.aar
-          test -f composeApp/libs/mdk-sdk/lib/cmake/FindMDK.cmake
-      - name: Build and install current YCore runtime
-        uses: ./.github/actions/build-current-ycore
+          test -s composeApp/libs/ycore-native.aar
       - name: Download the explicit same-device baseline
         if: inputs.baseline_run_id != ''
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8

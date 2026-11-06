@@ -36,9 +36,6 @@ internal class PlayerEngineBuild(
 
     /** Bumped when the running engine restarts its own pipeline in place, without a rebuild. */
     var runtimeSessionGeneration: Int by mutableIntStateOf(0)
-
-    /** The YCore 2.0 trial failed once; the rest of the session builds the selected Legacy engine. */
-    var core2DisabledForSession: Boolean by mutableStateOf(false)
 }
 
 /**

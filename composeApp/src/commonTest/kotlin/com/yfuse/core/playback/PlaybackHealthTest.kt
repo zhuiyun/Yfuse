@@ -83,11 +83,11 @@ class PlaybackHealthTest {
     }
 
     @Test
-    fun power_estimate_distinguishes_platform_hardware_from_gpu_tone_mapping() {
+    fun native_pipeline_estimate_does_not_assume_platform_direct_efficiency() {
         val probe = probe()
-        val efficient =
+        val native =
             playbackPowerAssessment(
-                plan = plan(PlaybackRenderPath.PlatformDirect, DecoderMode.Hardware),
+                plan = plan(PlaybackRenderPath.NativeDirect, DecoderMode.Hardware),
                 probe = probe,
             )
         val intensive =
@@ -96,7 +96,11 @@ class PlaybackHealthTest {
                 probe = probe,
             )
 
-        assertEquals(PlaybackPowerProfile.Efficient, efficient.profile)
+        assertEquals(PlaybackPowerProfile.Balanced, native.profile)
+        assertEquals(
+            PlaybackPowerProfile.Efficient,
+            playbackPowerAssessment(plan(PlaybackRenderPath.PlatformDirect, DecoderMode.Hardware), probe).profile,
+        )
         assertEquals(PlaybackPowerProfile.Intensive, intensive.profile)
     }
 
@@ -104,11 +108,11 @@ class PlaybackHealthTest {
     fun measured_battery_power_is_kept_separate_from_the_route_estimate() {
         val measured =
             playbackPowerAssessment(
-                plan = plan(PlaybackRenderPath.PlatformDirect, DecoderMode.Hardware),
+                plan = plan(PlaybackRenderPath.NativeDirect, DecoderMode.Hardware),
                 probe = probe(),
             ).withMeasuredPower(2_150)
 
-        assertEquals(PlaybackPowerProfile.Efficient, measured.profile)
+        assertEquals(PlaybackPowerProfile.Balanced, measured.profile)
         assertEquals(2_150, measured.measuredMilliwatts)
         assertTrue("实测 2.2W" in measured.diagnosticLabel)
     }
@@ -118,11 +122,11 @@ class PlaybackHealthTest {
         decoderMode: DecoderMode,
     ): PlaybackPlan =
         PlaybackPlan(
-            primaryEngine = PlayerEngine.Exo,
+            primaryEngine = PlayerEngine.YCore,
             decoderMode = decoderMode,
             renderPath = path,
             requiresServerTranscode = false,
-            engineOrder = listOf(PlayerEngine.Exo),
+            engineOrder = listOf(PlayerEngine.YCore),
         )
 
     private fun probe(): PlaybackMediaProbe =

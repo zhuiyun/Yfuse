@@ -63,6 +63,7 @@ internal class AndroidNativeDirectYPlayer(
     private val preferredRemoteBufferTargetUs: Long? = null,
     private val preparedExtractor: ((YMediaItem) -> YPlatformExtractorSource?)? = null,
     private val videoHandoff: AndroidVideoDecoderHandoff? = null,
+    private val audioDisabled: Boolean = false,
 ) : YPlayer,
     AndroidSerializedPlayerRelease,
     AndroidVideoOutputDetach,
@@ -141,7 +142,7 @@ internal class AndroidNativeDirectYPlayer(
         submit(Command.SetVideoOutput(null, detached))
     }
 
-    override val supportsBackgroundAudio: Boolean get() = true
+    override val supportsBackgroundAudio: Boolean get() = !audioDisabled
 
     @Volatile
     private var videoSuspended = false
@@ -376,6 +377,7 @@ internal class AndroidNativeDirectYPlayer(
                         preferredRemoteBufferTargetUs = preferredRemoteBufferTargetUs,
                         preparedExtractor = preparedExtractor,
                         videoHandoff = videoHandoff,
+                        audioDisabled = audioDisabled,
                     ),
                 scope = scope,
                 mutableState = mutableState,

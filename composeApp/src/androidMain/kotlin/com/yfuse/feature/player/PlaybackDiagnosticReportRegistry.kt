@@ -125,7 +125,6 @@ internal object PlaybackDiagnosticReportRegistry {
         val input = ReportInput(diagnostics, subtitleSelection, selectedEngine, fallbackChain.toList(), nativeOnly)
         if (input == lastReportInput) return
         val evidence = diagnostics.outputEvidence
-        val mpv = diagnostics.mpvDolbyRuntimeEvidence()
         val report =
             redactDiagnosticText(
                 buildString {
@@ -136,7 +135,13 @@ internal object PlaybackDiagnosticReportRegistry {
                     appendLine("subtitle.selection=$subtitleSelection")
                     appendLine(
                         "engine.selected=" +
-                            if (nativeOnly) YCORE2_NATIVE_ENGINE_LABEL else selectedEngine.name,
+                            if (selectedEngine ==
+                                PlayerEngine.YCore
+                            ) {
+                                YCORE2_NATIVE_ENGINE_LABEL
+                            } else {
+                                selectedEngine.name
+                            },
                     )
                     appendLine("engine.actual=${diagnostics.engine.ifBlank { "unknown" }}")
                     // The selection is what the user asked for; the binding is what runs. YCore 2.0
@@ -148,7 +153,7 @@ internal object PlaybackDiagnosticReportRegistry {
                         "fallback.chain=" +
                             if (diagnostics.engine == UNAVAILABLE_VIDEO_ENGINE_LABEL) {
                                 "none"
-                            } else if (nativeOnly) {
+                            } else if (selectedEngine == PlayerEngine.YCore) {
                                 "YCore2Native"
                             } else {
                                 fallbackChain.joinToString(" -> ") { it.name }
@@ -196,9 +201,8 @@ internal object PlaybackDiagnosticReportRegistry {
                     appendLine("render.detail=${evidence.rendererDetail}")
                     appendLine("output.evidence.generation=${diagnostics.outputEvidenceGeneration}")
                     appendLine("output.evidence.reset=${diagnostics.outputEvidenceResetReason}")
-                    appendLine("mpv.rpu.rendered=${evidence.dolbyVisionRpuRendered || mpv.rpuRendered}")
-                    appendLine("mpv.fel.composed=${evidence.dolbyVisionFelComposed || mpv.felComposed}")
-                    appendLine("mpv.evidence.generation=${mpv.generation}")
+                    appendLine("output.dolby.rpu.rendered=${evidence.dolbyVisionRpuRendered}")
+                    appendLine("output.dolby.fel.composed=${evidence.dolbyVisionFelComposed}")
                 },
             ).take(MAX_REPORT_CHARS)
         lastReportInput = input
@@ -311,16 +315,8 @@ internal object PlaybackDiagnosticReportRegistry {
         }
     }
 
-    private fun nativeLibraryReport(): String {
-        val capabilities = installedMpvNativeBuildCapabilities
-        return buildString {
-            appendLine("native.mpv.core.revision=${capabilities.mpvCoreRevision ?: "unknown"}")
-            appendLine("native.mpv.android.revision=${capabilities.libmpvAndroidRevision ?: "unknown"}")
-            appendLine("native.ffmpeg.revision=${capabilities.ffmpegRevision ?: "unknown"}")
-            appendLine("native.libplacebo.revision=${capabilities.libplaceboRevision ?: "unknown"}")
-            appendLine("native.libbluray.revision=${capabilities.libblurayRevision ?: "unknown"}")
-            appendLine("native.libudfread.revision=${capabilities.libudfreadRevision ?: "unknown"}")
-            appendLine("native.mdk.compile.version=$MDK_SDK_COMPILE_VERSION")
+    private fun nativeLibraryReport(): String =
+        buildString {
             appendLine("native.ycore.gpu.packaged=${BuildConfig.YFUSE_YCORE_GPU_INCLUDED}")
             appendLine("native.package.profile=${BuildConfig.YFUSE_PACKAGE_PROFILE}")
             // The demux bridge has no revision string of its own; whether it can explain a
@@ -339,14 +335,12 @@ internal object PlaybackDiagnosticReportRegistry {
                 appendLine("native.$name.sha256=$hash")
             }
         }
-    }
 
     private fun nativeLibraryFingerprints(): Map<String, String> {
         val wanted =
             setOf(
-                "libmpv.so",
-                "libmdk.so",
-                "libyfuse-mdk-jni.so",
+                "libavcodec.so",
+                "libavformat.so",
                 "libycore_demux.so",
                 "libycore_gpu.so",
             )
@@ -438,9 +432,8 @@ internal fun playbackSubtitleDiagnosticSelection(state: PlaybackState): String {
 /**
  * The engine that actually owns the session, for every line a reader compares against the logs.
  *
- * `nativeOnly` is a selection-time decision that requires the engine choice to be Auto, so it says
- * nothing about a YCore 2.0 binding reached from an explicitly selected engine. Deriving the label
- * from it alone made the report claim one engine while every `engine_attached` line named another.
+ * Reported session identity wins over the retained legacy build preference. That preference must
+ * never relabel an explicitly selected SenPlayer session as YCore.
  */
 internal fun engineBindingLabel(
     diagnostics: PlaybackDiagnostics,
@@ -449,6 +442,8 @@ internal fun engineBindingLabel(
 ): String =
     when {
         diagnostics.engine == UNAVAILABLE_VIDEO_ENGINE_LABEL -> UNAVAILABLE_VIDEO_ENGINE_LABEL
-        nativeOnly || diagnostics.isNativeCore2Binding -> YCORE2_NATIVE_ENGINE_LABEL
+        diagnostics.isNativeCore2Binding -> YCORE2_NATIVE_ENGINE_LABEL
+        diagnostics.engine.isNotBlank() -> diagnostics.engine
+        nativeOnly && selectedEngine == PlayerEngine.YCore -> YCORE2_NATIVE_ENGINE_LABEL
         else -> diagnostics.engine.ifBlank { selectedEngine.name }
     }

@@ -73,7 +73,7 @@ fun evaluateOpticalPlaybackRelease(input: OpticalPlaybackValidationInput): Optic
         checks =
             linkedMapOf(
                 "nativeAar" to
-                    input.nativeAarBuiltAndVerified.check("custom libmpv/libbluray AAR + provenance verifier"),
+                    input.nativeAarBuiltAndVerified.check("standalone YCore/libbluray AAR + provenance verifier"),
                 "pageSize16k" to input.arm64PageSize16kVerified.check("ARM64 PT_LOAD >= 16 KiB and Android load"),
                 "localIso" to input.localIsoMainFeatureVerified.check("local Blu-ray ISO main feature"),
                 "localBdmvFs" to input.localBdmvFilesystemVerified.check("filesystem BDMV VFS"),
@@ -96,9 +96,9 @@ fun evaluateOpticalPlaybackRelease(input: OpticalPlaybackValidationInput): Optic
                 "dolbyVisionP7Base" to
                     input.dolbyVisionP7BaseLayerVerified.check("P7 HDR10 compatible base output"),
                 "dolbyVisionP7Rpu" to
-                    input.dolbyVisionP7RpuVerified.check("P7 RPU applied by measured MPV output"),
+                    input.dolbyVisionP7RpuVerified.check("P7 RPU applied by measured YCore output"),
                 "dolbyVisionP7Fel" to
-                    input.dolbyVisionP7FelVerified.check("P7 FEL composed by measured MPV output"),
+                    input.dolbyVisionP7FelVerified.check("P7 FEL composed by measured YCore output"),
                 "trueHdAtmos" to input.trueHdAtmosVerified.check("TrueHD/Atmos HDMI/eARC"),
                 "dtsHd" to input.dtsHdVerified.check("DTS-HD HDMI/eARC"),
                 "pgs" to input.pgsVerified.check("PGS select/render/seek"),

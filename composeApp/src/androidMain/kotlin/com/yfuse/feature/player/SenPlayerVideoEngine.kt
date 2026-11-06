@@ -275,9 +275,9 @@ internal class SenPlayerVideoEngine(
         surfaceRecoveries = 0
         bufferGeneration++
         mediaPoll = 0
-        mutableState.update { it.forSenPlayerLoad(bufferSession, bufferGeneration) }
+        mutableState.update { it.forSenPlayerLoad(bufferSession, bufferGeneration, item) }
         resetVideoEvidence(0L, reason = "source_loading")
-        require(item.drmConfiguration == null) { "SenPlayer DRM is not integrated" }
+        val upstream = item.senPlayerPlaybackUrl()
         require(item.transportCredentials == null) { "SenPlayer file transport credentials require YCore" }
         if (session?.isUsable() == false) closeSession()
         val current = session
@@ -289,7 +289,6 @@ internal class SenPlayerVideoEngine(
                 ?.let(surfaceCallback::surfaceCreated)
             return
         }
-        val upstream = item.url
         val url =
             if (upstream.startsWith("http://", true) || upstream.startsWith("https://", true)) {
                 requireNotNull(proxy).localUrl(

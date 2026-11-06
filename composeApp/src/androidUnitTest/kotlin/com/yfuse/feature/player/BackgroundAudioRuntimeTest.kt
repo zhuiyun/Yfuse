@@ -18,7 +18,7 @@ import com.yfuse.core2.api.YPlayer
 import com.yfuse.core2.api.YPlayerDiagnostics
 import com.yfuse.core2.api.YPlayerState
 import com.yfuse.core2.api.YTrackType
-import com.yfuse.core2.legacy.LegacyYPlayerAdapter
+import com.yfuse.core2.legacy.VideoEngineYPlayerAdapter
 import com.yfuse.core2.legacy.YPlayerVideoEngineAdapter
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlin.test.Test
@@ -94,7 +94,7 @@ class BackgroundAudioRuntimeTest {
     private class Fixture {
         private val native = TestNativePlayer()
         private val engine = YPlayerVideoEngineAdapter(native)
-        private val player = LegacyYPlayerAdapter(engine)
+        private val player = VideoEngineYPlayerAdapter(engine)
         private val lifecycle = BackgroundAudioLifecycle()
         private val probe =
             PlaybackMediaProbe(
@@ -107,15 +107,15 @@ class BackgroundAudioRuntimeTest {
         private val memory = PlaybackFailureMemory(failureThreshold = 1)
         private val session =
             YCorePlaybackSession(
-                engine = PlayerEngine.Exo,
+                engine = PlayerEngine.YCore,
                 probe = probe,
                 plan =
                     PlaybackPlan(
-                        primaryEngine = PlayerEngine.Exo,
+                        primaryEngine = PlayerEngine.YCore,
                         decoderMode = DecoderMode.Hardware,
                         renderPath = PlaybackRenderPath.PlatformDirect,
                         requiresServerTranscode = false,
-                        engineOrder = listOf(PlayerEngine.Exo),
+                        engineOrder = listOf(PlayerEngine.YCore),
                     ),
                 failureMemory = memory,
                 startedAtEpochMs = 0L,
@@ -134,7 +134,7 @@ class BackgroundAudioRuntimeTest {
             assertFalse(player.videoOutputSuspended)
         }
 
-        fun failureCount(): Int = memory.failureCount(probe.capabilitySignature, PlayerEngine.Exo)
+        fun failureCount(): Int = memory.failureCount(probe.capabilitySignature, PlayerEngine.YCore)
 
         fun observe(
             now: Long,

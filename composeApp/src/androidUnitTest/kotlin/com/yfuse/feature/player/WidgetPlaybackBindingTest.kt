@@ -1,7 +1,5 @@
 package com.yfuse.feature.player
 
-import androidx.media3.common.MediaItem
-import androidx.media3.exoplayer.source.MediaSource
 import com.yfuse.core.playback.PlayerCustomHeaders
 import com.yfuse.core.playback.WidgetPlaybackRequest
 import okhttp3.Request
@@ -9,8 +7,6 @@ import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
-import sun.misc.Unsafe
-import java.lang.reflect.Proxy
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.CountDownLatch
@@ -19,11 +15,10 @@ import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
-import kotlin.test.assertSame
 
 class WidgetPlaybackBindingTest {
     @Test
-    fun exo_sources_retain_independent_clients_when_the_same_url_is_preloaded_concurrently() {
+    fun shared_http_clients_keep_headers_separate_for_concurrent_same_url_requests() {
         MockWebServer().use { upstream ->
             val entered = CountDownLatch(2)
             upstream.dispatcher =
@@ -37,26 +32,13 @@ class WidgetPlaybackBindingTest {
             val url = upstream.url("/same-video.mp4").toString()
             val first = binding(url, "first")
             val second = binding(url, "second")
-            val clients = mutableMapOf<MediaSource, okhttp3.OkHttpClient>()
-            val factory =
-                WidgetMediaSourceFactory(fakeFactory { error("Unbound media source") }) { bound ->
-                    val client = widgetPlaybackHttpClient(bound)
-                    fakeFactory { media ->
-                        fakeSource(media).also { clients[it] = client }
-                    }
-                }
-            val firstMedia = taggedMedia(first)
-            val secondMedia = taggedMedia(second)
-            val firstSource = factory.createMediaSource(firstMedia)
-            val secondSource = factory.createMediaSource(secondMedia)
-            assertSame(firstMedia, firstSource.mediaItem)
-            assertSame(secondMedia, secondSource.mediaItem)
+            val clients = listOf(first, second).map(::widgetPlaybackHttpClient)
             val workers = Executors.newFixedThreadPool(2)
             try {
                 val reads =
-                    listOf(firstSource, secondSource).map { source ->
+                    clients.map { client ->
                         workers.submit<String> {
-                            clients.getValue(source).newCall(Request.Builder().url(url).build()).execute().use {
+                            client.newCall(Request.Builder().url(url).build()).execute().use {
                                 check(it.isSuccessful)
                                 it.body!!.string()
                             }
@@ -159,52 +141,4 @@ class WidgetPlaybackBindingTest {
             connection.disconnect()
         }
     }
-
-    // Keep the real MediaSource factory boundary; only Android Uri construction is replaced.
-    private fun taggedMedia(binding: WidgetPlaybackRequest): MediaItem {
-        val unsafe =
-            Unsafe::class.java
-                .getDeclaredField("theUnsafe")
-                .apply { isAccessible = true }
-                .get(null) as Unsafe
-        val configuration =
-            unsafe.allocateInstance(
-                MediaItem.LocalConfiguration::class.java,
-            ) as MediaItem.LocalConfiguration
-        MediaItem.LocalConfiguration::class.java
-            .getDeclaredField("tag")
-            .apply {
-                isAccessible = true
-            }.set(configuration, binding)
-        return MediaItem.Builder().build().also { media ->
-            MediaItem::class.java
-                .getDeclaredField(
-                    "localConfiguration",
-                ).apply { isAccessible = true }
-                .set(media, configuration)
-        }
-    }
-
-    private fun fakeFactory(create: (MediaItem) -> MediaSource): MediaSource.Factory =
-        Proxy.newProxyInstance(
-            MediaSource.Factory::class.java.classLoader,
-            arrayOf(MediaSource.Factory::class.java),
-        ) { _, method, args ->
-            check(method.name == "createMediaSource")
-            create(args!![0] as MediaItem)
-        } as MediaSource.Factory
-
-    private fun fakeSource(media: MediaItem): MediaSource =
-        Proxy.newProxyInstance(
-            MediaSource::class.java.classLoader,
-            arrayOf(MediaSource::class.java),
-        ) { proxy, method, args ->
-            when (method.name) {
-                "getMediaItem" -> media
-                "hashCode" -> System.identityHashCode(proxy)
-                "equals" -> proxy === args!![0]
-                "toString" -> "BoundMediaSource"
-                else -> error("Unexpected MediaSource call: ${method.name}")
-            }
-        } as MediaSource
 }

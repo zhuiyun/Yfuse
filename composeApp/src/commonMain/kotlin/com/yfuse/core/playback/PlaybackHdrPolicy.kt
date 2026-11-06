@@ -63,13 +63,7 @@ data class PlaybackHdrRoute(
     val stripDolbyVisionToBaseLayer: Boolean = false,
 )
 
-/**
- * Chooses the least destructive HDR path before a backend is constructed.
- *
- * Dolby is always kept on the client. A complete platform Dolby pipeline uses Exo; otherwise mpv
- * owns local Dolby metadata processing/tone mapping. Compatible streams may use their HDR10 base
- * layer, while generic HDR on an SDR display also uses mpv's BT.2390 tone-mapping path.
- */
+/** Plans HDR requests without treating a native engine name as verified output capability. */
 fun playbackHdrRoute(
     source: PlaybackSourceRequirements,
     capabilities: PlaybackDeviceCapabilities,
@@ -80,6 +74,20 @@ fun playbackHdrRoute(
         PlaybackDolbyVisionRuntimeCapabilities.conservative(),
     requiresNativeDemuxer: Boolean = false,
 ): PlaybackHdrRoute {
+    if (preferredEngine == PlayerEngine.SenPlayer) {
+        return PlaybackHdrRoute(
+            engine = preferredEngine,
+            decoderMode = preferredDecoderMode,
+            requiresServerTranscode = false,
+            reason = "SenPlayer 的 HDR 输出需由实际播放验证".takeIf { source.hdrFormat != null },
+            dolbyVisionPath =
+                if (source.dolbyVision) {
+                    PlaybackDolbyVisionPath.Unverified
+                } else {
+                    PlaybackDolbyVisionPath.None
+                },
+        )
+    }
     if (source.dolbyVision) {
         val dolbyRoute =
             playbackDolbyVisionRoute(
@@ -122,9 +130,9 @@ fun playbackHdrRoute(
             else -> capabilities.supportsHdrOutput(hdrFormat)
         }
     return PlaybackHdrRoute(
-        engine = if (compatibleOutput) preferredEngine else PlayerEngine.Mpv,
+        engine = preferredEngine,
         decoderMode = DecoderMode.Hardware,
-        requiresServerTranscode = false,
-        reason = "当前显示设备不支持片源 HDR，使用播放器色调映射".takeUnless { compatibleOutput },
+        requiresServerTranscode = !compatibleOutput,
+        reason = "当前显示设备未确认支持片源 HDR；需要服务器色调映射或运行时验证本地输出".takeUnless { compatibleOutput },
     )
 }

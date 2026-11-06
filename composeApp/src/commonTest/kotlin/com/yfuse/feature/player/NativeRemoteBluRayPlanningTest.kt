@@ -15,8 +15,8 @@ import kotlin.test.assertTrue
 
 class NativeRemoteBluRayPlanningTest {
     @Test
-    fun registered_raw_iso_uses_mpv_even_though_server_fallback_urls_are_retained() {
-        val item = rawDiscItem(url = "yfusebd://17", method = PlaybackMethod.DirectPlay)
+    fun raw_http_iso_uses_ycore_without_inventing_server_transcode_authorization() {
+        val item = rawDiscItem(url = "https://media.example/movie.iso", method = PlaybackMethod.DirectPlay)
         val probe = item.playbackMediaProbe()
 
         assertFalse(probe.hasServerTranscode)
@@ -26,16 +26,16 @@ class NativeRemoteBluRayPlanningTest {
             planPlayback(
                 probe = probe,
                 capabilities = PlaybackDeviceCapabilities.conservative(),
-                preferredEngine = PlayerEngine.Exo,
+                preferredEngine = PlayerEngine.YCore,
                 preferredDecoderMode = DecoderMode.Auto,
             )
-        assertEquals(PlayerEngine.Mpv, plan.primaryEngine)
+        assertEquals(PlayerEngine.YCore, plan.primaryEngine)
         assertEquals(PlaybackRenderPath.NativeDirect, plan.renderPath)
         assertFalse(plan.requiresServerTranscode)
     }
 
     @Test
-    fun unregistered_remote_iso_keeps_server_main_feature_fallback() {
+    fun server_approved_remote_iso_keeps_server_main_feature_fallback() {
         val item = rawDiscItem(url = "https://media.example/master.m3u8", method = PlaybackMethod.Transcode)
         val probe = item.playbackMediaProbe(usingServerTranscode = false)
 

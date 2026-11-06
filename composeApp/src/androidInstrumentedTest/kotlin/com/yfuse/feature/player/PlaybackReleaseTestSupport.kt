@@ -11,7 +11,6 @@ import com.yfuse.core.logging.DiagnosticLogStore
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
-import org.junit.Assume.assumeFalse
 import java.io.ByteArrayOutputStream
 import java.io.Closeable
 import java.net.InetAddress
@@ -29,10 +28,6 @@ internal fun requireFullReleaseTestPackage() {
     check(BuildConfig.DEBUG && context.packageName != "com.yfuse") {
         "Release instrumentation requires an isolated debug application id; main app data is not used"
     }
-    assumeFalse(
-        "Compatibility engines are intentionally absent from a native-only APK",
-        BuildConfig.YFUSE_NATIVE_ONLY_RUNTIME,
-    )
 }
 
 internal class PlaybackReleaseTestHost private constructor(

@@ -8,7 +8,6 @@ import android.media.AudioTrack
 import android.view.Surface
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import com.yfuse.BuildConfig
 import com.yfuse.core2.android.FfmpegNativeBridge
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -16,6 +15,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
+import java.util.zip.ZipFile
 
 @RunWith(AndroidJUnit4::class)
 class AndroidPlaybackRuntimeInstrumentedTest {
@@ -29,18 +29,37 @@ class AndroidPlaybackRuntimeInstrumentedTest {
                 .targetPackage
         assertEquals(declaredTargetPackage, context.packageName)
         val nativeDirectory = File(context.applicationInfo.nativeLibraryDir)
-        if (BuildConfig.YFUSE_NATIVE_ONLY_RUNTIME) {
-            assertFalse(File(nativeDirectory, "libmpv.so").isFile)
-            assertFalse(File(nativeDirectory, "libplayer.so").isFile)
-            assertFalse(File(nativeDirectory, "libmdk.so").isFile)
-            assertTrue(File(nativeDirectory, "libycore_demux.so").isFile)
-            assertTrue(File(nativeDirectory, "libycore_gpu.so").isFile)
-            assertClassUnavailable("androidx.media3.exoplayer.ExoPlayer")
-            assertClassUnavailable("dev.jdtech.mpv.MPVLib")
-        } else {
-            Class.forName("dev.jdtech.mpv.MPVLib", true, javaClass.classLoader)
-            assertTrue(File(nativeDirectory, "libmpv.so").isFile)
-            assertTrue(File(nativeDirectory, "libplayer.so").isFile)
+        val packaged =
+            nativeDirectory
+                .listFiles()
+                .orEmpty()
+                .map { it.name }
+                .toMutableSet()
+        val apkPaths =
+            listOfNotNull(context.applicationInfo.sourceDir) + context.applicationInfo.splitSourceDirs.orEmpty()
+        apkPaths.forEach { path ->
+            ZipFile(path).use { zip ->
+                zip
+                    .entries()
+                    .asSequence()
+                    .filter { !it.isDirectory && it.name.startsWith("lib/") }
+                    .forEach { packaged += it.name.substringAfterLast('/') }
+            }
+        }
+        for (removed in listOf("libmpv.so", "libplayer.so", "libmdk.so", "libyfuse-mdk-jni.so")) {
+            assertFalse("Removed runtime remains packaged: $removed", removed in packaged)
+        }
+        assertTrue("YCore demux is absent", "libycore_demux.so" in packaged)
+        assertTrue("YCore GPU is absent", "libycore_gpu.so" in packaged)
+        assertClassUnavailable("androidx.media3.exoplayer.ExoPlayer")
+        assertClassUnavailable("dev.jdtech.mpv.MPVLib")
+        assertClassUnavailable("com.mediadevkit.sdk.MDKPlayer")
+        // Read original assets only; this does not load the original DEX or initialize its license manager.
+        for (asset in listOf("runtime.json", "classes.dex", "native/libFFmpegKit.so", "native/libMLibKit.so")) {
+            context.assets
+                .open(
+                    "senplayer/$asset",
+                ).use { assertTrue("SenPlayer asset is empty: $asset", it.read() >= 0) }
         }
     }
 
@@ -85,20 +104,7 @@ class AndroidPlaybackRuntimeInstrumentedTest {
     }
 
     @Test
-    fun any_advertised_bluray_marker_must_match_the_complete_pinned_artifact() {
-        val capabilities = detectMpvNativeBuildCapabilities()
-
-        if (capabilities.libbluray) {
-            assertTrue(capabilities.pinnedYfuseBluRayArtifact)
-        } else {
-            assertFalse(capabilities.pinnedYfuseBluRayArtifact)
-        }
-    }
-
-    @Test
     fun standalone_ycore_native_apis_load_from_the_packaged_artifact() {
-        if (!BuildConfig.YFUSE_NATIVE_ONLY_RUNTIME) return
-
         assertTrue("FFmpeg JNI bridge failed to load", FfmpegNativeBridge.available)
         assertTrue("FFmpeg software decode API is missing", FfmpegNativeBridge.softwareDecodeAvailable)
         assertTrue("libass renderer API is missing", FfmpegNativeBridge.assRendererAvailable)
@@ -110,7 +116,7 @@ class AndroidPlaybackRuntimeInstrumentedTest {
 
         fun assertClassUnavailable(className: String) {
             val result = runCatching { Class.forName(className, false, javaClass.classLoader) }
-            assertTrue("$className unexpectedly entered the native-only APK", result.isFailure)
+            assertTrue("$className unexpectedly entered the YCore/SenPlayer APK", result.isFailure)
             assertTrue(result.exceptionOrNull() is ClassNotFoundException)
         }
     }

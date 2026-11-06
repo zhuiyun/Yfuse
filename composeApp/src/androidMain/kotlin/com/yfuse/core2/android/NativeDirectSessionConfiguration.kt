@@ -18,6 +18,8 @@ internal class NativeDirectSessionConfiguration(
     val preferredRemoteBufferTargetUs: Long? = null,
     val preparedExtractor: ((YMediaItem) -> YPlatformExtractorSource?)? = null,
     val videoHandoff: AndroidVideoDecoderHandoff? = null,
+    /** Immutable across prepare/retry/queue changes; previews never allocate an audio decoder or sink. */
+    val audioDisabled: Boolean = false,
 )
 
 /** Cross-thread signals only; media resources remain owned by the playback actor. */

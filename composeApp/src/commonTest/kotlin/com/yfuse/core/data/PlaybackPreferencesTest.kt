@@ -197,68 +197,47 @@ class PlaybackPreferencesTest {
         val first = PlaybackPreferences(settings)
 
         assertEquals(PlaybackEngineSelection.Auto, first.engineSelection.value)
-        first.setEngineSelection(PlaybackEngineSelection.LockMpv)
+        first.setEngineSelection(PlaybackEngineSelection.LockYCore)
 
         assertEquals(
-            PlaybackEngineSelection.LockMpv,
+            PlaybackEngineSelection.LockYCore,
             PlaybackPreferences(settings).engineSelection.value,
         )
     }
 
     @Test
-    fun ycore2_defaults_on_and_persists_opt_out() {
-        val settings = MapSettings()
-        val first = PlaybackPreferences(settings)
-
-        assertTrue(first.core2TrialEnabled.value)
-        first.setCore2TrialEnabled(false)
-
-        assertFalse(PlaybackPreferences(settings).core2TrialEnabled.value)
+    fun retired_engine_locks_migrate_and_persist_as_ycore() {
+        listOf("LockExo", "LockMpv", "LockMdk").forEach { old ->
+            val settings = MapSettings().apply { putString("player.ycore.engineSelection", old) }
+            assertEquals(PlaybackEngineSelection.LockYCore, PlaybackPreferences(settings).engineSelection.value)
+            assertEquals("LockYCore", settings.getStringOrNull("player.ycore.engineSelection"))
+            assertEquals(PlaybackEngineSelection.LockYCore, PlaybackPreferences(settings).engineSelection.value)
+        }
     }
 
     @Test
-    fun ycore_native_only_defaults_off_and_cannot_outlive_the_core2_switch() {
-        val settings = MapSettings()
-        val first = PlaybackPreferences(settings)
-
-        assertFalse(first.core2NativeOnlyEnabled.value)
-        first.setCore2NativeOnlyEnabled(true)
-        assertTrue(PlaybackPreferences(settings).core2NativeOnlyEnabled.value)
-
-        first.setCore2TrialEnabled(false)
-        val restored = PlaybackPreferences(settings)
-        assertFalse(restored.core2TrialEnabled.value)
-        assertFalse(restored.core2NativeOnlyEnabled.value)
+    fun unknown_engine_lock_becomes_auto_without_opting_into_senplayer() {
+        val settings = MapSettings().apply { putString("player.ycore.engineSelection", "FutureEngine") }
+        assertEquals(PlaybackEngineSelection.Auto, PlaybackPreferences(settings).engineSelection.value)
+        assertEquals("Auto", settings.getStringOrNull("player.ycore.engineSelection"))
     }
 
     @Test
-    fun ycore_native_only_requires_automatic_engine_selection() {
-        val settings = MapSettings()
+    fun ycore_is_always_native_even_after_retired_switch_opt_out() {
+        val settings =
+            MapSettings().apply {
+                putBoolean("player.ycore2.trialEnabled", false)
+                putBoolean("player.ycore2.nativeOnlyEnabled", false)
+            }
         val preferences = PlaybackPreferences(settings)
-
-        preferences.setCore2NativeOnlyEnabled(true)
-        assertTrue(preferences.core2NativeOnlyEnabled.value)
-
-        preferences.setEngineSelection(PlaybackEngineSelection.LockMpv)
-        assertFalse(preferences.core2NativeOnlyEnabled.value)
-
-        preferences.setCore2NativeOnlyEnabled(true)
-        assertFalse(preferences.core2NativeOnlyEnabled.value)
-        assertFalse(PlaybackPreferences(settings).core2NativeOnlyEnabled.value)
-    }
-
-    @Test
-    fun stale_native_only_value_is_cleared_when_a_locked_engine_is_restored() {
-        val settings = MapSettings()
-        settings.putString("player.ycore.engineSelection", PlaybackEngineSelection.LockMpv.name)
-        settings.putBoolean("player.ycore2.trialEnabled", true)
-        settings.putBoolean("player.ycore2.nativeOnlyEnabled", true)
-
+        preferences.setCore2TrialEnabled(false)
+        preferences.setCore2NativeOnlyEnabled(false)
+        preferences.setEngineSelection(PlaybackEngineSelection.LockYCore)
         val restored = PlaybackPreferences(settings)
-
-        assertFalse(restored.core2NativeOnlyEnabled.value)
-        restored.setEngineSelection(PlaybackEngineSelection.Auto)
-        assertFalse(PlaybackPreferences(settings).core2NativeOnlyEnabled.value)
+        assertTrue(restored.core2TrialEnabled.value)
+        assertTrue(restored.core2NativeOnlyEnabled.value)
+        assertTrue(settings.getBoolean("player.ycore2.trialEnabled", false))
+        assertTrue(settings.getBoolean("player.ycore2.nativeOnlyEnabled", false))
     }
 
     @Test
@@ -269,7 +248,7 @@ class PlaybackPreferencesTest {
             List(MAX_PLAYBACK_FAILURE_RECORDS + 1) { index ->
                 PlaybackFailureRecord(
                     signature = "MKV|HEVC|$index",
-                    engine = PlayerEngine.Exo,
+                    engine = PlayerEngine.YCore,
                     count = 2,
                     lastFailureEpochMs = 1_000L + index,
                 )
@@ -292,7 +271,7 @@ class PlaybackPreferencesTest {
             List(MAX_PLAYBACK_PERFORMANCE_RECORDS + 1) { index ->
                 PlaybackPerformanceRecord(
                     signature = "MKV|HEVC|$index",
-                    engine = PlayerEngine.Exo,
+                    engine = PlayerEngine.YCore,
                     sessions = 3,
                     averageStartupMs = 1_200L,
                     averageRebufferEventsPerMinute = 0.5f,

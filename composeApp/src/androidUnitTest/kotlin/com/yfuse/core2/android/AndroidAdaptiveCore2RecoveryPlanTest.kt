@@ -21,22 +21,6 @@ import kotlin.test.assertTrue
 
 class AndroidAdaptiveCore2RecoveryPlanTest {
     @Test
-    fun `explicit YCore never lets persisted route memory become a hard startup gate`() {
-        assertTrue(
-            shouldBypassLearnedYCoreRouteMemory(
-                manualRetry = false,
-                compatibilityRouteAvailable = false,
-            ),
-        )
-        assertFalse(
-            shouldBypassLearnedYCoreRouteMemory(
-                manualRetry = false,
-                compatibilityRouteAvailable = true,
-            ),
-        )
-    }
-
-    @Test
     fun `native direct never treats an unresolved Dolby source as ordinary HEVC`() {
         val failure =
             assertFailsWith<YPlaybackException> {
@@ -134,21 +118,12 @@ class AndroidAdaptiveCore2RecoveryPlanTest {
     fun `silent native recovery stays inside the active serialized child`() {
         assertTrue(
             shouldRetryActiveNativeChildInPlace(
-                nativeOnly = true,
                 phase = YPlaybackPhase.Ready,
                 route = YPlaybackRoute.NativeDirect,
             ),
         )
         assertFalse(
             shouldRetryActiveNativeChildInPlace(
-                nativeOnly = false,
-                phase = YPlaybackPhase.Ready,
-                route = YPlaybackRoute.NativeDirect,
-            ),
-        )
-        assertFalse(
-            shouldRetryActiveNativeChildInPlace(
-                nativeOnly = true,
                 phase = YPlaybackPhase.Failed,
                 route = YPlaybackRoute.NativeDirect,
             ),
@@ -159,9 +134,9 @@ class AndroidAdaptiveCore2RecoveryPlanTest {
     fun `same native route codec recovery is serialized without rebuilding the child`() {
         assertTrue(canRetryCore2RouteInPlace(YPlaybackRoute.NativeDirect))
         assertTrue(canRetryCore2RouteInPlace(YPlaybackRoute.NativeEnhanced))
-        assertFalse(canRetryCore2RouteInPlace(YPlaybackRoute.Legacy))
+        assertFalse(canRetryCore2RouteInPlace(YPlaybackRoute.Unknown))
         assertFalse(canRetryCore2RouteInPlace(YPlaybackRoute.SoftwareFallback))
         assertTrue(canRetryCore2RouteInPlace(YPlaybackRoute.SoftwareFallback, enhancedChild = true))
-        assertFalse(canRetryCore2RouteInPlace(YPlaybackRoute.Legacy, enhancedChild = true))
+        assertFalse(canRetryCore2RouteInPlace(YPlaybackRoute.Unknown, enhancedChild = true))
     }
 }

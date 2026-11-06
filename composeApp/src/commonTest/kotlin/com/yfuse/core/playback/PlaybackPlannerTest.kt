@@ -4,537 +4,225 @@ import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class PlaybackPlannerTest {
     @Test
-    fun senplayer_requires_explicit_selection_and_stays_out_of_automatic_fallbacks() {
-        val available = PlayerEngine.entries.toSet()
-        val automatic =
+    fun only_the_two_real_engines_and_three_choices_exist() {
+        assertEquals(listOf("YCore", "SenPlayer"), PlayerEngine.entries.map { it.name })
+        assertEquals(listOf("Auto", "LockYCore", "LockSenPlayer"), PlaybackEngineSelection.entries.map { it.name })
+    }
+
+    @Test
+    fun automatic_modes_never_select_sen_even_if_preferences_and_history_suggest_it() {
+        PlaybackOptimizationMode.entries.forEach { optimization ->
+            val plan =
+                planPlayback(
+                    probe("mp4"),
+                    capabilities(),
+                    PlayerEngine.SenPlayer,
+                    DecoderMode.Auto,
+                    optimizationMode = optimization,
+                    excludedEngines = setOf(PlayerEngine.YCore),
+                    engineCosts = mapOf(PlayerEngine.YCore to 100),
+                    availableEngines = PlayerEngine.entries.toSet(),
+                )
+            assertEquals(listOf(PlayerEngine.YCore), plan.engineOrder)
+            assertEquals(PlayerEngine.YCore, plan.primaryEngine)
+            assertEquals(PlaybackRenderPath.NativeDirect, plan.renderPath)
+        }
+    }
+
+    @Test
+    fun sen_requires_an_explicit_bundled_choice_and_keeps_decoder_intent() {
+        val plan =
             planPlayback(
-                probe = probe(container = "mp4"),
-                capabilities = capabilities(),
-                preferredEngine = PlayerEngine.Exo,
-                preferredDecoderMode = DecoderMode.Auto,
-                availableEngines = available,
-            )
-        assertFalse(PlayerEngine.SenPlayer in automatic.engineOrder)
-        val selected =
-            planPlayback(
-                probe = probe(container = "mp4"),
-                capabilities = capabilities(),
-                preferredEngine = PlayerEngine.SenPlayer,
-                preferredDecoderMode = DecoderMode.Auto,
+                probe("mkv"),
+                capabilities(),
+                PlayerEngine.YCore,
+                DecoderMode.Software,
                 engineSelection = PlaybackEngineSelection.LockSenPlayer,
-                availableEngines = available,
-            )
-        assertEquals(listOf(PlayerEngine.SenPlayer), selected.engineOrder)
-    }
-
-    @Test
-    fun compact_package_never_selects_an_unbundled_locked_engine() {
-        val plan =
-            planPlayback(
-                probe = probe(container = "mp4"),
-                capabilities = capabilities(),
-                preferredEngine = PlayerEngine.Mdk,
-                preferredDecoderMode = DecoderMode.Auto,
-                engineSelection = PlaybackEngineSelection.LockMdk,
-                availableEngines = setOf(PlayerEngine.Exo, PlayerEngine.Mpv),
-            )
-
-        assertTrue(plan.engineOrder.isNotEmpty())
-        assertFalse(PlayerEngine.Mdk in plan.engineOrder)
-        assertTrue(plan.primaryEngine in setOf(PlayerEngine.Exo, PlayerEngine.Mpv))
-    }
-
-    @Test
-    fun ordinary_supported_video_preserves_the_efficient_platform_path() {
-        val plan =
-            planPlayback(
+                excludedEngines = setOf(PlayerEngine.SenPlayer),
                 availableEngines = PlayerEngine.entries.toSet(),
-                probe = probe(container = "mkv"),
-                capabilities = capabilities(),
-                preferredEngine = PlayerEngine.Exo,
-                preferredDecoderMode = DecoderMode.Hardware,
             )
-
-        assertEquals(PlayerEngine.Exo, plan.primaryEngine)
-        assertEquals(PlaybackRenderPath.PlatformDirect, plan.renderPath)
+        assertEquals(listOf(PlayerEngine.SenPlayer), plan.engineOrder)
+        assertEquals(DecoderMode.Software, plan.decoderMode)
         assertFalse(plan.requiresServerTranscode)
+        assertEquals(PlaybackEngineSelection.LockSenPlayer, PlaybackEngineSelection.locked(PlayerEngine.SenPlayer))
     }
 
     @Test
-    fun known_exotic_container_uses_native_demux_before_platform_failure() {
+    fun unbundled_sen_uses_ycore_without_claiming_sen_is_available() {
         val plan =
             planPlayback(
-                availableEngines = PlayerEngine.entries.toSet(),
-                probe = probe(container = "avi"),
-                capabilities = capabilities(),
-                preferredEngine = PlayerEngine.Exo,
-                preferredDecoderMode = DecoderMode.Auto,
+                probe("mp4"),
+                capabilities(),
+                PlayerEngine.SenPlayer,
+                DecoderMode.Auto,
+                engineSelection = PlaybackEngineSelection.LockSenPlayer,
+                availableEngines = setOf(PlayerEngine.YCore),
             )
-
-        assertEquals(PlayerEngine.Mpv, plan.primaryEngine)
-        assertEquals(PlaybackRenderPath.NativeDirect, plan.renderPath)
-        assertTrue(plan.reason.orEmpty().contains("AVI"))
+        assertEquals(listOf(PlayerEngine.YCore), plan.engineOrder)
+        assertTrue(plan.reason.orEmpty().contains("不适用"))
     }
 
     @Test
-    fun disc_source_with_server_fallback_uses_server_parse_and_platform_decode() {
+    fun no_available_selected_engine_fails_instead_of_opting_into_sen() {
+        assertFailsWith<IllegalStateException> {
+            planPlayback(
+                probe("mp4"),
+                capabilities(),
+                PlayerEngine.SenPlayer,
+                DecoderMode.Auto,
+                availableEngines = setOf(PlayerEngine.SenPlayer),
+            )
+        }
+    }
+
+    @Test
+    fun protected_content_does_not_claim_secure_output_or_server_bypass() {
+        PlaybackEngineSelection.entries.forEach { selection ->
+            val plan =
+                planPlayback(
+                    probe("mp4", transcode = true).copy(drmProtected = true),
+                    capabilities(),
+                    PlayerEngine.YCore,
+                    DecoderMode.Auto,
+                    engineSelection = selection,
+                    availableEngines = PlayerEngine.entries.toSet(),
+                    videoSupport = PlaybackVideoSupport.unsupported("secure decoder absent"),
+                )
+            assertFalse(plan.requiresServerTranscode)
+            assertEquals(selection.lockedEngine ?: PlayerEngine.YCore, plan.primaryEngine)
+            assertTrue(plan.reason.orEmpty().contains("DRM"))
+        }
+    }
+
+    @Test
+    fun native_demux_disc_styled_subtitles_and_large_remote_mov_keep_ycore() {
+        val ordinary = probe("mkv")
+        val probes =
+            listOf(
+                probe("iso", disc = true),
+                probe("avi"),
+                ordinary.copy(styledSubtitles = true),
+                probe("mov").copy(sourceSizeBytes = 80L * 1024 * 1024 * 1024),
+                ordinary.copy(audioCodec = PlaybackAudioCodec.TrueHd),
+            )
+        probes.forEach { media ->
+            val plan = planPlayback(media, capabilities(), PlayerEngine.YCore, DecoderMode.Auto)
+            assertEquals(listOf(PlayerEngine.YCore), plan.engineOrder)
+            assertFalse(plan.requiresServerTranscode)
+            assertEquals(PlaybackRenderPath.NativeDirect, plan.renderPath)
+        }
+    }
+
+    @Test
+    fun unresolved_disc_with_server_support_keeps_server_main_feature_selection() {
         val plan =
             planPlayback(
-                availableEngines = PlayerEngine.entries.toSet(),
-                probe = probe(container = "iso", disc = true, transcode = true),
-                capabilities = capabilities(),
-                preferredEngine = PlayerEngine.Mpv,
-                preferredDecoderMode = DecoderMode.Software,
+                probe("iso", disc = true, transcode = true),
+                capabilities(),
+                PlayerEngine.YCore,
+                DecoderMode.Auto,
             )
-
-        assertEquals(PlayerEngine.Exo, plan.primaryEngine)
-        assertEquals(DecoderMode.Hardware, plan.decoderMode)
-        assertEquals(PlaybackRenderPath.ServerTranscode, plan.renderPath)
         assertTrue(plan.requiresServerTranscode)
-    }
-
-    @Test
-    fun power_saver_overrides_a_native_preference_for_supported_content() {
-        val plan =
-            planPlayback(
-                availableEngines = PlayerEngine.entries.toSet(),
-                probe = probe(container = "mp4"),
-                capabilities = capabilities(),
-                preferredEngine = PlayerEngine.Mdk,
-                preferredDecoderMode = DecoderMode.Auto,
-                optimizationMode = PlaybackOptimizationMode.PowerSaver,
-            )
-
-        assertEquals(PlayerEngine.Exo, plan.primaryEngine)
-        assertEquals(DecoderMode.Hardware, plan.decoderMode)
-        assertEquals(listOf(PlayerEngine.Exo, PlayerEngine.Mdk, PlayerEngine.Mpv), plan.engineOrder)
-    }
-
-    @Test
-    fun power_saver_uses_server_tone_mapping_instead_of_running_the_gpu_path() {
-        val hdrProbe =
-            PlaybackMediaProbe(
-                container = "mkv",
-                discSource = false,
-                source =
-                    PlaybackSourceRequirements(
-                        dolbyVision = false,
-                        needsDolbyDecoder = false,
-                        dynamicRange = "HDR10",
-                        videoCodec = PlaybackVideoCodec.Hevc,
-                        bitDepth = 10,
-                    ),
-                hasServerTranscode = true,
-            )
-        val decoderOnlyCapabilities =
-            capabilities().copy(
-                hdrDecoders =
-                    mapOf(
-                        PlaybackVideoCodec.Hevc to setOf(PlaybackHdrFormat.Hdr10),
-                    ),
-            )
-
-        val plan =
-            planPlayback(
-                availableEngines = PlayerEngine.entries.toSet(),
-                probe = hdrProbe,
-                capabilities = decoderOnlyCapabilities,
-                preferredEngine = PlayerEngine.Exo,
-                preferredDecoderMode = DecoderMode.Hardware,
-                optimizationMode = PlaybackOptimizationMode.PowerSaver,
-            )
-
-        assertTrue(plan.requiresServerTranscode)
-        assertEquals(PlayerEngine.Exo, plan.primaryEngine)
         assertEquals(PlaybackRenderPath.ServerTranscode, plan.renderPath)
     }
 
     @Test
-    fun compatibility_mode_prefers_mpv_but_keeps_platform_as_a_fallback() {
-        val plan =
-            planPlayback(
-                availableEngines = PlayerEngine.entries.toSet(),
-                probe = probe(container = "mkv"),
-                capabilities = capabilities(),
-                preferredEngine = PlayerEngine.Exo,
-                preferredDecoderMode = DecoderMode.Auto,
-                optimizationMode = PlaybackOptimizationMode.Compatibility,
-            )
-
-        assertEquals(PlayerEngine.Mpv, plan.primaryEngine)
-        assertTrue(PlayerEngine.Exo in plan.engineOrder)
+    fun hardware_rejection_uses_only_an_existing_server_or_local_software_attempt() {
+        listOf(false, true).forEach { server ->
+            val plan =
+                planPlayback(
+                    probe("mp4", transcode = server),
+                    capabilities(),
+                    PlayerEngine.YCore,
+                    DecoderMode.Hardware,
+                    videoSupport = PlaybackVideoSupport.unsupported("exact format rejected"),
+                )
+            assertEquals(server, plan.requiresServerTranscode)
+            assertEquals(if (server) DecoderMode.Hardware else DecoderMode.Software, plan.decoderMode)
+            assertEquals(listOf(PlayerEngine.YCore), plan.engineOrder)
+        }
     }
 
     @Test
-    fun repeated_device_failure_removes_the_bad_engine_from_the_plan() {
+    fun prores_keeps_original_software_attempt_even_when_server_exists() {
+        val media =
+            probe("mov", transcode = true).let {
+                it.copy(source = it.source.copy(videoCodec = PlaybackVideoCodec.ProRes))
+            }
         val plan =
             planPlayback(
-                availableEngines = PlayerEngine.entries.toSet(),
-                probe = probe(container = "mkv"),
-                capabilities = capabilities(),
-                preferredEngine = PlayerEngine.Exo,
-                preferredDecoderMode = DecoderMode.Auto,
-                excludedEngines = setOf(PlayerEngine.Exo),
+                media,
+                capabilities(),
+                PlayerEngine.YCore,
+                DecoderMode.Auto,
+                videoSupport = PlaybackVideoSupport.unsupported("ProRes is not a platform decoder"),
             )
-
-        assertEquals(PlayerEngine.Mpv, plan.primaryEngine)
-        assertFalse(PlayerEngine.Exo in plan.engineOrder)
-    }
-
-    @Test
-    fun balanced_mode_uses_device_performance_history_for_equivalent_engines() {
-        val plan =
-            planPlayback(
-                availableEngines = PlayerEngine.entries.toSet(),
-                probe = probe(container = "mkv"),
-                capabilities = capabilities(),
-                preferredEngine = PlayerEngine.Exo,
-                preferredDecoderMode = DecoderMode.Auto,
-                engineCosts = mapOf(PlayerEngine.Exo to 6),
-            )
-
-        assertEquals(PlayerEngine.Mpv, plan.primaryEngine)
-        assertEquals(listOf(PlayerEngine.Mpv, PlayerEngine.Mdk, PlayerEngine.Exo), plan.engineOrder)
-    }
-
-    @Test
-    fun drm_remains_on_the_platform_path_even_when_history_prefers_native() {
-        val plan =
-            planPlayback(
-                availableEngines = PlayerEngine.entries.toSet(),
-                probe = probe(container = "mp4").copy(drmProtected = true),
-                capabilities = capabilities(),
-                preferredEngine = PlayerEngine.Mpv,
-                preferredDecoderMode = DecoderMode.Auto,
-                engineCosts = mapOf(PlayerEngine.Exo to 10),
-            )
-
-        assertEquals(PlayerEngine.Exo, plan.primaryEngine)
-        assertEquals(listOf(PlayerEngine.Exo), plan.engineOrder)
-    }
-
-    @Test
-    fun locked_backend_disables_automatic_reranking_and_fallback() {
-        val plan =
-            planPlayback(
-                availableEngines = PlayerEngine.entries.toSet(),
-                probe = probe(container = "avi"),
-                capabilities = capabilities(),
-                preferredEngine = PlayerEngine.Exo,
-                preferredDecoderMode = DecoderMode.Auto,
-                engineSelection = PlaybackEngineSelection.LockMdk,
-                excludedEngines = setOf(PlayerEngine.Mdk),
-                engineCosts = mapOf(PlayerEngine.Mdk to 100),
-            )
-
-        assertEquals(PlayerEngine.Mdk, plan.primaryEngine)
-        assertEquals(listOf(PlayerEngine.Mdk), plan.engineOrder)
-        assertTrue(plan.reason.orEmpty().contains("已锁定"))
-    }
-
-    @Test
-    fun protected_content_safely_overrides_a_native_backend_lock() {
-        val plan =
-            planPlayback(
-                availableEngines = PlayerEngine.entries.toSet(),
-                probe = probe(container = "mp4").copy(drmProtected = true),
-                capabilities = capabilities(),
-                preferredEngine = PlayerEngine.Mpv,
-                preferredDecoderMode = DecoderMode.Software,
-                engineSelection = PlaybackEngineSelection.LockMpv,
-            )
-
-        assertEquals(PlayerEngine.Exo, plan.primaryEngine)
-        assertEquals(listOf(PlayerEngine.Exo), plan.engineOrder)
-        assertEquals(DecoderMode.Hardware, plan.decoderMode)
-        assertTrue(plan.reason.orEmpty().contains("安全输出"))
-    }
-
-    @Test
-    fun platform_dolby_output_safely_overrides_a_native_backend_lock() {
-        val dolbySource =
-            PlaybackSourceRequirements(
-                dolbyVision = true,
-                needsDolbyDecoder = true,
-                dynamicRange = "Dolby Vision P5",
-                videoCodec = PlaybackVideoCodec.DolbyVision,
-            )
-        val plan =
-            planPlayback(
-                availableEngines = PlayerEngine.entries.toSet(),
-                probe =
-                    PlaybackMediaProbe(
-                        container = "mp4",
-                        discSource = false,
-                        source = dolbySource,
-                        hasServerTranscode = true,
-                    ),
-                capabilities = capabilities(dolby = true),
-                preferredEngine = PlayerEngine.Mpv,
-                preferredDecoderMode = DecoderMode.Software,
-                engineSelection = PlaybackEngineSelection.LockMpv,
-            )
-
-        assertEquals(PlayerEngine.Exo, plan.primaryEngine)
-        assertEquals(listOf(PlayerEngine.Exo), plan.engineOrder)
-        assertEquals(DecoderMode.Hardware, plan.decoderMode)
-        assertEquals(PlaybackDolbyVisionPath.MediaCodecNative, plan.dolbyVisionPath)
-        assertTrue(plan.reason.orEmpty().contains("Dolby"))
-    }
-
-    @Test
-    fun unsupported_hardware_uses_local_software_when_server_cannot_transcode() {
-        val plan =
-            planPlayback(
-                availableEngines = PlayerEngine.entries.toSet(),
-                probe = probe(container = "mkv", transcode = false),
-                capabilities = capabilities(),
-                preferredEngine = PlayerEngine.Exo,
-                preferredDecoderMode = DecoderMode.Hardware,
-                videoSupport = PlaybackVideoSupport.unsupported("分辨率超出硬解范围"),
-            )
-
-        assertEquals(PlayerEngine.Mpv, plan.primaryEngine)
         assertEquals(DecoderMode.Software, plan.decoderMode)
         assertFalse(plan.requiresServerTranscode)
-    }
-
-    @Test
-    fun unsupported_hardware_prefers_an_available_server_transcode() {
-        val plan =
-            planPlayback(
-                availableEngines = PlayerEngine.entries.toSet(),
-                probe = probe(container = "mkv", transcode = true),
-                capabilities = capabilities(),
-                preferredEngine = PlayerEngine.Exo,
-                preferredDecoderMode = DecoderMode.Hardware,
-                videoSupport = PlaybackVideoSupport.unsupported("码率超出硬解范围"),
-            )
-
-        assertEquals(PlayerEngine.Exo, plan.primaryEngine)
-        assertEquals(DecoderMode.Hardware, plan.decoderMode)
-        assertTrue(plan.requiresServerTranscode)
-    }
-
-    @Test
-    fun dolby_vision_stays_on_local_mpv_even_when_server_transcode_exists() {
-        val dolbyProbe =
-            PlaybackMediaProbe(
-                container = "mkv",
-                discSource = false,
-                source =
-                    PlaybackSourceRequirements(
-                        dolbyVision = true,
-                        needsDolbyDecoder = true,
-                        dynamicRange = "Dolby Vision P5",
-                        videoCodec = PlaybackVideoCodec.Hevc,
-                        bitDepth = 10,
-                    ),
-                hasServerTranscode = true,
-            )
-
-        val plan =
-            planPlayback(
-                availableEngines = PlayerEngine.entries.toSet(),
-                probe = dolbyProbe,
-                capabilities = capabilities(),
-                preferredEngine = PlayerEngine.Exo,
-                preferredDecoderMode = DecoderMode.Hardware,
-                optimizationMode = PlaybackOptimizationMode.PowerSaver,
-                videoSupport = PlaybackVideoSupport.unsupported("平台没有 Dolby 解码器"),
-            )
-
-        assertEquals(PlayerEngine.Mpv, plan.primaryEngine)
-        assertEquals(DecoderMode.Software, plan.decoderMode)
-        assertFalse(plan.requiresServerTranscode)
-        assertEquals(PlaybackRenderPath.GpuToneMapped, plan.renderPath)
-    }
-
-    @Test
-    fun prores_12bit_prefers_original_ffmpeg_decode_even_when_server_can_transcode() {
-        val proResProbe =
-            PlaybackMediaProbe(
-                container = "MOV",
-                discSource = false,
-                source =
-                    PlaybackSourceRequirements(
-                        dolbyVision = false,
-                        needsDolbyDecoder = false,
-                        dynamicRange = "SDR",
-                        videoCodec = PlaybackVideoCodec.ProRes,
-                        width = 1_920,
-                        height = 1_080,
-                        frameRate = 24.0,
-                        bitDepth = 12,
-                    ),
-                hasServerTranscode = true,
-                audioCodec = PlaybackAudioCodec.Pcm,
-                audioChannelCount = 2,
-            )
-        val plan =
-            planPlayback(
-                availableEngines = PlayerEngine.entries.toSet(),
-                probe = proResProbe,
-                capabilities = capabilities(),
-                preferredEngine = PlayerEngine.Exo,
-                preferredDecoderMode = DecoderMode.Auto,
-                engineCosts = mapOf(PlayerEngine.Mpv to 100),
-                videoSupport = PlaybackVideoSupport.unsupported("Android 平台没有可验证的 ProRes 硬解"),
-            )
-
-        assertEquals(PlayerEngine.Mpv, plan.primaryEngine)
-        assertEquals(DecoderMode.Software, plan.decoderMode)
         assertEquals(PlaybackRenderPath.NativeDirect, plan.renderPath)
-        assertFalse(plan.requiresServerTranscode)
-        assertTrue(plan.reason.orEmpty().contains("ProRes"))
-        assertTrue(plan.reason.orEmpty().contains("FFmpeg"))
     }
 
     @Test
-    fun unsupported_platform_audio_keeps_native_demux_ahead_of_performance_ranking() {
-        val plan =
-            planPlayback(
-                availableEngines = PlayerEngine.entries.toSet(),
-                probe = probe(container = "mkv").copy(audioCodec = PlaybackAudioCodec.TrueHd),
-                capabilities = capabilities(),
-                preferredEngine = PlayerEngine.Exo,
-                preferredDecoderMode = DecoderMode.Auto,
-                engineCosts = mapOf(PlayerEngine.Mpv to 10),
-            )
-
-        assertEquals(PlayerEngine.Mpv, plan.primaryEngine)
-        assertTrue(plan.reason.orEmpty().contains("TrueHd"))
-    }
-
-    @Test
-    fun passthrough_only_audio_is_not_directly_playable_when_passthrough_is_disabled() {
-        val trueHdRoute =
-            capabilities().copy(
-                directAudioFormats = setOf(PlaybackAudioCodec.TrueHd),
-            )
-        val source = probe(container = "mkv").copy(audioCodec = PlaybackAudioCodec.TrueHd)
-
-        val pcmPlan =
-            planPlayback(
-                availableEngines = PlayerEngine.entries.toSet(),
-                probe = source,
-                capabilities = trueHdRoute,
-                preferredEngine = PlayerEngine.Exo,
-                preferredDecoderMode = DecoderMode.Auto,
-                allowAudioPassthrough = false,
-            )
-        val passthroughPlan =
-            planPlayback(
-                availableEngines = PlayerEngine.entries.toSet(),
-                probe = source,
-                capabilities = trueHdRoute,
-                preferredEngine = PlayerEngine.Exo,
-                preferredDecoderMode = DecoderMode.Auto,
-                allowAudioPassthrough = true,
-            )
-
-        assertEquals(PlayerEngine.Mpv, pcmPlan.primaryEngine)
-        assertEquals(PlayerEngine.Exo, passthroughPlan.primaryEngine)
-    }
-
-    @Test
-    fun dolby_only_source_never_routes_original_frames_through_a_native_engine() {
-        val dolbySource =
-            PlaybackSourceRequirements(
-                dolbyVision = true,
-                needsDolbyDecoder = true,
-                dynamicRange = "Dolby Vision P5",
-                videoCodec = PlaybackVideoCodec.DolbyVision,
-            )
-        val plan =
-            planPlayback(
-                availableEngines = PlayerEngine.entries.toSet(),
-                probe =
-                    PlaybackMediaProbe(
-                        container = "mp4",
-                        discSource = false,
-                        source = dolbySource,
-                        hasServerTranscode = true,
-                    ),
-                capabilities = capabilities(dolby = true),
-                preferredEngine = PlayerEngine.Mpv,
-                preferredDecoderMode = DecoderMode.Software,
-            )
-
-        assertEquals(listOf(PlayerEngine.Exo), plan.engineOrder)
-        assertEquals(PlaybackRenderPath.PlatformDirect, plan.renderPath)
-    }
-
-    @Test
-    fun huge_remote_mov_uses_native_demux_and_keeps_every_backend_in_the_fallback_chain() {
-        val source =
-            probe(container = "mov").copy(
-                sourceSizeBytes = 195_738_044_172L,
-                localSource = false,
-            )
-
-        val plan =
-            planPlayback(
-                availableEngines = PlayerEngine.entries.toSet(),
-                probe = source,
-                capabilities = capabilities(),
-                preferredEngine = PlayerEngine.Exo,
-                preferredDecoderMode = DecoderMode.Auto,
-            )
-
-        assertTrue(source.isHugeRemoteMov)
-        assertEquals(PlayerEngine.Mpv, plan.primaryEngine)
-        assertEquals(listOf(PlayerEngine.Mpv, PlayerEngine.Exo, PlayerEngine.Mdk), plan.engineOrder)
-        assertEquals(PlaybackRenderPath.NativeDirect, plan.renderPath)
-        assertFalse(plan.requiresServerTranscode)
-    }
-
-    @Test
-    fun dolby_vision_source_never_reaches_mdk_unless_locked() {
-        val dolbyProbe =
-            probe("mkv").let { base ->
-                base.copy(
+    fun display_dolby_support_is_not_native_runtime_output_proof() {
+        val media =
+            probe("mkv").let {
+                it.copy(
                     source =
-                        base.source.copy(
+                        it.source.copy(
                             dolbyVision = true,
                             needsDolbyDecoder = true,
-                            dynamicRange = "Dolby Vision",
-                            videoCodec = PlaybackVideoCodec.Hevc,
                             dolbyVisionProfile = 5,
-                            bitDepth = 10,
                         ),
                 )
             }
-        // No Dolby Vision display: the planner tone-maps locally, and every engine after the
-        // primary is a fallback candidate. MDK would render Profile 5 with a plain HEVC decoder
-        // and show a green/magenta picture without ever failing.
+        val plan = planPlayback(media, capabilities(dolby = true), PlayerEngine.YCore, DecoderMode.Auto)
+        assertEquals(PlaybackDolbyVisionPath.Unverified, plan.dolbyVisionPath)
+        assertEquals(PlaybackRenderPath.NativeDirect, plan.renderPath)
+        assertEquals(DecoderMode.Hardware, plan.decoderMode)
+    }
+
+    @Test
+    fun unsupported_dolby_does_not_request_automatic_server_conversion() {
+        val media =
+            probe("mkv", transcode = true).let {
+                it.copy(source = it.source.copy(dolbyVision = true, needsDolbyDecoder = true, dolbyVisionProfile = 5))
+            }
         val plan =
             planPlayback(
-                availableEngines = PlayerEngine.entries.toSet(),
-                probe = dolbyProbe,
-                capabilities = capabilities(dolby = false),
-                preferredEngine = PlayerEngine.Mdk,
-                preferredDecoderMode = DecoderMode.Auto,
-                optimizationMode = PlaybackOptimizationMode.Compatibility,
+                media,
+                capabilities(),
+                PlayerEngine.YCore,
+                DecoderMode.Auto,
+                videoSupport = PlaybackVideoSupport.unsupported("no native Dolby decoder"),
             )
-        assertFalse(PlayerEngine.Mdk in plan.engineOrder)
-        assertEquals(PlayerEngine.Mpv, plan.primaryEngine)
+        assertFalse(plan.requiresServerTranscode)
+        assertEquals(PlaybackDolbyVisionPath.Unverified, plan.dolbyVisionPath)
+        assertEquals(DecoderMode.Hardware, plan.decoderMode)
+    }
 
-        val locked =
-            planPlayback(
-                availableEngines = PlayerEngine.entries.toSet(),
-                probe = dolbyProbe,
-                capabilities = capabilities(dolby = false),
-                preferredEngine = PlayerEngine.Mdk,
-                preferredDecoderMode = DecoderMode.Auto,
-                engineSelection = PlaybackEngineSelection.LockMdk,
-            )
-        assertEquals(listOf(PlayerEngine.Mdk), locked.engineOrder)
+    @Test
+    fun sdr_display_requests_server_hdr_conversion_only_when_server_exists() {
+        listOf(false, true).forEach { server ->
+            val media =
+                probe("mkv", transcode = server).let {
+                    it.copy(
+                        source =
+                            it.source.copy(
+                                dynamicRange = "HDR10",
+                                videoCodec = PlaybackVideoCodec.Hevc,
+                            ),
+                    )
+                }
+            val plan = planPlayback(media, capabilities(), PlayerEngine.YCore, DecoderMode.Auto)
+            assertEquals(server, plan.requiresServerTranscode)
+            assertFalse(plan.renderPath == PlaybackRenderPath.GpuToneMapped)
+        }
     }
 
     private fun probe(

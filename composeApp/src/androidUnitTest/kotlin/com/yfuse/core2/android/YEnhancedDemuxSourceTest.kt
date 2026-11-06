@@ -64,8 +64,13 @@ class YEnhancedDemuxSourceTest {
     }
 
     @Test
-    fun documentsAndSmbUseTheOwnedTransportWithoutForwardingCredentialsToFfmpeg() {
-        listOf("content://media/video/1", "smb://nas.example.test/share/video.mkv").forEach { uri ->
+    fun fileSourcesUseTheOwnedTransportWithoutForwardingCredentialsToFfmpeg() {
+        listOf(
+            "content://media/video/1",
+            "smb://nas.example.test/share/video.mkv",
+            "ftp://nas.example.test/video.mkv",
+            "yfuse-cloud://source/1/video.mkv",
+        ).forEach { uri ->
             val upstream = item.copy(uri = uri)
             listOf(false, true).forEach { probeOnly ->
                 var localized = false

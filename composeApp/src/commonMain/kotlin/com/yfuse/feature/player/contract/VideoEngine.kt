@@ -153,7 +153,7 @@ data class PlaybackDiagnostics(
     val audioFormat: String = "",
     /** Decoder + rendered-frame evidence; unlike [dynamicRange], this is not source metadata. */
     val videoOutput: String = "等待首帧",
-    /** The AudioTrack/mpv output format, distinguishing encoded passthrough from decoded PCM. */
+    /** The runtime audio output format, distinguishing encoded passthrough from decoded PCM. */
     val audioOutput: String = "等待音频输出",
     /** [videoOutput]'s machine-readable half. Policy reads this; the label is for the panel. */
     val videoReadiness: PlaybackOutputReadiness = PlaybackOutputReadiness.Waiting,
@@ -374,7 +374,7 @@ internal fun bufferedEndPositionMs(
 }
 
 /**
- * Playback backend contract. ExoPlayer and libmpv each implement it so the
+ * Playback backend contract. YCore and SenPlayer implement it so the
  * control layer — progress, play/pause, seek, speed, track pickers, episode
  * navigation — is written once and works with whichever engine is active.
  */
@@ -539,24 +539,6 @@ internal fun subtitleBrightnessByte(brightness: Float): Int =
 internal fun subtitleBrightnessRgba(brightness: Float): String {
     val channel = subtitleBrightnessByte(brightness).toString(16).padStart(2, '0')
     return "0x$channel$channel${channel}ff"
-}
-
-internal fun subtitleBrightnessMpvColor(brightness: Float): String {
-    val channel = subtitleBrightnessByte(brightness).toString(16).padStart(2, '0')
-    return "#ff$channel$channel$channel"
-}
-
-/** mpv accepts CSS-style RRGGBBAA, while persisted colours use Android/Compose-style AARRGGBB. */
-internal fun subtitleArgbMpvColor(argb: Long): String {
-    val value = argb and 0xFFFFFFFFL
-    val alpha = (value ushr 24) and 0xFF
-    val red = (value ushr 16) and 0xFF
-    val green = (value ushr 8) and 0xFF
-    val blue = value and 0xFF
-
-    fun Long.hexByte(): String = toString(16).padStart(2, '0')
-
-    return "#${red.hexByte()}${green.hexByte()}${blue.hexByte()}${alpha.hexByte()}"
 }
 
 internal const val MIN_SUBTITLE_BRIGHTNESS = 0.35f

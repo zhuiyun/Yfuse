@@ -55,7 +55,7 @@ class PlayerSessionStateTest {
     }
 
     @Test
-    fun a_new_build_starts_at_generation_zero_with_the_trial_allowed() {
+    fun a_new_ycore_build_starts_at_generation_zero() {
         val resume =
             PlaybackHandoverSnapshot(
                 itemIndex = 1,
@@ -63,13 +63,12 @@ class PlayerSessionStateTest {
                 playbackRequested = false,
                 speed = 1f,
             )
-        val build = PlayerEngineBuild(PlayerEngine.Mpv, DecoderMode.Hardware, resume)
+        val build = PlayerEngineBuild(PlayerEngine.YCore, DecoderMode.Hardware, resume)
 
-        assertEquals(PlayerEngine.Mpv, build.kind)
+        assertEquals(PlayerEngine.YCore, build.kind)
         assertEquals(DecoderMode.Hardware, build.effectiveDecoderMode)
         assertEquals(resume, build.resume)
         assertEquals(0, build.engineGeneration)
         assertEquals(0, build.runtimeSessionGeneration)
-        assertFalse(build.core2DisabledForSession)
     }
 }

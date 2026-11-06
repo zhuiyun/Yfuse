@@ -30,8 +30,6 @@ internal actual fun createPlaybackMediaProbeService(): PlaybackMediaProbeService
 private class AndroidPlaybackMediaProbeService(
     private val context: Context,
 ) : PlaybackMediaProbeService {
-    private val nativeProbe = MpvPlaybackMediaProbe(context)
-
     // An ordinary map plus explicit eviction avoids a Kotlin 2.1 KMP actualization compiler bug
     // triggered by anonymous Java collection subclasses.
     private val cache =
@@ -82,26 +80,9 @@ private class AndroidPlaybackMediaProbeService(
                             timeoutMs = request.timeoutMs,
                         )
                     }
-                val platform = inspect(resolvedRequest)
-                currentCoroutineContext().ensureActive()
-                if (!platform.requiresNativeProbe()) {
-                    platform
-                } else {
-                    val native =
-                        nativeProbe.probe(
-                            PlaybackProbeRequest(
-                                uri = resolvedRequest.uri,
-                                baseline = platform.probe,
-                                customUserAgent = resolvedRequest.customUserAgent,
-                                timeoutMs = resolvedRequest.timeoutMs,
-                            ),
-                        )
-                    when {
-                        native.status == PlaybackProbeStatus.Complete -> native
-                        platform.status == PlaybackProbeStatus.Complete -> platform
-                        else -> native
-                    }
-                }
+                // Missing platform evidence remains unknown/server metadata. Runtime YCore
+                // performs its own bounded MediaExtractor/FFmpeg probe before choosing a route.
+                inspect(resolvedRequest)
             }
         currentCoroutineContext().ensureActive()
         // A busy lane or temporary network failure must not poison the process-wide cache.
@@ -188,13 +169,6 @@ private class AndroidPlaybackMediaProbeService(
         }
     }
 }
-
-private fun PlaybackProbeResult.requiresNativeProbe(): Boolean =
-    status != PlaybackProbeStatus.Complete ||
-        probe.requiresNativeDemuxer ||
-        probe.source.videoCodec == null ||
-        probe.source.width == null ||
-        probe.source.height == null
 
 private fun PlaybackSourceRequirements.enrichedWith(format: MediaFormat?): PlaybackSourceRequirements {
     if (format == null) return this

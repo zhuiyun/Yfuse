@@ -67,7 +67,7 @@ internal fun settingsControlDestinations(): List<SettingsSearchDestination> =
                                 "音频直通" -> "音频输出 透传 passthrough"
                                 "熄屏继续播放声音" -> "后台播放 锁屏 熄屏 音频 background audio"
                                 "播放模式" -> "YCore 播放策略 自动 省电 兼容 画质"
-                                "播放内核" -> "播放器 引擎 MDK MPV YCore2 YCore 2.0 Native 原生 纯内核 自动模式"
+                                "播放内核" -> "播放器 引擎 SenPlayer YCore2 YCore 2.0 Native 原生 纯内核 自动模式"
                                 "YCore 2.0" -> "YCore2 YCore 2.0 自动模式"
                                 "纯原生模式（实验）" -> "YCore2 Native 原生 纯内核 自动模式"
                                 "Anime4K · YCore SDR 动漫（下次播放生效）" -> "anime4k 动漫 SDR 超分 画质"

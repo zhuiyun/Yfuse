@@ -307,13 +307,14 @@ class SettingsRoundTripTest {
     }
 
     @Test
-    fun PlaybackPreferences_core2TrialEnabled_saves_every_selection_and_restores_it() {
-        val settings = MapSettings()
+    fun PlaybackPreferences_retired_trial_opt_out_migrates_to_the_real_ycore_path() {
+        val settings = MapSettings().apply { putBoolean("player.ycore2.trialEnabled", false) }
         val prefs = PlaybackPreferences(settings)
         for (value in listOf(true, false, true)) {
             prefs.setCore2TrialEnabled(value)
-            assertEquals(value, prefs.core2TrialEnabled.value)
-            assertEquals(value, PlaybackPreferences(settings).core2TrialEnabled.value)
+            assertEquals(true, prefs.core2TrialEnabled.value)
+            assertEquals(true, PlaybackPreferences(settings).core2TrialEnabled.value)
+            assertEquals(true, settings.getBoolean("player.ycore2.trialEnabled", false))
         }
     }
 

@@ -680,10 +680,9 @@ private fun PopupBackLabel(
 
 private fun engineDescription(label: String): String =
     when {
-        label.contains("EXO", ignoreCase = true) -> "系统解码 · HDR/Dolby Vision"
-        label.contains("MDK", ignoreCase = true) -> "画质优先 · 高兼容性"
-        label.contains("MPV", ignoreCase = true) -> "格式支持更完整"
-        else -> "兼容播放内核"
+        label.contains("SenPlayer", ignoreCase = true) -> "实验内核 · 按原许可规则验证"
+        label.contains("YCore", ignoreCase = true) -> "Yfuse 自研播放管线"
+        else -> "YCore 自动规划解码路径"
     }
 
 @Composable

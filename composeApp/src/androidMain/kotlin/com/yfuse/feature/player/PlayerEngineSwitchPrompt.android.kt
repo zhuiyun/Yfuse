@@ -37,66 +37,39 @@ internal fun UnsupportedPlaybackSetting.reset(choices: PlayerViewerChoices) {
     }
 }
 
-/** What a switch for one entry replaced, put back once the queue moves to another entry. */
+/** Original user choice restored when a manually overridden queue entry ends. */
 internal data class ItemEngineOverride(
     val itemId: String,
     val selection: PlaybackEngineSelection,
     val kind: PlayerEngine,
-    val core2Disabled: Boolean,
-    /** The switch left YCore; going back means enabling it again rather than picking a strategy. */
-    val leftCore2: Boolean,
 )
 
-/**
- * Leaves the current engine for the compatibility one, for [itemId] only. Returns what it replaced,
- * for [restoreItemEngine] once the queue moves to another entry.
- */
-internal fun switchToCompatibilityForItem(
+/** Explicitly tries YCore for the current SenPlayer entry; never activates SenPlayer implicitly. */
+internal fun switchToYCoreForItem(
     itemId: String,
-    leaveCore2: Boolean,
     build: PlayerEngineBuild,
     choices: PlayerViewerChoices,
     capturePlaybackHandover: () -> Unit,
-    selectEngineStrategy: (PlaybackEngineSelection) -> Unit,
 ): ItemEngineOverride {
-    val replaced =
-        ItemEngineOverride(
-            itemId = itemId,
-            selection = choices.sessionEngineSelection,
-            kind = build.kind,
-            core2Disabled = build.core2DisabledForSession,
-            leftCore2 = leaveCore2,
-        )
-    if (leaveCore2) {
-        // Changing only `kind` would construct YCore again under Auto: it leaves the trial path too.
-        capturePlaybackHandover()
-        build.core2DisabledForSession = true
-        choices.sessionEngineSelection = PlaybackEngineSelection.LockMpv
-        build.kind = PlayerEngine.Mpv
-        build.engineGeneration++
-    } else {
-        selectEngineStrategy(PlaybackEngineSelection.LockMpv)
-    }
+    check(build.kind == PlayerEngine.SenPlayer) { "An item override can only switch SenPlayer to YCore" }
+    val replaced = ItemEngineOverride(itemId, choices.sessionEngineSelection, build.kind)
+    capturePlaybackHandover()
+    choices.sessionEngineSelection = PlaybackEngineSelection.LockYCore
+    build.kind = PlayerEngine.YCore
+    build.engineGeneration++
     return replaced
 }
 
-/** Puts back what [switchToCompatibilityForItem] replaced; the entry it was for is over. */
 internal fun restoreItemEngine(
     replaced: ItemEngineOverride,
     build: PlayerEngineBuild,
     choices: PlayerViewerChoices,
     capturePlaybackHandover: () -> Unit,
-    selectEngineStrategy: (PlaybackEngineSelection) -> Unit,
 ) {
-    if (replaced.leftCore2) {
-        capturePlaybackHandover()
-        build.core2DisabledForSession = replaced.core2Disabled
-        choices.sessionEngineSelection = replaced.selection
-        build.kind = replaced.kind
-        build.engineGeneration++
-    } else {
-        selectEngineStrategy(replaced.selection)
-    }
+    capturePlaybackHandover()
+    choices.sessionEngineSelection = replaced.selection
+    build.kind = replaced.kind
+    build.engineGeneration++
 }
 
 /**
@@ -104,7 +77,7 @@ internal fun restoreItemEngine(
  * switch for the current entry only.
  *
  * A setting the viewer adjusted, or one remembered for the series, used to rebuild playback on the
- * compatibility engine without a word and keep the whole session there. Concurrent unsupported
+ * another engine without a word and keep the whole session there. Concurrent unsupported
  * settings share one decision; keeping the engine resets every setting named by that decision.
  */
 internal class EngineSwitchPrompt {
@@ -114,13 +87,22 @@ internal class EngineSwitchPrompt {
 
     fun ask(
         context: Context,
+        currentEngine: PlayerEngine,
         itemId: String?,
         setting: UnsupportedPlaybackSetting,
         onSwitch: () -> Unit,
         onKeep: () -> Unit,
     ) {
+        if (currentEngine != PlayerEngine.SenPlayer) {
+            dismiss()
+            onKeep()
+            PlayerNotices.show("当前 YCore 管线不支持「${setting.label}」，已恢复此设置")
+            return
+        }
         val pending = requests.offer(itemId, setting, onSwitch, onKeep)
-        val message = "当前内核无法应用「${pending.settings.joinToString("、") { it.label }}」。可以只为这一集改用兼容内核，下一集会回到原来的选择。"
+        val message = "当前内核无法应用「${pending.settings.joinToString(
+            "、",
+        ) { it.label }}」。可以只为这一集尝试 YCore；具体功能以实际输出为准，下一集会回到原来的选择。"
         if (shown === pending && dialog?.isShowing == true) {
             dialog?.setMessage(message)
             return
@@ -130,7 +112,7 @@ internal class EngineSwitchPrompt {
         dialog =
             AlertDialog
                 .Builder(context, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                .setTitle("改用兼容内核播放本集？")
+                .setTitle("本集尝试 YCore？")
                 .setMessage(message)
                 .setPositiveButton("本集改用") { _, _ ->
                     requests.resolve(pending, switch = true)

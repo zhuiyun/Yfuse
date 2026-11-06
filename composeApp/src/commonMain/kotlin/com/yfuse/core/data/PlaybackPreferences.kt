@@ -313,9 +313,20 @@ class PlaybackPreferences(
 
     private val _engineSelection =
         MutableStateFlow(
-            enumSetting(KEY_ENGINE_SELECTION, PlaybackEngineSelection.Auto)
-                .takeIf { it in PlaybackEngineSelection.selectable }
-                ?: PlaybackEngineSelection.Auto,
+            settings.getStringOrNull(KEY_ENGINE_SELECTION).let { stored ->
+                val migrated =
+                    when (stored) {
+                        "LockExo", "LockMpv", "LockMdk" -> PlaybackEngineSelection.LockYCore
+                        else -> PlaybackEngineSelection.entries.firstOrNull { it.name == stored }
+                    } ?: PlaybackEngineSelection.Auto
+                val available =
+                    migrated.takeIf { it in PlaybackEngineSelection.selectable }
+                        ?: PlaybackEngineSelection.Auto
+                if (stored != null && stored != available.name) {
+                    settings.putString(KEY_ENGINE_SELECTION, available.name)
+                }
+                available
+            },
         )
     val engineSelection: StateFlow<PlaybackEngineSelection> = _engineSelection.asStateFlow()
 
@@ -325,9 +336,6 @@ class PlaybackPreferences(
                 ?: PlaybackEngineSelection.Auto
         _engineSelection.value = available
         settings.putString(KEY_ENGINE_SELECTION, available.name)
-        if (available != PlaybackEngineSelection.Auto) {
-            setCore2NativeOnlyEnabled(false)
-        }
     }
 
     /** 氛围光: the picture's edge colours leak into the letterbox and tint the player chrome. */
@@ -369,38 +377,24 @@ class PlaybackPreferences(
         settings.putBoolean(KEY_UNLOCK_BY_LONG_PRESS, normalized.unlockByLongPress)
     }
 
+    // Compatibility for callers of the former trial switches. YCore now always means the
+    // owned native implementation; a persisted opt-out must never select a removed backend.
     private val _core2TrialEnabled =
-        MutableStateFlow(settings.getBoolean(KEY_CORE2_TRIAL_ENABLED, true))
+        MutableStateFlow(true.also { settings.putBoolean(KEY_CORE2_TRIAL_ENABLED, it) })
     val core2TrialEnabled: StateFlow<Boolean> = _core2TrialEnabled.asStateFlow()
 
+    @Suppress("UNUSED_PARAMETER")
     fun setCore2TrialEnabled(enabled: Boolean) {
-        _core2TrialEnabled.value = enabled
-        settings.putBoolean(KEY_CORE2_TRIAL_ENABLED, enabled)
-        if (!enabled) setCore2NativeOnlyEnabled(false)
+        settings.putBoolean(KEY_CORE2_TRIAL_ENABLED, true)
     }
 
     private val _core2NativeOnlyEnabled =
-        MutableStateFlow(
-            settings.getBoolean(KEY_CORE2_NATIVE_ONLY_ENABLED, false).let { stored ->
-                val resolved =
-                    stored &&
-                        _core2TrialEnabled.value &&
-                        _engineSelection.value == PlaybackEngineSelection.Auto
-                if (stored != resolved) {
-                    settings.putBoolean(KEY_CORE2_NATIVE_ONLY_ENABLED, resolved)
-                }
-                resolved
-            },
-        )
+        MutableStateFlow(true.also { settings.putBoolean(KEY_CORE2_NATIVE_ONLY_ENABLED, it) })
     val core2NativeOnlyEnabled: StateFlow<Boolean> = _core2NativeOnlyEnabled.asStateFlow()
 
+    @Suppress("UNUSED_PARAMETER")
     fun setCore2NativeOnlyEnabled(enabled: Boolean) {
-        val resolved =
-            enabled &&
-                _core2TrialEnabled.value &&
-                _engineSelection.value == PlaybackEngineSelection.Auto
-        _core2NativeOnlyEnabled.value = resolved
-        settings.putBoolean(KEY_CORE2_NATIVE_ONLY_ENABLED, resolved)
+        settings.putBoolean(KEY_CORE2_NATIVE_ONLY_ENABLED, true)
     }
 
     internal fun playbackFailureRecords(): List<PlaybackFailureRecord> =

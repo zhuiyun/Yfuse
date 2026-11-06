@@ -51,10 +51,8 @@ class YCorePlaybackSession(
     private val failureMemory: PlaybackFailureMemory,
     private val performanceMemory: PlaybackPerformanceMemory? = null,
     /**
-     * The planner's [PlayerEngine] currently names compatibility engines only. NativeDirect can
-     * run behind an Exo-selected plan, so recording NativeDirect health under [PlayerEngine.Exo]
-     * would poison Exo's persistent failure/performance memory. Keep observation active while
-     * withholding shared engine learning until NativeDirect has its own planner identity.
+     * Observations are stored under the actual YCore or SenPlayer identity. Callers may still
+     * disable learning for a diagnostic session; output verification remains independent.
      */
     private val recordEngineLearning: Boolean = true,
     startedAtEpochMs: Long,

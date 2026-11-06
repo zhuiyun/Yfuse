@@ -49,14 +49,12 @@ class YGpuPipelineTest {
     @Test
     fun `never selects Vulkan from an advertised API without a verified executor`() {
         val plan =
-            requireNotNull(
-                YGpuPipelinePlanner.plan(
-                    request = request(sourceHdr = YHdrType.Hdr10, displayHdr = setOf(YHdrType.Sdr)),
-                    capabilities = capabilities().copy(nativeVulkanExecutorVerified = false),
-                ),
+            YGpuPipelinePlanner.plan(
+                request = request(sourceHdr = YHdrType.Hdr10, displayHdr = setOf(YHdrType.Sdr)),
+                capabilities = capabilities().copy(nativeVulkanExecutorVerified = false),
             )
 
-        assertEquals(YGpuBackend.MpvGpu, plan.backend)
+        assertNull(plan)
         assertEquals(
             false,
             YGpuExecutionEvidence(
@@ -100,7 +98,7 @@ class YGpuPipelineTest {
 
     private fun capabilities(tenBit: Boolean = true): YGpuCapabilities =
         YGpuCapabilities(
-            backends = setOf(YGpuBackend.Vulkan, YGpuBackend.MpvGpu),
+            backends = setOf(YGpuBackend.Vulkan),
             nativeVulkanExecutorVerified = true,
             toneMappers = setOf(YToneMapper.Bt2390, YToneMapper.Hable),
             scalingFilters = setOf(YScalingFilter.Lanczos),

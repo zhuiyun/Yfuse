@@ -39,8 +39,6 @@ kotlin {
                 implementation(project(":senplayerBridge"))
                 implementation(libs.widget.quickjs)
                 implementation(libs.widget.jsoup)
-                compileOnly(project(":mdkAndroid"))
-                compileOnly(files("../composeApp/libs/libmpv-release.aar"))
                 compileOnly(libs.bundles.shared.android)
                 compileOnly(libs.androidx.window)
                 compileOnly(libs.media3.common)
@@ -76,8 +74,6 @@ kotlin {
                 implementation(libs.media3.common)
                 implementation(libs.media3.database)
                 implementation(libs.media3.datasource)
-                implementation(project(":mdkAndroid"))
-                implementation(files("../composeApp/libs/libmpv-release.aar"))
 
                 implementation(kotlin("test"))
                 implementation(libs.coroutines.test)

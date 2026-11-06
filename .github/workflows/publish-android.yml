@@ -26,15 +26,6 @@ on:
         description: Release notes shown by the in-app updater
         required: true
         type: string
-      confirm_mdk_distribution_rights:
-        description: >-
-          Confirm the release owner has completed the MDK SDK distribution-rights checklist
-          (docs/third-party-licenses/README.md) for this release. Required to publish the full
-          (MDK-included) package; a push-triggered release instead reads the repository variable
-          MDK_DISTRIBUTION_CONFIRMED.
-        required: true
-        default: false
-        type: boolean
       publish:
         description: >-
           Upload the update to the server; a successful upload also creates the GitHub release.
@@ -79,7 +70,6 @@ jobs:
       version_code: ${{ steps.request.outputs.version_code }}
       version_name: ${{ steps.request.outputs.version_name }}
       release_notes: ${{ steps.request.outputs.release_notes }}
-      confirm_mdk_distribution_rights: ${{ steps.request.outputs.confirm_mdk_distribution_rights }}
       update_base_url: ${{ steps.request.outputs.update_base_url }}
       deploy_host: ${{ steps.request.outputs.deploy_host }}
       deploy_user: ${{ steps.request.outputs.deploy_user }}
@@ -90,12 +80,6 @@ jobs:
       VERSION_CODE: ${{ inputs.version_code }}
       VERSION_NAME: ${{ inputs.version_name }}
       RELEASE_NOTES: ${{ inputs.release_notes }}
-      # Overwritten below for a push-triggered run (Resolve automatic release request), which has
-      # no workflow_dispatch inputs and instead reads the repository confirmation or a matching
-      # package-only approval. The full (MDK-included) package is refused unless this is exactly
-      # "true": here before anything is built, and again by the sign job before production
-      # signing, since Gradle's verifyProductionMdkRights no longer sees the release keystore.
-      CONFIRM_MDK_DISTRIBUTION_RIGHTS: ${{ inputs.confirm_mdk_distribution_rights }}
       # Fail closed until the request is resolved. Artifact-only pushes and manual runs with
       # publish off save the signed APK while every deployment step remains skipped.
       PUBLISH_UPDATE: 'false'
@@ -142,22 +126,10 @@ jobs:
       - name: Resolve automatic release request
         if: github.event_name == 'push'
         shell: bash
-        env:
-          MDK_DISTRIBUTION_CONFIRMED: ${{ vars.MDK_DISTRIBUTION_CONFIRMED }}
         run: |
           set -euo pipefail
 
           python3 scripts/release_metadata.py --format github-env >> "$GITHUB_ENV"
-          # No workflow_dispatch input exists on a push trigger; the repository variable is the
-          # release owner's equivalent one-time confirmation for this deployment path.
-          if [[ "$MDK_DISTRIBUTION_CONFIRMED" == "true" ]]; then
-            echo 'CONFIRM_MDK_DISTRIBUTION_RIGHTS=true' >> "$GITHUB_ENV"
-          elif [[ "$PUBLISH_UPDATE" == "false" ]]; then
-            confirmed="$(python3 scripts/mdk_distribution_approval.py --package-only)"
-            echo "CONFIRM_MDK_DISTRIBUTION_RIGHTS=$confirmed" >> "$GITHUB_ENV"
-          else
-            echo 'CONFIRM_MDK_DISTRIBUTION_RIGHTS=false' >> "$GITHUB_ENV"
-          fi
 
       - name: Validate release request
         shell: bash
@@ -181,10 +153,6 @@ jobs:
           fi
           if [[ -z "${RELEASE_NOTES//[[:space:]]/}" ]]; then
             echo "::error::release notes must not be empty"
-            exit 1
-          fi
-          if [[ "$CONFIRM_MDK_DISTRIBUTION_RIGHTS" != "true" ]]; then
-            echo "::error::MDK distribution rights need the release owner's confirmation before building this full package"
             exit 1
           fi
 
@@ -357,7 +325,6 @@ jobs:
             echo "publish=$PUBLISH_UPDATE"
             echo "version_code=$VERSION_CODE"
             echo "version_name=$VERSION_NAME"
-            echo "confirm_mdk_distribution_rights=$CONFIRM_MDK_DISTRIBUTION_RIGHTS"
             echo "update_base_url=$UPDATE_BASE_URL"
             echo "deploy_host=$DEPLOY_HOST"
             echo "deploy_user=$DEPLOY_USER"
@@ -420,7 +387,6 @@ jobs:
     env:
       VERSION_CODE: ${{ needs.request.outputs.version_code }}
       VERSION_NAME: ${{ needs.request.outputs.version_name }}
-      CONFIRM_MDK_DISTRIBUTION_RIGHTS: ${{ needs.request.outputs.confirm_mdk_distribution_rights }}
       PUBLISH_UPDATE: ${{ needs.request.outputs.publish }}
       # Derived and validated by the request job; Gradle embeds it in the APK.
       YFUSE_UPDATE_MANIFEST_PUBLIC_KEY: ${{ needs.request.outputs.update_manifest_public_key }}
@@ -463,21 +429,16 @@ jobs:
             "ndk;29.0.14206865" \
             "cmake;3.22.1"
 
-      - name: Download player engines
+      - name: Prepare pinned YCore and SenPlayer inputs
+        env:
+          YCORE_NATIVE_AAR_URL: ${{ secrets.YCORE_NATIVE_AAR_URL }}
+          SENPLAYER_SOURCE_APK_URL: ${{ secrets.SENPLAYER_SOURCE_APK_URL }}
         shell: bash
         run: |
           set -euo pipefail
-          if ! command -v 7z >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y p7zip-full
-          fi
           chmod +x gradlew scripts/fetch-engines.sh
           scripts/fetch-engines.sh
-          test -f composeApp/libs/libmpv-release.aar
-          test -f composeApp/libs/mdk-sdk/lib/cmake/FindMDK.cmake
-
-      - name: Build and install current YCore runtime
-        uses: ./.github/actions/build-current-ycore
+          test -s composeApp/libs/ycore-native.aar
 
       - name: Resolve with committed dependency locks
         shell: bash
@@ -485,7 +446,7 @@ jobs:
           set -euo pipefail
           ./gradlew \
             :composeApp:dependencies :phoneShared:dependencies :tvApp:dependencies :tvShared:dependencies \
-            :mdkAndroid:dependencies \
+            \
             :watchTogetherProtocol:dependencies \
             :watchTogetherServer:dependencies \
             --no-daemon >/dev/null
@@ -502,11 +463,10 @@ jobs:
           # gates build: a throwaway debug signature that the sign job replaces. Gradle then
           # skips its production-signing checks; the request and sign jobs enforce them.
           ./gradlew :composeApp:assembleRelease \
-            -PyfuseNativeOnlyRuntime=false \
-            -PyfuseIncludeMdk=true \
+            -PyfuseNativeOnlyRuntime=true \
+            -PyfuseIncludeMdk=false -PyfusePlaybackProfile=ycore-senplayer \
             -PyfuseVersionCode="$VERSION_CODE" \
             -PyfuseVersionName="$VERSION_NAME" \
-            -PconfirmMdkDistributionRights="$CONFIRM_MDK_DISTRIBUTION_RIGHTS" \
             -PyfusePackageOnly="$package_only" \
             -PallowDebugSigning=true \
             -Pkotlin.incremental=false \
@@ -534,6 +494,8 @@ jobs:
           metadata="composeApp/build/outputs/apk/release/output-metadata.json"
           test -f "$apk"
           test -f "$metadata"
+          python3 scripts/verify-playback-package.py "$apk" \
+            --mapping composeApp/build/outputs/mapping/release/mapping.txt
 
           actual_version_code="$(jq -r '.elements[0].versionCode' "$metadata")"
           actual_version_name="$(jq -r '.elements[0].versionName' "$metadata")"
@@ -588,7 +550,6 @@ jobs:
     env:
       VERSION_CODE: ${{ needs.request.outputs.version_code }}
       VERSION_NAME: ${{ needs.request.outputs.version_name }}
-      CONFIRM_MDK_DISTRIBUTION_RIGHTS: ${{ needs.request.outputs.confirm_mdk_distribution_rights }}
       # Public certificate fingerprint pinned from the currently published APK.
       # Changing this requires an explicit signing-key migration.
       EXPECTED_ANDROID_CERT_SHA256: 373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84
@@ -633,12 +594,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Gradle's verifyProductionMdkRights guarded production signing inside the build; the
-          # production signature is applied here now, so the confirmation is required here too.
-          if [[ "$CONFIRM_MDK_DISTRIBUTION_RIGHTS" != "true" ]]; then
-            echo "::error::MDK distribution rights need the release owner's confirmation before signing this full package"
-            exit 1
-          fi
           required_secrets=(
             ANDROID_KEYSTORE_BASE64
             ANDROID_KEYSTORE_PASSWORD
@@ -755,15 +710,22 @@ jobs:
             fi
           done
 
-          # Check this final signed artifact, not just the separate quality-gate build.
-          # Reading the entries also rejects empty or unreadable runtime libraries.
-          for library in libmdk.so libyfuse-mdk-jni.so; do
-            entry="lib/arm64-v8a/$library"
-            if ! entry_size="$(unzip -p "$apk" "$entry" | wc -c)" || (( entry_size == 0 )); then
-              echo "::error::Required MDK runtime $entry is missing, empty, or unreadable in the signed APK"
-              exit 1
-            fi
-          done
+          # Signing may only change signature metadata. Compare every package payload byte with
+          # the exact build-verified artifact, preserving the YCore/Sen hashes and DEX boundary.
+          python3 - "$apk" build/release/composeApp-release.apk <<'PY'
+          import hashlib
+          import re
+          import sys
+          import zipfile
+          def payload(path):
+              def signature(name):
+                  return name.upper() == "META-INF/MANIFEST.MF" or re.fullmatch(r"META-INF/[^/]+\.(SF|RSA|DSA|EC)", name, re.IGNORECASE)
+              with zipfile.ZipFile(path) as archive:
+                  return {entry.filename: hashlib.sha256(archive.read(entry)).hexdigest() for entry in archive.infolist()
+                          if not signature(entry.filename)}
+          if payload(sys.argv[1]) != payload(sys.argv[2]):
+              raise SystemExit("Signing changed APK payload entries")
+          PY
 
           apk_sha256="$(sha256sum "$apk" | awk '{print $1}')"
           apk_size="$(stat -c '%s' "$apk")"

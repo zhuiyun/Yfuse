@@ -32,13 +32,13 @@ class ProResPlaybackPlanningTest {
             planPlayback(
                 probe = probe,
                 capabilities = PlaybackDeviceCapabilities.conservative(),
-                preferredEngine = PlayerEngine.Exo,
+                preferredEngine = PlayerEngine.YCore,
                 preferredDecoderMode = DecoderMode.Auto,
                 videoSupport = PlaybackVideoSupport.unknown("Android 没有 ProRes MIME"),
-                engineCosts = mapOf(PlayerEngine.Mpv to 100),
+                engineCosts = mapOf(PlayerEngine.YCore to 100),
             )
 
-        assertEquals(PlayerEngine.Mpv, plan.primaryEngine)
+        assertEquals(PlayerEngine.YCore, plan.primaryEngine)
         assertEquals(DecoderMode.Software, plan.decoderMode)
         assertEquals(PlaybackRenderPath.NativeDirect, plan.renderPath)
         assertFalse(plan.requiresServerTranscode)

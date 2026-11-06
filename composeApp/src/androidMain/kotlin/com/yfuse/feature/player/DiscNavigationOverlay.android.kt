@@ -16,7 +16,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.IntSize
 
-/** Shared HDMV navigation binding and authored overlay for Legacy and Core2 surface hosts. */
+/** Shared HDMV navigation binding and authored overlay for the YCore libbluray session. */
 @Composable
 internal fun DiscNavigationOverlay(
     engine: VideoEngine,
@@ -24,23 +24,16 @@ internal fun DiscNavigationOverlay(
     modifier: Modifier = Modifier,
 ) {
     val nativeMenuSession by NativeRemoteBluRaySessionRegistry.activeSession.collectAsState()
-    val bdmvAngleBinding by NativeLocalBdmvAngleRegistry.binding.collectAsState()
     val overlayFrame by NativeRemoteBluRaySessionRegistry.overlay.collectAsState()
     val discNavigationRevision by ActiveDiscNavigation.revision.collectAsState()
 
-    DisposableEffect(engine, nativeMenuSession, bdmvAngleBinding) {
+    DisposableEffect(engine, nativeMenuSession) {
         val engineBackend = VideoEngineDiscNavigationBackend(engine)
         val backend =
             nativeMenuSession?.let { session ->
-                val opticalSession =
-                    if (bdmvAngleBinding != null) {
-                        BdmvAngleHdmvSession(session) { NativeLocalBdmvAngleRegistry.binding.value }
-                    } else {
-                        session
-                    }
                 CompositeDiscNavigationBackend(
                     engineBackend = engineBackend,
-                    menuBackend = HdmvDiscNavigationBackend(opticalSession),
+                    menuBackend = HdmvDiscNavigationBackend(session),
                 )
             } ?: engineBackend
         ActiveDiscNavigation.bind(owner = engine, backend = backend)

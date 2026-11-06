@@ -17,6 +17,17 @@ import kotlin.test.assertTrue
 
 class AndroidCore2TrialTest {
     @Test
+    fun actual_ftp_and_stable_cloud_transports_reach_YCore_without_a_legacy_engine() {
+        for (uri in listOf("ftp://server/video.mkv", "yfuse-cloud://source/1/video.mkv")) {
+            val item = mediaItem(uri).copy(versions = emptyList())
+            assertTrue(listOf(item).canUseCore2Trial(0), uri)
+            assertNull(listOf(item).core2NativeBaselineBlockReason(0), uri)
+            assertEquals(uri, listOf(item).toCore2MediaItems("player", appVersion = { "1" }).single().uri)
+        }
+        assertFalse(listOf(mediaItem("rtmp://server/video")).canUseCore2Trial(0))
+    }
+
+    @Test
     fun queueMappingKeepsUserAndTokenBoundToEachItem() {
         val items =
             listOf("a", "b").map { account ->
@@ -76,6 +87,10 @@ class AndroidCore2TrialTest {
         assertTrue(supportsYCoreNativeDiscSource(PlaybackDiscKind.Iso, "https"))
         assertTrue(supportsYCoreNativeDiscSource(PlaybackDiscKind.Iso, "webdavs"))
         assertTrue(supportsYCoreNativeDiscSource(PlaybackDiscKind.Iso, "smb"))
+        assertTrue(supportsYCoreNativeDiscSource(PlaybackDiscKind.Iso, "ftp"))
+        assertTrue(supportsYCoreNativeDiscSource(PlaybackDiscKind.Iso, "yfuse-cloud"))
+        assertFalse(supportsYCoreNativeDiscSource(PlaybackDiscKind.Bdmv, "yfuse-cloud"))
+        assertFalse(supportsYCoreNativeDiscSource(PlaybackDiscKind.Iso, "yfusebd"))
         assertFalse(supportsYCoreNativeDiscSource(PlaybackDiscKind.Dvd, "file"))
     }
 
@@ -87,7 +102,7 @@ class AndroidCore2TrialTest {
                 mediaItem("smb://nas.example.test/Movies/movie.mkv"),
                 mediaItem("webdavs://dav.example.test/Movies/movie.mkv"),
                 mediaItem("content://media/external/video/1"),
-                mediaItem("yfusebdmv://42"),
+                mediaItem("file:///storage/movie/BDMV/index.bdmv"),
             )
 
         assertTrue(items.canUseCore2Trial(startIndex = 0))
@@ -102,7 +117,7 @@ class AndroidCore2TrialTest {
         val items =
             listOf(
                 mediaItem("https://media.example.test/episode1.mkv"),
-                mediaItem("ftp://media.example.test/episode2.mkv"),
+                mediaItem("unimplemented://media.example.test/episode2.mkv"),
                 mediaItem("https://media.example.test/episode3.mkv"),
             )
 
@@ -113,10 +128,11 @@ class AndroidCore2TrialTest {
     }
 
     @Test
-    fun invalid_queue_or_unknown_source_scheme_stays_on_legacy() {
+    fun invalid_queue_and_removed_or_unknown_protocols_are_rejected() {
         assertFalse(emptyList<PlayerMediaItem>().canUseCore2Trial(startIndex = 0))
         assertFalse(listOf(mediaItem("https://media/movie")).canUseCore2Trial(startIndex = 1))
-        assertFalse(listOf(mediaItem("ftp://media/movie")).canUseCore2Trial(startIndex = 0))
+        assertFalse(listOf(mediaItem("unimplemented://media/movie")).canUseCore2Trial(startIndex = 0))
+        assertFalse(listOf(mediaItem("yfusebdmv://42")).canUseCore2Trial(startIndex = 0))
     }
 
     @Test
@@ -442,7 +458,7 @@ class AndroidCore2TrialTest {
                 id = "disc",
                 label = "Blu-ray",
                 detail = "BDMV",
-                url = "yfusebdmv://42",
+                url = "file:///storage/movie",
                 transcodeUrl = "https://media.example.test/transcode.m3u8",
                 fallbackTranscodeUrl = "https://media.example.test/fallback.mp4",
                 container = "BDMV",

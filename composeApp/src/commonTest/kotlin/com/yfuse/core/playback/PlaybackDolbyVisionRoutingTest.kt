@@ -1,6 +1,5 @@
 package com.yfuse.core.playback
 
-import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -9,122 +8,72 @@ import kotlin.test.assertTrue
 
 class PlaybackDolbyVisionRoutingTest {
     @Test
-    fun planner_exposes_gpu_dolby_render_path_for_profile_seven() {
-        val plan =
-            planPlayback(
-                probe = probe(profileSeven()),
-                capabilities = capabilities(dolby = true, hdr10 = true),
-                preferredEngine = PlayerEngine.Exo,
-                preferredDecoderMode = DecoderMode.Auto,
-                dolbyVisionRuntime = verifiedRuntime(fullFelGpuCapable = true),
-            )
-
-        assertEquals(PlayerEngine.Mpv, plan.primaryEngine)
-        assertEquals(PlaybackRenderPath.GpuDolbyVision, plan.renderPath)
-        assertEquals(PlaybackDolbyVisionPath.MpvGpuNext, plan.dolbyVisionPath)
-        assertFalse(plan.requiresServerTranscode)
+    fun conservative_runtime_never_infers_dolby_processing_from_display_or_profile() {
+        listOf(profileSeven(), profileEightOne()).forEach { source ->
+            val route =
+                playbackDolbyVisionRoute(
+                    source,
+                    capabilities(true, true),
+                    PlaybackDolbyVisionRuntimeCapabilities.conservative(),
+                )
+            assertEquals(PlaybackDolbyVisionPath.Unverified, route.path)
+            assertEquals(PlayerEngine.YCore, route.engine)
+            assertFalse(route.stripDolbyVisionToBaseLayer)
+        }
     }
 
     @Test
-    fun planner_exposes_native_platform_path_for_profile_eight_one() {
-        val plan =
-            planPlayback(
-                probe = probe(profileEightOne()),
-                capabilities = capabilities(dolby = true, hdr10 = true),
-                preferredEngine = PlayerEngine.Mpv,
-                preferredDecoderMode = DecoderMode.Software,
-                dolbyVisionRuntime = verifiedRuntime(fullFelGpuCapable = true),
-            )
-
-        assertEquals(PlayerEngine.Exo, plan.primaryEngine)
-        assertEquals(PlaybackRenderPath.PlatformDirect, plan.renderPath)
-        assertEquals(PlaybackDolbyVisionPath.MediaCodecNative, plan.dolbyVisionPath)
+    fun native_output_requires_both_current_runtime_proof_and_compatible_display() {
+        val proof = PlaybackDolbyVisionRuntimeCapabilities(verifiedNativeDolbyVision = true)
+        assertEquals(
+            PlaybackDolbyVisionPath.MediaCodecNative,
+            playbackDolbyVisionRoute(profileEightOne(), capabilities(true, true), proof).path,
+        )
+        assertEquals(
+            PlaybackDolbyVisionPath.Unverified,
+            playbackDolbyVisionRoute(profileEightOne(), capabilities(false, true), proof).path,
+        )
     }
 
     @Test
-    fun profile_seven_enhancement_uses_verified_gpu_next_when_gpu_budget_is_sufficient() {
+    fun native_dolby_proof_does_not_imply_profile_seven_enhancement_layer_composition() {
         val route =
             playbackDolbyVisionRoute(
-                source = profileSeven(),
-                capabilities = capabilities(dolby = true, hdr10 = true),
-                runtime = verifiedRuntime(fullFelGpuCapable = true),
+                profileSeven(),
+                capabilities(true, true),
+                PlaybackDolbyVisionRuntimeCapabilities(verifiedNativeDolbyVision = true),
             )
-
-        assertEquals(PlaybackDolbyVisionPath.MpvGpuNext, route.path)
-        assertEquals(PlayerEngine.Mpv, route.engine)
-        assertEquals(DecoderMode.Hardware, route.decoderMode)
-        assertFalse(route.stripDolbyVisionToBaseLayer)
+        assertEquals(PlaybackDolbyVisionPath.Unverified, route.path)
     }
 
     @Test
-    fun profile_seven_enhancement_falls_back_to_real_hdr10_base_when_gpu_is_constrained() {
-        val route =
-            playbackDolbyVisionRoute(
-                source = profileSeven(),
-                capabilities = capabilities(dolby = true, hdr10 = true),
-                runtime = verifiedRuntime(fullFelGpuCapable = false),
+    fun hdr10_base_requires_positive_runtime_conversion_and_compatible_base_and_display() {
+        val proof = PlaybackDolbyVisionRuntimeCapabilities(verifiedHdr10BaseLayer = true)
+        listOf(profileSeven(), profileEightOne()).forEach { source ->
+            val route = playbackDolbyVisionRoute(source, capabilities(false, true), proof)
+            assertEquals(PlaybackDolbyVisionPath.Hdr10BaseLayer, route.path)
+            assertTrue(route.stripDolbyVisionToBaseLayer)
+            assertEquals(
+                PlaybackDolbyVisionPath.Unverified,
+                playbackDolbyVisionRoute(source, capabilities(false, false), proof).path,
             )
-
-        assertEquals(PlaybackDolbyVisionPath.Hdr10BaseLayer, route.path)
-        assertEquals(PlayerEngine.Mpv, route.engine)
-        assertTrue(route.stripDolbyVisionToBaseLayer)
-        assertTrue(route.reason.contains("GPU"))
-    }
-
-    @Test
-    fun profile_eight_one_uses_native_mediacodec_on_a_dolby_display() {
-        val route =
-            playbackDolbyVisionRoute(
-                source = profileEightOne(),
-                capabilities = capabilities(dolby = true, hdr10 = true),
-                runtime = verifiedRuntime(fullFelGpuCapable = true),
+            assertEquals(
+                PlaybackDolbyVisionPath.Unverified,
+                playbackDolbyVisionRoute(
+                    source.copy(dolbyBaseLayerPresent = false),
+                    capabilities(false, true),
+                    proof,
+                ).path,
             )
-
-        assertEquals(PlaybackDolbyVisionPath.MediaCodecNative, route.path)
-        assertEquals(PlayerEngine.Exo, route.engine)
-        assertEquals(DecoderMode.Hardware, route.decoderMode)
-    }
-
-    @Test
-    fun profile_eight_one_uses_hdr10_base_without_a_dolby_display() {
-        val route =
+        }
+        assertEquals(
+            PlaybackDolbyVisionPath.Unverified,
             playbackDolbyVisionRoute(
-                source = profileEightOne(),
-                capabilities = capabilities(dolby = false, hdr10 = true),
-                runtime = verifiedRuntime(fullFelGpuCapable = true),
-            )
-
-        assertEquals(PlaybackDolbyVisionPath.Hdr10BaseLayer, route.path)
-        assertTrue(route.stripDolbyVisionToBaseLayer)
-    }
-
-    @Test
-    fun compatible_base_is_tone_mapped_on_an_sdr_only_display() {
-        val route =
-            playbackDolbyVisionRoute(
-                source = profileEightOne(),
-                capabilities = capabilities(dolby = false, hdr10 = false),
-                runtime = verifiedRuntime(fullFelGpuCapable = true),
-            )
-
-        assertEquals(PlaybackDolbyVisionPath.SdrToneMap, route.path)
-        assertEquals(PlayerEngine.Mpv, route.engine)
-        assertTrue(route.stripDolbyVisionToBaseLayer)
-        assertTrue(route.reason.contains("SDR"))
-    }
-
-    @Test
-    fun raw_disc_never_routes_profile_eight_one_to_exo() {
-        val route =
-            playbackDolbyVisionRoute(
-                source = profileEightOne(),
-                capabilities = capabilities(dolby = true, hdr10 = true),
-                runtime = verifiedRuntime(fullFelGpuCapable = true),
-                requiresNativeDemuxer = true,
-            )
-
-        assertEquals(PlayerEngine.Mpv, route.engine)
-        assertEquals(PlaybackDolbyVisionPath.Hdr10BaseLayer, route.path)
+                profileEightOne().copy(dolbyBaseLayerCompatibilityId = null),
+                capabilities(false, true),
+                proof,
+            ).path,
+        )
     }
 
     private fun profileSeven() =
@@ -153,21 +102,6 @@ class PlaybackDolbyVisionRoutingTest {
             dolbyBaseLayerCompatibilityId = 1,
             videoCodec = PlaybackVideoCodec.Hevc,
             bitDepth = 10,
-        )
-
-    private fun verifiedRuntime(fullFelGpuCapable: Boolean) =
-        PlaybackDolbyVisionRuntimeCapabilities(
-            verifiedMpvRpu = true,
-            verifiedMpvFel = true,
-            fullFelGpuCapable = fullFelGpuCapable,
-        )
-
-    private fun probe(source: PlaybackSourceRequirements) =
-        PlaybackMediaProbe(
-            container = "MKV",
-            discSource = false,
-            source = source,
-            hasServerTranscode = true,
         )
 
     private fun capabilities(

@@ -1,29 +1,34 @@
 package com.yfuse.tv.ui
 
 import android.content.Context
+import android.graphics.SurfaceTexture
 import android.os.PowerManager
+import android.view.Surface
 import android.view.TextureView
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.media3.common.C
-import androidx.media3.common.MediaItem
-import androidx.media3.common.PlaybackException
-import androidx.media3.common.Player
-import androidx.media3.exoplayer.ExoPlayer
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core2.android.AndroidSerializedPlayerRelease
+import com.yfuse.core2.android.AndroidSurfaceVideoOutput
+import com.yfuse.core2.android.createMutedYCorePreviewPlayer
+import com.yfuse.core2.api.YPlaybackPhase
+import com.yfuse.core2.api.YPlayer
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 
-// The Android half of TvHeroTrailerPreview: the one preview player and the surface it draws on.
-
-/**
- * The muted trailer, drawn into a TextureView — a SurfaceView would punch through the scrim and
- * ignore the fade. The player is released when this leaves, and the decoder with it.
- */
+/** TextureView preserves the hero scrim/fade; NativeDirect never opens an audio decoder or sink. */
 @Composable
 internal fun TvTrailerPreviewSurface(
     url: String,
@@ -31,30 +36,24 @@ internal fun TvTrailerPreviewSurface(
     onEnded: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val owner = remember { Any() }
+    val owner = remember(url) { Any() }
     val latestFirstFrame by rememberUpdatedState(onFirstFrame)
     val latestEnded by rememberUpdatedState(onEnded)
-    AndroidView(
-        factory = { context ->
-            TextureView(context).also { view ->
-                TvPreviewPlayer.start(
-                    context = context,
-                    owner = owner,
-                    url = url,
-                    view = view,
-                    onFirstFrame = { latestFirstFrame() },
-                    onEnded = { latestEnded() },
-                )
-            }
-        },
-        modifier = modifier,
-    )
+    key(url) {
+        AndroidView(
+            factory = { context ->
+                TextureView(context).also { view ->
+                    TvPreviewPlayer.start(context, owner, url, view, { latestFirstFrame() }, { latestEnded() })
+                }
+            },
+            modifier = modifier,
+        )
+    }
     DisposableEffect(owner) {
         onDispose { TvPreviewPlayer.stop(owner) }
     }
 }
 
-/** Asked when the dwell is over, not once for the page: 省电 can come on while the page is open. */
 @Composable
 internal fun rememberPowerSaveCheck(): () -> Boolean {
     val context = LocalContext.current
@@ -63,21 +62,31 @@ internal fun rememberPowerSaveCheck(): () -> Boolean {
     }
 }
 
-/** Ends any preview at once — 播放 is about to need the decoder. */
 internal fun stopTrailerPreview() = TvPreviewPlayer.release()
 
-/**
- * The app's one preview player. A television's video decoders are few, and the film the viewer is
- * about to start needs one: so there is never more than this one, it plays for one hero at a time,
- * and it is released — not kept warm — whenever no hero needs it.
- */
+/** One decoder at a time, with ownership checks after every asynchronous release. */
 private object TvPreviewPlayer {
-    private var player: ExoPlayer? = null
-    private var owner: Any? = null
-    private var listener: Player.Listener? = null
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var current: Preview? = null
+    private var cleanup: Job? = null
 
-    /** Tells the hero now showing the preview that it has ended, so it goes back to its still. */
-    private var ended: (() -> Unit)? = null
+    private class Preview(
+        val context: Context,
+        val owner: Any,
+        val uri: String,
+        val view: TextureView,
+        val firstFrame: () -> Unit,
+        val ended: () -> Unit,
+    ) {
+        var player: YPlayer? = null
+        var surface: Surface? = null
+        var texture: SurfaceTexture? = null
+        var textureDestroyed = false
+        var closed = false
+        var startJob: Job? = null
+        var stateJob: Job? = null
+        var firstFrameReported = false
+    }
 
     fun start(
         context: Context,
@@ -87,69 +96,126 @@ private object TvPreviewPlayer {
         onFirstFrame: () -> Unit,
         onEnded: () -> Unit,
     ) {
-        // Another hero's preview gives way, rather than a second decoder being opened beside it.
         release()
-        val exo =
-            ExoPlayer.Builder(context.applicationContext).build().apply {
-                volume = 0f
-                // Muted is not enough: without an audio track selected no audio decoder is opened.
-                trackSelectionParameters =
-                    trackSelectionParameters
-                        .buildUpon()
-                        .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, true)
-                        .build()
-            }
-        val events =
-            object : Player.Listener {
-                override fun onRenderedFirstFrame() = onFirstFrame()
+        val preview = Preview(context.applicationContext, owner, url, view, onFirstFrame, onEnded)
+        current = preview
+        view.surfaceTextureListener =
+            object : TextureView.SurfaceTextureListener {
+                override fun onSurfaceTextureAvailable(
+                    texture: SurfaceTexture,
+                    width: Int,
+                    height: Int,
+                ) = begin(preview, texture)
 
-                override fun onPlaybackStateChanged(playbackState: Int) {
-                    if (playbackState == Player.STATE_ENDED) onEnded()
-                }
+                override fun onSurfaceTextureSizeChanged(
+                    texture: SurfaceTexture,
+                    width: Int,
+                    height: Int,
+                ) = Unit
 
-                override fun onPlayerError(error: PlaybackException) {
-                    AppLog.warning(
-                        category = "tv.preview",
-                        event = "trailer_preview_failed",
-                        message = "Trailer preview could not play; the hero keeps its still",
-                        attributes = mapOf("code" to error.errorCodeName),
-                    )
-                    onEnded()
+                override fun onSurfaceTextureUpdated(texture: SurfaceTexture) = Unit
+
+                override fun onSurfaceTextureDestroyed(texture: SurfaceTexture): Boolean {
+                    preview.textureDestroyed = true
+                    if (preview.closed) {
+                        texture.release()
+                    } else if (current === preview) {
+                        finish(preview)
+                    }
+                    // MediaCodec must detach before its texture is destroyed. Cleanup owns this release.
+                    return false
                 }
             }
-        exo.addListener(events)
-        exo.setVideoTextureView(view)
-        exo.setMediaItem(MediaItem.fromUri(url))
-        exo.prepare()
-        exo.playWhenReady = true
-        player = exo
-        listener = events
-        ended = onEnded
-        this.owner = owner
+        if (view.isAvailable) view.surfaceTexture?.let { begin(preview, it) }
     }
 
-    /**
-     * Stops what [owner] started, as it leaves; a preview another hero has taken since is not its
-     * to end.
-     */
+    private fun begin(
+        preview: Preview,
+        texture: SurfaceTexture,
+    ) {
+        if (current !== preview || preview.startJob != null) return
+        preview.texture = texture
+        val previousCleanup = cleanup
+        preview.startJob =
+            scope.launch {
+                previousCleanup?.join()
+                if (current !== preview || preview.textureDestroyed || !preview.view.isAvailable) return@launch
+                try {
+                    val player = createMutedYCorePreviewPlayer(preview.context, preview.uri)
+                    preview.player = player
+                    val surface = Surface(texture)
+                    preview.surface = surface
+                    check(player.setVideoOutput(AndroidSurfaceVideoOutput(surface)))
+                    preview.stateJob =
+                        scope.launch {
+                            player.state.collect { state ->
+                                if (current !== preview) return@collect
+                                if (!preview.firstFrameReported && state.diagnostics.videoOutputVerified) {
+                                    preview.firstFrameReported = true
+                                    preview.firstFrame()
+                                }
+                                if (state.phase == YPlaybackPhase.Ended || state.phase == YPlaybackPhase.Failed) {
+                                    if (state.phase == YPlaybackPhase.Failed) reportFailure()
+                                    finish(preview)
+                                }
+                            }
+                        }
+                    player.prepare()
+                } catch (failure: Exception) {
+                    if (failure is kotlinx.coroutines.CancellationException) throw failure
+                    reportFailure()
+                    finish(preview)
+                }
+            }
+    }
+
     fun stop(owner: Any) {
-        if (this.owner === owner) releasePlayer()
+        if (current?.owner === owner) retireCurrent()
     }
 
-    /** Ends whatever preview is playing — for 播放, or a newer preview — and says so to its hero. */
     fun release() {
-        val notify = ended
-        releasePlayer()
-        notify?.invoke()
+        val previous = current ?: return
+        retireCurrent()
+        previous.ended()
     }
 
-    private fun releasePlayer() {
-        val exo = player ?: return
-        listener?.let(exo::removeListener)
-        exo.release()
-        player = null
-        listener = null
-        ended = null
-        owner = null
+    private fun finish(preview: Preview) {
+        if (current !== preview) return
+        retireCurrent()
+        preview.ended()
+    }
+
+    private fun retireCurrent() {
+        val previous = current ?: return
+        current = null
+        previous.startJob?.cancel()
+        previous.stateJob?.cancel()
+        val player = previous.player
+        player?.setVideoOutput(null)
+        player?.release()
+        val earlierCleanup = cleanup
+        cleanup =
+            scope.launch {
+                earlierCleanup?.join()
+                val releasing = player as? AndroidSerializedPlayerRelease
+                if (releasing != null) {
+                    runCatching { releasing.releaseAndJoin() }.onFailure { reportFailure() }
+                    // A timeout cannot grant ownership of a still-live decoder/Surface to another hero.
+                    while (!releasing.releaseCompleted) delay(50L)
+                }
+                previous.surface?.release()
+                previous.surface = null
+                if (previous.textureDestroyed) previous.texture?.release()
+                previous.closed = true
+                previous.view.surfaceTextureListener = null
+            }
+    }
+
+    private fun reportFailure() {
+        AppLog.warning(
+            category = "tv.preview",
+            event = "trailer_preview_failed",
+            message = "YCore trailer preview could not play; the hero keeps its still",
+        )
     }
 }

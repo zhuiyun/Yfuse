@@ -8,15 +8,9 @@ import android.provider.DocumentsContract
 import android.system.ErrnoException
 import android.system.Os
 import android.system.OsConstants
-import com.yfuse.core.playback.PlaybackDiscChapter
-import com.yfuse.core.playback.PlaybackDiscKind
-import com.yfuse.core.playback.PlaybackDiscMenuCommand
-import com.yfuse.core.playback.PlaybackDiscNavigationState
 import java.io.File
 import java.io.RandomAccessFile
 import java.util.concurrent.atomic.AtomicLong
-
-internal const val YFUSE_BDMV_PREFIX = "yfusebdmv://"
 
 /**
  * Read-only filesystem bridge for an extracted BDMV tree.
@@ -32,18 +26,9 @@ internal class NativeLocalBdmvSource private constructor(
     private val nextHandle = AtomicLong(1L)
     private val files = mutableMapOf<Long, BdmvOpenFile>()
     private val directories = mutableMapOf<Long, BdmvOpenDirectory>()
-    private val hdmvSession = LocalBdmvHdmvSession()
-
-    @Volatile
-    private var nativeId: Long = 0L
 
     @Volatile
     private var closed = false
-
-    internal fun bindNativeId(id: Long) {
-        nativeId = id.takeIf { it > 0L } ?: 0L
-        hdmvSession.bindNativeId(nativeId)
-    }
 
     @Synchronized
     @Suppress("unused")
@@ -112,52 +97,6 @@ internal class NativeLocalBdmvSource private constructor(
         directories.remove(handle)?.close()
     }
 
-    @Suppress("unused")
-    fun onNativeSessionState(
-        titleCount: Int,
-        selectedTitleIndex: Int,
-        chapterCount: Int,
-        selectedChapterIndex: Int,
-        menuSupported: Boolean,
-        menuActive: Boolean,
-    ) {
-        if (closed) return
-        hdmvSession.update(
-            titleCount = titleCount,
-            selectedTitleIndex = selectedTitleIndex,
-            chapterCount = chapterCount,
-            selectedChapterIndex = selectedChapterIndex,
-            menuSupported = menuSupported,
-            menuActive = menuActive,
-        )
-        NativeRemoteBluRaySessionRegistry.activate(hdmvSession)
-    }
-
-    @Suppress("unused")
-    fun onNativeOverlayFrame(
-        width: Int,
-        height: Int,
-        argb: IntArray,
-    ) {
-        val pixels = width.toLong() * height.toLong()
-        if (closed || width <= 0 || height <= 0 || pixels != argb.size.toLong()) return
-        NativeRemoteBluRaySessionRegistry.updateOverlay(
-            hdmvSession,
-            NativeBluRayOverlayFrame(width = width, height = height, argb = argb.copyOf()),
-        )
-    }
-
-    @Suppress("unused")
-    fun onNativeOverlayCleared() {
-        NativeRemoteBluRaySessionRegistry.updateOverlay(hdmvSession, null)
-    }
-
-    @Suppress("unused")
-    fun onNativeSessionClosed() {
-        hdmvSession.markClosed()
-        NativeRemoteBluRaySessionRegistry.deactivate(hdmvSession)
-    }
-
     @Synchronized
     @Suppress("unused")
     fun closeNativeSource() {
@@ -168,78 +107,6 @@ internal class NativeLocalBdmvSource private constructor(
         directories.values.forEach(BdmvOpenDirectory::close)
         directories.clear()
         root.close()
-        onNativeSessionClosed()
-    }
-
-    private inner class LocalBdmvHdmvSession : HdmvDiscSession {
-        @Volatile
-        private var id: Long = 0L
-
-        @Volatile
-        private var ended = false
-
-        @Volatile
-        private var state = PlaybackDiscNavigationState(kind = PlaybackDiscKind.Bdmv)
-
-        @Volatile
-        private var listener: (() -> Unit)? = null
-
-        fun bindNativeId(value: Long) {
-            id = value
-        }
-
-        fun update(
-            titleCount: Int,
-            selectedTitleIndex: Int,
-            chapterCount: Int,
-            selectedChapterIndex: Int,
-            menuSupported: Boolean,
-            menuActive: Boolean,
-        ) {
-            if (ended) return
-            state =
-                PlaybackDiscNavigationState(
-                    kind = PlaybackDiscKind.Bdmv,
-                    titleCount = titleCount.coerceAtLeast(0),
-                    selectedTitleIndex = selectedTitleIndex.coerceAtLeast(0),
-                    chapterCount = chapterCount.coerceAtLeast(0),
-                    selectedChapterIndex = selectedChapterIndex.coerceAtLeast(0),
-                    chapters = List(chapterCount.coerceAtLeast(0)) { PlaybackDiscChapter(it) },
-                    menuSupported = menuSupported,
-                    menuActive = menuSupported && menuActive,
-                )
-            listener?.invoke()
-        }
-
-        fun markClosed() {
-            if (ended) return
-            ended = true
-            state = state.copy(menuActive = false, menuSupported = false)
-            listener?.invoke()
-        }
-
-        override fun navigation(): PlaybackDiscNavigationState = state
-
-        override fun selectTitle(index: Int): Boolean = false
-
-        override fun selectChapter(index: Int): Boolean = false
-
-        override fun sendMenuCommand(command: PlaybackDiscMenuCommand): Boolean =
-            !ended && NativeLocalBdmvRegistry.sendMenuCommand(id, command.bdmvNativeMenuCode())
-
-        override fun selectMenuPoint(
-            x: Int,
-            y: Int,
-            activate: Boolean,
-        ): Boolean = !ended && state.menuActive && NativeLocalBdmvRegistry.selectMenuPoint(id, x, y, activate)
-
-        override fun setNavigationChangedListener(listener: (() -> Unit)?) {
-            this.listener = listener
-        }
-
-        override fun close() {
-            listener = null
-        }
     }
 
     companion object {
@@ -260,62 +127,6 @@ internal class NativeLocalBdmvSource private constructor(
             }
             return NativeLocalBdmvSource(root)
         }
-    }
-}
-
-internal object NativeLocalBdmvRegistry {
-    private const val REGISTRY_CLASS = "dev.yfuse.mpv.YfuseBdmvRegistry"
-
-    fun register(source: NativeLocalBdmvSource): Long? {
-        if (!installedMpvNativeBuildCapabilities.bdmvVfs) return null
-        return runCatching {
-            val clazz = Class.forName(REGISTRY_CLASS, false, MpvVideoEngine::class.java.classLoader)
-            (clazz.getMethod("register", Any::class.java).invoke(null, source) as? Number)
-                ?.toLong()
-                ?.takeIf { it > 0L }
-                ?.also(source::bindNativeId)
-        }.getOrNull()
-    }
-
-    fun unregister(id: Long) {
-        if (id <= 0L) return
-        runCatching {
-            val clazz = Class.forName(REGISTRY_CLASS, false, MpvVideoEngine::class.java.classLoader)
-            clazz.getMethod("unregister", java.lang.Long.TYPE).invoke(null, id)
-        }
-    }
-
-    fun sendMenuCommand(
-        id: Long,
-        command: Int,
-    ): Boolean {
-        if (id <= 0L || !installedMpvNativeBuildCapabilities.hdmvMenu) return false
-        return runCatching {
-            val clazz = Class.forName(REGISTRY_CLASS, false, MpvVideoEngine::class.java.classLoader)
-            clazz
-                .getMethod("sendMenuCommand", java.lang.Long.TYPE, Integer.TYPE)
-                .invoke(null, id, command) as? Boolean
-        }.getOrNull() == true
-    }
-
-    fun selectMenuPoint(
-        id: Long,
-        x: Int,
-        y: Int,
-        activate: Boolean,
-    ): Boolean {
-        if (id <= 0L || !installedMpvNativeBuildCapabilities.hdmvMenu) return false
-        return runCatching {
-            val clazz = Class.forName(REGISTRY_CLASS, false, MpvVideoEngine::class.java.classLoader)
-            clazz
-                .getMethod(
-                    "selectMenuPoint",
-                    java.lang.Long.TYPE,
-                    Integer.TYPE,
-                    Integer.TYPE,
-                    java.lang.Boolean.TYPE,
-                ).invoke(null, id, x, y, activate) as? Boolean
-        }.getOrNull() == true
     }
 }
 
@@ -632,17 +443,6 @@ private fun checkedAdd(
     if (b < 0L && a < Long.MIN_VALUE - b) return null
     return a + b
 }
-
-private fun PlaybackDiscMenuCommand.bdmvNativeMenuCode(): Int =
-    when (this) {
-        PlaybackDiscMenuCommand.ShowMenu -> 0
-        PlaybackDiscMenuCommand.Back -> 1
-        PlaybackDiscMenuCommand.Up -> 2
-        PlaybackDiscMenuCommand.Down -> 3
-        PlaybackDiscMenuCommand.Left -> 4
-        PlaybackDiscMenuCommand.Right -> 5
-        PlaybackDiscMenuCommand.Select -> 6
-    }
 
 private const val SEEK_SET = 0
 private const val SEEK_CUR = 1

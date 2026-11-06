@@ -46,7 +46,6 @@ import com.yfuse.core.network.rememberLocalNetworkPermissionRequest
 import com.yfuse.core.playback.PlaybackDeviceCapabilities
 import com.yfuse.core.playback.PlaybackDeviceCapabilitiesProvider
 import com.yfuse.core.playback.PlaybackDolbyVisionRuntimeCapabilities
-import com.yfuse.core.playback.PlaybackEngineSelection
 import com.yfuse.core.playback.PlaybackFailureKind
 import com.yfuse.core.playback.PlaybackFailureMemory
 import com.yfuse.core.playback.PlaybackPerformanceMemory
@@ -65,7 +64,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import org.koin.core.context.GlobalContext
-import com.yfuse.core.platform.AppBuildConfig as BuildConfig
 
 private const val RESUME_NOTICE_MIN_MS = 30_000L
 
@@ -175,24 +173,10 @@ internal fun PlayerRoot(
     val allowAudioPassthrough = audioPassthrough == PlaybackAudioPassthrough.Compatible
     val frameRateMatch by playbackPreferences.frameRateMatch.collectAsState()
     val configuredEngineSelection by playbackPreferences.engineSelection.collectAsState()
-    val core2TrialEnabled by playbackPreferences.core2TrialEnabled.collectAsState()
-    val core2NativeOnlyEnabled by playbackPreferences.core2NativeOnlyEnabled.collectAsState()
     val gestureSettings by playbackPreferences.gestureSettings.collectAsState()
     val choices = remember { PlayerViewerChoices(configuredEngineSelection) }
 
-    /**
-     * Decide the initial HDR path before constructing a backend. Exo is selected for a verified
-     * platform Dolby pipeline, mpv owns HDR-to-SDR tone mapping, and Dolby-only media without a
-     * platform pipeline is immediately sent to the server fallback.
-     *
-     * ExoPlayer owns the verified Android Dolby track/extractor path and can therefore reach the
-     * device's `video/dolby-vision` decoder with its metadata intact. The native integrations do
-     * not expose equivalent RPU handling, so a profile 5 file can decode into a magenta-and-green
-     * picture without reporting an error that would trigger fallback.
-     *
-     * Only for the profiles that have no compatible base layer — profile 8 plays as HDR10
-     * on any engine, which is a fine thing to leave to whichever they preferred.
-     */
+    // Plan from discovered source and output capabilities; native routes verify their own output.
     val capabilityProvider =
         remember {
             runCatching {
@@ -258,14 +242,8 @@ internal fun PlayerRoot(
                     ),
             )
         }
-    val core2NativeOnlyActive =
-        BuildConfig.YFUSE_NATIVE_ONLY_RUNTIME ||
-            (
-                core2NativeOnlyEnabled &&
-                    core2TrialEnabled &&
-                    choices.sessionEngineSelection == PlaybackEngineSelection.Auto &&
-                    !build.core2DisabledForSession
-            )
+    // Removing legacy engines does not prohibit server transcoding through the selected backend.
+    val core2NativeOnlyActive = false
     // The first item's resume point, offered once; later items and engine swaps do not re-ask.
     val initialResumeNoticeMs = remember { startPositionMs.takeIf { it >= RESUME_NOTICE_MIN_MS } }
     val sourceSwitchCoordinator = remember { PlaybackSourceSwitchCoordinator() }
@@ -389,9 +367,7 @@ internal fun PlayerRoot(
             build.kind,
             build.engineGeneration,
             build.effectiveDecoderMode,
-            core2TrialEnabled,
             core2NativeOnlyActive,
-            build.core2DisabledForSession,
             choices.sessionEngineSelection,
             allowAudioPassthrough,
             frameRateMatch,
@@ -416,17 +392,9 @@ internal fun PlayerRoot(
                     customUserAgent = customUserAgent,
                     videoCacheBytes = videoCacheBytes,
                     yCoreBufferTargetUs = yCoreBufferTargetUs,
-                    scope = engineScope,
-                    stopEncoding = { sessionId ->
-                        playbackSinkForSession(sessionId)?.stopEncoding(sessionId) ?: true
-                    },
-                    core2TrialEnabled = core2TrialEnabled && !build.core2DisabledForSession,
-                    core2NativeOnlyEnabled = core2NativeOnlyActive,
-                    engineSelection = choices.sessionEngineSelection,
                     allowAudioPassthrough = allowAudioPassthrough,
                     frameRateMatch = frameRateMatch,
                     initialTrackSelections = initialTrackSelections(input.items),
-                    dolbyVisionRuntime = dolbyVisionRuntime,
                     deviceCapabilities = deviceCapabilities,
                     capabilitySignature =
                         input.items
@@ -1172,14 +1140,25 @@ internal fun PlayerRoot(
         backendExtensions.transcodeRebuild = transcode@{ reason, viewerRequested ->
             val snapshot = latestState
             val item = latestActiveItems.getOrNull(snapshot.currentIndex) ?: return@transcode false
-            if (item.startsWithServerTranscode()) return@transcode false
-            if (item.transcodeUrl.isBlank() && item.fallbackTranscodeUrl.isBlank()) return@transcode false
-            capturePlaybackHandover()
-            player.pause()
+            if (item.startsWithServerTranscode() ||
+                !item.allowsServerTranscodeFallback(viewerRequested)
+            ) {
+                return@transcode false
+            }
             val shownReason =
                 reason.orEmpty().ifBlank {
                     if (viewerRequested) VIEWER_TRANSCODE_REASON else "播放失败，已切换服务器转码"
                 }
+            if (!item
+                    .withForcedServerTranscode(
+                        shownReason,
+                        viewerRequested,
+                    ).startsWithServerTranscode()
+            ) {
+                return@transcode false
+            }
+            capturePlaybackHandover()
+            player.pause()
             sources.forcedTranscodes =
                 sources.forcedTranscodes + (item.id to ForcedTranscode(shownReason, viewerRequested))
             build.engineGeneration++
@@ -1321,27 +1300,25 @@ internal fun PlayerRoot(
             audioControls = choices.audioControls,
             handoverSnapshot = build.resume,
             scaleMode = choices.scaleMode,
+            onUnsupportedScaleMode = { choices.scaleMode = VideoScaleMode.Fit },
             pendingSubtitleLanguage = choices.pendingSubtitleLanguage,
-            automaticEngineSelection =
-                choices.sessionEngineSelection == PlaybackEngineSelection.Auto && !core2NativeOnlyActive,
             onSecondarySubtitleTrackChanged = { choices.secondarySubtitleTrackId = it },
             onPendingSubtitleLanguageApplied = { choices.pendingSubtitleLanguage = null },
             onUnsupportedSetting = { setting ->
                 val itemId = currentItem?.id
                 engineSwitchPrompt.ask(
+                    currentEngine = build.kind,
                     context = context,
                     itemId = itemId,
                     setting = setting,
                     onSwitch = {
                         if (itemId != null && itemId == latestPromptItemId && itemEngineOverride == null) {
                             itemEngineOverride =
-                                switchToCompatibilityForItem(
+                                switchToYCoreForItem(
                                     itemId = itemId,
-                                    leaveCore2 = engine is YPlayerVideoEngineAdapter,
                                     build = build,
                                     choices = choices,
                                     capturePlaybackHandover = ::capturePlaybackHandover,
-                                    selectEngineStrategy = switching.selectEngineStrategy,
                                 )
                         }
                     },
@@ -1355,7 +1332,7 @@ internal fun PlayerRoot(
             val replaced = itemEngineOverride ?: return@LaunchedEffect
             if (currentItem == null || currentItem.id == replaced.itemId) return@LaunchedEffect
             itemEngineOverride = null
-            restoreItemEngine(replaced, build, choices, ::capturePlaybackHandover, switching.selectEngineStrategy)
+            restoreItemEngine(replaced, build, choices, ::capturePlaybackHandover)
         }
 
         PlayerHandoverValidation(
@@ -1635,5 +1612,5 @@ internal fun core2NativeOnlyFailureToast(kind: PlaybackFailureKind?): String =
     when (kind) {
         PlaybackFailureKind.Network -> "片源连接失败，请检查服务器或网络后重试"
         PlaybackFailureKind.Authorization -> "片源授权已失效，请刷新播放地址后重试"
-        else -> "原生内核播放失败；纯原生模式不会改用兼容内核"
+        else -> "YCore 播放失败，请重试或在内核设置中选择 SenPlayer"
     }

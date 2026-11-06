@@ -213,10 +213,8 @@ internal fun rememberYCoreRuntimeAssessmentState(
             }
             if (observed.reportHealth) {
                 logHealth(effectiveEngineLabel, observed, latestTapAnchoredStartupMs)
-                // The anonymous protocol currently enumerates compatibility PlayerEngine values.
-                // NativeDirect may sit behind an Exo-selected plan; reporting it as Exo would make
-                // aggregated telemetry lie in the same way persistent failure memory used to.
-                if (effectiveEngineLearningEnabled) {
+                // Keep local observations, but do not mislabel either engine for an older server.
+                if (effectiveEngineLearningEnabled && publishedQoeEngineSupported(engineKind)) {
                     qoeReporter?.let { reporter ->
                         val report =
                             anonymousPlaybackQoeReport(

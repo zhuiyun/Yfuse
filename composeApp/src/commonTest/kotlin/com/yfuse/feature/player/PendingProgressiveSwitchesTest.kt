@@ -5,7 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-/** The MP4 switches Exo, mpv and MDK have under way, and what the stream ladder makes of them. */
+/** Pending MP4 source switches and their cancellation/queue ownership. */
 class PendingProgressiveSwitchesTest {
     private val item = ladderItem()
 
@@ -17,20 +17,15 @@ class PendingProgressiveSwitchesTest {
             progressivePending = index in this,
         )
 
-    /** The answer mpv and MDK get for a failure of that entry. */
+    /** The generic stream policy for a failure of that entry. */
     private fun PendingProgressiveSwitches.nextStepFor(index: Int): PlaybackStreamStep =
         PlaybackFallbackLadder.nextStreamStep(rungOf(index), item, viewerRequested = false)
-
-    /** The answer Exo gets for a failure of that entry. */
-    private fun PendingProgressiveSwitches.exoNextStepFor(index: Int): PlaybackStreamStep =
-        PlaybackFallbackLadder.nextExoStreamStep(rungOf(index), item, viewerRequested = false)
 
     @Test
     fun a_switch_under_way_answers_switching_until_it_goes_ahead() {
         val switches = PendingProgressiveSwitches()
         val attempt = switches.start(3)
         assertEquals(PlaybackStreamStep.InProgress, switches.nextStepFor(3))
-        assertEquals(PlaybackStreamStep.InProgress, switches.exoNextStepFor(3))
         assertEquals(PlaybackStreamStep.Progressive, switches.nextStepFor(4))
         assertTrue(switches.settle(attempt, stillCurrent = true))
         assertFalse(3 in switches)
@@ -45,7 +40,6 @@ class PendingProgressiveSwitchesTest {
         assertFalse(switches.settle(attempt, stillCurrent = false))
         assertFalse(3 in switches)
         assertEquals(PlaybackStreamStep.Progressive, switches.nextStepFor(3))
-        assertEquals(PlaybackStreamStep.Progressive, switches.exoNextStepFor(3))
     }
 
     @Test

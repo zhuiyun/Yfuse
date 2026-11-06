@@ -12,18 +12,20 @@ import com.yfuse.core.handoff.ActiveHandoffPlayback
 import com.yfuse.core.handoff.HandoffMedia
 import com.yfuse.core.handoff.HandoffPlaybackRegistry
 import com.yfuse.core.handoff.HandoffStartResult
+import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.personal.PersonalLibraryRepository
+import com.yfuse.core.playback.PlaybackEngineSelection
 import com.yfuse.core2.android.core2NativeBaselineBlockReason
 import com.yfuse.feature.player.ActivePlayback
 import com.yfuse.feature.player.PlaybackSelection
 import com.yfuse.feature.player.PlayerActivity
+import com.yfuse.feature.player.PlayerMediaItem
 import com.yfuse.feature.player.PlayerState
 import com.yfuse.feature.player.PlayerStoreFactory
 import com.yfuse.feature.player.networkShortfallMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
-import com.yfuse.core.platform.AppBuildConfig as BuildConfig
 
 /** Resolves metadata without starting an engine, then acknowledges actual playback after commit. */
 class AndroidHandoffReceiver(
@@ -110,8 +112,10 @@ class AndroidHandoffReceiver(
             ) {
                 continue
             }
-            if (BuildConfig.YFUSE_NATIVE_ONLY_RUNTIME || preferences.core2NativeOnlyEnabled.value) {
-                if (state.items.core2NativeBaselineBlockReason(state.startIndex) != null) continue
+            if (handoffPlaybackBlockReason(preferences.engineSelection.value, state.items, state.startIndex) !=
+                null
+            ) {
+                continue
             }
             prepared = state
             preparedScope = token
@@ -218,3 +222,15 @@ class AndroidHandoffReceiver(
 
 /** Resolving the title on this device's servers, before the source is asked to pause. */
 private const val PREPARE_TIMEOUT_MS = 25_000L
+
+/** Use the same explicit engine selection as PlayerRoot; YCore's gate cannot veto SenPlayer. */
+internal fun handoffPlaybackBlockReason(
+    selection: PlaybackEngineSelection,
+    items: List<PlayerMediaItem>,
+    startIndex: Int,
+): String? =
+    if ((selection.lockedEngine ?: PlayerEngine.YCore) == PlayerEngine.YCore) {
+        items.core2NativeBaselineBlockReason(startIndex)
+    } else {
+        null
+    }

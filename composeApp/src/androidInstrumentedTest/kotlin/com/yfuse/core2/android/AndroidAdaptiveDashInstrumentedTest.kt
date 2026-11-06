@@ -131,7 +131,7 @@ class AndroidAdaptiveDashInstrumentedTest {
     ) {
         assertTrue(
             "Target dimensions did not use native decoding: $state",
-            state.diagnostics.route != YPlaybackRoute.Legacy,
+            state.diagnostics.route != YPlaybackRoute.Unknown,
         )
         assertEquals(fixture.width, state.diagnostics.videoWidth)
         assertEquals(fixture.height, state.diagnostics.videoHeight)
@@ -208,7 +208,7 @@ class AndroidAdaptiveDashInstrumentedTest {
                     it.diagnostics.videoHeight == fixture.height &&
                     predicate(it)
             }
-        assertTrue("$label did not use native decoding: $state", state.diagnostics.route != YPlaybackRoute.Legacy)
+        assertTrue("$label did not use native decoding: $state", state.diagnostics.route != YPlaybackRoute.Unknown)
         assertDimensions(state, fixture)
         progress("$label: position=${state.positionMs}, duration=${state.durationMs}, route=${state.diagnostics.route}")
     }

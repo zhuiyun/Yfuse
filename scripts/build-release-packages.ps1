@@ -1,8 +1,7 @@
 param(
     [switch]$AllowDebugSigning,
-    # Record the release owner's applicable MDK acknowledgement for this build (including a
-    # standing instruction for the same pinned component and distribution scope).
-    [switch]$ConfirmMdkDistributionRights,
+    [ValidateSet('ycore-senplayer')]
+    [string]$PlaybackProfile = 'ycore-senplayer',
     # A release built from an uncommitted working tree cannot be reproduced from git history
     # alone and must not silently claim to be the clean commit it was built on top of. Refused by
     # default; pass this only for a knowingly uncommitted verification/debugging package.
@@ -55,13 +54,6 @@ if ($treeDirty -and $AllowDirty) {
     Write-Warning ('!' * 78)
 }
 
-if (-not $ConfirmMdkDistributionRights -and -not $AllowDebugSigning) {
-    throw ('Production signing of the full (MDK) package requires the release owner to confirm the ' +
-        'MDK distribution rights for this release. Complete the native-license checklist in ' +
-        'docs/third-party-licenses/README.md, then rerun with -ConfirmMdkDistributionRights. ' +
-        'For a non-distributable verification build pass -AllowDebugSigning instead.')
-}
-
 # R8 can emit a method ART's verifier rejects; its class then throws VerifyError the first time it
 # is used, long after the app has started (the 1.0.97 player crash). Same check as
 # scripts/verify-release-dex.sh, on the same pinned jars; the R8 mapping names the app's own
@@ -92,20 +84,12 @@ function Assert-DexVerifies([string]$Apk, [string]$Mapping) {
     }
 }
 
-# The release owner requires MDK in every standard delivery. Check the output itself so a
-# future build configuration change cannot silently produce a package without the engine.
-function Assert-MdkIncluded([string]$Apk) {
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
-    $archive = [System.IO.Compression.ZipFile]::OpenRead($Apk)
-    try {
-        foreach ($library in @('libmdk.so', 'libyfuse-mdk-jni.so')) {
-            $engine = $archive.GetEntry("lib/arm64-v8a/$library")
-            if ($null -eq $engine -or $engine.Length -eq 0) {
-                throw "Required MDK library $library is missing or empty in $Apk; do not distribute this package"
-            }
-        }
-    } finally {
-        $archive.Dispose()
+# Verify the output, including original SenPlayer asset pins and unobfuscated class identities.
+# Build flags alone do not prove that a transitive legacy runtime stayed out of the APK.
+function Assert-PlaybackPackage([string]$Apk, [string]$Mapping) {
+    & python (Join-Path $root 'scripts/verify-playback-package.py') $Apk --mapping $Mapping
+    if ($LASTEXITCODE -ne 0) {
+        throw "The YCore + SenPlayer package boundary failed for $Apk; do not distribute this package"
     }
 }
 
@@ -114,24 +98,26 @@ function Assert-MdkIncluded([string]$Apk) {
 $commonArgs = @('-Pkotlin.incremental=false')
 if ($AllowDebugSigning) { $commonArgs += '-PallowDebugSigning=true' }
 
-$fullArgs = @(
+$releaseArgs = @(
     ':composeApp:assembleRelease',
-    '-PyfuseNativeOnlyRuntime=false',
-    '-PyfuseIncludeMdk=true'
+    '-PyfuseNativeOnlyRuntime=true',
+    '-PyfuseIncludeMdk=false',
+    "-PyfusePlaybackProfile=$PlaybackProfile"
 ) + $commonArgs
-if ($ConfirmMdkDistributionRights) { $fullArgs += '-PconfirmMdkDistributionRights=true' }
-& (Join-Path $root 'gradlew.bat') @fullArgs
-if ($LASTEXITCODE -ne 0) { throw 'Full release build failed' }
-Assert-MdkIncluded (Join-Path $root 'composeApp/build/outputs/apk/release/composeApp-release.apk')
+& (Join-Path $root 'gradlew.bat') @releaseArgs
+if ($LASTEXITCODE -ne 0) { throw 'YCore + SenPlayer release build failed' }
+Assert-PlaybackPackage `
+    (Join-Path $root 'composeApp/build/outputs/apk/release/composeApp-release.apk') `
+    (Join-Path $root 'composeApp/build/outputs/mapping/release/mapping.txt')
 Assert-DexVerifies `
     (Join-Path $root 'composeApp/build/outputs/apk/release/composeApp-release.apk') `
     (Join-Path $root 'composeApp/build/outputs/mapping/release/mapping.txt')
 Copy-Item -Force `
     (Join-Path $root 'composeApp/build/outputs/apk/release/composeApp-release.apk') `
-    (Join-Path $destination "Yfuse-$($version.VERSION_NAME)-full-arm64.apk")
+    (Join-Path $destination "Yfuse-$($version.VERSION_NAME)-$PlaybackProfile-arm64.apk")
 
-# List only the artifact produced by this invocation, excluding stale compact packages.
-$artifacts = Get-Item (Join-Path $destination "Yfuse-$($version.VERSION_NAME)-full-arm64.apk") |
+# List only the artifact produced by this invocation, excluding older package profiles.
+$artifacts = Get-Item (Join-Path $destination "Yfuse-$($version.VERSION_NAME)-$PlaybackProfile-arm64.apk") |
     Select-Object Name, Length, @{Name='SHA256'; Expression={(Get-FileHash $_.FullName -Algorithm SHA256).Hash}}
 $artifacts
 
@@ -142,7 +128,9 @@ $verification = [ordered]@{
     generatedAt  = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
     versionName  = $version.VERSION_NAME
     versionCode  = $version.VERSION_CODE
-    mdkIncluded = $true
+    playbackProfile = $PlaybackProfile
+    playbackEngines = @('YCore', 'SenPlayer')
+    mdkIncluded = $false
     sourceCommit = $sourceCommit
     treeDirty    = $treeDirty
     diffHash     = $diffHash

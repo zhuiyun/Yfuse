@@ -3,6 +3,8 @@ package com.yfuse.core2.android
 import com.yfuse.core2.network.YCacheIdentity
 import java.io.File
 import java.nio.file.Files
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -12,6 +14,43 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class AndroidYCoreBlockCacheTest {
+    private val runtimePool = AndroidPlaybackMemoryBudget.pool
+    private val runtimeHeap = AndroidPlaybackMemoryBudget.heapSample
+
+    @BeforeTest
+    fun isolateCacheWriterMemoryBudget() {
+        // Queue/disk tests require available write capacity. A full-suite JVM's heap occupancy
+        // and leases from unrelated playback tests are not the scenario these assertions model.
+        AndroidPlaybackMemoryBudget.pool = PlaybackMemoryPool(64L * 1024L * 1024L)
+        AndroidPlaybackMemoryBudget.heapSample = {
+            PlaybackHeapSample(freeBytes = 256L * 1024L * 1024L, maximumBytes = 256L * 1024L * 1024L)
+        }
+        AndroidPlaybackMemoryBudget.refreshPressure()
+    }
+
+    @AfterTest
+    fun restorePlaybackMemoryBudget() {
+        AndroidPlaybackMemoryBudget.pool = runtimePool
+        AndroidPlaybackMemoryBudget.heapSample = runtimeHeap
+        AndroidPlaybackMemoryBudget.refreshPressure()
+    }
+
+    @Test
+    fun memory_pressure_still_refuses_optional_writes_and_recovers_when_heap_is_available() {
+        val scheduled = mutableListOf<() -> Unit>()
+        val queue = AndroidCacheWriteQueue(maximumBytes = 128, execute = { scheduled.add(it) })
+        val ampleHeap = AndroidPlaybackMemoryBudget.heapSample
+        AndroidPlaybackMemoryBudget.heapSample = { PlaybackHeapSample(freeBytes = 1, maximumBytes = 1024) }
+        assertFalse(queue.enqueue("pressure", 64) { error("Pressure must prevent optional work") })
+        assertTrue(scheduled.isEmpty())
+        AndroidPlaybackMemoryBudget.heapSample = ampleHeap
+        var written = false
+        assertTrue(queue.enqueue("recovered", 64) { written = true })
+        scheduled.single().invoke()
+        assertTrue(written)
+        assertTrue(queue.awaitIdle(0))
+    }
+
     @Test fun full_disk_pauses_optional_writes_without_disabling_reads_and_recovers_after_cooldown() {
         val directory = Files.createTempDirectory("ycore-cache-space-test").toFile()
         val tasks = mutableListOf<() -> Unit>()

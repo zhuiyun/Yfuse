@@ -2,70 +2,9 @@ name: Build YCore native runtime
 
 on:
   workflow_dispatch:
-  pull_request:
-    paths:
-      - .github/workflows/build-yfuse-mpv-dolby.yml
-      - scripts/build-yfuse-mpv-bluray.sh
-      - scripts/build-yfuse-mpv-dolby.sh
-      - scripts/build-ycore-native.sh
-      - scripts/build-ycore-demux.sh
-      - scripts/test-ycore-extradata-budget.sh
-      - scripts/test-ycore-demux-interrupt.sh
-      - scripts/test-ycore-deinterlace.sh
-      - scripts/test-ycore-gpu-capability.sh
-      - scripts/test-ycore-overlay-plane.sh
-      - scripts/native-test-build.sh
-      - scripts/build-ycore-gpu-companion.sh
-      - scripts/package-ycore-native-aar.py
-      - scripts/verify-ycore-native.sh
-      - scripts/verify-ycore-native-apk.sh
-      - scripts/native/**
-      - composeApp/src/androidMain/kotlin/com/yfuse/core2/**
-      - composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/**
-      - composeApp/src/commonMain/kotlin/com/yfuse/core2/**
-      - composeApp/src/commonTest/kotlin/com/yfuse/core2/**
-      - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/NativeLocalBdmvSource.android.kt
-      - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/NativeRemoteBluRaySource.android.kt
-      - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/RemoteDiscBlockSource.android.kt
-  push:
-    branches:
-      - master
-    paths:
-      - .github/workflows/build-yfuse-mpv-dolby.yml
-      - scripts/build-yfuse-mpv-bluray.sh
-      - scripts/build-yfuse-mpv-dolby.sh
-      - scripts/build-ycore-native.sh
-      - scripts/build-ycore-demux.sh
-      - scripts/build-ycore-gpu-companion.sh
-      - scripts/package-ycore-native-aar.py
-      - scripts/run-ycore-device-gates.sh
-      - scripts/ycore-release-evidence.py
-      - scripts/test-ycore-tone-map.sh
-      - scripts/test-ycore-disc-uri.sh
-      - scripts/test-ycore-extradata-budget.sh
-      - scripts/test-ycore-demux-interrupt.sh
-      - scripts/test-ycore-deinterlace.sh
-      - scripts/test-ycore-gpu-capability.sh
-      - scripts/test-ycore-overlay-plane.sh
-      - scripts/native-test-build.sh
-      - scripts/verify-yfuse-mpv-bluray-aar.sh
-      - scripts/verify-yfuse-mpv-dolby-aar.sh
-      - scripts/verify-ycore-native.sh
-      - scripts/verify-ycore-native-apk.sh
-      - scripts/native/**
-      - media-tests/**
-      - composeApp/src/androidInstrumentedTest/kotlin/com/yfuse/core2/android/YCoreMediaSuiteInstrumentedTest.kt
-      - composeApp/src/androidMain/kotlin/com/yfuse/core2/**
-      - composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/**
-      - composeApp/src/commonMain/kotlin/com/yfuse/core2/**
-      - composeApp/src/commonTest/kotlin/com/yfuse/core2/**
-      - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/NativeLocalBdmvSource.android.kt
-      - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/NativeRemoteBluRaySource.android.kt
-      - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/RemoteDiscBlockSource.android.kt
-      - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/MpvNativeBuildCapabilities.android.kt
-      - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/MpvDolbyRuntimeEvidence.android.kt
-      - composeApp/src/commonMain/kotlin/com/yfuse/feature/player/MpvDolbyRuntimeEvidence.kt
-      - composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlaybackTruth.kt
+
+# Historical manual toolchain recovery only. Standard Android/TV builds consume the
+# fixed standalone YCore input and never compile or package this MPV carrier.
 
 permissions:
   contents: read

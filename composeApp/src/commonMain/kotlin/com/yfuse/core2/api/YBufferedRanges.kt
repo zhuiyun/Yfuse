@@ -8,10 +8,7 @@ data class YBufferedRange(
 
 enum class YBufferRangeSource {
     Unknown,
-    MpvDemuxer,
     SenPlayerNative,
-    Media3Forward,
-    MdkForward,
     YCoreQueue,
 }
 

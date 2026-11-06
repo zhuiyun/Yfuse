@@ -5,14 +5,8 @@ enum class PlayerEngine(
     val label: String,
     val available: Boolean,
 ) {
-    /** Media3/ExoPlayer — the default. */
-    Exo("ExoPlayer", true),
-
-    /** libmpv — widest format/codec coverage. */
-    Mpv("MPV", true),
-
-    /** MDK — hardware-accelerated libmdk renderer and decoder stack. */
-    Mdk("MDK", true),
+    /** Yfuse-owned demux, decoder, renderer and transport orchestration. */
+    YCore("YCore", true),
 
     /** Explicit opt-in only; original runtime license verification is required. */
     SenPlayer("SenPlayer（实验）", true),
@@ -24,5 +18,5 @@ enum class PlayerEngine(
     }
 }
 
-/** Package-profile boundary: compact Android packages deliberately omit MDK. */
+/** Runtime/platform boundary; unavailable native ABIs must not be selectable. */
 expect fun bundledPlayerEngines(): Set<PlayerEngine>

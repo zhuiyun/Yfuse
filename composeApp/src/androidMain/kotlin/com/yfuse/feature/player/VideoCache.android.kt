@@ -2,7 +2,7 @@ package com.yfuse.feature.player
 
 import com.yfuse.core.model.PlaybackMethod
 import com.yfuse.core.playback.isPersistentPlaybackManifestUrl
-import com.yfuse.core.playback.shouldProxyMpvNetworkUrl
+import com.yfuse.core.playback.shouldProxyPlaybackNetworkUrl
 
 /**
  * Returns the original remote file that may enter the persistent sparse cache.
@@ -23,7 +23,7 @@ internal fun PlayerMediaItem.persistentPlaybackCacheUrl(
         drmConfiguration != null ||
         version?.drmConfiguration != null ||
         version?.discSource == true ||
-        !shouldProxyMpvNetworkUrl(source) ||
+        !shouldProxyPlaybackNetworkUrl(source) ||
         source.isPersistentPlaybackManifestUrl()
     ) {
         return null

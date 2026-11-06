@@ -11,12 +11,10 @@ enum class PlaybackOptimizationMode {
     Compatibility,
 }
 
-/** Whether YCore may orchestrate backends or must keep one backend for the session. */
+/** Automatic playback uses YCore; SenPlayer requires an explicit user selection. */
 enum class PlaybackEngineSelection {
     Auto,
-    LockExo,
-    LockMpv,
-    LockMdk,
+    LockYCore,
     LockSenPlayer,
     ;
 
@@ -24,9 +22,7 @@ enum class PlaybackEngineSelection {
         get() =
             when (this) {
                 Auto -> null
-                LockExo -> PlayerEngine.Exo
-                LockMpv -> PlayerEngine.Mpv
-                LockMdk -> PlayerEngine.Mdk
+                LockYCore -> PlayerEngine.YCore
                 LockSenPlayer -> PlayerEngine.SenPlayer
             }
 
@@ -36,9 +32,7 @@ enum class PlaybackEngineSelection {
 
         fun locked(engine: PlayerEngine): PlaybackEngineSelection =
             when (engine) {
-                PlayerEngine.Exo -> LockExo
-                PlayerEngine.Mpv -> LockMpv
-                PlayerEngine.Mdk -> LockMdk
+                PlayerEngine.YCore -> LockYCore
                 PlayerEngine.SenPlayer -> LockSenPlayer
             }
     }
@@ -101,7 +95,7 @@ data class PlaybackMediaProbe(
                         isHugeRemoteMov
                 )
 
-    /** Media3 can wait indefinitely while locating metadata in very large remote MOV files. */
+    /** Large remote MOV files require bounded native metadata probing before playback. */
     val isHugeRemoteMov: Boolean
         get() =
             !localSource &&
@@ -152,13 +146,10 @@ data class PlaybackPlan(
 )
 
 /**
- * Chooses components rather than treating Exo, mpv and MDK as equivalent opaque players.
- *
- * Platform hardware decode remains the efficient path. Native engines are selected for known
- * demux/subtitle gaps and GPU tone mapping. Server transcode wins over local software decoding
- * when the device has already rejected the exact source format, except for formats such as ProRes
- * that are deliberately routed to the bundled FFmpeg path first to preserve the original source.
+ * Plans source handling for the two installed engines. Auto never opts into SenPlayer licensing.
+ * This is a request, not output proof: the runtime still verifies codecs, HDR, DRM and surfaces.
  */
+@Suppress("UNUSED_PARAMETER")
 fun planPlayback(
     probe: PlaybackMediaProbe,
     capabilities: PlaybackDeviceCapabilities,
@@ -174,195 +165,83 @@ fun planPlayback(
         PlaybackDolbyVisionRuntimeCapabilities.conservative(),
     availableEngines: Set<PlayerEngine> = PlayerEngine.selectable.toSet(),
 ): PlaybackPlan {
-    val lockedEngine = engineSelection.lockedEngine?.takeIf(availableEngines::contains)
+    val requested = engineSelection.lockedEngine ?: PlayerEngine.YCore
+    val primary =
+        requested.takeIf(availableEngines::contains)
+            ?: PlayerEngine.YCore.takeIf(availableEngines::contains)
+            ?: error("No selected playback engine is available")
     val discDecision = planDiscPlayback(probe)
-    val directlyPlayableAudio =
-        if (allowAudioPassthrough) {
-            capabilities.directPlayableAudio
-        } else {
-            capabilities.audioDecoders
-        }
-    val audioNeedsNative =
-        probe.audioCodec != null && probe.audioCodec !in directlyPlayableAudio
     val hdrRoute =
         playbackHdrRoute(
             source = probe.source,
             capabilities = capabilities,
-            preferredEngine = preferredEngine,
+            preferredEngine = primary,
             preferredDecoderMode = preferredDecoderMode,
             videoSupport = videoSupport,
             dolbyVisionRuntime = dolbyVisionRuntime,
-            requiresNativeDemuxer =
-                discDecision.requiresNativeEngine || probe.requiresNativeDemuxer,
+            requiresNativeDemuxer = discDecision.requiresNativeEngine || probe.requiresNativeDemuxer,
         )
-    val discNeedsServer = discDecision.requiresServerTranscode
-    val localDolbyVideo = probe.source.dolbyVision
-    val softwareFirstVideo = probe.source.videoRequirements.codec in SOFTWARE_FIRST_VIDEO_CODECS
-    val unsupportedVideoCanUseLocalSoftware =
-        engineSelection == PlaybackEngineSelection.Auto &&
-            (videoSupport.isUnsupported || softwareFirstVideo) &&
-            !probe.source.needsDolbyDecoder &&
+    val softwareFirst = probe.source.videoRequirements.codec in SOFTWARE_FIRST_VIDEO_CODECS
+    val localSoftware =
+        primary == PlayerEngine.YCore &&
+            !probe.drmProtected &&
+            !probe.source.dolbyVision &&
             !probe.usingServerTranscode &&
-            (localDolbyVideo || !probe.hasServerTranscode || softwareFirstVideo)
-    val unsupportedVideoUsesServer =
-        engineSelection == PlaybackEngineSelection.Auto &&
-            videoSupport.isUnsupported &&
-            !softwareFirstVideo &&
-            !probe.source.needsDolbyDecoder &&
-            !localDolbyVideo &&
+            (softwareFirst || (videoSupport.isUnsupported && !probe.hasServerTranscode))
+    // A server fallback is a clear-stream compatibility operation, never a DRM bypass.
+    // Original Dolby stays local unless the viewer explicitly requests server conversion.
+    val requiresServer =
+        !probe.drmProtected &&
+            !probe.source.dolbyVision &&
+            !probe.usingServerTranscode &&
             probe.hasServerTranscode &&
-            preferredDecoderMode != DecoderMode.Software
-    val powerSaverToneMapTranscode =
-        optimizationMode == PlaybackOptimizationMode.PowerSaver &&
-            !localDolbyVideo &&
-            hdrRoute.engine == PlayerEngine.Mpv &&
-            hdrRoute.reason != null &&
-            probe.hasServerTranscode
-    val requiresServerTranscode =
-        (!unsupportedVideoCanUseLocalSoftware && hdrRoute.requiresServerTranscode) ||
-            unsupportedVideoUsesServer ||
-            discNeedsServer ||
-            powerSaverToneMapTranscode
-    val strictPlatformPath =
-        !probe.usingServerTranscode &&
             (
-                probe.drmProtected ||
+                discDecision.requiresServerTranscode ||
                     (
-                        hdrRoute.dolbyVisionPath == PlaybackDolbyVisionPath.MediaCodecNative &&
-                            !requiresServerTranscode
+                        primary == PlayerEngine.YCore &&
+                            !softwareFirst &&
+                            (
+                                hdrRoute.requiresServerTranscode ||
+                                    (videoSupport.isUnsupported && preferredDecoderMode != DecoderMode.Software)
+                            )
                     )
             )
-
-    val contentEngine =
-        when {
-            strictPlatformPath -> PlayerEngine.Exo
-            lockedEngine != null -> lockedEngine
-            unsupportedVideoCanUseLocalSoftware -> PlayerEngine.Mpv
-            unsupportedVideoUsesServer -> PlayerEngine.Exo
-            discNeedsServer -> PlayerEngine.Exo
-            powerSaverToneMapTranscode -> PlayerEngine.Exo
-            hdrRoute.engine != preferredEngine -> hdrRoute.engine
-            preferredDecoderMode == DecoderMode.Software -> PlayerEngine.Mpv
-            discDecision.requiresNativeEngine -> PlayerEngine.Mpv
-            probe.requiresNativeDemuxer || probe.styledSubtitles -> PlayerEngine.Mpv
-            audioNeedsNative -> PlayerEngine.Mpv
-            optimizationMode == PlaybackOptimizationMode.PowerSaver -> PlayerEngine.Exo
-            optimizationMode == PlaybackOptimizationMode.Quality && probe.source.hdrFormat != null ->
-                PlayerEngine.Exo
-            optimizationMode == PlaybackOptimizationMode.Compatibility -> PlayerEngine.Mpv
-            else -> preferredEngine
-        }
-
-    // MDK configures a generic HEVC decoder and has no encoded audio output, so a Dolby Vision
-    // source there is a green/magenta picture (Profile 5) or a silently stripped base layer
-    // (Profile 8) rather than a failure the fallback chain could act on. It stays out of the
-    // chain for Dolby sources unless the user locked it.
-    val dolbyVisionSource = probe.source.dolbyVision
-    val requestedOrder =
-        when {
-            strictPlatformPath -> listOf(PlayerEngine.Exo)
-            lockedEngine != null -> listOf(lockedEngine)
-            optimizationMode == PlaybackOptimizationMode.PowerSaver ->
-                listOf(contentEngine, PlayerEngine.Exo, PlayerEngine.Mdk, PlayerEngine.Mpv)
-            optimizationMode == PlaybackOptimizationMode.Quality ->
-                listOf(contentEngine, PlayerEngine.Mpv, PlayerEngine.Exo, PlayerEngine.Mdk)
-            optimizationMode == PlaybackOptimizationMode.Compatibility ->
-                listOf(contentEngine, PlayerEngine.Mpv, PlayerEngine.Mdk, PlayerEngine.Exo)
-            else ->
-                listOf(contentEngine, preferredEngine, PlayerEngine.Exo, PlayerEngine.Mpv, PlayerEngine.Mdk)
-        }.filter(availableEngines::contains)
-            .filterNot { dolbyVisionSource && it == PlayerEngine.Mdk && lockedEngine != PlayerEngine.Mdk }
-            .distinct()
-
-    val performanceRankingEligible =
-        engineSelection == PlaybackEngineSelection.Auto &&
-            optimizationMode == PlaybackOptimizationMode.Balanced &&
-            !strictPlatformPath &&
-            !unsupportedVideoCanUseLocalSoftware &&
-            !discDecision.requiresNativeEngine &&
-            !probe.requiresNativeDemuxer &&
-            !probe.styledSubtitles &&
-            !audioNeedsNative &&
-            hdrRoute.engine == preferredEngine
-    val rankedOrder =
-        if (performanceRankingEligible) {
-            requestedOrder
-                .withIndex()
-                .sortedWith(
-                    compareBy<IndexedValue<PlayerEngine>>(
-                        { engineCosts[it.value] ?: 0 },
-                        IndexedValue<PlayerEngine>::index,
-                    ),
-                ).map(IndexedValue<PlayerEngine>::value)
-        } else {
-            requestedOrder
-        }
-    val availableOrder =
-        if (lockedEngine != null && !strictPlatformPath) {
-            rankedOrder
-        } else {
-            rankedOrder.filterNot(excludedEngines::contains)
-        }
-    val primary = availableOrder.firstOrNull() ?: requestedOrder.first()
-    val finalOrder = listOf(primary) + availableOrder.filterNot { it == primary }
-    val renderPath =
-        when {
-            requiresServerTranscode || probe.usingServerTranscode -> PlaybackRenderPath.ServerTranscode
-            primary == PlayerEngine.Mpv &&
-                hdrRoute.dolbyVisionPath == PlaybackDolbyVisionPath.MpvGpuNext ->
-                PlaybackRenderPath.GpuDolbyVision
-            primary == PlayerEngine.Mpv &&
-                hdrRoute.dolbyVisionPath == PlaybackDolbyVisionPath.Hdr10BaseLayer ->
-                PlaybackRenderPath.Hdr10BaseLayer
-            primary == PlayerEngine.Mpv &&
-                hdrRoute.dolbyVisionPath == PlaybackDolbyVisionPath.SdrToneMap ->
-                PlaybackRenderPath.GpuToneMapped
-            primary == PlayerEngine.Exo -> PlaybackRenderPath.PlatformDirect
-            hdrRoute.engine == PlayerEngine.Mpv && hdrRoute.reason != null ->
-                PlaybackRenderPath.GpuToneMapped
-            else -> PlaybackRenderPath.NativeDirect
-        }
     val reason =
         when {
-            strictPlatformPath && lockedEngine != null && lockedEngine != PlayerEngine.Exo ->
-                "受保护或 Dolby 专用内容需要安全输出，已临时使用平台内核"
-            lockedEngine != null -> "已锁定 ${lockedEngine.label}，YCore 不自动切换内核"
-            unsupportedVideoCanUseLocalSoftware &&
-                probe.source.videoRequirements.codec == PlaybackVideoCodec.ProRes ->
-                "ProRes 使用 FFmpeg 软件解码，保留原始高位深片源"
-            unsupportedVideoCanUseLocalSoftware ->
-                "${videoSupport.detail}，服务器无可用转码，使用 FFmpeg 软件解码"
-            unsupportedVideoUsesServer -> "${videoSupport.detail}，使用服务器转码后平台硬解"
-            localDolbyVideo && hdrRoute.reason != null -> hdrRoute.reason
-            discDecision.reason != null -> discDecision.reason
-            powerSaverToneMapTranscode -> "当前显示设备不支持片源 HDR，省电模式使用服务器色调映射"
+            probe.drmProtected -> "当前内核尚未支持受保护内容的完整 DRM 播放流程"
+            requested != primary -> "所选内核不适用于当前平台，使用 YCore"
+            primary == PlayerEngine.SenPlayer -> "已选择 SenPlayer，播放时按原内核规则验证许可"
+            requiresServer -> discDecision.reason ?: "设备未确认支持原始格式，使用可用的服务器转码"
+            localSoftware && softwareFirst -> "ProRes 交由 YCore FFmpeg 软件解码，实际格式支持由运行时验证"
+            localSoftware -> "设备不支持此硬解格式且无服务器转码，尝试 YCore 软件解码"
             hdrRoute.reason != null -> hdrRoute.reason
-            preferredDecoderMode == DecoderMode.Software -> "用户要求软件解码，选择 FFmpeg 兼容管线"
-            probe.requiresNativeDemuxer -> "${probe.normalizedContainer} 需要原生解封装管线"
-            audioNeedsNative ->
-                "平台未声明 ${probe.audioCodec.name} 音频解码，使用原生音频管线"
-            probe.styledSubtitles -> "复杂字幕需要原生样式渲染"
-            primary != contentEngine -> "已避开当前设备上重复失败的 ${contentEngine.label}"
-            optimizationMode == PlaybackOptimizationMode.PowerSaver -> "省电模式优先平台硬解直出"
-            optimizationMode == PlaybackOptimizationMode.Compatibility -> "兼容模式优先原生解封装"
-            else -> null
+            discDecision.reason != null -> discDecision.reason
+            probe.requiresNativeDemuxer -> "${probe.normalizedContainer} 使用 YCore 原生解封装"
+            probe.styledSubtitles -> "使用 YCore 字幕管线，样式支持以实际输出为准"
+            primary in excludedEngines -> "当前只有 YCore 自动内核可用；失败后不会自动启用 SenPlayer"
+            else -> "使用 YCore 自研播放管线"
         }
     return PlaybackPlan(
         primaryEngine = primary,
         decoderMode =
             when {
-                unsupportedVideoCanUseLocalSoftware -> DecoderMode.Software
-                requiresServerTranscode -> DecoderMode.Hardware
-                strictPlatformPath -> DecoderMode.Hardware
-                localDolbyVideo && primary == hdrRoute.engine -> hdrRoute.decoderMode
-                lockedEngine == null &&
-                    optimizationMode == PlaybackOptimizationMode.PowerSaver &&
-                    primary == PlayerEngine.Exo -> DecoderMode.Hardware
+                probe.drmProtected -> preferredDecoderMode
+                primary == PlayerEngine.SenPlayer -> preferredDecoderMode
+                requiresServer || probe.usingServerTranscode -> DecoderMode.Hardware
+                localSoftware -> DecoderMode.Software
+                probe.source.dolbyVision -> hdrRoute.decoderMode
+                optimizationMode == PlaybackOptimizationMode.PowerSaver -> DecoderMode.Hardware
                 else -> preferredDecoderMode
             },
-        renderPath = renderPath,
-        requiresServerTranscode = requiresServerTranscode,
-        engineOrder = finalOrder,
+        renderPath =
+            when {
+                requiresServer || probe.usingServerTranscode -> PlaybackRenderPath.ServerTranscode
+                primary == PlayerEngine.YCore && hdrRoute.dolbyVisionPath == PlaybackDolbyVisionPath.Hdr10BaseLayer ->
+                    PlaybackRenderPath.Hdr10BaseLayer
+                else -> PlaybackRenderPath.NativeDirect
+            },
+        requiresServerTranscode = requiresServer,
+        engineOrder = listOf(primary),
         reason = reason,
         dolbyVisionPath = hdrRoute.dolbyVisionPath,
     )

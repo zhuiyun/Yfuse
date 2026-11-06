@@ -103,7 +103,7 @@ class YCoreNativeReadinessTest {
 
     @Test
     fun file_source_shares_are_admitted_for_ycore_to_probe() {
-        listOf("smb", "webdav", "https").forEach { scheme ->
+        listOf("smb", "webdav", "https", "ftp", "yfuse-cloud").forEach { scheme ->
             val block =
                 evaluateCore2NativeBaseline(
                     Core2NativeBaselineSource(
@@ -151,7 +151,7 @@ class YCoreNativeReadinessTest {
             evaluateCore2NativeBaseline(
                 Core2NativeBaselineSource(
                     hasMetadata = true,
-                    scheme = "ftp",
+                    scheme = "unimplemented",
                     container = "mkv",
                     videoCodec = null,
                     serverTranscode = false,

@@ -31,6 +31,8 @@ data class Core2NativeBaselineSource(
      * media whose PlaybackInfo is unavailable; neither a URL nor its extension proves a codec.
      */
     val probedBeforeRouting: Boolean = false,
+    /** Selected by product playback policy with a concrete, server-approved output URL. */
+    val serverTranscodeAuthorized: Boolean = false,
 )
 
 /**
@@ -51,7 +53,8 @@ fun evaluateCore2NativeBaseline(source: Core2NativeBaselineSource): Core2NativeB
         !source.hasMetadata && !probedByYCore -> Core2NativeBaselineBlock.MissingMetadata
         source.scheme.lowercase() !in CORE2_NATIVE_BASELINE_SCHEMES ->
             Core2NativeBaselineBlock.UnsupportedScheme
-        source.serverTranscode -> Core2NativeBaselineBlock.ServerTranscode
+        source.serverTranscode && !source.serverTranscodeAuthorized -> Core2NativeBaselineBlock.ServerTranscode
+        source.serverTranscode && source.drm -> Core2NativeBaselineBlock.Drm
         source.adaptiveManifest && !source.adaptiveManifestSupported -> Core2NativeBaselineBlock.AdaptiveManifest
         source.disc && !source.discSupported -> Core2NativeBaselineBlock.Disc
         source.drm && !source.drmSupported -> Core2NativeBaselineBlock.Drm
@@ -99,10 +102,10 @@ private fun String?.normalizedVideoCodec(): String {
     }
 }
 
-// smb and webdav are read by YCore's own transports on every route (the FFmpeg routes through
-// its loopback proxy), never by a protocol of the bundled libraries.
+// SMB, WebDAV, FTP and stable cloud URIs are read by YCore's own transports on every route
+// (FFmpeg routes through its loopback proxy), never by another playback engine.
 private val CORE2_NATIVE_BASELINE_SCHEMES =
-    setOf("http", "https", "file", "content", "android.resource", "smb", "webdav", "webdavs")
+    setOf("http", "https", "file", "content", "android.resource", "smb", "webdav", "webdavs", "ftp", "yfuse-cloud")
 
 /** Sources whose bytes are on this device, where YCore can read them before choosing a route. */
 private val CORE2_NATIVE_LOCAL_SCHEMES = setOf("file", "content", "android.resource")

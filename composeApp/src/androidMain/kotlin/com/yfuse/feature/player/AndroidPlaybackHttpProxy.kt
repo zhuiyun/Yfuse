@@ -20,7 +20,7 @@ import com.yfuse.core.playback.SecureMediaCacheKeyFactory
 import com.yfuse.core.playback.VideoCachePool
 import com.yfuse.core.playback.WidgetPlaybackRequest
 import com.yfuse.core.playback.secureMediaCacheKeyForUrl
-import com.yfuse.core.playback.shouldProxyMpvNetworkUrl
+import com.yfuse.core.playback.shouldProxyPlaybackNetworkUrl
 import com.yfuse.core.playback.writeResponseBodyWithWatchdog
 import okhttp3.Request
 import okhttp3.Response
@@ -126,7 +126,7 @@ internal class AndroidPlaybackHttpProxy(
         cacheable: Boolean = false,
         widgetRequest: WidgetPlaybackRequest? = null,
     ): String {
-        if (!shouldProxyMpvNetworkUrl(upstreamUrl)) return upstreamUrl
+        if (!shouldProxyPlaybackNetworkUrl(upstreamUrl)) return upstreamUrl
         val routeId =
             routes.registerRoot(PlaybackProxyRoute(upstreamUrl, cacheable && widgetRequest == null, widgetRequest))
                 ?: return upstreamUrl

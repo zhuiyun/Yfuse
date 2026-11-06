@@ -6,46 +6,31 @@ import com.yfuse.core.playback.AudioEnhancementMode
 import com.yfuse.core.playback.PlaybackEngineSelection
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
 
 class ItemEngineOverrideTest {
-    private fun build() =
-        PlayerEngineBuild(PlayerEngine.Exo, DecoderMode.Hardware, PlaybackHandoverSnapshot(0, 0L, true, 1f))
+    private fun build(engine: PlayerEngine = PlayerEngine.SenPlayer) =
+        PlayerEngineBuild(engine, DecoderMode.Hardware, PlaybackHandoverSnapshot(0, 0L, true, 1f))
 
     @Test
-    fun leaving_ycore_for_one_entry_comes_back_to_it_for_the_next() {
+    fun explicit_sen_to_ycore_override_is_restored_after_the_current_entry() {
         val build = build()
-        val choices = PlayerViewerChoices(PlaybackEngineSelection.Auto)
+        val choices = PlayerViewerChoices(PlaybackEngineSelection.LockSenPlayer)
         var handovers = 0
-        val strategies = mutableListOf<PlaybackEngineSelection>()
-
-        val replaced =
-            switchToCompatibilityForItem("e1", leaveCore2 = true, build, choices, { handovers++ }, strategies::add)
-
-        assertEquals(PlayerEngine.Mpv, build.kind)
-        assertTrue(build.core2DisabledForSession)
-        assertEquals(PlaybackEngineSelection.LockMpv, choices.sessionEngineSelection)
-
-        restoreItemEngine(replaced, build, choices, { handovers++ }, strategies::add)
-
-        assertEquals(PlayerEngine.Exo, build.kind)
-        assertFalse(build.core2DisabledForSession)
-        assertEquals(PlaybackEngineSelection.Auto, choices.sessionEngineSelection)
+        val replaced = switchToYCoreForItem("e1", build, choices) { handovers++ }
+        assertEquals(PlayerEngine.YCore, build.kind)
+        assertEquals(PlaybackEngineSelection.LockYCore, choices.sessionEngineSelection)
+        restoreItemEngine(replaced, build, choices) { handovers++ }
+        assertEquals(PlayerEngine.SenPlayer, build.kind)
+        assertEquals(PlaybackEngineSelection.LockSenPlayer, choices.sessionEngineSelection)
         assertEquals(2, build.engineGeneration)
         assertEquals(2, handovers)
-        assertTrue(strategies.isEmpty())
     }
 
     @Test
-    fun a_legacy_engine_switches_strategy_and_back() {
-        val choices = PlayerViewerChoices(PlaybackEngineSelection.Auto)
-        val strategies = mutableListOf<PlaybackEngineSelection>()
-
-        val replaced = switchToCompatibilityForItem("e1", leaveCore2 = false, build(), choices, {}, strategies::add)
-        restoreItemEngine(replaced, build(), choices, {}, strategies::add)
-
-        assertEquals(listOf(PlaybackEngineSelection.LockMpv, PlaybackEngineSelection.Auto), strategies)
+    fun ycore_never_switches_itself_to_sen_for_an_unsupported_setting() {
+        kotlin.test.assertFailsWith<IllegalStateException> {
+            switchToYCoreForItem("e1", build(PlayerEngine.YCore), PlayerViewerChoices(PlaybackEngineSelection.Auto)) {}
+        }
     }
 
     @Test

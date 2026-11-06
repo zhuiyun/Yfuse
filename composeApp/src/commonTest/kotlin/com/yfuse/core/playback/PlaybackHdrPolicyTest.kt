@@ -9,73 +9,38 @@ import kotlin.test.assertTrue
 
 class PlaybackHdrPolicyTest {
     @Test
-    fun dolby_only_source_uses_exo_hardware_when_complete_pipeline_exists() {
-        val route =
-            playbackHdrRoute(
-                source = dolby(needsDolbyDecoder = true),
-                capabilities = capabilities(dolby = true),
-                preferredEngine = PlayerEngine.Mpv,
-                preferredDecoderMode = DecoderMode.Software,
-            )
-
-        assertEquals(PlayerEngine.Exo, route.engine)
-        assertEquals(DecoderMode.Hardware, route.decoderMode)
-        assertFalse(route.requiresServerTranscode)
+    fun dolby_display_does_not_prove_native_output_or_software_tone_mapping() {
+        listOf(false, true).forEach { display ->
+            val route = playbackHdrRoute(dolby(true), capabilities(display), PlayerEngine.YCore, DecoderMode.Auto)
+            assertEquals(PlayerEngine.YCore, route.engine)
+            assertEquals(PlaybackDolbyVisionPath.Unverified, route.dolbyVisionPath)
+            assertEquals(DecoderMode.Hardware, route.decoderMode)
+            assertFalse(route.requiresServerTranscode)
+            assertFalse(route.stripDolbyVisionToBaseLayer)
+        }
     }
 
     @Test
-    fun dolby_only_source_uses_local_mpv_without_dolby_display() {
+    fun sen_hdr_remains_an_unverified_explicit_request() {
+        val route = playbackHdrRoute(dolby(true), capabilities(true), PlayerEngine.SenPlayer, DecoderMode.Auto)
+        assertEquals(PlayerEngine.SenPlayer, route.engine)
+        assertEquals(PlaybackDolbyVisionPath.Unverified, route.dolbyVisionPath)
+        assertEquals(DecoderMode.Auto, route.decoderMode)
+    }
+
+    @Test
+    fun sdr_preserves_decoder_intent_without_hdr_claims() {
         val route =
             playbackHdrRoute(
-                source = dolby(needsDolbyDecoder = true),
-                capabilities = capabilities(dolby = false),
-                preferredEngine = PlayerEngine.Exo,
-                preferredDecoderMode = DecoderMode.Auto,
+                PlaybackSourceRequirements(false, false, "SDR"),
+                capabilities(false),
+                PlayerEngine.YCore,
+                DecoderMode.Software,
             )
-
-        assertFalse(route.requiresServerTranscode)
-        assertEquals(PlayerEngine.Mpv, route.engine)
+        assertEquals(PlayerEngine.YCore, route.engine)
         assertEquals(DecoderMode.Software, route.decoderMode)
-        assertTrue(route.reason.orEmpty().contains("客户端"))
-    }
-
-    @Test
-    fun unsupported_hdr_routes_to_mpv_tone_mapping_and_hardware_decode() {
-        val route =
-            playbackHdrRoute(
-                source =
-                    PlaybackSourceRequirements(
-                        dolbyVision = false,
-                        needsDolbyDecoder = false,
-                        dynamicRange = "HDR10",
-                    ),
-                capabilities = capabilities(dolby = false),
-                preferredEngine = PlayerEngine.Mdk,
-                preferredDecoderMode = DecoderMode.Software,
-            )
-
-        assertEquals(PlayerEngine.Mpv, route.engine)
-        assertEquals(DecoderMode.Hardware, route.decoderMode)
+        assertEquals(PlaybackDolbyVisionPath.None, route.dolbyVisionPath)
         assertFalse(route.requiresServerTranscode)
-    }
-
-    @Test
-    fun sdr_preserves_the_users_engine_and_decoder() {
-        val route =
-            playbackHdrRoute(
-                source =
-                    PlaybackSourceRequirements(
-                        dolbyVision = false,
-                        needsDolbyDecoder = false,
-                        dynamicRange = "SDR",
-                    ),
-                capabilities = capabilities(dolby = false),
-                preferredEngine = PlayerEngine.Mdk,
-                preferredDecoderMode = DecoderMode.Software,
-            )
-
-        assertEquals(PlayerEngine.Mdk, route.engine)
-        assertEquals(DecoderMode.Software, route.decoderMode)
     }
 
     @Test
@@ -95,7 +60,7 @@ class PlaybackHdrPolicyTest {
                         bitDepth = 10,
                     ),
                 capabilities = capabilities(dolby = false),
-                preferredEngine = PlayerEngine.Exo,
+                preferredEngine = PlayerEngine.YCore,
                 preferredDecoderMode = DecoderMode.Auto,
                 videoSupport =
                     PlaybackVideoSupport.unsupported(
