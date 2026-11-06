@@ -596,11 +596,11 @@ object Dimens {
      * 悬浮 Tab Bar — 参考大胶囊导航，保留 14dp 左右悬浮边距.
      *
      * 68dp was a full quarter of the smallest phone's usable height once the inset and the
-     * navigation bar were counted. 62dp is the floor: a 34dp glyph box, one caption line and
+     * navigation bar were counted. 52dp is the floor: a 34dp glyph box, one caption line and
      * the padding around them — see `dockHeight` in the app shell, which grows this with the
      * font scale so the caption is never clipped under 大号文字.
      */
-    val tabBarHeight = 62.dp
+    val tabBarHeight = 52.dp
     val tabBarInset = 14.dp
 
     /** 卡片描边 */

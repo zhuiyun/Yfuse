@@ -62,7 +62,6 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TileMode
@@ -774,7 +773,7 @@ private val DockIconBox = 34.dp
 private val DockIconGlyph = 25.dp
 
 /** What is left of [Dimens.tabBarHeight] around the glyph box and one caption line at 1× type. */
-private val DockVerticalPadding = 13.dp
+private val DockVerticalPadding = 3.dp
 
 /** 静息's dock travel: the few dp its pages move, enough to say where the bar went. */
 private val CalmDockTravel = 8.dp
@@ -782,7 +781,7 @@ private val CalmDockTravel = 8.dp
 /**
  * The dock's height: [Dimens.tabBarHeight], or as tall as the glyph and its caption need.
  *
- * 62dp holds a 34dp glyph box and one caption line at the default font scale. Under 大号文字
+ * 52dp holds a 34dp glyph box and one caption line at the default font scale. Under 大号文字
  * on top of a large system font the caption line alone grows past what is left, and a fixed
  * height clipped the label. The density read here is the theme's, so both scales are in it.
  */
@@ -1337,9 +1336,7 @@ internal fun GlassTabBar(
         } else {
             null
         }
-    // Two independently sprung edges make the selected glass pull slightly in the direction
-    // of travel. The draw phase caps that stretch, so a jump across the bar never turns the
-    // indicator into a stripe spanning unrelated icons.
+    // Existing motion supplies the moving center; selection stays circular throughout travel.
     val defaultMotion = if (enhanced) null else rememberDefaultTabMotion(selectedIndex, reduceMotion)
     val phaseMoving by remember(liquidMotion?.sweep, liquidMotion?.dragging) {
         derivedStateOf { liquidMotion?.dragging == true || (liquidMotion?.sweep?.value ?: 1f) < 1f }
@@ -1373,9 +1370,8 @@ internal fun GlassTabBar(
                 // While the dock shows as liquid, the cells follow the capsule's right edge.
                 val span = dockLiquid?.frame()?.tabSpan?.times(density) ?: size.width
                 val cell = span / tabs.size
-                // The selected region nearly fills its cell — a broad island, not a small
-                // Material indicator — so it stays legible over artwork-heavy roots and the
-                // quiet ones alike.
+                // Keep the selection square before applying its circular glass, independent
+                // of cell width, screen size, direction or the current motion stretch.
                 val bounds =
                     tabIndicatorBounds(
                         rawLeft = liquidMotion?.left?.value ?: checkNotNull(defaultMotion).left.value,
@@ -1383,10 +1379,13 @@ internal fun GlassTabBar(
                         tabCount = tabs.size,
                         maxScale = if (enhanced) 1.8f else TAB_PILL_MAX_SCALE,
                     )
-                val pillWidth = cell * bounds.width
-                val stretch = (bounds.width / TAB_PILL_WIDTH_FRACTION - 1f).coerceIn(0f, 0.8f)
-                val pillHeight = size.height * 0.86f * (1f - if (enhanced) stretch * 0.12f else 0f)
-                val left = if (rtl) size.width - cell * (bounds.left + bounds.width) else cell * bounds.left
+                val diameter = minOf(size.height - 8.dp.toPx(), cell * TAB_PILL_WIDTH_FRACTION).coerceAtLeast(0f)
+                if (diameter <= 0f) return@drawBehind
+                val pillWidth = diameter
+                val pillHeight = diameter
+                val logicalCenter = cell * (bounds.left + bounds.width / 2f)
+                val center = if (rtl) size.width - logicalCenter else logicalCenter
+                val left = (center - diameter / 2f).coerceIn(0f, (size.width - diameter).coerceAtLeast(0f))
                 val top = (size.height - pillHeight) / 2f
                 val alpha = indicatorAlpha.value.coerceIn(0f, 1f)
                 if (liquid) {
@@ -1398,11 +1397,10 @@ internal fun GlassTabBar(
                     )
                 } else {
                     val selection = navigationGlass.selection
-                    drawRoundRect(
+                    drawCircle(
                         color = selection.copy(alpha = selection.alpha * alpha),
-                        topLeft = Offset(left, top),
-                        size = Size(pillWidth, pillHeight),
-                        cornerRadius = CornerRadius(pillHeight / 2f),
+                        radius = diameter / 2f,
+                        center = Offset(left + diameter / 2f, size.height / 2f),
                     )
                 }
                 if (liquidMotion != null && highlights) {
