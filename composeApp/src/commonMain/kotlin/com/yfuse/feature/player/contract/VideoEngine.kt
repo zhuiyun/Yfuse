@@ -145,6 +145,7 @@ internal fun PlaybackOutputEvidence.nextSession(): PlaybackOutputEvidence =
 
 data class PlaybackDiagnostics(
     val engine: String = "",
+    val senPlayerPicture: SenPlayerPictureState? = null,
     val decoder: String = "等待视频轨道",
     val videoCodec: String = "未知",
     val playMethod: String = "直播放",

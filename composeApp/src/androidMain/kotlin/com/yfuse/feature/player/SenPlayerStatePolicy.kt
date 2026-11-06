@@ -37,6 +37,7 @@ internal fun PlaybackState.forSenPlayerLoad(
                 decoder = "等待 SenPlayer 视频轨道",
                 item = item,
             ).copy(
+                senPlayerPicture = diagnostics.senPlayerPicture?.awaitingApplication(),
                 videoWidth = 0,
                 videoReadiness = PlaybackOutputReadiness.Waiting,
                 audioReadiness = PlaybackOutputReadiness.Unknown,
@@ -67,6 +68,7 @@ internal fun PlaybackState.forSenPlayerFailure(
         fallbacksExhausted = true,
         diagnostics =
             diagnostics.copy(
+                senPlayerPicture = diagnostics.senPlayerPicture?.awaitingApplication(),
                 videoReadiness = PlaybackOutputReadiness.Unknown,
                 audioReadiness = PlaybackOutputReadiness.Unknown,
                 bufferedDurationMs = 0,

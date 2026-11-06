@@ -41,6 +41,7 @@ internal fun PlaybackState.withRemoteCast(
             diagnostics.copy(
                 engine = listOfNotNull("远程投屏", cast.activeDevice?.name).joinToString(" · "),
                 remoteCast = true,
+                senPlayerPicture = null,
                 decoder = "接收端未报告",
                 videoCodec = "未知",
                 playMethod = playMethod,

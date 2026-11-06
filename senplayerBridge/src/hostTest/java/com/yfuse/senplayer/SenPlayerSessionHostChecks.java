@@ -36,6 +36,10 @@ public final class SenPlayerSessionHostChecks {
     rangesNeverInventCoverage();
     progressUsesItsOwnSourceAndPreservesGaps();
     surfaceFailureIsNotSuccess();
+    enhancementOptionsUseOriginalKeysAndLevels();
+    enhancementRejectionsPreserveNativeResult();
+    enhancementLevelsAreValidatedBeforeDispatch();
+    enhancementStateUsesNativeExecutionFlags();
     pauseDoesNotRequireALicense();
     timeoutRetiresInsteadOfReusingThePlayer();
     cancellationRejectsLateCompletion();
@@ -113,6 +117,71 @@ public final class SenPlayerSessionHostChecks {
     f.session.play(false);
     check(f.player.paused, "pause remains possible independently of permission renewal");
     f.session.close();
+  }
+
+  private static void enhancementOptionsUseOriginalKeysAndLevels() throws Exception {
+    Fixture f = new Fixture(1);
+    for (int level = 0; level <= 3; level++) {
+      f.session.setSdrToHdrLevel(level);
+      check(f.player.optionName.equals("surface-sdr-hdr")
+              && f.player.optionValue.equals(Integer.toString(level)),
+          "HDR level maps unchanged to original option");
+      f.session.setUpscalingLevel(level);
+      check(f.player.optionName.equals("surface-upscaling")
+              && f.player.optionValue.equals(Integer.toString(level)),
+          "upscaling level maps unchanged to original option");
+    }
+    check(f.player.optionCalls == 8, "each level dispatches once");
+    check(FakePlayer.permitResets == 0, "picture settings never alter the license grant");
+    f.session.close();
+  }
+
+  private static void enhancementRejectionsPreserveNativeResult() throws Exception {
+    Fixture f = new Fixture(1);
+    for (Object result : new Object[] {-3, 1, null, "0", 0.0d, 0L}) {
+      f.player.optionResult = result;
+      for (boolean hdr : new boolean[] {true, false}) {
+        try {
+          if (hdr) f.session.setSdrToHdrLevel(2);
+          else f.session.setUpscalingLevel(2);
+          throw new AssertionError("Rejected/malformed enhancement result was accepted");
+        } catch (SenPlayerSession.EnhancementOptionRejected error) {
+          check(error.optionName.equals(hdr ? "surface-sdr-hdr" : "surface-upscaling"),
+              "rejection identifies the original option");
+          check(java.util.Objects.equals(error.nativeCode, result instanceof Integer ? result : null),
+              "preserve integer code; malformed or absent result stays unknown");
+          check(f.session.isUsable(), "optional enhancement rejection must not retire playback");
+        }
+      }
+    }
+    f.player.optionResult = 0;
+    f.session.setSdrToHdrLevel(0);
+    f.session.setUpscalingLevel(0);
+    check(f.session.isUsable(), "effects can be disabled after a rejection");
+    f.session.close();
+  }
+
+  private static void enhancementLevelsAreValidatedBeforeDispatch() throws Exception {
+    Fixture f = new Fixture(1);
+    for (int level : new int[] {-1, 4, Integer.MIN_VALUE, Integer.MAX_VALUE}) {
+      expect(IllegalArgumentException.class, () -> f.session.setSdrToHdrLevel(level));
+      expect(IllegalArgumentException.class, () -> f.session.setUpscalingLevel(level));
+    }
+    check(f.player.optionCalls == 0, "invalid levels cannot reach the original runtime");
+    check(f.session.isUsable(), "invalid input leaves playback usable");
+    f.session.close();
+  }
+
+  private static void enhancementStateUsesNativeExecutionFlags() throws Exception {
+    SenPlayerSession.Snapshot snapshot = new SenPlayerSession.Snapshot();
+    for (int mask = 0; mask < 8; mask++) {
+      PictureState state = new PictureState((mask & 1) != 0, (mask & 2) != 0, (mask & 4) != 0);
+      SenPlayerSession.applyEnhancementState(snapshot, state);
+      check(snapshot.sdrToHdrActive == state.y, "HDR active reads original field y");
+      check(snapshot.upscalingActive == state.A, "upscaling active reads original field A");
+      check(snapshot.upscalingAvailable == state.z,
+          "upscaling availability reads original field z independently of active state");
+    }
   }
 
   private static void timeoutRetiresInsteadOfReusingThePlayer() throws Exception {
@@ -280,6 +349,9 @@ public final class SenPlayerSessionHostChecks {
     static int permitResets;
     int cancelCalls, releaseCalls, surfaceCode;
     boolean paused, releaseFailure;
+    int optionCalls;
+    Object optionResult = 0;
+    String optionName, optionValue;
     public static void C(double permit) {
       if (permit != 0) throw new AssertionError("No grants may be issued by this host test");
       permitResets++;
@@ -289,6 +361,12 @@ public final class SenPlayerSessionHostChecks {
     public void B(int width, int height) { }
     public CompletableFuture<Integer> x(Surface video, Surface subtitles) {
       return CompletableFuture.completedFuture(surfaceCode);
+    }
+    public CompletableFuture<Object> v(String name, String value) {
+      optionCalls++;
+      optionName = name;
+      optionValue = value;
+      return CompletableFuture.completedFuture(optionResult);
     }
     public CompletableFuture<Void> n() {
       releaseCalls++;
@@ -305,6 +383,12 @@ public final class SenPlayerSessionHostChecks {
     Progress(long source, double duration, double end, Range... ranges) {
       a = source; c = duration; d = end;
       java.util.Collections.addAll(f, ranges);
+    }
+  }
+  public static final class PictureState {
+    public final boolean y, A, z;
+    PictureState(boolean hdrActive, boolean upscaleActive, boolean upscaleAvailable) {
+      y = hdrActive; A = upscaleActive; z = upscaleAvailable;
     }
   }
   public static final class Range {

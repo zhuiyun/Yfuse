@@ -186,6 +186,7 @@ class PlaybackPreferences(
     }
 
     val bookmarks by lazy { PlaybackBookmarks(settings) }
+    val senPlayerPicture by lazy { SenPlayerPicturePreferences(settings) }
     private val seriesLock = Any()
     private val json = Json { ignoreUnknownKeys = true }
     private val _videoCacheSize =

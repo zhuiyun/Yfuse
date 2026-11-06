@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 import com.yfuse.core.data.PlaybackFrameRateMatch
+import com.yfuse.core.data.SenPlayerPictureSettings
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.playback.NativePlaybackComponent
@@ -13,6 +14,7 @@ import com.yfuse.core.playback.PlaybackOptimizationMode
 import com.yfuse.core2.android.AndroidCore2TrialFactory
 import com.yfuse.core2.android.core2NativeBaselineBlockReason
 import com.yfuse.feature.filesource.isFileSourcePlayback
+import kotlinx.coroutines.flow.StateFlow
 
 /** A selected SenPlayer session must not silently become a different engine for a file transport. */
 internal fun playbackEngineUnsupportedReason(
@@ -40,6 +42,7 @@ internal fun createVideoEngine(
     autoNext: Boolean,
     customUserAgent: String,
     videoCacheBytes: Long,
+    senPlayerPictureSettings: StateFlow<SenPlayerPictureSettings>? = null,
     yCoreBufferTargetUs: Long? = null,
     allowAudioPassthrough: Boolean = false,
     frameRateMatch: PlaybackFrameRateMatch = PlaybackFrameRateMatch.Disabled,
@@ -89,6 +92,7 @@ internal fun createVideoEngine(
             autoNext = autoNext,
             customUserAgent = customUserAgent,
             videoCacheBytes = videoCacheBytes,
+            pictureSettings = senPlayerPictureSettings,
         )
     }
 

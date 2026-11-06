@@ -391,6 +391,7 @@ internal fun PlayerRoot(
                     autoNext = true,
                     customUserAgent = customUserAgent,
                     videoCacheBytes = videoCacheBytes,
+                    senPlayerPictureSettings = playbackPreferences.senPlayerPicture.state,
                     yCoreBufferTargetUs = yCoreBufferTargetUs,
                     allowAudioPassthrough = allowAudioPassthrough,
                     frameRateMatch = frameRateMatch,

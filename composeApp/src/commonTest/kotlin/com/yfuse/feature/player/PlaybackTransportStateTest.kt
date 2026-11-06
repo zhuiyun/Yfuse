@@ -1,5 +1,6 @@
 package com.yfuse.feature.player
 
+import com.yfuse.core.data.SenPlayerEnhancementLevel
 import com.yfuse.core2.api.YBufferRangeCoverage
 import com.yfuse.core2.api.YBufferRangeSource
 import com.yfuse.core2.api.YBufferSnapshot
@@ -74,6 +75,41 @@ class PlaybackTransportStateTest {
             )
         assertEquals(original.runtimeProjection(), buffered.runtimeProjection())
         assertNotEquals(original.transportState(), buffered.transportState())
+    }
+
+    @Test
+    fun picture_setting_results_reach_controls_without_reintroducing_timeline_updates() {
+        val waiting = SenPlayerEnhancementState(level = SenPlayerEnhancementLevel.Medium)
+        val picture = SenPlayerPictureState(upscaling = waiting)
+        val original =
+            PlaybackState(
+                positionMs = 2_000L,
+                diagnostics = PlaybackDiagnostics(senPlayerPicture = picture),
+            )
+        val projection = original.runtimeProjection()
+        assertEquals(picture, projection.diagnostics.senPlayerPicture)
+        assertEquals(projection, original.copy(positionMs = 2_250L, bufferedPositionMs = 6_000L).runtimeProjection())
+
+        val accepted = waiting.copy(status = SenPlayerEnhancementStatus.Accepted, nativeCode = 0, active = false)
+        val active = accepted.copy(active = true)
+        val rejected =
+            waiting.copy(
+                status = SenPlayerEnhancementStatus.Rejected,
+                nativeCode = -1,
+                detail = "当前片源不支持",
+            )
+        var previous = projection
+        for (result in listOf(accepted, active, rejected)) {
+            val changed =
+                original.copy(
+                    diagnostics = original.diagnostics.copy(senPlayerPicture = picture.copy(upscaling = result)),
+                )
+            val projected = changed.runtimeProjection()
+            assertEquals(result, projected.diagnostics.senPlayerPicture?.upscaling)
+            assertNotEquals(previous, projected)
+            assertEquals(original.transportState(), changed.transportState())
+            previous = projected
+        }
     }
 
     @Test

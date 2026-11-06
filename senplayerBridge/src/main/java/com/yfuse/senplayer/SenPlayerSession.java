@@ -49,6 +49,20 @@ public final class SenPlayerSession implements AutoCloseable {
     }
   }
 
+  /** An optional picture enhancement was not accepted; this does not retire playback. */
+  public static final class EnhancementOptionRejected extends IOException {
+    public final String optionName;
+    /** Original JNI result, or null when the original runtime returned no valid integer. */
+    public final Integer nativeCode;
+
+    EnhancementOptionRejected(String optionName, Integer nativeCode) {
+      super("SenPlayer enhancement rejected: " + optionName + " ("
+          + (nativeCode == null ? "unknown result" : nativeCode) + ")");
+      this.optionName = optionName;
+      this.nativeCode = nativeCode;
+    }
+  }
+
   public static final class Snapshot {
     public long source, positionMs, durationMs, cacheEndMs, videoFrames, surfaceFrames,
         surfaceDraws;
@@ -56,6 +70,8 @@ public final class SenPlayerSession implements AutoCloseable {
     public int width, height, errorCode;
     public long cacheDurationMs;
     public boolean cacheSnapshotAvailable;
+    /** Native execution/capability flags; distinct from an accepted option or saved preference. */
+    public boolean sdrToHdrActive, upscalingActive, upscalingAvailable;
     public List<long[]> cacheRanges = new ArrayList<>();
   }
 
@@ -134,6 +150,24 @@ public final class SenPlayerSession implements AutoCloseable {
   public void option(String name, String value) throws Exception {
     checkCode(awaitOperation(invoke("v", new Class[] {String.class, String.class}, name, value)));
   }
+  /** Original SenPlayer SDR to HDR levels: 0 off, 1 low, 2 medium, 3 high. */
+  public void setSdrToHdrLevel(int level) throws Exception {
+    setEnhancementLevel("surface-sdr-hdr", level);
+  }
+  /** Original SenPlayer upscaling levels: 0 off, 1 low, 2 medium, 3 high. */
+  public void setUpscalingLevel(int level) throws Exception {
+    setEnhancementLevel("surface-upscaling", level);
+  }
+  private void setEnhancementLevel(String name, int level) throws Exception {
+    if (level < 0 || level > 3)
+      throw new IllegalArgumentException("SenPlayer enhancement level must be between 0 and 3");
+    // Pinned DEX: op3.k0 / w8 -> Player.v -> N.n7. Preserve native rejection codes.
+    Object result = awaitOperation(
+        invoke("v", new Class[] {String.class, String.class}, name, Integer.toString(level)));
+    Integer code = result instanceof Integer ? (Integer) result : null;
+    if (code == null || code != 0)
+      throw new EnhancementOptionRejected(name, code);
+  }
   public void track(int kind, String id) throws Exception {
     // di3 AUDIO=0 SUBTITLE=1 SECONDARY=2; vh3 OFF=0 AUTO=1 TRACK=2, from the supplied DEX.
     double choice = "off".equals(id) ? 0 : "auto".equals(id) ? 1 : 2;
@@ -176,6 +210,7 @@ public final class SenPlayerSession implements AutoCloseable {
     s.videoFrames = number(value, "b").longValue();
     s.surfaceFrames = number(value, "d").longValue();
     s.surfaceDraws = number(value, "e").longValue();
+    applyEnhancementState(s, value);
     if (s.source == 0 || s.source != source
         || !(s.phase.equals("playing") || s.phase.equals("paused") || s.phase.equals("buffering")
             || s.phase.equals("seeking")))
@@ -332,6 +367,13 @@ public final class SenPlayerSession implements AutoCloseable {
   }
   static double remainingPermitSeconds(boolean allowed, long deadline, long now) {
     return allowed && now >= 0 && deadline > now ? (deadline - now) / 1000.0 : 0;
+  }
+  static void applyEnhancementState(Snapshot snapshot, Object value) throws Exception {
+    // Pinned DEX Playback$State -> yl1.A -> rp3: y=u SDR HDR active, A=v upscaling active,
+    // z=w upscaling available. These are original native state, never inferred from preferences.
+    snapshot.sdrToHdrActive = value.getClass().getField("y").getBoolean(value);
+    snapshot.upscalingActive = value.getClass().getField("A").getBoolean(value);
+    snapshot.upscalingAvailable = value.getClass().getField("z").getBoolean(value);
   }
   static void applyProgress(Snapshot s, Object progress) throws Exception {
     s.cacheSnapshotAvailable = false;

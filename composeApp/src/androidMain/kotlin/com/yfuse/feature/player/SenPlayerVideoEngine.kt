@@ -3,12 +3,15 @@ package com.yfuse.feature.player
 import android.content.Context
 import android.graphics.PixelFormat
 import android.os.SystemClock
+import android.view.Display
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.widget.FrameLayout
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
+import com.yfuse.core.data.SenPlayerEnhancementLevel
+import com.yfuse.core.data.SenPlayerPictureSettings
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.playback.PlaybackFailureKind
@@ -38,6 +41,7 @@ internal class SenPlayerVideoEngine(
     private val autoNext: Boolean,
     private val customUserAgent: String,
     private val videoCacheBytes: Long,
+    private val pictureSettings: StateFlow<SenPlayerPictureSettings>? = null,
 ) : VideoEngine,
     AndroidSerializedPlayerRelease {
     private val appContext = context.applicationContext
@@ -70,6 +74,11 @@ internal class SenPlayerVideoEngine(
     private var loadPending = true
     private var pendingSeekMs: Long? = null
     private var mediaPoll = 0
+    private val pictureController = SenPlayerPictureController()
+    private var pictureDynamicRange: String? = null
+    private var pictureDolbyProfile = 0
+    private var pictureUpscalingAvailable: Boolean? = null
+    private var pictureDurationMs = 0L
     private val bufferSession =
         java.util.UUID
             .randomUUID()
@@ -85,6 +94,7 @@ internal class SenPlayerVideoEngine(
                 diagnostics =
                     PlaybackDiagnostics(
                         engine = "SenPlayer（实验）",
+                        senPlayerPicture = SenPlayerPictureState(),
                         decoder = "等待 SenPlayer 许可验证",
                         videoReadiness = PlaybackOutputReadiness.Unknown,
                         audioReadiness = PlaybackOutputReadiness.Unknown,
@@ -187,6 +197,7 @@ internal class SenPlayerVideoEngine(
                         resetVideoEvidence(current.sourceId(), current.snapshot(), "surface_created")
                         current.surface(view.video.holder.surface, view.subtitles.holder.surface)
                         boundSurfaceEpoch = epoch
+                        pictureController.reset()
                         if (loadPending) loadCurrent() else current.play(requested)
                     }
                     if (attached === view && surfaceEpoch.get() == epoch && !released.get()) {
@@ -252,6 +263,7 @@ internal class SenPlayerVideoEngine(
 
     private fun detachNativeSurface() {
         boundSurfaceEpoch = -1L
+        pictureController.reset()
         resetVideoEvidence(session?.sourceId() ?: 0L, reason = "surface_detached")
         session?.takeIf { it.isUsable() }?.surface(null, null)
         mutableState.update {
@@ -259,7 +271,11 @@ internal class SenPlayerVideoEngine(
                 it
             } else {
                 it.copy(
-                    diagnostics = it.diagnostics.copy(videoReadiness = PlaybackOutputReadiness.Waiting),
+                    diagnostics =
+                        it.diagnostics.copy(
+                            videoReadiness = PlaybackOutputReadiness.Waiting,
+                            senPlayerPicture = pictureController.state,
+                        ),
                 )
             }
         }
@@ -275,6 +291,11 @@ internal class SenPlayerVideoEngine(
         surfaceRecoveries = 0
         bufferGeneration++
         mediaPoll = 0
+        pictureController.reset()
+        pictureDynamicRange = null
+        pictureDolbyProfile = 0
+        pictureUpscalingAvailable = null
+        pictureDurationMs = 0L
         mutableState.update { it.forSenPlayerLoad(bufferSession, bufferGeneration, item) }
         resetVideoEvidence(0L, reason = "source_loading")
         val upstream = item.senPlayerPlaybackUrl()
@@ -301,6 +322,8 @@ internal class SenPlayerVideoEngine(
                 upstream
             }
         val previousOutput = current.snapshot()
+        // Remove the previous source's effects before native open starts the next file.
+        applyPictureSettings(current)
         current.open(url, emptyMap(), if (pendingSeekMs == null) state.value.positionMs else 0, requested)
         if (released.get()) return
         resetVideoEvidence(current.sourceId(), previousOutput, "source_opened")
@@ -326,12 +349,15 @@ internal class SenPlayerVideoEngine(
 
     private fun poll() {
         val current = session ?: return
+        applyPictureSettings(current)
         val sample = current.snapshot()
         if (released.get() || sample.source == 0L || sample.source != current.sourceId()) return
         if (sample.phase == "failed" || sample.errorCode != 0) {
             fail(IllegalStateException("native_${sample.errorCode}"))
             return
         }
+        pictureUpscalingAvailable = sample.upscalingAvailable
+        pictureDurationMs = sample.durationMs
         val target = senPlayerPendingSeekTarget(pendingSeekMs, sample.durationMs, sample.phase)
         if (target != null) {
             beginVideoSeek(current.sourceId(), sample)
@@ -401,6 +427,12 @@ internal class SenPlayerVideoEngine(
             )
         mutableState.update {
             if (released.get()) return@update it
+            val currentRendered =
+                rendered &&
+                    attached === view &&
+                    view?.ready == true &&
+                    surfaceEpoch.get() == epoch &&
+                    boundSurfaceEpoch == epoch
             it.copy(
                 playing = requested && sample.phase == "playing",
                 buffering = sample.phase in setOf("loading", "buffering", "seeking"),
@@ -412,13 +444,24 @@ internal class SenPlayerVideoEngine(
                 ended = ended,
                 diagnostics =
                     it.diagnostics.copy(
+                        senPlayerPicture =
+                            pictureController.state.copy(
+                                sdrToHdr =
+                                    pictureController.state.sdrToHdr.copy(
+                                        active = sample.sdrToHdrActive.takeIf { currentRendered },
+                                    ),
+                                upscaling =
+                                    pictureController.state.upscaling.copy(
+                                        active = sample.upscalingActive.takeIf { currentRendered },
+                                    ),
+                            ),
                         decoder = sample.decoder.ifBlank { "SenPlayer 原生解码" },
                         videoWidth = sample.width,
                         videoReadiness =
-                            if (rendered) PlaybackOutputReadiness.Rendering else PlaybackOutputReadiness.Waiting,
+                            if (currentRendered) PlaybackOutputReadiness.Rendering else PlaybackOutputReadiness.Waiting,
                         videoOutput =
                             when {
-                                rendered -> sample.videoOutput.ifBlank { "视频画面已输出" }
+                                currentRendered -> sample.videoOutput.ifBlank { "视频画面已输出" }
                                 outputWatchdog.warning -> "未确认视频画面，请尝试切换解码方式或内核"
                                 else -> "正在确认视频画面"
                             },
@@ -465,6 +508,7 @@ internal class SenPlayerVideoEngine(
                     diagnostics =
                         it.diagnostics.copy(
                             videoReadiness = PlaybackOutputReadiness.Waiting,
+                            senPlayerPicture = it.diagnostics.senPlayerPicture?.withoutActiveEvidence(),
                             outputEvidenceGeneration = generation,
                             outputEvidenceResetReason = reason,
                         ),
@@ -494,6 +538,7 @@ internal class SenPlayerVideoEngine(
         // Surface destruction can race the native detach. Its queued callback owns cleanup.
         if (released.get() || attached !== view || surfaceEpoch.get() != epoch || !view.ready) return
         current.surface(view.video.holder.surface, view.subtitles.holder.surface)
+        pictureController.reset()
         current.resize(view.video.width.coerceAtLeast(1), view.video.height.coerceAtLeast(1))
         current.play(requested)
         surfaceRecoveries++
@@ -548,6 +593,13 @@ internal class SenPlayerVideoEngine(
 
     private fun updateTracks(media: JSONObject) {
         val tracks = media.optJSONArray("tracks") ?: return
+        val videoTracks =
+            (0 until tracks.length())
+                .mapNotNull { tracks.optJSONObject(it) }
+                .filter { it.optString("kind") == "video" }
+        val video = videoTracks.firstOrNull { it.optBoolean("selected") } ?: videoTracks.firstOrNull()
+        pictureDynamicRange = video?.optString("dynamicRange")?.takeIf { it.isNotBlank() }
+        pictureDolbyProfile = video?.optInt("dvProfile") ?: 0
 
         fun ofKind(kind: String): List<EngineTrack> =
             buildList {
@@ -578,6 +630,90 @@ internal class SenPlayerVideoEngine(
             }
         mutableState.update { it.copy(audioTracks = ofKind("audio"), subtitleTracks = ofKind("sub")) }
     }
+
+    private fun applyPictureSettings(current: SenPlayerSession) {
+        val view = attached ?: return
+        val epoch = surfaceEpoch.get()
+
+        fun valid() =
+            !released.get() &&
+                attached === view &&
+                view.ready &&
+                surfaceEpoch.get() == epoch &&
+                boundSurfaceEpoch == epoch &&
+                session === current
+        if (!valid()) return
+        val supportsHdr10 =
+            runCatching {
+                view.display
+                    ?.takeIf { it.isValid }
+                    ?.hdrCapabilities
+                    ?.supportedHdrTypes
+                    ?.contains(Display.HdrCapabilities.HDR_TYPE_HDR10) == true
+            }.getOrDefault(false)
+        val eligibility =
+            senPlayerPictureEligibility(
+                displaySupportsHdr10 = supportsHdr10,
+                dynamicRange = pictureDynamicRange,
+                dolbyVisionProfile = pictureDolbyProfile,
+                durationMs = pictureDurationMs,
+                upscalingAvailable = pictureUpscalingAvailable,
+            )
+        val result =
+            pictureController.apply(
+                pictureSettings?.value ?: SenPlayerPictureSettings(),
+                eligibility,
+            ) { feature, level ->
+                if (valid()) sendPictureOption(current, feature, level) else SenPlayerEnhancementState(level)
+            }
+        if (!valid()) {
+            pictureController.reset()
+            return
+        }
+        // Preserve an observed active flag only while this exact option acknowledgement is unchanged.
+        mutableState.update { previous ->
+            if (!valid()) return@update previous
+            val old = previous.diagnostics.senPlayerPicture
+
+            fun preserveActive(
+                next: SenPlayerEnhancementState,
+                before: SenPlayerEnhancementState?,
+            ) = if (before?.copy(active = null) == next) next.copy(active = before.active) else next
+            previous.copy(
+                diagnostics =
+                    previous.diagnostics.copy(
+                        senPlayerPicture =
+                            result.copy(
+                                sdrToHdr = preserveActive(result.sdrToHdr, old?.sdrToHdr),
+                                upscaling = preserveActive(result.upscaling, old?.upscaling),
+                            ),
+                    ),
+            )
+        }
+    }
+
+    private fun sendPictureOption(
+        current: SenPlayerSession,
+        feature: SenPlayerPictureFeature,
+        level: SenPlayerEnhancementLevel,
+    ): SenPlayerEnhancementState =
+        try {
+            when (feature) {
+                SenPlayerPictureFeature.Upscaling -> current.setUpscalingLevel(level.nativeValue)
+                SenPlayerPictureFeature.SdrToHdr -> current.setSdrToHdrLevel(level.nativeValue)
+            }
+            SenPlayerEnhancementState(level, SenPlayerEnhancementStatus.Accepted)
+        } catch (error: SenPlayerSession.EnhancementOptionRejected) {
+            SenPlayerEnhancementState(level, SenPlayerEnhancementStatus.Rejected, nativeCode = error.nativeCode)
+        } catch (error: Exception) {
+            // A timed-out/cancelled native operation retires its session; never hide that as an optional failure.
+            if (!current.isUsable()) throw error
+            SenPlayerEnhancementState(
+                level,
+                SenPlayerEnhancementStatus.Failed,
+                detail = "应用失败（${error.javaClass.simpleName}）",
+            )
+        }
 
     override fun play() {
         if (released.get()) return
@@ -687,6 +823,7 @@ internal class SenPlayerVideoEngine(
             session?.close()
         } finally {
             session = null
+            pictureController.reset()
             try {
                 proxy?.close()
             } finally {
@@ -712,6 +849,7 @@ internal class SenPlayerVideoEngine(
                 diagnostics =
                     it.diagnostics.copy(
                         videoReadiness = PlaybackOutputReadiness.Released,
+                        senPlayerPicture = null,
                         bufferedDurationMs = 0,
                     ),
             )

@@ -352,7 +352,7 @@ internal fun MorePanel(
                 PopupMenuRow(
                     icon = AppIcons.Movie,
                     title = "画面设置",
-                    subtitle = "Anime4K、帧率与氛围光",
+                    subtitle = "画质增强、帧率与氛围光",
                     onClick = { onAdvancedPage(AdvancedPage.Picture) },
                 )
                 PopupMenuRow(
@@ -372,21 +372,27 @@ internal fun MorePanel(
 
             AdvancedPage.Picture -> {
                 PopupBackLabel("画面设置") { onAdvancedPage(AdvancedPage.Playback) }
-                GroupLabel("Anime4K · YCore SDR 动漫")
                 val animePreferences = remember { GlobalContext.get().get<PlaybackPreferences>() }
                 val animeMode by animePreferences.anime4KMode.collectAsState()
                 val showFrameRate by animePreferences.showFrameRate.collectAsState()
-                Anime4KMode.entries.forEach { mode ->
-                    OptionRow(
-                        mode.label,
-                        animeMode == mode,
-                        onClick = { animePreferences.setAnime4KMode(mode) },
+                if (diagnostics.senPlayerPicture == null && !diagnostics.remoteCast) {
+                    GroupLabel("Anime4K · YCore SDR 动漫")
+                    Anime4KMode.entries.forEach { mode ->
+                        OptionRow(
+                            mode.label,
+                            animeMode == mode,
+                            onClick = { animePreferences.setAnime4KMode(mode) },
+                        )
+                    }
+                    Text(
+                        "下次播放生效；HDR 与杜比视界保留原始输出",
+                        style = AppTypography.caption.regular,
+                        color = Color.White.copy(alpha = 0.6f),
                     )
                 }
-                Text(
-                    "下次播放生效；HDR 与杜比视界保留原始输出",
-                    style = AppTypography.caption.regular,
-                    color = Color.White.copy(alpha = 0.6f),
+                PlayerSenPlayerPictureControls(
+                    preferences = animePreferences.senPlayerPicture,
+                    applied = diagnostics.senPlayerPicture,
                 )
                 GroupLabel("画面")
                 PopupToggleHeader(

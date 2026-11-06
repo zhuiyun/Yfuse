@@ -4,6 +4,7 @@ import com.yfuse.core.cast.CastDevice
 import com.yfuse.core.cast.CastOutputEvidence
 import com.yfuse.core.cast.CastPlaybackStatus
 import com.yfuse.core.cast.CastState
+import com.yfuse.core.data.SenPlayerEnhancementLevel
 import com.yfuse.core2.api.YFrameRateSample
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -13,6 +14,26 @@ import kotlin.test.assertTrue
 
 class RemoteCastPlaybackTest {
     private val receiver = CastDevice("chromecast:lounge", "客厅电视")
+
+    @Test
+    fun receiver_never_inherits_local_senplayer_picture_controls_or_active_flags() {
+        val enabled =
+            SenPlayerEnhancementState(
+                level = SenPlayerEnhancementLevel.High,
+                status = SenPlayerEnhancementStatus.Accepted,
+                nativeCode = 0,
+                active = true,
+            )
+        val picture = SenPlayerPictureState(upscaling = enabled, sdrToHdr = enabled)
+        val local = PlaybackState(diagnostics = PlaybackDiagnostics(senPlayerPicture = picture))
+        for (status in listOf(CastPlaybackStatus.Connecting, CastPlaybackStatus.Playing, CastPlaybackStatus.Error)) {
+            val remote = local.withRemoteCast(CastState(status = status, activeDevice = receiver), "直播放")
+            assertTrue(remote.diagnostics.remoteCast)
+            assertNull(remote.diagnostics.senPlayerPicture)
+            assertNull(remote.runtimeProjection().diagnostics.senPlayerPicture)
+        }
+        assertEquals(picture, local.diagnostics.senPlayerPicture)
+    }
 
     @Test
     fun confirmed_receiver_truth_replaces_local_transport_truth() {

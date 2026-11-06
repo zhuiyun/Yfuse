@@ -17,6 +17,28 @@ import kotlin.test.assertTrue
 
 class SenPlayerStatePolicyTest {
     @Test
+    fun next_source_and_failure_keep_controls_but_clear_previous_picture_acknowledgements() {
+        val applied =
+            SenPlayerPictureState(
+                sdrToHdr =
+                    SenPlayerEnhancementState(
+                        com.yfuse.core.data.SenPlayerEnhancementLevel.High,
+                        SenPlayerEnhancementStatus.Accepted,
+                        active = true,
+                    ),
+            )
+        val previous = PlaybackState(diagnostics = PlaybackDiagnostics(senPlayerPicture = applied))
+        val seeking = applied.withoutActiveEvidence()
+        assertEquals(SenPlayerEnhancementStatus.Accepted, seeking.sdrToHdr.status)
+        assertEquals(applied.sdrToHdr.level, seeking.sdrToHdr.level)
+        assertNull(seeking.sdrToHdr.active)
+        val loading = previous.forSenPlayerLoad("new", 2)
+        assertEquals(applied.awaitingApplication(), loading.diagnostics.senPlayerPicture)
+        val failed = previous.forSenPlayerFailure("stopped", PlaybackFailureKind.Unknown)
+        assertEquals(applied.awaitingApplication(), failed.diagnostics.senPlayerPicture)
+    }
+
+    @Test
     fun approved_server_output_is_opened_and_reported_then_cleared_for_the_next_direct_item() {
         val direct = PlayerMediaItem("movie", "http://media/original.mkv", "http://media/stream.m3u8", "Movie")
         assertEquals(direct.url, direct.senPlayerPlaybackUrl())
