@@ -6,7 +6,6 @@ import android.net.Uri
 import android.os.CancellationSignal
 import com.yfuse.core2.api.YExternalSubtitleSource
 import com.yfuse.core2.api.YTrack
-import com.yfuse.core2.api.YTrackType
 import com.yfuse.core2.network.YMediaTransportRequest
 import com.yfuse.core2.network.YSourceProtocol
 import com.yfuse.core2.subtitle.YAssSubtitleSource
@@ -35,18 +34,22 @@ internal data class AndroidLoadedExternalSubtitle(
     val cues: List<YSubtitleCue>,
 )
 
+internal data class AndroidSubtitleDocument(
+    val text: String,
+    val format: YSubtitleFormat,
+    val cues: List<YSubtitleCue>,
+)
+
 /** Bounded sidecar loader. It never feeds external subtitle bytes into the video decoder. */
 internal class AndroidExternalSubtitleLoader(
     private val resolveContent: () -> ContentResolver,
 ) {
     constructor(context: Context) : this({ context.applicationContext.contentResolver })
 
-    suspend fun load(
+    suspend fun readDocument(
         source: YExternalSubtitleSource,
         headers: Map<String, String>,
-        trackId: String = EXTERNAL_SUBTITLE_TRACK_ID,
-        onValidated: ((String, YSubtitleFormat) -> Unit)? = null,
-    ): AndroidLoadedExternalSubtitle {
+    ): AndroidSubtitleDocument {
         val loaded = read(source.uri, headers)
         val loadingContext = currentCoroutineContext()
         loadingContext.ensureActive()
@@ -71,6 +74,17 @@ internal class AndroidExternalSubtitleLoader(
             }
         loadingContext.ensureActive()
         require(parsed.isNotEmpty()) { "External subtitle contains no displayable cues" }
+        return AndroidSubtitleDocument(text, format, parsed)
+    }
+
+    suspend fun load(
+        source: YExternalSubtitleSource,
+        headers: Map<String, String>,
+        trackId: String = EXTERNAL_SUBTITLE_TRACK_ID,
+        onValidated: ((String, YSubtitleFormat) -> Unit)? = null,
+    ): AndroidLoadedExternalSubtitle {
+        val (text, format, parsed) = readDocument(source, headers)
+        val loadingContext = currentCoroutineContext()
         val cues =
             if (format in setOf(YSubtitleFormat.Ass, YSubtitleFormat.Ssa) &&
                 FfmpegNativeBridge.dynamicAssRendererAvailable
@@ -88,15 +102,7 @@ internal class AndroidExternalSubtitleLoader(
         loadingContext.ensureActive()
         onValidated?.invoke(text, format)
         return AndroidLoadedExternalSubtitle(
-            track =
-                YTrack(
-                    id = trackId,
-                    type = YTrackType.Subtitle,
-                    label = source.language?.takeIf(String::isNotBlank) ?: "External subtitle",
-                    language = source.language,
-                    codec = format.externalMimeType(),
-                    selected = true,
-                ),
+            track = source.catalogTrack(trackId).copy(codec = format.externalMimeType(), selected = true),
             cues = cues,
         )
     }
@@ -155,6 +161,7 @@ internal class AndroidExternalSubtitleLoader(
                         uri = uri,
                         protocol = protocol,
                         headers = headers,
+                        originBoundHeaderNames = headers.keys.filterNot { it.equals("User-Agent", true) }.toSet(),
                     ),
                 )
             require(response.statusCode in 200..299) { "External subtitle request failed" }

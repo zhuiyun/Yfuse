@@ -336,7 +336,8 @@ internal fun PlayerRootControls(
                 subtitles =
                     choices.subtitleControls.copy(
                         secondaryTrackId = choices.secondarySubtitleTrackId,
-                        independentScaleAvailable = engine is YPlayerVideoEngineAdapter,
+                        independentScaleAvailable =
+                            engine is YPlayerVideoEngineAdapter || engine is SenPlayerVideoEngine,
                         dualLayoutNote = if (engine is SenPlayerVideoEngine) "此内核保留字幕原排版。" else null,
                         secondarySupported = backendExtensions.supportsSecondarySubtitleTrack,
                         secondaryOffsetAvailable = backendExtensions.supportsSecondarySubtitleOffset,

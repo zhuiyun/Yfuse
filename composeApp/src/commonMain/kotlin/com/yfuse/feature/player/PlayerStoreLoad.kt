@@ -170,6 +170,7 @@ internal class PlayerQueueItemBuilder(
             }
         val playerVersions =
             effectiveVersions.toPlayerMediaVersions(
+                serverKind = server.kind,
                 baseUrl = server.baseUrl,
                 itemId = id,
                 token = server.accessToken,

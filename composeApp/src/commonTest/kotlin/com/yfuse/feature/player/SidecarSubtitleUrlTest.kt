@@ -100,6 +100,35 @@ class SidecarSubtitleUrlTest {
         assertTrue(subtitles.isEmpty())
     }
 
+    @Test
+    fun direct_play_keeps_both_chinese_sidecars_when_negotiation_only_lists_english() {
+        val english = subtitleStream(2, "pgs", "", external = false)
+        val ass = subtitleStream(5, "ass", "").copy(Language = "chi")
+        val srt = subtitleStream(6, "srt", "").copy(Language = "chi")
+
+        fun version(vararg streams: MediaStreamDto) =
+            MediaSourceDto(Id = "src", Container = "mkv", MediaStreams = streams.toList())
+                .toMediaVersion(fallbackId = "movie", ordinal = 0)
+        val versions = listOf(version(english)).preservingSourceMetadataFrom(listOf(version(english, ass, srt)))
+        val route = versions.toPlayerMediaVersions("https://host", "movie", "token").single()
+        assertEquals(listOf("ass", "srt"), route.externalSubtitles.map { it.codec })
+        assertEquals(
+            listOf("/Videos/movie/src/Subtitles/5/Stream.ass", "/Videos/movie/src/Subtitles/6/Stream.srt"),
+            route.externalSubtitles.map { Url(it.uri).encodedPath },
+        )
+        assertTrue(
+            versions
+                .toPlayerMediaVersions(
+                    "https://host",
+                    "movie",
+                    "token",
+                    serverKind = com.yfuse.core.model.MediaServerKind.Plex,
+                ).single()
+                .externalSubtitles
+                .isEmpty(),
+        )
+    }
+
     private fun subtitleStream(
         index: Int,
         codec: String,

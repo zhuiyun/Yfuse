@@ -92,6 +92,7 @@ internal fun createVideoEngine(
             autoNext = autoNext,
             customUserAgent = customUserAgent,
             videoCacheBytes = videoCacheBytes,
+            initialTrackSelections = initialTrackSelections,
             pictureSettings = senPlayerPictureSettings,
         )
     }

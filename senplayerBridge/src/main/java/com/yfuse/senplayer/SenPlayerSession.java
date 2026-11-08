@@ -173,6 +173,68 @@ public final class SenPlayerSession implements AutoCloseable {
     double choice = "off".equals(id) ? 0 : "auto".equals(id) ? 1 : 2;
     command("select", new String[0], kind, choice, choice == 2 ? Long.parseLong(id) : 0);
   }
+
+  /** Player.e("addSubtitle") returns the new track id as decimal text, unlike Player.G status codes. */
+  public String addSubtitle(String localPath, String title) throws Exception {
+    ensureUsable();
+    rt.requirePermit();
+    if (source == 0)
+      throw new IllegalStateException("SenPlayer has no active source");
+    Object raw = awaitOperation(invoke("e", new Class[] {String.class, long.class, String[].class, double[].class},
+        "addSubtitle", source, new String[] {localPath, title}, new double[0]));
+    return subtitleTrackId(raw);
+  }
+
+  static String subtitleTrackId(Object result) throws IOException {
+    if (result instanceof String) {
+      try {
+        if (Long.parseLong((String) result) > 0) return (String) result;
+      } catch (NumberFormatException ignored) {
+        // Never treat a malformed native response as a selectable track id.
+      }
+    }
+    throw new IOException("SenPlayer rejected external subtitle");
+  }
+
+  /** Original Player.M packs two gi3 styles and enables the subtitle output for this source. */
+  public void configureSubtitles(boolean secondary, double primaryScale, double secondaryScale,
+      double primaryDelay, double secondaryDelay, String foreground, String outline, String background,
+      double outlineWidth, boolean customStyle) throws Exception {
+    ensureUsable();
+    rt.requirePermit();
+    Class<?> configClass = rt.loader.loadClass("hi3");
+    Object config = subtitleConfiguration(configClass, rt.loader.loadClass("gi3"), secondary,
+        primaryScale, secondaryScale, primaryDelay, secondaryDelay, foreground, outline, background,
+        outlineWidth, customStyle);
+    checkCode(awaitOperation(invoke("M", new Class[] {configClass, long.class}, config, source)));
+  }
+
+  static Object subtitleConfiguration(Class<?> configClass, Class<?> styleClass, boolean secondary,
+      double primaryScale, double secondaryScale, double primaryDelay, double secondaryDelay,
+      String foreground, String outline, String background, double outlineWidth, boolean customStyle)
+      throws ReflectiveOperationException {
+    Object config = configClass.getConstructor().newInstance();
+    for (boolean second : new boolean[] {false, true}) {
+      Object style = styleClass.getConstructor().newInstance();
+      styleClass.getField("a").set(style, "Roboto");
+      styleClass.getField("b").set(style, foreground);
+      styleClass.getField("c").set(style, outline);
+      styleClass.getField("e").set(style, background);
+      styleClass.getField("g").setDouble(style, second ? secondaryScale : primaryScale);
+      styleClass.getField("i").setDouble(style, second ? secondaryDelay : primaryDelay);
+      styleClass.getField("j").setDouble(style, outlineWidth);
+      configClass.getField(second ? "b" : "a").set(config, style);
+    }
+    configClass.getField("c").set(config, "/system/fonts");
+    configClass.getField("d").set(config, "none");
+    configClass.getField("e").setBoolean(config, true); // visible
+    configClass.getField("f").setBoolean(config, customStyle);
+    configClass.getField("g").setBoolean(config, secondary);
+    configClass.getField("i").setBoolean(config, true); // aspect correction
+    configClass.getField("l").setDouble(config, 1.0); // HDR brightness
+    configClass.getField("m").setDouble(config, 1.0); // opacity
+    return config;
+  }
   private void command(String command, String[] strings, double... numbers) throws Exception {
     rt.requirePermit();
     if (source == 0)

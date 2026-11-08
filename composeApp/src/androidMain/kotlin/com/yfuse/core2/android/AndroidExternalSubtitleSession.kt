@@ -1,7 +1,10 @@
 package com.yfuse.core2.android
 
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core.network.embyPlaybackHeaders
+import com.yfuse.core.platform.AppBuildConfig
 import com.yfuse.core2.api.YExternalSubtitleSource
+import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.api.YTrack
 import com.yfuse.core2.api.YTrackType
 import com.yfuse.feature.player.externalSubtitleFormatHint
@@ -32,7 +35,7 @@ internal class AndroidExternalSubtitleSession(
 
     private var generation = 0L
     private var sources = emptyMap<String, YExternalSubtitleSource>()
-    private var headers = emptyMap<String, String>()
+    private var headersFor: (String) -> Map<String, String> = { emptyMap() }
     private val jobs = mutableMapOf<String, Job>()
     private val loaded = mutableSetOf<String>()
     private val permits = Semaphore(2)
@@ -41,31 +44,32 @@ internal class AndroidExternalSubtitleSession(
     var defaultId: String? = null
         private set
 
+    fun reset(item: YMediaItem) = reset(item.allExternalSubtitles, item.headers, item.uri, item.originBoundHeaderNames)
+
     fun reset(
         sources: List<YExternalSubtitleSource>,
         headers: Map<String, String>,
+        origin: String? = null,
+        originBoundNames: Set<String> = emptySet(),
     ) {
         close()
-        this.headers = headers
+        headersFor = { target -> externalSubtitleHeaders(origin, headers, originBoundNames, target) }
         this.sources = sources.mapIndexed { index, source -> externalSubtitleTrackId(index) to source }.toMap()
         tracks =
             this.sources.map { (id, source) ->
                 AndroidLoadedExternalSubtitle(
-                    YTrack(id, YTrackType.Subtitle, source.language ?: "External subtitle", source.language),
+                    source.catalogTrack(id),
                     emptyList(),
                 )
             }
-        defaultId = this.sources.entries
-            .firstOrNull { it.value.forced || it.value.default }
-            ?.key
-            ?: this.sources.keys.singleOrNull()
+        defaultId = this.sources.defaultExternalSubtitleId()
     }
 
     fun request(id: String?) {
         if (id == null || id in loaded || jobs[id]?.isActive == true) return
         val source = sources[id] ?: return
         val generation = generation
-        val headers = headers
+        val headers = headersFor(source.uri)
         jobs[id] =
             scope.launch(dispatcher) {
                 val result =
@@ -117,9 +121,28 @@ internal class AndroidExternalSubtitleSession(
         generation++
         jobs.values.forEach { it.cancel() }
         jobs.clear()
+        headersFor = { emptyMap() }
         loaded.clear()
         sources = emptyMap()
         tracks = emptyList()
         defaultId = null
     }
 }
+
+internal fun Map<String, YExternalSubtitleSource>.defaultExternalSubtitleId(): String? =
+    entries.firstOrNull { it.value.forced || it.value.default }?.key ?: keys.singleOrNull()
+
+internal fun YExternalSubtitleSource.catalogTrack(id: String): YTrack {
+    val codec = format?.name ?: externalSubtitleFormatHint(uri)
+    val label = listOfNotNull(language?.takeIf(String::isNotBlank), codec?.uppercase(), "外挂字幕").joinToString(" · ")
+    return YTrack(id, YTrackType.Subtitle, label, language, codec)
+}
+
+internal fun externalSubtitleHeaders(
+    origin: String?,
+    headers: Map<String, String>,
+    originBoundNames: Set<String>,
+    target: String,
+): Map<String, String> =
+    scopedMediaHeaders(headers, origin, target, originBoundNames) +
+        embyPlaybackHeaders(target) { AppBuildConfig.VERSION_NAME }

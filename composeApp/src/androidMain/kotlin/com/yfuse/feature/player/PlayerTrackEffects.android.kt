@@ -148,6 +148,9 @@ internal fun PlayerTrackEffects(
             onUnsupportedSetting(UnsupportedPlaybackSetting.AudioEnhancement)
         }
     }
+    LaunchedEffect(backendExtensions, subtitleControls.secondaryScale) {
+        backendExtensions.setSecondarySubtitleScale(subtitleControls.secondaryScale)
+    }
     // YCore styles captions in Compose. Each backend acknowledges only supported controls.
     LaunchedEffect(backendExtensions, engineKind, subtitleControls.scale) {
         val applied = backendExtensions.setSubtitleScale(subtitleControls.scale)
