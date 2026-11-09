@@ -50,7 +50,7 @@ class PublishPackageOnlyTest(unittest.TestCase):
     def test_publication_is_disabled_until_the_request_is_resolved(self):
         workflow = (WORKFLOWS / "publish-android.yml").read_text()
         self.assertIn("      PUBLISH_UPDATE: 'false'\n", workflow)
-        job_header = workflow.split("  publish:\n", 1)[1].split("    steps:\n", 1)[0]
+        job_header = workflow.split("\n  request:\n", 1)[1].split("    steps:\n", 1)[0]
         self.assertNotRegex(job_header, r"(?m)^    if:")
         publish_input = workflow.split("      publish:\n", 1)[1].split("\npermissions:", 1)[0]
         self.assertIn("default: true", publish_input)
@@ -122,10 +122,12 @@ class PublishPackageOnlyTest(unittest.TestCase):
             with self.subTest(publish=publish):
                 result, _ = run_with_fake("gradlew", 'printf "%s\\n" "$@"\n', build.replace("./gradlew", "gradlew"), {
                     "PUBLISH_UPDATE": publish, "VERSION_CODE": "248", "VERSION_NAME": "1.0.86",
-                    "CONFIRM_MDK_DISTRIBUTION_RIGHTS": "true",
                 })
                 self.assertEqual(0, result.returncode, result.stderr)
                 self.assertIn("-PyfusePackageOnly=" + package_only, result.stdout.splitlines())
+                self.assertIn("-PyfuseNativeOnlyRuntime=true", result.stdout.splitlines())
+                self.assertIn("-PyfuseIncludeMdk=false", result.stdout.splitlines())
+                self.assertIn("-PyfusePlaybackProfile=ycore-senplayer", result.stdout.splitlines())
                 # The build job never holds the release keystore; the sign job replaces this
                 # throwaway signature with the production one.
                 self.assertIn("-PallowDebugSigning=true", result.stdout.splitlines())

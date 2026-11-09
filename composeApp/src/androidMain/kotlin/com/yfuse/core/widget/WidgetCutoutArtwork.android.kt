@@ -17,9 +17,9 @@ import java.net.URI
 
 private val trustedPreviewPosters =
     setOf(
-        "file:///android_asset/widget-preview/space.png",
-        "file:///android_asset/widget-preview/rain.png",
-        "file:///android_asset/widget-preview/breakout-astronaut.png",
+        "file:///android_asset/widget-preview/space.webp",
+        "file:///android_asset/widget-preview/rain.webp",
+        "file:///android_asset/widget-preview/breakout-astronaut.webp",
     )
 
 @Composable
@@ -111,12 +111,12 @@ actual fun rememberWidgetCutoutState(
     )
 }
 
-/** Reviewed, precomputed artwork; the app only reads the aligned PNG pair. */
+/** Reviewed, precomputed artwork; the app only reads the aligned lossless WebP pair. */
 private fun precomputedPreviewCutout(source: String?): WidgetCutoutArtwork? =
-    if (source == "file:///android_asset/widget-preview/breakout-astronaut.png") {
+    if (source == "file:///android_asset/widget-preview/breakout-astronaut.webp") {
         WidgetCutoutArtwork(
             backgroundModel = source,
-            foregroundModel = "file:///android_asset/widget-cutout/preview-astronaut.png",
+            foregroundModel = "file:///android_asset/widget-cutout/preview-astronaut.webp",
             sourceWidth = 512,
             sourceHeight = 768,
             subjectTop = .153125f,
@@ -129,7 +129,9 @@ private fun precomputedPreviewCutout(source: String?): WidgetCutoutArtwork? =
 /** Never allow an arbitrary file/content URI to enter the image loader through widget data. */
 private fun safeCutoutSource(value: String?): String? {
     val source = value?.trim()?.takeIf { it.isNotEmpty() && it.length <= 8192 } ?: return null
-    if (source in trustedPreviewPosters) return source
+    // Widget data saved by earlier releases can refer to the same bundled posters as PNGs.
+    val bundledSource = if (source.endsWith(".png")) source.removeSuffix(".png") + ".webp" else source
+    if (bundledSource in trustedPreviewPosters) return bundledSource
     return try {
         val uri = URI(source)
         source.takeIf { uri.scheme?.lowercase() in setOf("http", "https") && !uri.host.isNullOrBlank() }

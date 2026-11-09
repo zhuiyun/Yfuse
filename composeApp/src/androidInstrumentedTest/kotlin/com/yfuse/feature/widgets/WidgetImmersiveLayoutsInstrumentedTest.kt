@@ -444,7 +444,7 @@ class WidgetImmersiveLayoutsInstrumentedTest {
     @Test(timeout = 90_000L)
     fun ribbon_current_artwork_stays_centered_in_ltr_and_rtl() {
         val source =
-            instrumentation.targetContext.assets.open("widget-preview/space.png").use {
+            instrumentation.targetContext.assets.open("widget-preview/space.webp").use {
                 requireNotNull(BitmapFactory.decodeStream(it))
             }
         try {

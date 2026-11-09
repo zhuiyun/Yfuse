@@ -51,7 +51,7 @@ env:
 # so each production secret is referenced only by the job that uses it, and the build tooling
 # never shares a runner with a signing or deployment key:
 #   request - UPDATE_MANIFEST_SIGNING_KEY, only to derive the public key the APK embeds
-#   build   - no secret: release TMDB reads use the server's authenticated/anonymous proxy
+#   build   - pinned engine download URLs only, during playback input preparation
 #   sign    - the release keystore and its passwords
 #   deploy  - UPDATE_MANIFEST_SIGNING_KEY to sign the manifests, and the deployment SSH key
 # The gates and smoke jobs hold no secret.
@@ -472,6 +472,17 @@ jobs:
             -Pkotlin.incremental=false \
             --no-daemon
 
+      - name: Recompress release APK before signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v 7zz >/dev/null && ! command -v 7z >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y 7zip
+          fi
+          python3 scripts/recompress-apk.py composeApp/build/outputs/apk/release/composeApp-release.apk \
+            build/compact/composeApp-release.apk
+
       # A class with a method ART's verifier rejects throws VerifyError the first time it is used:
       # 1.0.97 (259) was packaged with a player that crashed as it opened. The mapping names the
       # app's own methods, which must stay within 256 registers.
@@ -479,7 +490,7 @@ jobs:
         run: >-
           scripts/verify-release-dex.sh
           --mapping composeApp/build/outputs/mapping/release/mapping.txt
-          composeApp/build/outputs/apk/release/composeApp-release.apk
+          build/compact/composeApp-release.apk
 
       - name: Verify release build did not mutate version metadata
         run: git diff --exit-code -- version.properties
@@ -490,7 +501,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          apk="composeApp/build/outputs/apk/release/composeApp-release.apk"
+          apk="build/compact/composeApp-release.apk"
           metadata="composeApp/build/outputs/apk/release/output-metadata.json"
           test -f "$apk"
           test -f "$metadata"
@@ -640,11 +651,10 @@ jobs:
             exit 1
           fi
 
-          # apksigner drops the build's throwaway debug signature and applies the production one
-          # with the schemes every Gradle-signed Yfuse APK has carried: APK Signature Scheme v2
-          # only (minSdk 26 needs no v1 JAR signature; v3 and v4 were never enabled).
+          # Recompression invalidates the temporary build signature. Align the verified payload,
+          # then apply the production v2 signature (minSdk 26).
           aligned="$signing_dir/aligned.apk"
-          "$zipalign" -p -f 4 "$RELEASE_APK" "$aligned"
+          "$zipalign" -P 16 -f 4 "$RELEASE_APK" "$aligned"
           mkdir -p build/signed
           "$apksigner" sign \
             --ks "$keystore" \
@@ -676,7 +686,7 @@ jobs:
           test -x "$zipalign"
           test -x "$aapt"
           signer_output="$("$apksigner" verify --verbose --print-certs "$apk")"
-          "$zipalign" -c -v 4 "$apk"
+          "$zipalign" -c -P 16 -v 4 "$apk"
           badging="$("$aapt" dump badging "$apk")"
           grep -Fq "package: name='com.yfuse'" <<<"$badging"
           grep -Fq "versionCode='$VERSION_CODE'" <<<"$badging"
@@ -721,7 +731,9 @@ jobs:
               def signature(name):
                   return name.upper() == "META-INF/MANIFEST.MF" or re.fullmatch(r"META-INF/[^/]+\.(SF|RSA|DSA|EC)", name, re.IGNORECASE)
               with zipfile.ZipFile(path) as archive:
-                  return {entry.filename: hashlib.sha256(archive.read(entry)).hexdigest() for entry in archive.infolist()
+                  if len(archive.namelist()) != len(set(archive.namelist())):
+                      raise SystemExit("Duplicate APK entries")
+                  return {entry.filename: (entry.compress_type, hashlib.sha256(archive.read(entry)).hexdigest()) for entry in archive.infolist()
                           if not signature(entry.filename)}
           if payload(sys.argv[1]) != payload(sys.argv[2]):
               raise SystemExit("Signing changed APK payload entries")

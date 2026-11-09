@@ -14,7 +14,7 @@ internal fun WidgetPreviewArtwork(
     val index = id.substringAfterLast('-').toIntOrNull() ?: (id.hashCode() and Int.MAX_VALUE)
     val name = listOf("lake", "space", "rain")[index % 3]
     AsyncImage(
-        model = "file:///android_asset/widget-preview/$name.png",
+        model = "file:///android_asset/widget-preview/$name.webp",
         contentDescription = null,
         modifier = modifier,
         contentScale = ContentScale.Crop,

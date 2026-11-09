@@ -87,7 +87,8 @@ function Assert-DexVerifies([string]$Apk, [string]$Mapping) {
 # Verify the output, including original SenPlayer asset pins and unobfuscated class identities.
 # Build flags alone do not prove that a transitive legacy runtime stayed out of the APK.
 function Assert-PlaybackPackage([string]$Apk, [string]$Mapping) {
-    & python (Join-Path $root 'scripts/verify-playback-package.py') $Apk --mapping $Mapping
+    $python = if ($env:PYTHON) { $env:PYTHON } else { 'python' }
+    & $python (Join-Path $root 'scripts/verify-playback-package.py') $Apk --mapping $Mapping
     if ($LASTEXITCODE -ne 0) {
         throw "The YCore + SenPlayer package boundary failed for $Apk; do not distribute this package"
     }
@@ -99,22 +100,18 @@ $commonArgs = @('-Pkotlin.incremental=false')
 if ($AllowDebugSigning) { $commonArgs += '-PallowDebugSigning=true' }
 
 $releaseArgs = @(
-    ':composeApp:assembleRelease',
+    ':composeApp:compactReleaseApk',
     '-PyfuseNativeOnlyRuntime=true',
     '-PyfuseIncludeMdk=false',
     "-PyfusePlaybackProfile=$PlaybackProfile"
 ) + $commonArgs
 & (Join-Path $root 'gradlew.bat') @releaseArgs
 if ($LASTEXITCODE -ne 0) { throw 'YCore + SenPlayer release build failed' }
-Assert-PlaybackPackage `
-    (Join-Path $root 'composeApp/build/outputs/apk/release/composeApp-release.apk') `
-    (Join-Path $root 'composeApp/build/outputs/mapping/release/mapping.txt')
-Assert-DexVerifies `
-    (Join-Path $root 'composeApp/build/outputs/apk/release/composeApp-release.apk') `
-    (Join-Path $root 'composeApp/build/outputs/mapping/release/mapping.txt')
-Copy-Item -Force `
-    (Join-Path $root 'composeApp/build/outputs/apk/release/composeApp-release.apk') `
-    (Join-Path $destination "Yfuse-$($version.VERSION_NAME)-$PlaybackProfile-arm64.apk")
+$signedApk = Join-Path $root 'composeApp/build/outputs/compact/release/composeApp-release.apk'
+$mapping = Join-Path $root 'composeApp/build/outputs/mapping/release/mapping.txt'
+Assert-PlaybackPackage $signedApk $mapping
+Assert-DexVerifies $signedApk $mapping
+Copy-Item -Force $signedApk (Join-Path $destination "Yfuse-$($version.VERSION_NAME)-$PlaybackProfile-arm64.apk")
 
 # List only the artifact produced by this invocation, excluding older package profiles.
 $artifacts = Get-Item (Join-Path $destination "Yfuse-$($version.VERSION_NAME)-$PlaybackProfile-arm64.apk") |

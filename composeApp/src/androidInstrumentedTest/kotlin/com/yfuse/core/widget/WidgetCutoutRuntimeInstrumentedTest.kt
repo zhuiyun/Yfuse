@@ -19,7 +19,7 @@ import kotlin.math.abs
 @RunWith(AndroidJUnit4::class)
 class WidgetCutoutRuntimeInstrumentedTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
-    private val source = "file:///android_asset/widget-preview/breakout-astronaut.png"
+    private val source = "file:///android_asset/widget-preview/breakout-astronaut.webp"
 
     @Test(timeout = 10_000L)
     fun precomputed_preview_is_available_without_processing_and_keeps_coordinates() =
@@ -28,19 +28,23 @@ class WidgetCutoutRuntimeInstrumentedTest {
             assertNotNull("The bundled preview must not require inference or a Poof key", artwork)
             artwork!!
             assertEquals(source, artwork.backgroundModel)
-            assertEquals("file:///android_asset/widget-cutout/preview-astronaut.png", artwork.foregroundModel)
+            assertEquals("file:///android_asset/widget-cutout/preview-astronaut.webp", artwork.foregroundModel)
             assertEquals(512, artwork.sourceWidth)
             assertEquals(768, artwork.sourceHeight)
             assertTrue(artwork.subjectTop in 0.10f..0.22f)
             assertTrue(artwork.subjectBottom in 0.75f..0.88f)
             assertEquals(artwork, WidgetCutoutStore.get(context, source, allowProcessing = true))
+            assertEquals(
+                artwork,
+                WidgetCutoutStore.get(context, source.removeSuffix(".webp") + ".png", allowProcessing = false),
+            )
             verifyAlignedPreviewPixels(artwork)
         }
 
     @Test(timeout = 10_000L)
     fun bundled_posters_without_a_foreground_preserve_the_ordinary_poster() =
         runBlocking {
-            for (poster in listOf("space.png", "rain.png")) {
+            for (poster in listOf("space.webp", "rain.webp")) {
                 val source = "file:///android_asset/widget-preview/$poster"
                 assertNull(WidgetCutoutStore.get(context, source, allowProcessing = false))
                 assertNull(WidgetCutoutStore.get(context, source, allowProcessing = true))
@@ -54,8 +58,8 @@ class WidgetCutoutRuntimeInstrumentedTest {
                 "",
                 "content://private/image/1",
                 "file:///data/user/0/com.yfuse/files/private.png",
-                "file:///android_asset/widget-preview/../widget-cutout/preview-astronaut.png",
-                "file:///android_asset/widget-preview/unknown.png",
+                "file:///android_asset/widget-preview/../widget-cutout/preview-astronaut.webp",
+                "file:///android_asset/widget-preview/unknown.webp",
                 "ftp://example.invalid/poster.png",
                 "https:///missing-host.png",
             )) {

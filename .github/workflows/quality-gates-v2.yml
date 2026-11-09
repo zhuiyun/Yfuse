@@ -244,7 +244,7 @@ jobs:
           build_tools="$(find "$android_sdk/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
           echo "Using build tools $build_tools"
           "$build_tools/apksigner" verify --verbose "$apk"
-          "$build_tools/zipalign" -c -v 4 "$apk"
+          "$build_tools/zipalign" -c -P 16 -v 4 "$apk"
           badging="$("$build_tools/aapt" dump badging "$apk")"
           package_line="$(grep -m 1 '^package:' <<<"$badging" || true)"
           version_code="$(sed -n 's/^VERSION_CODE=//p' version.properties | tail -n 1 | tr -d '\r')"

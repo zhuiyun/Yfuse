@@ -1,22 +1,22 @@
 # Original breakout preview artwork
 
-`widget-preview/breakout-astronaut.png` is original artwork generated with the built-in
+`widget-preview/breakout-astronaut.webp` is original artwork generated with the built-in
 image generation tool for this project's widget preview, on 2026-10-25. It contains no
 third-party movie branding, title, logo, or text. The 1024 × 1536 generated source was
 bounded to 512 × 768 for the app asset.
 
-`preview-astronaut.png` is its real U2NetP foreground output, not a generated transparent
+`preview-astronaut.webp` is its real U2NetP foreground output, not a generated transparent
 cutout. The mask was not manually painted, repaired, thresholded, or adjusted to pass
 the gate. It was created with U²-NetP, RGB/max-pixel normalization, ImageNet mean/std,
 320 × 320 bilinear input, and normalized output alpha resized to 512 × 768.
-The image pair shares exact dimensions and RGB coordinates.
+Both images use lossless WebP encoding and retain the original RGB and alpha values.
 
 At asset creation, the output passed the common Kotlin `assessWidgetCutoutMask` implementation.
 The gray-background visual review retained the helmet, both hands, both legs and both
 boots with no large background islands. This reviewed, fixed example is separate from
 the Poof processing of arbitrary user posters. Its bounds and metrics are recorded
 in `preview-astronaut.json`; recorded timing is a desktop CPU sample, not a phone result.
-The app now displays this PNG directly and no longer includes that model, its inference
+The app now displays the foreground WebP directly and no longer includes that model, its inference
 engine, or the historical local-mask quality gate. Original model provenance:
 https://github.com/xuebinqin/U-2-Net (Apache License 2.0).
 

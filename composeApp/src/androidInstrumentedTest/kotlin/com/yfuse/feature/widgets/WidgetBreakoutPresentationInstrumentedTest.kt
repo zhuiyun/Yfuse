@@ -55,8 +55,8 @@ class WidgetBreakoutPresentationInstrumentedTest {
         val fallback = mutableStateOf(false)
         val frame = AtomicReference(androidx.compose.ui.geometry.Rect.Zero)
         val density = AtomicReference(1f)
-        val astronaut = "file:///android_asset/widget-preview/breakout-astronaut.png"
-        val rain = "file:///android_asset/widget-preview/rain.png"
+        val astronaut = "file:///android_asset/widget-preview/breakout-astronaut.webp"
+        val rain = "file:///android_asset/widget-preview/rain.webp"
         val runtime =
             WidgetCutoutRuntime(
                 MutableStateFlow(WidgetCutoutConfiguration(true, true)),
@@ -68,7 +68,7 @@ class WidgetBreakoutPresentationInstrumentedTest {
                         allowProcessing: Boolean,
                     ) = WidgetCutoutArtwork(
                         rain,
-                        "file:///android_asset/widget-cutout/preview-astronaut.png",
+                        "file:///android_asset/widget-cutout/preview-astronaut.webp",
                         512,
                         768,
                         .15f,

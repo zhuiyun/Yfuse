@@ -47,15 +47,44 @@ if (
 }
 $normalizedWatchBaseUrl = $WatchBaseUrl.TrimEnd("/")
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$apk = Join-Path $projectRoot "composeApp/build/outputs/apk/release/composeApp-release.apk"
 $versionFile = Join-Path $projectRoot "version.properties"
-if (!(Test-Path $apk)) { throw "Release APK not found: $apk" }
 
 $versionCode = [int]((Get-Content $versionFile | Select-String "VERSION_CODE=(\d+)").Matches[0].Groups[1].Value)
 $versionName = (Get-Content $versionFile |
     Select-String "VERSION_NAME=([0-9]+\.[0-9]+\.[0-9]+)").Matches[0].Groups[1].Value
+$distribution = Join-Path $projectRoot "composeApp/build/outputs/distribution"
+$fileName = "Yfuse-$versionName-ycore-senplayer-arm64.apk"
+$apk = Join-Path $distribution $fileName
+$receipt = Get-Content -LiteralPath (Join-Path $distribution 'verification.json') -Raw | ConvertFrom-Json
+$record = @($receipt.artifacts | Where-Object { $_.name -ceq $fileName })
+if ($receipt.versionName -cne $versionName -or [long]$receipt.versionCode -ne $versionCode -or
+    $receipt.playbackProfile -cne 'ycore-senplayer' -or $record.Count -ne 1) {
+    throw 'Build the current signed distribution with scripts/build-release-packages.ps1 before publishing.'
+}
 $sha = (Get-FileHash $apk -Algorithm SHA256).Hash.ToLowerInvariant()
 $size = (Get-Item $apk).Length
+if ($sha -ne $record[0].sha256 -or $size -ne [long]$record[0].length) {
+    throw 'The distribution APK differs from its verification record.'
+}
+# A developer can explicitly build a debug-signed verification package using the same entry point.
+$sdk = $env:ANDROID_HOME
+if (-not $sdk) { $sdk = $env:ANDROID_SDK_ROOT }
+if (-not $sdk) {
+    $sdkLine = Get-Content -LiteralPath (Join-Path $projectRoot 'local.properties') | Where-Object { $_ -like 'sdk.dir=*' } | Select-Object -First 1
+    if (-not $sdkLine) { throw 'Set ANDROID_HOME or sdk.dir to verify the release certificate.' }
+    $sdk = $sdkLine.Substring(8).Replace('\:', ':').Replace('\\', '\')
+}
+$buildTools = Get-ChildItem -Directory -LiteralPath (Join-Path $sdk 'build-tools') |
+    Where-Object { $_.Name -match '^\d+\.\d+\.\d+$' -and (Test-Path -LiteralPath (Join-Path $_.FullName 'lib/apksigner.jar')) } |
+    Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1
+if (-not $buildTools) { throw 'Android SDK Build Tools with apksigner are required to verify the distribution APK.' }
+$signature = & java -jar (Join-Path $buildTools.FullName 'lib/apksigner.jar') verify --verbose --print-certs $apk
+$expectedCert = '373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84'
+$certs = @($signature -match '^(Signer #\d+|V[\d.]+ Signer:) certificate SHA-256 digest: ' |
+    ForEach-Object { ($_ -split ' ')[-1] } | Sort-Object -Unique)
+if ($LASTEXITCODE -ne 0 -or $signature -notcontains 'Number of signers: 1' -or
+    $signature -notcontains 'Verified using v2 scheme (APK Signature Scheme v2): true' -or
+    $certs.Count -ne 1 -or $certs[0] -ne $expectedCert) { throw 'The APK must have the verified production signature.' }
 Write-Host "APK size: $size bytes"
 $apkFileName = "Yfuse-$versionCode-$versionName.apk"
 
@@ -144,6 +173,9 @@ $stage = Join-Path $projectRoot "build/update"
 New-Item -ItemType Directory -Force $stage | Out-Null
 $publishedApk = Join-Path $stage $apkFileName
 Copy-Item $apk $publishedApk -Force
+if ((Get-Item $publishedApk).Length -ne $size -or (Get-FileHash $publishedApk -Algorithm SHA256).Hash -ne $sha) {
+    throw 'The staged update APK differs from the verified distribution APK.'
+}
 
 $legacyManifest = [ordered]@{
     versionCode = $versionCode

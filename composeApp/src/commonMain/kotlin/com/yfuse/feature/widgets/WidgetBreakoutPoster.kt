@@ -159,7 +159,7 @@ private fun BreakoutArtwork(
     val previewIndex = item.id.substringAfterLast('-').toIntOrNull() ?: 0
     val source =
         original ?: if (isBundledExample && previewIndex % 3 == 1) {
-            "file:///android_asset/widget-preview/breakout-astronaut.png"
+            "file:///android_asset/widget-preview/breakout-astronaut.webp"
         } else {
             null
         }

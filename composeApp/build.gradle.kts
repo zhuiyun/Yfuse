@@ -1005,9 +1005,7 @@ android {
     }
 
     packaging {
-        // The bundled MPV/FFmpeg libraries account for most of the APK. Store
-        // them deflated so sideload and update packages stay compact; Android
-        // extracts them on install on our minSdk 26 devices.
+        // Android extracts these deflated native libraries on install (minSdk 26).
         jniLibs {
             useLegacyPackaging = true
             pickFirsts += "**/libc++_shared.so"
@@ -1025,6 +1023,110 @@ android {
                     // registered or invoked; its legacy lookup tables add over 1 MiB to every APK.
                     "org/bouncycastle/pqc/legacy/picnic/lowmc*.bin.properties",
                 )
+        }
+    }
+}
+
+// The cloud build uses the same compressor, then hands its output to an isolated signing job.
+tasks.register("compactReleaseApk") {
+    group = "release"
+    description = "Recompress, align and sign the local distribution APK."
+    dependsOn("assembleRelease")
+    val input = layout.buildDirectory.file("outputs/apk/release/composeApp-release.apk")
+    val output = layout.buildDirectory.file("outputs/compact/release/composeApp-release.apk")
+    val compressor = rootProject.file("scripts/recompress-apk.py")
+    val buildTools =
+        androidComponents.sdkComponents.sdkDirectory.map {
+            it.dir(
+                "build-tools/${android.buildToolsVersion}",
+            )
+        }
+    val signing = android.buildTypes.getByName("release").signingConfig
+    val windows = System.getProperty("os.name").startsWith("Windows")
+    val python = providers.environmentVariable("PYTHON").getOrElse(if (windows) "python" else "python3")
+    val javaBin = File(System.getProperty("java.home"), if (windows) "bin/java.exe" else "bin/java")
+    outputs.file(output)
+    // Verify the active signing identity on each delivery, including after a keystore change.
+    outputs.upToDateWhen { false }
+    doLast {
+        val config = requireNotNull(signing)
+        val tools = buildTools.get().asFile
+        val zipalign = tools.resolve(if (windows) "zipalign.exe" else "zipalign").absolutePath
+        val signer = listOf(javaBin.absolutePath, "-jar", tools.resolve("lib/apksigner.jar").absolutePath)
+        val target = output.get().asFile
+        target.parentFile.mkdirs()
+        val work = Files.createTempDirectory(target.parentFile.toPath(), "sign-").toFile()
+
+        fun runTool(
+            args: List<String>,
+            env: Map<String, String> = emptyMap(),
+        ): String {
+            val builder = ProcessBuilder(args).redirectError(ProcessBuilder.Redirect.INHERIT)
+            builder.environment().putAll(env)
+            val process = builder.start()
+            val result = process.inputStream.bufferedReader().use { it.readText() }
+            check(process.waitFor() == 0) { "${File(args.first()).name} failed: $result" }
+            return result
+        }
+        try {
+            val prepared = work.resolve("prepared.apk").absolutePath
+            val aligned = work.resolve("aligned.apk").absolutePath
+            val signed = work.resolve("signed.apk")
+            logger.lifecycle(
+                runTool(listOf(python, compressor.absolutePath, input.get().asFile.absolutePath, prepared)).trim(),
+            )
+            runTool(listOf(zipalign, "-P", "16", "-f", "4", prepared, aligned))
+            runTool(
+                signer +
+                    listOf(
+                        "sign",
+                        "--ks",
+                        requireNotNull(config.storeFile).absolutePath,
+                        "--ks-key-alias",
+                        requireNotNull(config.keyAlias),
+                        "--ks-pass",
+                        "env:YFUSE_STORE_PASS",
+                        "--key-pass",
+                        "env:YFUSE_KEY_PASS",
+                        "--v1-signing-enabled",
+                        "false",
+                        "--v2-signing-enabled",
+                        "true",
+                        "--v3-signing-enabled",
+                        "false",
+                        "--v4-signing-enabled",
+                        "false",
+                        "--out",
+                        signed.absolutePath,
+                        aligned,
+                    ),
+                mapOf(
+                    "YFUSE_STORE_PASS" to requireNotNull(config.storePassword),
+                    "YFUSE_KEY_PASS" to requireNotNull(config.keyPassword),
+                ),
+            )
+            runTool(listOf(zipalign, "-c", "-P", "16", "4", signed.absolutePath))
+            val signature = runTool(signer + listOf("verify", "--verbose", "--print-certs", signed.absolutePath))
+            check(
+                "Number of signers: 1" in signature &&
+                    "Verified using v2 scheme (APK Signature Scheme v2): true" in signature,
+            )
+            if (config.name == "release") {
+                check(
+                    "certificate SHA-256 digest: 373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84" in
+                        signature,
+                ) {
+                    "The compact APK does not have the production signing certificate"
+                }
+            }
+            val aapt = tools.resolve(if (windows) "aapt2.exe" else "aapt2")
+            val badging = runTool(listOf(aapt.absolutePath, "dump", "badging", signed.absolutePath))
+            check(
+                "package: name='com.yfuse' versionCode='$buildVersionCode' versionName='$buildVersionName'" in badging,
+            )
+            Files.move(signed.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        } finally {
+            work.deleteRecursively()
         }
     }
 }

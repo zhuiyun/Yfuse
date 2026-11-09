@@ -320,9 +320,14 @@ class WorkflowContractTest(unittest.TestCase):
 
     def test_the_key_reaches_only_the_configuration_check_and_sign_in(self):
         steps = re.split(r"\n      - (?=name:|uses:)", self.text)
-        holders = [re.match(r"name: (.+)", step).group(1) for step in steps if "secrets." in step]
-        self.assertEqual({"Check Firebase configuration", "Sign in to Firebase"}, set(holders))
-        self.assertEqual(4, len(holders))
+        holders = [(re.match(r"name: (.+)", block).group(1), secret)
+                   for block in steps for secret in re.findall(r"secrets\.([A-Z0-9_]+)", block)]
+        self.assertCountEqual(holders, [
+            ("Check Firebase configuration", "FIREBASE_TEST_LAB_SERVICE_ACCOUNT"),
+            *[("Sign in to Firebase", "FIREBASE_TEST_LAB_SERVICE_ACCOUNT")] * 3,
+            ("Prepare pinned YCore and SenPlayer inputs", "YCORE_NATIVE_AAR_URL"),
+            ("Prepare pinned YCore and SenPlayer inputs", "SENPLAYER_SOURCE_APK_URL"),
+        ])
 
     def test_permissions_stay_read_only(self):
         permissions = self.text.split("\npermissions:\n", 1)[1].split("\n\n", 1)[0]

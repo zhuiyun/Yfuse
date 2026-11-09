@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -30,12 +31,12 @@ PUBLISHED_SIGNATURES = {
     SIGNATURE_FIXTURES / "20260923-performance-1.0.81" / "signature-full.txt": "Signer #2",
     SIGNATURE_FIXTURES / "20261003-merge-all-1.0.99" / "signature-full.txt": "V3 Signer:",
 }
-MDK_LIBRARIES = ("libmdk.so", "libyfuse-mdk-jni.so")
+RUNTIME_PAYLOAD = ("lib/arm64-v8a/libycore_demux.so", "assets/senplayer/native/libFFmpegKit.so")
 KEYSTORE = {"ANDROID_KEYSTORE_BASE64", "ANDROID_KEYSTORE_PASSWORD", "ANDROID_KEY_ALIAS", "ANDROID_KEY_PASSWORD"}
 SECRETS_BY_JOB = {
     "request": {"UPDATE_MANIFEST_SIGNING_KEY"},
     "gates": set(),
-    "build": set(),
+    "build": {"YCORE_NATIVE_AAR_URL", "SENPLAYER_SOURCE_APK_URL"},
     "sign": KEYSTORE,
     "smoke": set(),
     "deploy": {"UPDATE_MANIFEST_SIGNING_KEY", "DEPLOY_SSH_PRIVATE_KEY", "DEPLOY_KNOWN_HOSTS"},
@@ -89,14 +90,14 @@ def fake_tool(path, body):
     path.chmod(0o755)
 
 
-def fake_apk(path, libraries=None):
+def fake_apk(path, payload=None):
     path.parent.mkdir(parents=True, exist_ok=True)
-    if libraries is None:
-        libraries = {name: b"fake runtime bytes" for name in MDK_LIBRARIES}
+    if payload is None:
+        payload = {name: b"fake runtime bytes" for name in RUNTIME_PAYLOAD}
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr("AndroidManifest.xml", b"fake binary manifest")
-        for name, contents in libraries.items():
-            archive.writestr(f"lib/arm64-v8a/{name}", contents)
+        for name, contents in payload.items():
+            archive.writestr(name, contents)
 
 
 class PublishJobSplitTest(unittest.TestCase):
@@ -105,7 +106,7 @@ class PublishJobSplitTest(unittest.TestCase):
                        if key not in drop and not key.startswith("GITHUB_")}
         environment.update(env, GITHUB_OUTPUT=str(work / "github-output"), RUNNER_TEMP=str(work / "tmp"))
         (work / "tmp").mkdir(exist_ok=True)
-        result = subprocess.run(["bash", "-c", script(step(name))], cwd=work, env=environment,
+        result = subprocess.run(["bash", "-c", 'export PATH="$PWD/bin:$PATH"\n' + script(step(name))], cwd=work, env=environment,
                                 capture_output=True, text=True)
         written = work / "github-output"
         return result, outputs(written.read_text()) if written.exists() else {}
@@ -139,11 +140,20 @@ class PublishJobSplitTest(unittest.TestCase):
                         "Configure release signing", "keystore.properties", "signing/yfuse-release.jks"):
             self.assertNotIn(removed, WORKFLOW.read_text())
 
+    def test_the_build_checks_and_hands_over_the_recompressed_apk(self):
+        _, blocks = jobs()
+        path = "build/compact/composeApp-release.apk"
+        self.assertIn(path, step("Recompress release APK before signing"))
+        self.assertIn(path, step("Reject DEX code ART would not verify"))
+        self.assertIn(f'apk="{path}"', step("Verify release APK contents"))
+        self.assertLess(blocks["build"].index("Recompress release APK"), blocks["build"].index("Reject DEX code"))
+        self.assertNotIn("actions/checkout@", blocks["sign"])
+
     def test_the_request_hands_over_validated_values_and_requires_a_key_to_publish(self):
         public_key = "MCowBQYDK2VwAyEA" + "A" * 43 + "="
         request = {
             "PUBLISH_UPDATE": "true", "VERSION_CODE": "254", "VERSION_NAME": "1.0.92",
-            "CONFIRM_MDK_DISTRIBUTION_RIGHTS": "true", "UPDATE_BASE_URL": "https://update.example/yfuse",
+            "UPDATE_BASE_URL": "https://update.example/yfuse",
             "DEPLOY_HOST": "203.0.113.7", "DEPLOY_USER": "yfuse-deploy", "DEPLOY_PORT": "22",
             "DEPLOY_REMOTE_DIR": "/srv/yfuse-update/yfuse", "RELEASE_NOTES": "First line\nrelease_notes<<x\nLast",
         }
@@ -153,7 +163,6 @@ class PublishJobSplitTest(unittest.TestCase):
                                            dict(request, YFUSE_UPDATE_MANIFEST_PUBLIC_KEY=public_key))
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual({"publish": "true", "version_code": "254", "version_name": "1.0.92",
-                          "confirm_mdk_distribution_rights": "true",
                           "update_base_url": "https://update.example/yfuse", "deploy_host": "203.0.113.7",
                           "deploy_user": "yfuse-deploy", "deploy_port": "22",
                           "deploy_remote_dir": "/srv/yfuse-update/yfuse", "update_manifest_public_key": public_key,
@@ -199,9 +208,9 @@ class PublishJobSplitTest(unittest.TestCase):
         fake_apk(release)
         import base64
         return {
-            "PATH": f"{work / 'bin'}:{os.environ['PATH']}", "ANDROID_HOME": str(work / "sdk"),
+            "ANDROID_HOME": str(work / "sdk"),
             "CALL_LOG": str(work / "calls.log"), "KEYSTORE_SEEN": str(work / "keystore-path"),
-            "RELEASE_APK": str(release), "CONFIRM_MDK_DISTRIBUTION_RIGHTS": "true",
+            "RELEASE_APK": str(release),
             "EXPECTED_ANDROID_CERT_SHA256": CERT, "FAKE_CERT": ":".join(re.findall("..", CERT.upper())),
             "ANDROID_KEYSTORE_BASE64": base64.b64encode(b"keystore-bytes").decode(),
             "ANDROID_KEYSTORE_PASSWORD": "store-secret", "ANDROID_KEY_ALIAS": "yfuse",
@@ -220,6 +229,7 @@ class PublishJobSplitTest(unittest.TestCase):
             self.assertTrue(keystore.is_relative_to(work / "tmp"))
             self.assertEqual([], list((work / "tmp").iterdir()))
             calls = (work / "calls.log").read_text()
+            self.assertIn("zipalign -P 16 -f 4", calls)
             signer = next(line for line in calls.splitlines() if line.startswith("apksigner "))
             for flag in ("--v1-signing-enabled false", "--v2-signing-enabled true", "--v3-signing-enabled false",
                          "--v4-signing-enabled false", "--ks-pass env:ANDROID_KEYSTORE_PASSWORD",
@@ -229,9 +239,8 @@ class PublishJobSplitTest(unittest.TestCase):
             self.assertNotIn("store-secret", calls)
             self.assertNotIn("key-secret", calls)
 
-    def test_signing_refuses_an_unconfirmed_package_a_missing_secret_or_another_certificate(self):
-        for change in ({"CONFIRM_MDK_DISTRIBUTION_RIGHTS": "false"}, {"ANDROID_KEY_PASSWORD": ""},
-                       {"FAKE_CERT": "AA:" * 31 + "AA"}):
+    def test_signing_refuses_a_missing_secret_or_another_certificate(self):
+        for change in ({"ANDROID_KEY_PASSWORD": ""}, {"FAKE_CERT": "AA:" * 31 + "AA"}):
             with self.subTest(change=tuple(change)), tempfile.TemporaryDirectory(prefix="yfuse-sign-") as directory:
                 work = Path(directory)
                 result, _ = self.run_step("Sign release APK", work, dict(self.signing_fixture(work), **change))
@@ -240,27 +249,31 @@ class PublishJobSplitTest(unittest.TestCase):
                 self.assertFalse((work / "build/signed").exists())
                 self.assertEqual([], list((work / "tmp").iterdir()))
 
-    def verification_fixture(self, work, signature, libraries=None):
+    def verification_fixture(self, work, signature):
         (work / "signature.txt").write_text(signature)
         sdk = work / "sdk" / "build-tools" / "37.0.0"
         fake_tool(sdk / "apksigner", 'cat "$SIGNATURE"\n')
-        fake_tool(sdk / "zipalign", '[[ "$1 $2 $3 $4" == "-c -v 4 build/signed/composeApp-release.apk" ]]\n')
+        fake_tool(sdk / "zipalign", '[[ "$*" == "-c -P 16 -v 4 build/signed/composeApp-release.apk" ]]\n')
         fake_tool(sdk / "aapt", "echo \"package: name='com.yfuse' versionCode='254' versionName='1.0.92'\"\n")
         apk = work / "build" / "signed" / "composeApp-release.apk"
-        fake_apk(apk, libraries)
+        fake_apk(apk)
+        built = work / "build/release/composeApp-release.apk"
+        built.parent.mkdir()
+        shutil.copyfile(apk, built)
         return apk, {
             "ANDROID_HOME": str(work / "sdk"), "SIGNATURE": str(work / "signature.txt"),
             "VERSION_CODE": "254", "VERSION_NAME": "1.0.92", "EXPECTED_ANDROID_CERT_SHA256": CERT,
             "GITHUB_RUN_ATTEMPT": "2",
         }
 
-    def test_the_signed_full_apk_can_exceed_the_former_size_limit(self):
+    def test_the_signed_apk_can_exceed_the_former_size_limit(self):
         signature = next(iter(PUBLISHED_SIGNATURES)).read_text(encoding="utf-8")
         with tempfile.TemporaryDirectory(prefix="yfuse-large-apk-") as directory:
             work = Path(directory)
             apk, env = self.verification_fixture(work, signature)
             with zipfile.ZipFile(apk, "a") as archive:
                 archive.writestr("assets/size-test.bin", b"\0" * 30_000_001)
+            shutil.copyfile(apk, work / "build/release/composeApp-release.apk")
             result, handed = self.run_step("Verify APK metadata and signing certificate", work, env)
             self.assertEqual(0, result.returncode, result.stderr)
             self.assertEqual(str(apk.stat().st_size), handed["size"])
@@ -297,27 +310,21 @@ class PublishJobSplitTest(unittest.TestCase):
                     self.assertNotEqual(0, result.returncode)
                     self.assertEqual({}, handed)
 
-    def test_the_signed_apk_refuses_each_missing_mdk_library(self):
-        self.check_incomplete_mdk_libraries(empty=False)
-
-    def test_the_signed_apk_refuses_each_empty_mdk_library(self):
-        self.check_incomplete_mdk_libraries(empty=True)
-
-    def check_incomplete_mdk_libraries(self, *, empty):
+    def test_signing_refuses_removed_or_modified_playback_entries(self):
         signature = next(iter(PUBLISHED_SIGNATURES)).read_text(encoding="utf-8")
-        for library in MDK_LIBRARIES:
-            with self.subTest(library=library), tempfile.TemporaryDirectory(prefix="yfuse-mdk-") as directory:
-                libraries = {name: b"fake runtime bytes" for name in MDK_LIBRARIES}
-                if empty:
-                    libraries[library] = b""
-                else:
-                    del libraries[library]
-                work = Path(directory)
-                _, env = self.verification_fixture(work, signature, libraries)
-                result, handed = self.run_step("Verify APK metadata and signing certificate", work, env)
-                self.assertNotEqual(0, result.returncode)
-                self.assertIn(f"::error::Required MDK runtime lib/arm64-v8a/{library}", result.stdout)
-                self.assertEqual({}, handed, "an incomplete APK must never reach smoke or artifact publication")
+        for entry in RUNTIME_PAYLOAD:
+            for replacement in (None, b"changed"):
+                with self.subTest(entry=entry, replacement=replacement), tempfile.TemporaryDirectory() as directory:
+                    work = Path(directory)
+                    apk, env = self.verification_fixture(work, signature)
+                    payload = {name: b"fake runtime bytes" for name in RUNTIME_PAYLOAD if name != entry}
+                    if replacement is not None:
+                        payload[entry] = replacement
+                    fake_apk(apk, payload)
+                    result, handed = self.run_step("Verify APK metadata and signing certificate", work, env)
+                    self.assertNotEqual(0, result.returncode)
+                    self.assertIn("Signing changed APK payload entries", result.stderr)
+                    self.assertEqual({}, handed)
 
     def test_the_smoke_gate_runs_the_exact_signed_apk_on_android_35_36_and_37(self):
         _, job_blocks = jobs()
