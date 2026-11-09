@@ -39,6 +39,7 @@ import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.rememberAccentColorsForSurface
 import com.yfuse.core.handoff.HandoffController
+import com.yfuse.core.model.SEN_PLAYER_DISPLAY_NAME
 import com.yfuse.core.model.ShortDramaMode
 import org.koin.core.context.GlobalContext
 import com.yfuse.core.designsystem.ThemeIcon as Icon
@@ -686,7 +687,7 @@ private fun PopupBackLabel(
 
 private fun engineDescription(label: String): String =
     when {
-        label.contains("SenPlayer", ignoreCase = true) -> "实验内核 · 按原许可规则验证"
+        label.contains(SEN_PLAYER_DISPLAY_NAME, ignoreCase = true) -> "实验内核 · 按原许可规则验证"
         label.contains("YCore", ignoreCase = true) -> "Yfuse 自研播放管线"
         else -> "YCore 自动规划解码路径"
     }

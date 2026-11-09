@@ -38,6 +38,7 @@ import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.DiagnosticLogStats
 import com.yfuse.core.logging.DiagnosticLogStore
 import com.yfuse.core.logging.exportVerifiedDiagnostics
+import com.yfuse.core.model.SEN_PLAYER_DISPLAY_NAME
 import com.yfuse.core2.android.FfmpegNativeBridge
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -187,7 +188,7 @@ actual fun DiagnosticLogTools() {
             Text("原生播放能力", style = sc(13f, 550), color = palette.text)
             Spacer(Modifier.height(3.dp))
             Text(
-                "YCore 自研管线 · SenPlayer 独立内核",
+                "YCore 自研管线 · $SEN_PLAYER_DISPLAY_NAME 独立内核",
                 style = mr(10.5f, 400),
                 color = palette.sub2,
             )

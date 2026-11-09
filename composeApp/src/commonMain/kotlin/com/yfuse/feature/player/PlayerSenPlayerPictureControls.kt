@@ -7,6 +7,7 @@ import androidx.compose.ui.graphics.Color
 import com.yfuse.core.data.SenPlayerEnhancementLevel
 import com.yfuse.core.data.SenPlayerPicturePreferences
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.model.SEN_PLAYER_DISPLAY_NAME
 import com.yfuse.core.designsystem.ThemeText as Text
 
 @Composable
@@ -15,10 +16,10 @@ internal fun PlayerSenPlayerPictureControls(
     applied: SenPlayerPictureState?,
 ) {
     val requested by preferences.state.collectAsState()
-    GroupLabel("SenPlayer 画质增强")
+    GroupLabel("$SEN_PLAYER_DISPLAY_NAME 画质增强")
     PictureHint(
         if (applied == null) {
-            "仅 SenPlayer 内核生效；切换到 SenPlayer 后应用已保存的设置"
+            "仅 $SEN_PLAYER_DISPLAY_NAME 内核生效，切换后会应用已保存的设置"
         } else {
             "播放中可调整；实际画质取决于片源与设备"
         },

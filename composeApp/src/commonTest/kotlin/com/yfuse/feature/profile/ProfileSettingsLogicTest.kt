@@ -5,6 +5,7 @@ import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.offline.DownloadStatus
 import com.yfuse.core.offline.OfflineMedia
+import com.yfuse.core.playback.PlaybackEngineSelection
 import com.yfuse.core.playback.PlaybackOptimizationMode
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -12,6 +13,19 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ProfileSettingsLogicTest {
+    @Test
+    fun savedSenPlayerChoiceShowsSCoreAndIsSearchableByBothNames() {
+        val stored = PlaybackEngineSelection.valueOf("LockSenPlayer")
+        val copy = stored.playbackOptionCopy()
+        assertEquals(PlayerEngine.valueOf("SenPlayer"), stored.lockedEngine)
+        assertEquals("SCore（实验）", stored.lockedEngine?.label)
+        assertEquals("SCore（实验，需联网许可）", copy.label)
+        assertEquals("SCore 实验内核", copy.summary)
+        val keywords = settingsControlDestinations().single { it.title == "播放内核" }.keywords.split(' ')
+        assertTrue("SCore" in keywords)
+        assertTrue("SenPlayer" in keywords)
+    }
+
     @Test
     fun root_playback_summary_uses_ycore_goals_instead_of_backend_names() {
         assertEquals(

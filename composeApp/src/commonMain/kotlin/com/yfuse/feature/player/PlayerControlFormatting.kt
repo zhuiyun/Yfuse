@@ -1,6 +1,8 @@
 package com.yfuse.feature.player
 
 import com.yfuse.core.model.PlaybackMethod
+import com.yfuse.core.model.PlayerEngine
+import com.yfuse.core.model.SEN_PLAYER_DISPLAY_NAME
 
 /** Converts a scrubber fraction to a clamped media position. */
 internal fun scrubPositionMs(
@@ -132,7 +134,8 @@ internal fun PlaybackState.readoutLine(
 private fun engineShortLabel(engine: String): String =
     when {
         engine.contains("ycore", ignoreCase = true) -> "YCORE"
-        engine.contains("senplayer", ignoreCase = true) -> "SenPlayer"
+        engine.substringBefore('（').substringBefore(' ').equals(SEN_PLAYER_DISPLAY_NAME, ignoreCase = true) ||
+            engine.contains(PlayerEngine.SenPlayer.name, ignoreCase = true) -> SEN_PLAYER_DISPLAY_NAME
         else -> engine.substringBefore(' ').uppercase()
     }
 

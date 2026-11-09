@@ -39,6 +39,7 @@ import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackMethod
 import com.yfuse.core.model.PlayerEngine
+import com.yfuse.core.model.SEN_PLAYER_DISPLAY_NAME
 import com.yfuse.core.model.ShortDramaMode
 import com.yfuse.core.network.currentPlaybackNetworkClass
 import com.yfuse.core.network.playbackNetworkClasses
@@ -1613,5 +1614,5 @@ internal fun core2NativeOnlyFailureToast(kind: PlaybackFailureKind?): String =
     when (kind) {
         PlaybackFailureKind.Network -> "片源连接失败，请检查服务器或网络后重试"
         PlaybackFailureKind.Authorization -> "片源授权已失效，请刷新播放地址后重试"
-        else -> "YCore 播放失败，请重试或在内核设置中选择 SenPlayer"
+        else -> "YCore 播放失败，请重试或在内核设置中选择 $SEN_PLAYER_DISPLAY_NAME"
     }

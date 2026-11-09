@@ -7,6 +7,7 @@ import com.yfuse.core.data.PlaybackFrameRateMatch
 import com.yfuse.core.data.SenPlayerPictureSettings
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
+import com.yfuse.core.model.SEN_PLAYER_DISPLAY_NAME
 import com.yfuse.core.playback.NativePlaybackComponent
 import com.yfuse.core.playback.PlaybackAudioCodec
 import com.yfuse.core.playback.PlaybackDeviceCapabilities
@@ -22,7 +23,7 @@ internal fun playbackEngineUnsupportedReason(
     items: List<PlayerMediaItem>,
 ): String? =
     if (kind == PlayerEngine.SenPlayer && items.any { it.requiresYCoreFileTransport() }) {
-        "SenPlayer 不支持此队列所需的文件源凭据或传输协议，请手动选择 YCore"
+        "$SEN_PLAYER_DISPLAY_NAME 不支持此队列所需的文件源凭据或传输协议，请手动选择 YCore"
     } else {
         null
     }

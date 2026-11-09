@@ -24,6 +24,7 @@ import com.yfuse.core.designsystem.SwitchRow
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
+import com.yfuse.core.model.SEN_PLAYER_DISPLAY_NAME
 import com.yfuse.core.playback.PlaybackEngineSelection
 import com.yfuse.core.playback.PlaybackOptimizationMode
 import com.yfuse.feature.player.speedLabel
@@ -44,8 +45,8 @@ internal fun PlayerEngine.playbackOptionCopy(): PlaybackOptionCopy =
             )
         PlayerEngine.SenPlayer ->
             PlaybackOptionCopy(
-                label = "SenPlayer（实验，需联网许可）",
-                summary = "SenPlayer 实验内核",
+                label = "$SEN_PLAYER_DISPLAY_NAME（实验，需联网许可）",
+                summary = "$SEN_PLAYER_DISPLAY_NAME 实验内核",
                 description =
                     "仅 Android 9+ ARM64。选用后按原许可规则决定是否向 www.senmuse.com/api/license 校验，" +
                         "发送当前应用版本、原内核构建及临时公钥；许可失败会明确停止。",
@@ -58,7 +59,7 @@ internal fun PlaybackEngineSelection.playbackOptionCopy(): PlaybackOptionCopy =
             PlaybackOptionCopy(
                 label = "自动选择（推荐）",
                 summary = "智能自动",
-                description = "使用 YCore 自研内核按片源选择解码路径；不会自动启用 SenPlayer",
+                description = "使用 YCore 自研内核按片源选择解码路径；不会自动启用 $SEN_PLAYER_DISPLAY_NAME",
             )
         PlaybackEngineSelection.LockYCore -> PlayerEngine.YCore.playbackOptionCopy()
         PlaybackEngineSelection.LockSenPlayer -> PlayerEngine.SenPlayer.playbackOptionCopy()
@@ -433,7 +434,7 @@ internal fun AdvancedPlaybackSettingsScreen(
                     if (engineSelection == PlaybackEngineSelection.LockSenPlayer) {
                         SettingRow(
                             "刷新率匹配",
-                            "SenPlayer 未验证",
+                            "$SEN_PLAYER_DISPLAY_NAME 未验证",
                             true,
                             null,
                             icon = AppIcons.Refresh,
@@ -453,7 +454,7 @@ internal fun AdvancedPlaybackSettingsScreen(
                     if (engineSelection == PlaybackEngineSelection.LockSenPlayer) {
                         SettingRow(
                             "音频直通",
-                            "SenPlayer 未验证",
+                            "$SEN_PLAYER_DISPLAY_NAME 未验证",
                             true,
                             null,
                             icon = AppIcons.Volume,

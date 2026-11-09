@@ -1,5 +1,7 @@
 package com.yfuse.feature.player
 
+import com.yfuse.core.model.SEN_PLAYER_DISPLAY_NAME
+
 /** Mirrors the supplied APK's op3.w/x gates; 1000 nits is guidance, not a measured threshold. */
 internal fun senPlayerPictureEligibility(
     displaySupportsHdr10: Boolean,
@@ -13,7 +15,7 @@ internal fun senPlayerPictureEligibility(
             when {
                 upscalingAvailable == null -> "等待超清能力信息"
                 durationMs <= 0 -> "超清仅适用于时长已知的视频"
-                !upscalingAvailable -> "当前片源或设备不支持 SenPlayer 超清"
+                !upscalingAvailable -> "当前片源或设备不支持 $SEN_PLAYER_DISPLAY_NAME 超清"
                 else -> null
             },
         sdrToHdrUnavailableReason =

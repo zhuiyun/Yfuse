@@ -1,5 +1,6 @@
 package com.yfuse.feature.player
 
+import com.yfuse.core.model.SEN_PLAYER_DISPLAY_NAME
 import com.yfuse.core.playback.PlaybackFailureKind
 import com.yfuse.core2.api.YBufferRangeCoverage
 import com.yfuse.core2.api.YBufferRangeSource
@@ -34,7 +35,7 @@ internal fun PlaybackState.forSenPlayerLoad(
         diagnostics =
             initialPlaybackDiagnostics(
                 engine = diagnostics.engine,
-                decoder = "等待 SenPlayer 视频轨道",
+                decoder = "等待 $SEN_PLAYER_DISPLAY_NAME 视频轨道",
                 item = item,
             ).copy(
                 senPlayerPicture = diagnostics.senPlayerPicture?.awaitingApplication(),

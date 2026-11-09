@@ -22,6 +22,8 @@ import com.yfuse.core.data.SenPlayerEnhancementLevel
 import com.yfuse.core.data.SenPlayerPictureSettings
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.DecoderMode
+import com.yfuse.core.model.PlayerEngine
+import com.yfuse.core.model.SEN_PLAYER_DISPLAY_NAME
 import com.yfuse.core.playback.PlaybackFailureKind
 import com.yfuse.core2.android.AndroidSerializedPlayerRelease
 import com.yfuse.core2.api.YBufferSnapshot
@@ -109,9 +111,9 @@ internal class SenPlayerVideoEngine(
                 speed = startSpeed,
                 diagnostics =
                     PlaybackDiagnostics(
-                        engine = "SenPlayer（实验）",
+                        engine = PlayerEngine.SenPlayer.label,
                         senPlayerPicture = SenPlayerPictureState(),
-                        decoder = "等待 SenPlayer 许可验证",
+                        decoder = "等待 $SEN_PLAYER_DISPLAY_NAME 许可验证",
                         videoReadiness = PlaybackOutputReadiness.Unknown,
                         audioReadiness = PlaybackOutputReadiness.Unknown,
                     ),
@@ -155,9 +157,9 @@ internal class SenPlayerVideoEngine(
             it.forSenPlayerFailure(
                 message =
                     if (license != null) {
-                        "SenPlayer 许可未通过（${license.status}）。需要原许可服务允许当前 Yfuse 版本；请手动选择其他内核。"
+                        "$SEN_PLAYER_DISPLAY_NAME 许可未通过（${license.status}）。需要原许可服务允许当前 Yfuse 版本；请手动选择其他内核。"
                     } else {
-                        "SenPlayer 实验内核不可用（${error.javaClass.simpleName}），请手动选择其他内核。"
+                        "$SEN_PLAYER_DISPLAY_NAME 实验内核不可用（${error.javaClass.simpleName}），请手动选择其他内核。"
                     },
                 kind = if (license != null) PlaybackFailureKind.Authorization else PlaybackFailureKind.Unknown,
             )
@@ -479,7 +481,7 @@ internal class SenPlayerVideoEngine(
                                         active = sample.upscalingActive.takeIf { currentRendered },
                                     ),
                             ),
-                        decoder = sample.decoder.ifBlank { "SenPlayer 原生解码" },
+                        decoder = sample.decoder.ifBlank { "$SEN_PLAYER_DISPLAY_NAME 原生解码" },
                         videoWidth = sample.width,
                         videoReadiness =
                             if (currentRendered) PlaybackOutputReadiness.Rendering else PlaybackOutputReadiness.Waiting,
@@ -498,7 +500,8 @@ internal class SenPlayerVideoEngine(
                             it.diagnostics.outputEvidence.copy(
                                 surfaceRebuildCount = surfaceRecoveries,
                                 rendererDetail =
-                                    "SenPlayer decoded=${sample.videoFrames} surface=${sample.surfaceFrames} " +
+                                    "$SEN_PLAYER_DISPLAY_NAME decoded=${sample.videoFrames} " +
+                                        "surface=${sample.surfaceFrames} " +
                                         "draws=${sample.surfaceDraws} pixelCopy=${pixels?.result ?: "unavailable"} " +
                                         "pixelChanging=${pixels?.changingPicture == true}",
                             ),

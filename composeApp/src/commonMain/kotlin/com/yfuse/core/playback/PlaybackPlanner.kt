@@ -2,6 +2,7 @@ package com.yfuse.core.playback
 
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
+import com.yfuse.core.model.SEN_PLAYER_DISPLAY_NAME
 
 /** User intent resolved by YCore before a concrete backend is constructed. */
 enum class PlaybackOptimizationMode {
@@ -210,7 +211,7 @@ fun planPlayback(
         when {
             probe.drmProtected -> "当前内核尚未支持受保护内容的完整 DRM 播放流程"
             requested != primary -> "所选内核不适用于当前平台，使用 YCore"
-            primary == PlayerEngine.SenPlayer -> "已选择 SenPlayer，播放时按原内核规则验证许可"
+            primary == PlayerEngine.SenPlayer -> "已选择 $SEN_PLAYER_DISPLAY_NAME，播放时按原内核规则验证许可"
             requiresServer -> discDecision.reason ?: "设备未确认支持原始格式，使用可用的服务器转码"
             localSoftware && softwareFirst -> "ProRes 交由 YCore FFmpeg 软件解码，实际格式支持由运行时验证"
             localSoftware -> "设备不支持此硬解格式且无服务器转码，尝试 YCore 软件解码"
@@ -218,7 +219,7 @@ fun planPlayback(
             discDecision.reason != null -> discDecision.reason
             probe.requiresNativeDemuxer -> "${probe.normalizedContainer} 使用 YCore 原生解封装"
             probe.styledSubtitles -> "使用 YCore 字幕管线，样式支持以实际输出为准"
-            primary in excludedEngines -> "当前只有 YCore 自动内核可用；失败后不会自动启用 SenPlayer"
+            primary in excludedEngines -> "当前只有 YCore 自动内核可用；失败后不会自动启用 $SEN_PLAYER_DISPLAY_NAME"
             else -> "使用 YCore 自研播放管线"
         }
     return PlaybackPlan(
