@@ -37,6 +37,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -126,6 +127,36 @@ fun Modifier.touchTarget(
             placeable.place((width - placeable.width) / 2, (height - placeable.height) / 2)
         }
     }
+
+@Composable
+internal fun rememberTouchTargetFocus(shape: Shape): TouchTargetFocusShape =
+    remember(shape) { TouchTargetFocusShape(shape) }
+
+/** Report a centered child's visible outline when its parent owns the press interaction. */
+internal fun Modifier.focusBody(focus: TouchTargetFocusShape): Modifier = onSizeChanged { focus.control = it }
+
+/** Keep the hit target at its accessible minimum and draw feedback on the visible control. */
+@Composable
+internal fun Modifier.pressableTarget(
+    shape: Shape,
+    enabled: Boolean = true,
+    role: Role? = Role.Button,
+    haptic: HapticSignal? = null,
+    onClickLabel: String? = null,
+    label: String? = null,
+    onClick: () -> Unit,
+): Modifier {
+    val focus = rememberTouchTargetFocus(shape)
+    return pressable(
+        enabled = enabled,
+        role = role,
+        haptic = haptic,
+        focusShape = focus,
+        onClickLabel = onClickLabel,
+        label = label,
+        onClick = onClick,
+    ).touchTarget(focus = focus)
+}
 
 /**
  * [shape] around the control a [touchTarget] slot holds, for [pressable]'s `focusShape`.

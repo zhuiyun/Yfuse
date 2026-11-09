@@ -1474,6 +1474,7 @@ private fun RowScope.TabButton(
                 // This was `clickable(indication = null)` with nothing put back, so the one
                 // control every session touches most had no press feedback at all.
                 .pressable(
+                    focusShape = CircleShape,
                     pressedScale = 0.96f,
                     haptic = HapticSignal.Select,
                     // Without this every tab was announced as an unlabelled clickable region.

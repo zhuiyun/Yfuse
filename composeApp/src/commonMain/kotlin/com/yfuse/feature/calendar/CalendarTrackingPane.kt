@@ -132,6 +132,8 @@ private fun CalendarTrackingList(
     var actionMessage by remember { mutableStateOf<String?>(null) }
     var confirmUnfollowAll by remember { mutableStateOf(false) }
     var bulkExpanded by remember { mutableStateOf(false) }
+    val inset = 12.dp
+    val posterShape = AppShapes.card.inset(inset)
     val schedulePosterUrls =
         remember(calendarDays) {
             calendarDays
@@ -273,7 +275,7 @@ private fun CalendarTrackingList(
                         TmdbImages.media(series.posterPath, width = "w185"),
                     ) + schedulePosterUrls[series.tmdbId].orEmpty()
             val openSeriesDetail =
-                sharedMediaOnClick(sharedKey, sourceShape = AppShapes.thumb) {
+                sharedMediaOnClick(sharedKey, sourceShape = posterShape) {
                     seriesItemId?.let { component.onOpenItem(series.serverId, it) }
                 }
             Row(
@@ -286,7 +288,7 @@ private fun CalendarTrackingList(
                         } else {
                             Modifier
                         },
-                    ).padding(12.dp),
+                    ).padding(inset),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -295,10 +297,10 @@ private fun CalendarTrackingList(
                     contentDescription = null,
                     modifier =
                         Modifier
-                            .sharedMediaArtwork(sharedKey, sourceShape = AppShapes.thumb, sourceUrls = posterUrls)
+                            .sharedMediaArtwork(sharedKey, sourceShape = posterShape, sourceUrls = posterUrls)
                             .width(46.dp)
                             .height(64.dp)
-                            .clip(AppShapes.thumb)
+                            .clip(posterShape)
                             .background(palette.card2),
                 )
                 Column(Modifier.weight(1f)) {

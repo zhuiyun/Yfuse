@@ -19,7 +19,6 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -29,7 +28,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
@@ -276,13 +274,7 @@ private fun TvLibraryHero(
     var focused by remember { mutableStateOf(false) }
     Box(
         Modifier
-            // Whole while focus is on its keys — see TvFocusPivot.
-            .tvKeepWholeInView()
-            .fillMaxWidth()
-            .height(350.dp)
-            .padding(horizontal = 8.dp)
-            .clip(RoundedCornerShape(18.dp))
-            .background(TvPlaceholder)
+            .tvHeroSurface(350.dp)
             .onFocusChanged { focused = it.hasFocus },
     ) {
         TvLoadingImage(

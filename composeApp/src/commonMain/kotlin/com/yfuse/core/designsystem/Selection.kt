@@ -187,9 +187,12 @@ private fun SelectionActionButton(
         textAlign = TextAlign.Center,
         modifier =
             modifier
-                .pressable(enabled = action.enabled, onClickLabel = action.onClickLabel, onClick = action.onClick)
-                .touchTarget()
-                .glass(AppShapes.chip, palette.card3, palette.border)
+                .pressableTarget(
+                    AppShapes.chip,
+                    enabled = action.enabled,
+                    onClickLabel = action.onClickLabel,
+                    onClick = action.onClick,
+                ).glass(AppShapes.chip, palette.card3, palette.border)
                 .padding(horizontal = 11.dp, vertical = 7.dp),
     )
 }

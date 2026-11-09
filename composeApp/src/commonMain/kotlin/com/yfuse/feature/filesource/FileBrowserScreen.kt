@@ -53,6 +53,7 @@ import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.rememberTouchTargetFocus
 import com.yfuse.core.designsystem.returnLocator
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.filesource.FileSource
@@ -309,10 +310,16 @@ private fun FolderHeader(
                 overflow = TextOverflow.StartEllipsis,
             )
         }
+        val actionFocus = rememberTouchTargetFocus(AppShapes.control)
         Box(
             Modifier
-                .pressable(enabled = refreshEnabled, onClickLabel = "刷新文件夹", label = "刷新文件夹", onClick = onRefresh)
-                .touchTarget()
+                .pressable(
+                    focusShape = actionFocus,
+                    enabled = refreshEnabled,
+                    onClickLabel = "刷新文件夹",
+                    label = "刷新文件夹",
+                    onClick = onRefresh,
+                ).touchTarget(focus = actionFocus)
                 .liquidGlass(shape = AppShapes.control, fill = palette.card2, border = null, over = palette.background)
                 .size(44.dp),
             contentAlignment = Alignment.Center,

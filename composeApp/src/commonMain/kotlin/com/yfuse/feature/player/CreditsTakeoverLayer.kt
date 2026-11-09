@@ -27,7 +27,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.Motion
@@ -37,6 +36,7 @@ import com.yfuse.core.designsystem.calmMotion
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.liveStatus
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.pressableTarget
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.PlaybackSegment
@@ -85,9 +85,9 @@ internal fun CreditsTakeoverCard(
     Column(
         modifier
             .widthIn(max = CreditsCardMaxWidth)
-            .shadow(Shadows.tabBar, GlassShapes.card)
+            .shadow(Shadows.tabBar, AppShapes.card)
             .glass(
-                shape = GlassShapes.card,
+                shape = AppShapes.card,
                 fill = PlayerTokens.nextUpFill,
                 border = PlayerTokens.hairline,
             ).padding(horizontal = 14.dp, vertical = 12.dp),
@@ -127,9 +127,12 @@ internal fun CreditsTakeoverCard(
                 color = PlayerTokens.onPlay,
                 modifier =
                     Modifier
-                        .pressable(haptic = HapticSignal.Confirm, onClickLabel = "立即播放下一集", onClick = onPlayNext)
-                        .touchTarget()
-                        .glass(shape = AppShapes.pill, fill = PlayerTokens.playFill)
+                        .pressableTarget(
+                            AppShapes.pill,
+                            haptic = HapticSignal.Confirm,
+                            onClickLabel = "立即播放下一集",
+                            onClick = onPlayNext,
+                        ).glass(shape = AppShapes.pill, fill = PlayerTokens.playFill)
                         .padding(horizontal = 14.dp, vertical = 7.dp),
             )
         }

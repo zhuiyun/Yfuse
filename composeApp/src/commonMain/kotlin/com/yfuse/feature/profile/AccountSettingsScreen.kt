@@ -86,6 +86,7 @@ import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.pressableTarget
 import com.yfuse.core.designsystem.rememberDisclosureProgress
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.personal.PersonalLibraryRepository
@@ -963,12 +964,12 @@ private fun InvitePrimaryAction(
             Modifier
                 .fillMaxWidth()
                 .heightIn(min = 52.dp)
-                .pressable(
+                .pressableTarget(
+                    AppShapes.control,
                     haptic = HapticSignal.Confirm,
                     onClickLabel = label,
                     onClick = onClick,
-                ).touchTarget()
-                .liquidGlass(
+                ).liquidGlass(
                     shape = AppShapes.control,
                     fill = accent.accent,
                     border = null,

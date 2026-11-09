@@ -47,6 +47,7 @@ import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.motionItemsIndexed
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.rememberTouchTargetFocus
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.designsystem.touchTarget
@@ -495,6 +496,7 @@ private fun TrackChipRow(
         // same language, so the value is not unique and cannot be one.
         motionItems(options) { option ->
             val active = isSelected(option)
+            val optionFocus = rememberTouchTargetFocus(AppShapes.chip)
             Text(
                 option.label,
                 style = if (active) AppTypography.body.strong else AppTypography.body.medium,
@@ -505,11 +507,12 @@ private fun TrackChipRow(
                         // Match 外部链接: the same lifted liquid-glass body in both themes.
                         // Selection changes only the text and one solid-colour edge.
                         .pressable(
+                            focusShape = optionFocus,
                             role = Role.RadioButton,
                             onClickLabel = "选择${option.label}",
                             onClick = { onSelect(option) },
                         ).semantics { this.selected = active }
-                        .touchTarget()
+                        .touchTarget(focus = optionFocus)
                         .shadow(GlassLift.control, AppShapes.chip)
                         .liquidGlass(
                             shape = AppShapes.chip,

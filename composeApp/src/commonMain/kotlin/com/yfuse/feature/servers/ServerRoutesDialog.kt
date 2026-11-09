@@ -68,10 +68,10 @@ import com.yfuse.core.designsystem.glassControlHighlight
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.motionAwareAnimateContentSize
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.pressableTarget
 import com.yfuse.core.designsystem.rememberDisclosureProgress
 import com.yfuse.core.designsystem.rememberUndoWindow
 import com.yfuse.core.designsystem.returnLocator
-import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.ServerRoute
 import com.yfuse.core.network.validateEmbyServerEndpoint
@@ -422,8 +422,7 @@ private fun ServerRouteRow(
                 tint = palette.sub2,
                 modifier =
                     Modifier
-                        .pressable(onClickLabel = "删除${route.name}", onClick = onRemove)
-                        .touchTarget()
+                        .pressableTarget(CircleShape, onClickLabel = "删除${route.name}", onClick = onRemove)
                         .size(24.dp)
                         .liquidGlass(CircleShape, palette.card, palette.border)
                         .padding(7.dp),

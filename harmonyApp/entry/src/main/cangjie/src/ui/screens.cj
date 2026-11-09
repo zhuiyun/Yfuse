@@ -138,9 +138,9 @@ class ProfileScreen {
             SettingsGroup("支持", "诊断与日志", "检查更新", "关于 Yfuse")
             Text("快捷入口").fontColor(Color(DesignTokens.darkText)).fontSize(18).fontWeight(FontWeight.Bold)
             Row {
-                Button("账户").backgroundColor(Color(DesignTokens.darkAccent)).fontColor(Color(DesignTokens.darkOnAccent)).borderRadius(DesignTokens.radiusSmall).onClick(() => { onOpenAccount() })
-                Button("会话").backgroundColor(Color(DesignTokens.darkAccent)).fontColor(Color(DesignTokens.darkOnAccent)).borderRadius(DesignTokens.radiusSmall).onClick(() => { onOpenSessions() })
-                Button("下载").backgroundColor(Color(DesignTokens.darkAccent)).fontColor(Color(DesignTokens.darkOnAccent)).borderRadius(DesignTokens.radiusSmall).onClick(() => { onOpenDownloads() })
+                AccentAction("账户", onOpenAccount)
+                AccentAction("会话", onOpenSessions)
+                AccentAction("下载", onOpenDownloads)
             }.width(100.percent)
             Blank().height(122)
         }.padding(18).width(100.percent) }.layoutWeight(1)
@@ -158,17 +158,27 @@ func EmptyState(title: String, message: String, action: String, onAction!: () ->
         Blank().height(80)
         Text(title).fontColor(Color(DesignTokens.darkText)).fontSize(18).fontWeight(FontWeight.Bold)
         Text(message).fontColor(Color(DesignTokens.darkText)).fontSize(13)
-        Button(action).backgroundColor(Color(DesignTokens.darkAccent)).fontColor(Color(DesignTokens.darkOnAccent)).borderRadius(DesignTokens.radiusSmall).onClick(() => { onAction() })
+        AccentAction(action, onAction)
     }.width(100.percent)
+}
+
+@Builder
+func AccentAction(label: String, onAction: () -> Unit) {
+    Button(label).backgroundColor(Color(DesignTokens.darkAccent)).fontColor(Color(DesignTokens.darkOnAccent)).borderRadius(DesignTokens.radiusSmall).onClick(() => { onAction() })
+}
+
+@Builder
+func SettingsEntry(label: String) {
+    Text(label).fontColor(Color(DesignTokens.darkSecondary)).fontSize(DesignTokens.typeBody).padding(6).width(100.percent)
 }
 
 @Builder
 func SettingsGroup(title: String, first: String, second: String, third: String, fourth!: String = "") {
     Column {
         Text(title).fontColor(Color(DesignTokens.darkText)).fontSize(14).fontWeight(FontWeight.Bold)
-        Button(first).backgroundColor(Color(DesignTokens.darkAccent)).fontColor(Color(DesignTokens.darkOnAccent)).borderRadius(DesignTokens.radiusSmall).width(100.percent)
-        Button(second).backgroundColor(Color(DesignTokens.darkAccent)).fontColor(Color(DesignTokens.darkOnAccent)).borderRadius(DesignTokens.radiusSmall).width(100.percent)
-        Button(third).backgroundColor(Color(DesignTokens.darkAccent)).fontColor(Color(DesignTokens.darkOnAccent)).borderRadius(DesignTokens.radiusSmall).width(100.percent)
-        if (!fourth.isEmpty()) { Button(fourth).backgroundColor(Color(DesignTokens.darkAccent)).fontColor(Color(DesignTokens.darkOnAccent)).borderRadius(DesignTokens.radiusSmall).width(100.percent) }
+        SettingsEntry(first)
+        SettingsEntry(second)
+        SettingsEntry(third)
+        if (!fourth.isEmpty()) { SettingsEntry(fourth) }
     }.padding(12).width(100.percent)
 }

@@ -38,6 +38,7 @@ import com.yfuse.feature.widgets.WidgetEmptyState
 import com.yfuse.feature.widgets.WidgetGroupCaption
 import com.yfuse.feature.widgets.WidgetMenuRow
 import com.yfuse.feature.widgets.WidgetTextButton
+import com.yfuse.feature.widgets.widgetPanelArtworkShape
 import com.yfuse.core.designsystem.ThemeText as Text
 
 internal fun LazyListScope.stremioDetail(
@@ -89,11 +90,12 @@ internal fun LazyListScope.stremioDetail(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                             ) {
-                                video.thumbnail?.takeIf(::isStremioHttpUrl)?.let { thumbnail ->
+                                val thumbnail = video.thumbnail?.takeIf(::isStremioHttpUrl)
+                                if (thumbnail != null) {
                                     AsyncImage(
                                         model = thumbnail,
                                         contentDescription = null,
-                                        modifier = Modifier.width(80.dp).height(50.dp).clip(AppShapes.thumb),
+                                        modifier = Modifier.width(80.dp).height(50.dp).clip(widgetPanelArtworkShape),
                                         contentScale = ContentScale.Crop,
                                     )
                                 }
@@ -101,14 +103,7 @@ internal fun LazyListScope.stremioDetail(
                                     WidgetMenuRow(
                                         video.label,
                                         { controller.selectVideo(video) },
-                                        icon =
-                                            if (video.thumbnail?.takeIf(::isStremioHttpUrl) ==
-                                                null
-                                            ) {
-                                                AppIcons.Play
-                                            } else {
-                                                null
-                                            },
+                                        icon = if (thumbnail == null) AppIcons.Play else null,
                                         selected = selected,
                                         enabled = !state.busy,
                                     )
@@ -138,7 +133,7 @@ private fun StremioMediaSummary(meta: StremioMeta) {
                 AsyncImage(
                     model = poster,
                     contentDescription = "${meta.name}海报",
-                    modifier = Modifier.width(112.dp).height(168.dp).clip(AppShapes.card),
+                    modifier = Modifier.width(112.dp).height(168.dp).clip(widgetPanelArtworkShape),
                     contentScale = ContentScale.Crop,
                 )
             } else {
@@ -198,7 +193,8 @@ internal fun LazyListScope.stremioSources(
 ) {
     // A source group belongs to one video. Reusing its keys across episodes would move
     // LazyColumn's scroll anchor to the new episode and hide the row just selected.
-    val videoId = state.video?.id ?: return
+    val video = state.video ?: return
+    val videoId = video.id
     val sourceKey = "sources:${videoId.length}:$videoId"
     motionItem("$sourceKey:heading") {
         StremioInset {
@@ -210,7 +206,7 @@ internal fun LazyListScope.stremioSources(
                     color = LocalPalette.current.text,
                 )
                 WidgetTextButton(
-                    { state.video?.let(controller::selectVideo) },
+                    { controller.selectVideo(video) },
                     enabled = !state.loading,
                 ) {
                     Text(if (state.failures.isNotEmpty() || state.message != null) "重试" else "刷新")

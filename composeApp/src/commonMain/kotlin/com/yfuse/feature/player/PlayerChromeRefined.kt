@@ -103,6 +103,7 @@ import com.yfuse.core.designsystem.RollingNumber
 import com.yfuse.core.designsystem.Tips
 import com.yfuse.core.designsystem.ambientSeekAccent
 import com.yfuse.core.designsystem.cssLinearGradient
+import com.yfuse.core.designsystem.focusBody
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.lightFeedback
 import com.yfuse.core.designsystem.lightOnAppear
@@ -112,6 +113,7 @@ import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberAnimatedArtworkAccent
 import com.yfuse.core.designsystem.rememberLightFeedback
 import com.yfuse.core.designsystem.rememberThrottledValue
+import com.yfuse.core.designsystem.rememberTouchTargetFocus
 import com.yfuse.core.designsystem.touchTarget
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
@@ -955,7 +957,7 @@ internal fun CompactAutoSkipPill(
                 shape = AppShapes.pill,
                 fill = Color.Black.copy(alpha = 0.58f),
                 border = Color.White.copy(alpha = 0.22f),
-            ).pressable(onClickLabel = clickLabel, onClick = onCancel)
+            ).pressable(focusShape = AppShapes.pill, onClickLabel = clickLabel, onClick = onCancel)
             .touchTarget()
             // Live, but with the ticking label left out of the spoken tree: every second would
             // otherwise be read out. The live region goes before the clear, which would drop it.
@@ -1063,11 +1065,12 @@ private fun RefinedSpeedControl(
     val label = if (unavailableReason == null) "$figure×" else "倍速"
     // The same ring as its neighbours ([barKeySpec]), larger across a room.
     val ring = chromeKeySize(ringSize)
+    val keyFocus = rememberTouchTargetFocus(CircleShape)
     Box(
         Modifier
             // Named for what it sets, with the rate as its state: read out, 「1.25×」 alone was a
             // number with nothing to say what it was the rate of.
-            .pressable(enabled = unavailableReason == null, label = "播放速度", onClick = onClick)
+            .pressable(enabled = unavailableReason == null, label = "播放速度", focusShape = keyFocus, onClick = onClick)
             .touchTarget()
             .semantics { stateDescription = unavailableReason ?: "$figure 倍" }
             .graphicsLayer { alpha = if (unavailableReason == null) 1f else 0.44f }
@@ -1077,6 +1080,7 @@ private fun RefinedSpeedControl(
         Box(
             Modifier
                 .size(ring)
+                .focusBody(keyFocus)
                 .border(1.dp, Color.White.copy(alpha = 0.62f), CircleShape),
             contentAlignment = Alignment.Center,
         ) {

@@ -116,6 +116,7 @@ import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.pressableTarget
 import com.yfuse.core.designsystem.rememberDecorativePhase
 import com.yfuse.core.designsystem.rememberDragSelectState
 import com.yfuse.core.designsystem.rememberGlassSelectionStyle
@@ -450,6 +451,7 @@ internal fun DownloadsScreen(
                                     .size(48.dp)
                                     .glass(AppShapes.pill, palette.card2, palette.border)
                                     .pressable(
+                                        focusShape = AppShapes.pill,
                                         enabled = access.canManageServers,
                                         onClickLabel = if (showSettings) "收起下载设置" else "打开下载设置",
                                     ) { showSettings = !showSettings },
@@ -1014,8 +1016,7 @@ private fun BatchAction(
         textAlign = TextAlign.Center,
         modifier =
             modifier
-                .pressable(enabled = enabled, onClickLabel = label, onClick = onClick)
-                .touchTarget()
+                .pressableTarget(AppShapes.chip, enabled = enabled, onClickLabel = label, onClick = onClick)
                 .glass(AppShapes.chip, palette.card3, palette.border)
                 .padding(horizontal = 11.dp, vertical = 7.dp),
     )
@@ -1184,9 +1185,11 @@ private fun DownloadTaskRow(
                     } else {
                         Row(
                             Modifier
-                                .pressable(onClickLabel = "$actionLabel${item.title}", onClick = primaryAction)
-                                .touchTarget()
-                                .glass(AppShapes.pill, palette.controlSurface, palette.controlBorder)
+                                .pressableTarget(
+                                    AppShapes.pill,
+                                    onClickLabel = "$actionLabel${item.title}",
+                                    onClick = primaryAction,
+                                ).glass(AppShapes.pill, palette.controlSurface, palette.controlBorder)
                                 .padding(horizontal = 12.dp, vertical = 7.dp),
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalAlignment = Alignment.CenterVertically,

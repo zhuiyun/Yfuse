@@ -47,6 +47,7 @@ import com.yfuse.core.designsystem.glassControlHighlight
 import com.yfuse.core.designsystem.glassSelection
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.pressableTarget
 import com.yfuse.core.designsystem.readableSurfaceInk
 import com.yfuse.core.designsystem.rememberGlassSelectionStyle
 import com.yfuse.core.designsystem.resolveGlassButtonVisuals
@@ -67,22 +68,18 @@ internal fun WidgetIconButton(
 ) {
     Box(
         Modifier
-            .size(48.dp)
             .alpha(if (enabled) 1f else 0.44f)
-            .pressable(enabled = enabled, role = Role.Button, onClick = onClick),
+            .pressableTarget(CircleShape, enabled = enabled, onClick = onClick)
+            .size(36.dp)
+            .glass(CircleShape, LocalPalette.current.card, LocalPalette.current.border),
         contentAlignment = Alignment.Center,
     ) {
-        Box(
-            Modifier.size(36.dp).glass(CircleShape, LocalPalette.current.card, LocalPalette.current.border),
-            contentAlignment = Alignment.Center,
-        ) {
-            ThemeIcon(
-                icon,
-                contentDescription = label,
-                tint = LocalAccentColors.current.accent,
-                modifier = Modifier.size(20.dp),
-            )
-        }
+        ThemeIcon(
+            icon,
+            contentDescription = label,
+            tint = LocalAccentColors.current.accent,
+            modifier = Modifier.size(20.dp),
+        )
     }
 }
 
@@ -122,7 +119,7 @@ private fun WidgetAction(
         modifier
             .defaultMinSize(minHeight = 48.dp)
             .alpha(if (enabled) 1f else 0.44f)
-            .pressable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .pressable(enabled = enabled, role = Role.Button, focusShape = CircleShape, onClick = onClick)
             // Muted modal controls cap their body at 12%; this local plate keeps the primary action distinct.
             .then(if (raisedPrimary) Modifier.background(underlay, CircleShape) else Modifier)
             .then(

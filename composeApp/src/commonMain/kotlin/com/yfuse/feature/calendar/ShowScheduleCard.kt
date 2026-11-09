@@ -94,6 +94,7 @@ import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberDisclosureProgress
 import com.yfuse.core.designsystem.rememberDominantColor
 import com.yfuse.core.designsystem.rememberGlassSelectionStyle
+import com.yfuse.core.designsystem.rememberTouchTargetFocus
 import com.yfuse.core.designsystem.resolveAccentColors
 import com.yfuse.core.designsystem.resolveGlassButtonVisuals
 import com.yfuse.core.designsystem.selectionColor
@@ -1309,6 +1310,8 @@ private fun ScheduleReminderPicker(
     onMinutes: (Int) -> Unit,
 ) {
     val palette = LocalPalette.current
+    val inset = 7.dp
+    val rowShape = AppShapes.card.inset(inset)
     val selection = rememberGlassSelectionStyle()
     Column(
         Modifier
@@ -1316,7 +1319,7 @@ private fun ScheduleReminderPicker(
             .padding(horizontal = Dimens.space.lg)
             .padding(bottom = Dimens.space.sm)
             .flatGlass(AppShapes.card, palette.card2, palette.border)
-            .padding(7.dp),
+            .padding(inset),
         verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
         Text(
@@ -1330,13 +1333,18 @@ private fun ScheduleReminderPicker(
         )
         CalendarReminderMode.entries.forEach { mode ->
             val active = mode == selected
+            val modeFocus = rememberTouchTargetFocus(rowShape)
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .pressable(haptic = HapticSignal.Select, role = Role.RadioButton) { onSelect(mode) }
+                    .pressable(
+                        focusShape = modeFocus,
+                        haptic = HapticSignal.Select,
+                        role = Role.RadioButton,
+                    ) { onSelect(mode) }
                     .semantics { this.selected = active }
-                    .touchTarget()
-                    .then(if (active) Modifier.glassSelection(AppShapes.chip, selection) else Modifier)
+                    .touchTarget(focus = modeFocus)
+                    .then(if (active) Modifier.glassSelection(rowShape, selection) else Modifier)
                     .padding(horizontal = 10.dp, vertical = Dimens.space.sm),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -1362,16 +1370,21 @@ private fun ScheduleReminderPicker(
                 ) {
                     motionItems(ScheduleReminderMinutes) { minutes ->
                         val minuteActive = beforeMinutes == minutes
+                        val minuteFocus = rememberTouchTargetFocus(CircleShape)
                         Text(
                             if (minutes < 60) "$minutes 分钟" else "${minutes / 60} 小时",
                             style = AppTypography.caption.strong,
                             color = if (minuteActive) selection.contentColor else palette.sub,
                             modifier =
                                 Modifier
-                                    .pressable(haptic = HapticSignal.Select, role = Role.RadioButton) {
+                                    .pressable(
+                                        focusShape = minuteFocus,
+                                        haptic = HapticSignal.Select,
+                                        role = Role.RadioButton,
+                                    ) {
                                         onMinutes(minutes)
                                     }.semantics { this.selected = minuteActive }
-                                    .touchTarget()
+                                    .touchTarget(focus = minuteFocus)
                                     .then(
                                         if (minuteActive) {
                                             Modifier.glassSelection(CircleShape, selection)
@@ -1451,6 +1464,7 @@ private fun ScheduleActionBar(
                             over = palette.background,
                             sheen = visuals.sheen,
                         ).pressable(
+                            focusShape = AppShapes.pill,
                             onClickLabel = if (followed) "取消追更" else "加入追更",
                             haptic = HapticSignal.Confirm,
                             onClick = onFollow,
@@ -1475,7 +1489,7 @@ private fun ScheduleActionBar(
                 Modifier
                     .size(48.dp)
                     .flatGlass(CircleShape, palette.card2, palette.border)
-                    .pressable(onClickLabel = "关闭播出日历", onClick = overlayDismiss(onDone)),
+                    .pressable(focusShape = CircleShape, onClickLabel = "关闭播出日历", onClick = overlayDismiss(onDone)),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(

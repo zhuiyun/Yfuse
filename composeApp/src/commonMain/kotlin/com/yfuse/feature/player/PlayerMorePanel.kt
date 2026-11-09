@@ -35,6 +35,7 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Motion
+import com.yfuse.core.designsystem.SegmentedRow
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.rememberAccentColorsForSurface

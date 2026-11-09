@@ -542,9 +542,7 @@ private fun Badge(
     Text(
         text,
         modifier
-            .clip(
-                AppShapes.chip,
-            ).glass(AppShapes.chip, LocalPalette.current.controlSurface, LocalPalette.current.controlBorder)
+            .glass(AppShapes.chip, LocalPalette.current.controlSurface, LocalPalette.current.controlBorder)
             .padding(horizontal = 9.dp, vertical = 5.dp),
         color = LocalAccentColors.current.accent,
         style = AppTypography.caption.strong,

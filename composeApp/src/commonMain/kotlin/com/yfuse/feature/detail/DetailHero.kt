@@ -94,6 +94,7 @@ import com.yfuse.core.designsystem.playerArtworkSource
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberLiftExpansion
 import com.yfuse.core.designsystem.rememberOneTakeArrival
+import com.yfuse.core.designsystem.rememberTouchTargetFocus
 import com.yfuse.core.designsystem.sharedMediaArtwork
 import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.designsystem.touchTarget
@@ -424,15 +425,17 @@ internal fun DetailTopBar(
                         .graphicsLayer { alpha = progress.value },
             )
             if (showPlay) {
+                val playFocus = rememberTouchTargetFocus(AppShapes.chip)
                 Row(
                     Modifier
                         .graphicsLayer { alpha = progress.value }
                         .pressable(
+                            focusShape = playFocus,
                             enabled = solid && !resolving,
                             pressedScale = PressFeedback.PRIMARY,
                             lightFeedback = false,
                             onClick = onPlay,
-                        ).touchTarget()
+                        ).touchTarget(focus = playFocus)
                         .liquidGlass(
                             shape = AppShapes.chip,
                             fill = playBody,

@@ -375,6 +375,8 @@ internal fun TvSearchHomeScreen(
     }
 }
 
+private val searchFieldShape = RoundedCornerShape(14.dp)
+
 @Composable
 private fun TvSearchField(
     query: String,
@@ -397,8 +399,8 @@ private fun TvSearchField(
             .onFocusChanged {
                 focused = it.hasFocus
                 if (it.hasFocus) onFocused()
-            }.border(3.dp, border, RoundedCornerShape(14.dp))
-            .background(if (focused) Color.White else TvSurface, RoundedCornerShape(14.dp))
+            }.border(3.dp, border, searchFieldShape)
+            .background(if (focused) Color.White else TvSurface, searchFieldShape)
             .padding(horizontal = 20.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

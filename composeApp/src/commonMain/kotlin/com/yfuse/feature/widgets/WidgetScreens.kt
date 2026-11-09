@@ -15,7 +15,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -78,14 +77,16 @@ internal fun WidgetFrame(
     }
 }
 
+private val panelVerticalInset = 10.dp
+internal val widgetPanelArtworkShape = AppShapes.card.inset(panelVerticalInset)
+
 @Composable
 internal fun Panel(content: @Composable ColumnScope.() -> Unit) {
     Column(
         Modifier
             .fillMaxWidth()
-            .clip(AppShapes.card)
             .glass(AppShapes.card, LocalPalette.current.card, LocalPalette.current.border)
-            .padding(horizontal = 14.dp, vertical = 10.dp),
+            .padding(horizontal = 14.dp, vertical = panelVerticalInset),
         verticalArrangement = Arrangement.spacedBy(8.dp),
         content = content,
     )

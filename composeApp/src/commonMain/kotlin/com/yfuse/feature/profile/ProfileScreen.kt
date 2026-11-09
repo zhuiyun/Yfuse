@@ -102,6 +102,7 @@ import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.Section
 import com.yfuse.core.designsystem.SettingIconTile
 import com.yfuse.core.designsystem.SettingRow
+import com.yfuse.core.designsystem.SettingSegmentControl
 import com.yfuse.core.designsystem.SettingTint
 import com.yfuse.core.designsystem.SettingsCard
 import com.yfuse.core.designsystem.SettingsDivider
@@ -121,10 +122,10 @@ import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.pressableTarget
 import com.yfuse.core.designsystem.readableSurfaceInk
 import com.yfuse.core.designsystem.setAppIconVariant
 import com.yfuse.core.designsystem.settingsSearchAnchor
-import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.windowWidthTier
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.DecoderMode
@@ -1406,8 +1407,7 @@ internal fun SettingsBackButton(
     val palette = LocalPalette.current
     Box(
         modifier
-            .pressable(onClickLabel = "返回", onClick = onBack)
-            .touchTarget()
+            .pressableTarget(AppShapes.control, onClickLabel = "返回", onClick = onBack)
             .size(44.dp)
             .liquidGlass(
                 shape = AppShapes.control,
@@ -1795,22 +1795,6 @@ internal fun SettingSegmentRow(
             }
         }
     }
-}
-
-/** Hand-off to [com.yfuse.core.designsystem.SettingSegmentControl], which owns the pill. */
-@Composable
-private fun SettingSegmentControl(
-    options: List<String>,
-    selectedIndex: Int,
-    expanded: Boolean,
-    onSelect: (Int) -> Unit,
-) {
-    com.yfuse.core.designsystem.SettingSegmentControl(
-        options = options,
-        selectedIndex = selectedIndex,
-        expanded = expanded,
-        onSelect = onSelect,
-    )
 }
 
 @Composable

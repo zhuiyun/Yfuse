@@ -71,8 +71,7 @@ import com.yfuse.core.designsystem.contentHandoff
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.inSystemBackEdge
 import com.yfuse.core.designsystem.liveStatus
-import com.yfuse.core.designsystem.pressable
-import com.yfuse.core.designsystem.touchTarget
+import com.yfuse.core.designsystem.pressableTarget
 import com.yfuse.core.remote.PhoneRemoteClient
 import com.yfuse.core.remote.PhoneRemoteState
 import com.yfuse.core.remote.RemotePairingTokenStore
@@ -400,8 +399,7 @@ private fun RemoteButton(
     val tint = if (enabled) palette.text else palette.sub2
     Column(
         modifier
-            .pressable(enabled = enabled, onClick = onClick)
-            .touchTarget()
+            .pressableTarget(AppShapes.control, enabled = enabled, onClick = onClick)
             .glass(shape = AppShapes.control, fill = palette.card, border = palette.border)
             .padding(vertical = Dimens.space.md),
         horizontalAlignment = Alignment.CenterHorizontally,

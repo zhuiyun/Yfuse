@@ -26,9 +26,9 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Dimens
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.Shadows
@@ -122,9 +122,9 @@ internal fun NextUpCard(
     val remaining = rememberNextUpRemaining(playbackKey, remainingMs, advancing, speed)
     Row(
         modifier
-            .shadow(Shadows.tabBar, GlassShapes.card)
+            .shadow(Shadows.tabBar, AppShapes.card)
             .glass(
-                shape = GlassShapes.card,
+                shape = AppShapes.card,
                 fill = PlayerTokens.nextUpFill,
                 border = PlayerTokens.hairline,
             ).padding(horizontal = 14.dp, vertical = 11.dp),
@@ -224,12 +224,12 @@ internal fun NextUpKey(
         modifier
             .pressable(
                 haptic = HapticSignal.Confirm,
-                focusShape = GlassShapes.card,
+                focusShape = AppShapes.card,
                 onClickLabel = "播放下一集",
                 onClick = onPlayNow,
-            ).shadow(Shadows.tabBar, GlassShapes.card)
+            ).shadow(Shadows.tabBar, AppShapes.card)
             .glass(
-                shape = GlassShapes.card,
+                shape = AppShapes.card,
                 fill = PlayerTokens.nextUpFill,
                 border = PlayerTokens.hairline,
             ).padding(horizontal = Dimens.space.lg, vertical = Dimens.space.md),

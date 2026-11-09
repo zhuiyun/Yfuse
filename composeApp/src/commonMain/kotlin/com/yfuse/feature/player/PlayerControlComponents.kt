@@ -29,10 +29,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.CinemaSelectionCheck
 import com.yfuse.core.designsystem.DarkPalette
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.PillSwitch
@@ -71,25 +71,6 @@ internal fun DiagnosticRow(
             textAlign = TextAlign.End,
         )
     }
-}
-
-/**
- * Hand-off to [com.yfuse.core.designsystem.SegmentedRow], which now owns the implementation.
- *
- * Kept so the player panels can keep calling the name they already use; they migrate to the
- * design-system import in a later pass.
- */
-@Composable
-internal fun SegmentedRow(
-    options: List<String>,
-    selectedIndex: Int,
-    onSelect: (Int) -> Unit,
-) {
-    com.yfuse.core.designsystem.SegmentedRow(
-        options = options,
-        selectedIndex = selectedIndex,
-        onSelect = onSelect,
-    )
 }
 
 @Composable
@@ -300,7 +281,7 @@ internal fun Modifier.noRippleClickable(onClick: () -> Unit): Modifier = pressab
 @Composable
 internal fun Modifier.playerChoiceFeedback(
     selected: Boolean,
-    shape: Shape = GlassShapes.thumb,
+    shape: Shape = AppShapes.thumb,
     plated: Boolean = true,
     role: Role = Role.Button,
     onClick: () -> Unit,

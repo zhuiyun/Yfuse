@@ -26,6 +26,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -97,7 +98,7 @@ internal fun WidgetSheet(
 internal fun WidgetGroupCaption(text: String) {
     Text(
         text,
-        Modifier.padding(start = 4.dp, top = 8.dp, bottom = 8.dp),
+        Modifier.padding(start = 4.dp, top = 8.dp, bottom = 8.dp).semantics { heading() },
         style = AppTypography.body.regular.copy(fontSize = 12.sp),
         color = LocalPalette.current.sub2,
     )
@@ -189,7 +190,7 @@ internal fun WidgetSegmentedControl(
 ) {
     val palette = LocalPalette.current
     val selection = rememberGlassSelectionStyle()
-    val indicator = rememberSegmentIndicator(selectedIndex, Color.Transparent, selectionStyle = selection)
+    val indicator = rememberSegmentIndicator(selectedIndex, Color.Transparent, CircleShape, selectionStyle = selection)
     Row(
         modifier
             .selectableGroup()
@@ -207,9 +208,7 @@ internal fun WidgetSegmentedControl(
                     .then(indicator.item(index))
                     .semantics {
                         selected = active
-                    }.pressable(role = Role.Tab, onClick = {
-                        onSelect(index)
-                    })
+                    }.pressable(role = Role.Tab, focusShape = CircleShape, onClick = { onSelect(index) })
                     .padding(horizontal = 10.dp, vertical = 8.dp),
                 contentAlignment = Alignment.Center,
             ) {

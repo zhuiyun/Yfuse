@@ -19,8 +19,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.PlayerTokens
@@ -121,7 +121,7 @@ private fun BoxScope.ReactionBubble(
                     }
                 }
             }.glass(
-                shape = GlassShapes.chip,
+                shape = AppShapes.chip,
                 fill = PlayerTokens.nextUpFill,
                 border = PlayerTokens.hairline,
             ).padding(horizontal = 10.dp, vertical = 6.dp),

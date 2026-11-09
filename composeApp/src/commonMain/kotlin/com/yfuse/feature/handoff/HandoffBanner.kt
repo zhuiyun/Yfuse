@@ -63,11 +63,10 @@ import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.calmMotion
 import com.yfuse.core.designsystem.glassControlHighlight
 import com.yfuse.core.designsystem.liquidGlass
-import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.pressableTarget
 import com.yfuse.core.designsystem.rubberBand
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.solidGlass
-import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.handoff.HandoffController
 import com.yfuse.core.handoff.HandoffElsewhere
 import com.yfuse.core.handoff.HandoffUiState
@@ -484,11 +483,11 @@ private fun BannerButton(
         maxLines = 1,
         modifier =
             Modifier
-                .pressable(
+                .pressableTarget(
+                    AppShapes.pill,
                     haptic = if (action.confirms) HapticSignal.Confirm else null,
                     onClick = action.run,
-                ).touchTarget()
-                .liquidGlass(
+                ).liquidGlass(
                     shape = AppShapes.pill,
                     fill = if (prominent) accent.container else palette.glassStrong,
                     border = if (prominent) glassControlHighlight(accent, palette.isDark) else palette.border,

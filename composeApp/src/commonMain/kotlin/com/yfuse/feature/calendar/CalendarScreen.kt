@@ -54,6 +54,7 @@ import com.yfuse.core.designsystem.contentHandoff
 import com.yfuse.core.designsystem.contentPhase
 import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.pressableTarget
 import com.yfuse.core.designsystem.rememberDisclosureProgress
 import com.yfuse.core.designsystem.rememberGlassSelectionStyle
 import com.yfuse.core.designsystem.rememberSegmentIndicator
@@ -142,8 +143,7 @@ fun CalendarScreen(component: CalendarComponent) {
                     tint = palette.text,
                     modifier =
                         Modifier
-                            .pressable(onClickLabel = "返回", onClick = component.onBack)
-                            .touchTarget()
+                            .pressableTarget(CircleShape, onClickLabel = "返回", onClick = component.onBack)
                             .size(36.dp)
                             .solidGlass(CircleShape, palette.card2, palette.border)
                             .padding(10.dp),
@@ -160,11 +160,11 @@ fun CalendarScreen(component: CalendarComponent) {
                 // again, and only they know it happened.
                 Box(
                     Modifier
-                        .pressable(
+                        .pressableTarget(
+                            CircleShape,
                             enabled = !state.loading,
                             onClickLabel = "刷新追剧日历",
                         ) { component.store.accept(CalendarIntent.Refresh) }
-                        .touchTarget()
                         .size(36.dp)
                         .solidGlass(CircleShape, palette.card2, palette.border),
                     contentAlignment = Alignment.Center,
@@ -411,6 +411,7 @@ private fun CalendarSectionBar(
         rememberSegmentIndicator(
             CalendarSection.entries.indexOf(selected),
             accent.container,
+            AppShapes.pill,
             selectionStyle = selection,
         )
     Row(
@@ -429,7 +430,7 @@ private fun CalendarSectionBar(
                     .weight(1f)
                     .heightIn(min = 44.dp)
                     .then(indicator.item(CalendarSection.entries.indexOf(section)))
-                    .pressable(role = Role.RadioButton) { onSelect(section) }
+                    .pressable(role = Role.RadioButton, focusShape = AppShapes.pill) { onSelect(section) }
                     .semantics { this.selected = active }
                     .touchTarget(),
                 contentAlignment = Alignment.Center,

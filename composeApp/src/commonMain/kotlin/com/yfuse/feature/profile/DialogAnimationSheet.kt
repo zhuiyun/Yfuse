@@ -31,7 +31,6 @@ import com.yfuse.core.designsystem.DialogContentMotion
 import com.yfuse.core.designsystem.DialogElementRole
 import com.yfuse.core.designsystem.DialogMotionHost
 import com.yfuse.core.designsystem.GlassDialog
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalDialogAnimation
@@ -108,7 +107,7 @@ internal fun DialogAnimationSheet(
                     Modifier
                         .size(70.dp, 92.dp)
                         .dialogPosterSource()
-                        .clip(GlassShapes.poster)
+                        .clip(AppShapes.card)
                         .background(Brush.verticalGradient(listOf(accent.accent, accent.container)))
                         .pressable(onClick = openPreview),
                     contentAlignment = Alignment.Center,

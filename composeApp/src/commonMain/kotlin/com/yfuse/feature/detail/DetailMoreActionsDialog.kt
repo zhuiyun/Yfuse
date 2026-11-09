@@ -51,8 +51,8 @@ import com.yfuse.core.designsystem.flatGlass
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.pressableTarget
 import com.yfuse.core.designsystem.resolveAccentColors
-import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.feature.personal.PersonalMediaLists
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -280,8 +280,7 @@ private fun DetailMoreHero(
                 Modifier
                     .align(Alignment.TopEnd)
                     .padding(12.dp)
-                    .pressable(onClick = overlayDismiss(onDismiss))
-                    .touchTarget()
+                    .pressableTarget(CircleShape, onClick = overlayDismiss(onDismiss))
                     .size(36.dp)
                     .flatGlass(
                         CircleShape,

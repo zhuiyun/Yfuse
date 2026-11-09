@@ -44,6 +44,7 @@ import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.motionAwareAnimateContentSize
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.pressableTarget
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.filesource.FileSource
@@ -98,8 +99,7 @@ internal fun FileSourcesSection(controller: FileSourcesController) {
                     color = accent.accent,
                     modifier =
                         Modifier
-                            .pressable(onClickLabel = "添加文件来源", onClick = controller::openAdd)
-                            .touchTarget()
+                            .pressableTarget(AppShapes.thumb, onClickLabel = "添加文件来源", onClick = controller::openAdd)
                             .glass(AppShapes.thumb, palette.card2, palette.border)
                             .padding(horizontal = 10.dp, vertical = 5.dp),
                 )
@@ -263,18 +263,12 @@ private fun FileSourceCard(
         // is always in the same spot, apart from the row's own tap.
         Box(
             Modifier
-                .pressable(label = "打开${source.name}操作", onClick = onMore)
-                .touchTarget(),
+                .pressableTarget(CircleShape, label = "打开${source.name}操作", onClick = onMore)
+                .size(28.dp)
+                .liquidGlass(shape = CircleShape, fill = palette.card2, border = palette.border, sheen = 0.9f),
             contentAlignment = Alignment.Center,
         ) {
-            Box(
-                Modifier
-                    .size(28.dp)
-                    .liquidGlass(shape = CircleShape, fill = palette.card2, border = palette.border, sheen = 0.9f),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(AppIcons.More, contentDescription = null, tint = palette.sub2, modifier = Modifier.size(13.dp))
-            }
+            Icon(AppIcons.More, contentDescription = null, tint = palette.sub2, modifier = Modifier.size(13.dp))
         }
     }
 }

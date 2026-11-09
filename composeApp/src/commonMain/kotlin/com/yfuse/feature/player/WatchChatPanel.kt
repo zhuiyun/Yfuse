@@ -49,8 +49,8 @@ import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.pressableTarget
 import com.yfuse.core.designsystem.rememberAccentColorsForSurface
-import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.sync.WatchChatMessage
 import com.yfuse.core.sync.WatchParticipant
 import com.yfuse.core.sync.WatchStickers
@@ -177,8 +177,7 @@ internal fun WatchChatPanel(
                     color = if (danmakuEnabled) accent.accent else Color.White.copy(alpha = 0.48f),
                     modifier =
                         Modifier
-                            .pressable(onClick = onToggleDanmaku)
-                            .touchTarget()
+                            .pressableTarget(AppShapes.thumb, onClick = onToggleDanmaku)
                             .glass(
                                 AppShapes.thumb,
                                 if (danmakuEnabled) {
@@ -322,7 +321,8 @@ internal fun WatchChatPanel(
                         Modifier
                             .align(Alignment.BottomCenter)
                             .padding(bottom = 8.dp)
-                            .pressable(
+                            .pressableTarget(
+                                AppShapes.control,
                                 onClickLabel = "回到最新消息",
                                 onClick = {
                                     scope.launch {
@@ -335,8 +335,7 @@ internal fun WatchChatPanel(
                                         lastReadKey = messages.lastOrNull()?.animationKey()
                                     }
                                 },
-                            ).touchTarget()
-                            .glass(
+                            ).glass(
                                 AppShapes.control,
                                 accent.accent,
                                 accent.border,
@@ -415,9 +414,11 @@ internal fun WatchChatPanel(
                     },
                 modifier =
                     Modifier
-                        .pressable(enabled = draft.isNotBlank() && sendingEnabled, onClick = ::submit)
-                        .touchTarget()
-                        .glass(
+                        .pressableTarget(
+                            AppShapes.control,
+                            enabled = draft.isNotBlank() && sendingEnabled,
+                            onClick = ::submit,
+                        ).glass(
                             AppShapes.control,
                             if (draft.isBlank() || !sendingEnabled) accent.container else accent.accent,
                             accent.border.copy(alpha = if (draft.isBlank() || !sendingEnabled) 0.38f else 1f),

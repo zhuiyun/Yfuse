@@ -72,7 +72,7 @@ import com.yfuse.core.designsystem.motionAwareScrollToItem
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItemsIndexed
 import com.yfuse.core.designsystem.pressable
-import com.yfuse.core.designsystem.touchTarget
+import com.yfuse.core.designsystem.pressableTarget
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.episodeRuntimeLabel
 import com.yfuse.core.model.episodeTitle
@@ -399,8 +399,7 @@ private fun LocateEpisodeChip(
     ) {
         Row(
             Modifier
-                .pressable(onClickLabel = label, onClick = onClick)
-                .touchTarget()
+                .pressableTarget(AppShapes.chip, onClickLabel = label, onClick = onClick)
                 .glass(AppShapes.chip)
                 .padding(horizontal = 14.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -437,8 +436,7 @@ private fun SeasonTopBar(
     ) {
         Box(
             Modifier
-                .pressable(onClickLabel = "关闭剧集列表", onClick = onDismiss)
-                .touchTarget()
+                .pressableTarget(CircleShape, onClickLabel = "关闭剧集列表", onClick = onDismiss)
                 .size(34.dp)
                 .glass(CircleShape),
             contentAlignment = Alignment.Center,

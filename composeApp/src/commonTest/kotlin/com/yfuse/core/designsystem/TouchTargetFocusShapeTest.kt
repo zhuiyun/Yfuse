@@ -8,6 +8,7 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.dp
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -16,6 +17,15 @@ class TouchTargetFocusShapeTest {
     private val density = Density(1f)
 
     private fun TouchTargetFocusShape.outline(slot: Size): Outline = createOutline(slot, LayoutDirection.Ltr, density)
+
+    @Test
+    fun insetCardCornersFollowTheFrameAndKeepItsSmoothing() {
+        val frame = ContinuousRoundedCornerShape(16.dp, smoothing = .35f)
+        assertEquals(frame, frame.inset(0.dp))
+        assertEquals(ContinuousRoundedCornerShape(12.dp, smoothing = .35f), frame.inset(4.dp))
+        assertEquals(frame.inset(8.dp), frame.inset(4.dp).inset(4.dp))
+        assertIs<Outline.Rectangle>(frame.inset(20.dp).createOutline(Size(40f, 28f), LayoutDirection.Rtl, density))
+    }
 
     @Test
     fun aChipShorterThanItsSlotIsOutlinedWhereItIsDrawn() {

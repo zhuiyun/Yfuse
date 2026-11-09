@@ -57,8 +57,10 @@ import com.yfuse.core.designsystem.glassControlHighlight
 import com.yfuse.core.designsystem.glassSelection
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.pressableTarget
 import com.yfuse.core.designsystem.refreshAction
 import com.yfuse.core.designsystem.rememberGlassSelectionStyle
+import com.yfuse.core.designsystem.rememberTouchTargetFocus
 import com.yfuse.core.designsystem.serverTintColor
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.touchTarget
@@ -117,8 +119,7 @@ internal fun ServersHeader(
             if (onAdd != null) {
                 Row(
                     Modifier
-                        .pressable(onClickLabel = "添加服务器", onClick = onAdd)
-                        .touchTarget()
+                        .pressableTarget(AppShapes.chip, onClickLabel = "添加服务器", onClick = onAdd)
                         .shadow(GlassLift.control, AppShapes.chip)
                         .liquidGlass(
                             shape = AppShapes.chip,
@@ -146,8 +147,7 @@ internal fun ServersHeader(
             Row(
                 Modifier
                     .weight(1f)
-                    .pressable(onClickLabel = "打开排序与筛选", onClick = onFilter)
-                    .touchTarget()
+                    .pressableTarget(AppShapes.chip, onClickLabel = "打开排序与筛选", onClick = onFilter)
                     .shadow(GlassLift.control, AppShapes.chip)
                     .liquidGlass(
                         shape = AppShapes.chip,
@@ -172,9 +172,11 @@ internal fun ServersHeader(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+            val layoutFocus = rememberTouchTargetFocus(CircleShape)
             Box(
                 Modifier
                     .pressable(
+                        focusShape = layoutFocus,
                         haptic = HapticSignal.Select,
                         label = "切换布局",
                         onClickLabel =
@@ -190,7 +192,7 @@ internal fun ServersHeader(
                         },
                     ).semantics {
                         stateDescription = if (layout == ServerLayout.Grid) "当前网格" else "当前列表"
-                    }.touchTarget()
+                    }.touchTarget(focus = layoutFocus)
                     .shadow(GlassLift.control, CircleShape)
                     .liquidGlass(CircleShape, palette.card2, palette.border, sheen = 0.75f)
                     .size(ServerHeaderCircleSize),
@@ -206,14 +208,16 @@ internal fun ServersHeader(
             // The orb in the key while its refresh runs, then the key again. The spinning glyph,
             // the result glyph after it and the toast on top were three answers to one request;
             // a failure still gets the toast.
+            val refreshFocus = rememberTouchTargetFocus(CircleShape)
             Box(
                 Modifier
                     .pressable(
+                        focusShape = refreshFocus,
                         enabled = !refreshing,
                         label = "刷新全部服务器",
                         onClick = onRefreshAll,
                     ).semantics { if (refreshing) stateDescription = "正在刷新" }
-                    .touchTarget()
+                    .touchTarget(focus = refreshFocus)
                     .shadow(GlassLift.control, CircleShape)
                     .liquidGlass(CircleShape, palette.card2, palette.border, sheen = 0.75f)
                     .size(ServerHeaderCircleSize),
@@ -363,7 +367,7 @@ internal fun CurrentServerHero(
             }
             Row(
                 Modifier
-                    .pressable(onClickLabel = "进入服务器", onClick = onOpen)
+                    .pressable(focusShape = AppShapes.pill, onClickLabel = "进入服务器", onClick = onOpen)
                     .heightIn(min = MinTouchTarget)
                     .liquidGlass(AppShapes.pill, accent.container, glassControlHighlight(accent, palette.isDark))
                     .padding(horizontal = 14.dp, vertical = 8.dp),
@@ -704,31 +708,25 @@ internal fun ServerCard(
         Box(
             Modifier
                 .align(Alignment.TopEnd)
-                .pressable(label = "打开${server.serverName}操作", onClick = onMore)
-                .touchTarget(),
+                .pressableTarget(CircleShape, label = "打开${server.serverName}操作", onClick = onMore)
+                .size(28.dp)
+                // Round, and the app's own glass rather than a flat chip: it sits on a
+                // card that is already liquid glass, so a second, duller material for
+                // the one control on that card read as a sticker on top of it.
+                .liquidGlass(
+                    shape = CircleShape,
+                    fill = if (isCurrent) accent.container else palette.card2,
+                    border = if (isCurrent) glassControlHighlight(accent, palette.isDark) else palette.border,
+                    sheen = 0.9f,
+                ),
             contentAlignment = Alignment.Center,
         ) {
-            Box(
-                Modifier
-                    .size(28.dp)
-                    // Round, and the app's own glass rather than a flat chip: it sits on a
-                    // card that is already liquid glass, so a second, duller material for
-                    // the one control on that card read as a sticker on top of it.
-                    .liquidGlass(
-                        shape = CircleShape,
-                        fill = if (isCurrent) accent.container else palette.card2,
-                        border = if (isCurrent) glassControlHighlight(accent, palette.isDark) else palette.border,
-                        sheen = 0.9f,
-                    ),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    AppIcons.More,
-                    contentDescription = null,
-                    tint = if (isCurrent) accent.accent else palette.sub2,
-                    modifier = Modifier.size(13.dp),
-                )
-            }
+            Icon(
+                AppIcons.More,
+                contentDescription = null,
+                tint = if (isCurrent) accent.accent else palette.sub2,
+                modifier = Modifier.size(13.dp),
+            )
         }
     }
 }

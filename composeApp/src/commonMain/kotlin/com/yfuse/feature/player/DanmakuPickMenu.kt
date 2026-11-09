@@ -35,8 +35,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.data.DanmakuFilter
 import com.yfuse.core.designsystem.ActionToast
+import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalHaptics
@@ -279,7 +279,7 @@ private fun DanmakuMenu(
                     scaleX = scale
                     scaleY = scale
                 }
-            }.glass(shape = GlassShapes.chip, fill = PlayerTokens.panelFill, border = PlayerTokens.chipBorder)
+            }.glass(shape = AppShapes.chip, fill = PlayerTokens.panelFill, border = PlayerTokens.chipBorder)
             .padding(horizontal = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(2.dp),
         verticalAlignment = Alignment.CenterVertically,

@@ -88,11 +88,11 @@ import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.pressableTarget
 import com.yfuse.core.designsystem.rememberDelayedBusy
 import com.yfuse.core.designsystem.rememberScreenReaderActive
 import com.yfuse.core.designsystem.sharedMediaOnClick
 import com.yfuse.core.designsystem.skeletonSweep
-import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.waitingPulse
 import com.yfuse.core.model.LibraryResolution
 import com.yfuse.core.model.LibrarySort
@@ -279,8 +279,7 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
             ) {
                 Box(
                     Modifier
-                        .pressable(onClickLabel = "返回上一页", onClick = component.onBack)
-                        .touchTarget()
+                        .pressableTarget(AppShapes.chip, onClickLabel = "返回上一页", onClick = component.onBack)
                         .size(34.dp)
                         .glass(AppShapes.chip),
                     contentAlignment = Alignment.Center,
@@ -315,8 +314,7 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                 if (state.sortable) {
                     Row(
                         Modifier
-                            .pressable(onClickLabel = "打开排序选项") { sortOpen = true }
-                            .touchTarget()
+                            .pressableTarget(AppShapes.pill, onClickLabel = "打开排序选项") { sortOpen = true }
                             .height(34.dp)
                             .glass(
                                 AppShapes.pill,
@@ -525,7 +523,8 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                                                     Modifier
                                                         .align(Alignment.TopEnd)
                                                         .padding(3.dp)
-                                                        .pressable(
+                                                        .pressableTarget(
+                                                            AppShapes.chip,
                                                             onClickLabel =
                                                                 "从${if (
                                                                     state.containerKind ==
@@ -542,26 +541,20 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                                                                     ),
                                                                 )
                                                             },
-                                                        ).touchTarget(),
+                                                        ).size(30.dp)
+                                                        .glass(
+                                                            shape = AppShapes.chip,
+                                                            fill = palette.background.copy(alpha = 0.82f),
+                                                            border = palette.border,
+                                                        ),
                                                     contentAlignment = Alignment.Center,
                                                 ) {
-                                                    Box(
-                                                        Modifier
-                                                            .size(30.dp)
-                                                            .glass(
-                                                                shape = AppShapes.chip,
-                                                                fill = palette.background.copy(alpha = 0.82f),
-                                                                border = palette.border,
-                                                            ),
-                                                        contentAlignment = Alignment.Center,
-                                                    ) {
-                                                        Icon(
-                                                            AppIcons.Close,
-                                                            contentDescription = null,
-                                                            tint = palette.text,
-                                                            modifier = Modifier.size(12.dp),
-                                                        )
-                                                    }
+                                                    Icon(
+                                                        AppIcons.Close,
+                                                        contentDescription = null,
+                                                        tint = palette.text,
+                                                        modifier = Modifier.size(12.dp),
+                                                    )
                                                 }
                                             }
                                         }
@@ -708,8 +701,7 @@ private fun GenreLoadErrorRow(
             color = accent.accent,
             modifier =
                 Modifier
-                    .pressable(onClickLabel = "重新加载分类", onClick = onRetry)
-                    .touchTarget()
+                    .pressableTarget(AppShapes.chip, onClickLabel = "重新加载分类", onClick = onRetry)
                     .glass(
                         shape = AppShapes.chip,
                         fill = accent.container,
@@ -910,8 +902,7 @@ private fun GridFooter(
                     color = accent.accent,
                     modifier =
                         Modifier
-                            .pressable(onClickLabel = "重新加载更多内容", onClick = onRetry)
-                            .touchTarget()
+                            .pressableTarget(AppShapes.chip, onClickLabel = "重新加载更多内容", onClick = onRetry)
                             .glass(
                                 shape = AppShapes.chip,
                                 fill = accent.container,

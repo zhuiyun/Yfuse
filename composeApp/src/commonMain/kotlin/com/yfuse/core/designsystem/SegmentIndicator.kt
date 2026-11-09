@@ -10,11 +10,10 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
@@ -34,8 +33,8 @@ internal class SegmentIndicator(
 internal fun rememberSegmentIndicator(
     selectedIndex: Int,
     fill: Color,
+    shape: Shape,
     border: Color = Color.Transparent,
-    underline: Boolean = false,
     selectionStyle: GlassSelectionStyle? = null,
 ): SegmentIndicator {
     val bounds = remember { mutableStateMapOf<Int, Rect>() }
@@ -77,28 +76,20 @@ internal fun rememberSegmentIndicator(
         Modifier.drawBehind {
             if (target != null) {
                 val width = (right.value - left.value).coerceAtLeast(0f)
-                if (underline) {
-                    val line = 28.dp.toPx().coerceAtMost(width)
-                    drawRoundRect(
-                        fill,
-                        Offset(left.value + (width - line) / 2f, size.height - 2.dp.toPx()),
-                        Size(line, 2.dp.toPx()),
-                        CornerRadius(1.dp.toPx()),
-                    )
-                } else if (width > 0f) {
+                if (width > 0f) {
                     translate(left = left.value) {
                         val paneSize = Size(width, size.height)
                         if (selectionStyle != null) {
-                            drawGlassSelection(paneSize, AppShapes.chip, selectionStyle)
+                            drawGlassSelection(paneSize, shape, selectionStyle)
                         } else {
-                            val outline = AppShapes.chip.createOutline(paneSize, layoutDirection, this)
+                            val outline = shape.createOutline(paneSize, layoutDirection, this)
                             drawOutline(outline, fill)
                             drawOutline(outline, border, style = Stroke(1.dp.toPx()))
                         }
                     }
                 }
                 drawPhaseLight(
-                    Rect(left.value, if (underline) size.height - 4.dp.toPx() else 0f, right.value, size.height),
+                    Rect(left.value, 0f, right.value, size.height),
                     0.5f,
                     lights,
                     lightColor,

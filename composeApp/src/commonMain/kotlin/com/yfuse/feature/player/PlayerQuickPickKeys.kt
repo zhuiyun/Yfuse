@@ -46,8 +46,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.Haptics
 import com.yfuse.core.designsystem.LocalAccentColors
@@ -469,7 +469,7 @@ private fun StickerFan(
             modifier =
                 Modifier
                     .centredAt(Offset(at.x, at.y + half * 1.4f))
-                    .glass(shape = GlassShapes.chip, fill = PlayerTokens.panelFill, border = PlayerTokens.chipBorder)
+                    .glass(shape = AppShapes.chip, fill = PlayerTokens.panelFill, border = PlayerTokens.chipBorder)
                     .padding(horizontal = 10.dp, vertical = 4.dp),
         )
     }
@@ -502,7 +502,7 @@ private fun DeviceList(
                     alpha = progress
                     if (!still) translationY = -drop * (1f - progress)
                 }.glass(
-                    shape = GlassShapes.chip,
+                    shape = AppShapes.chip,
                     fill = if (hovered) accent.copy(alpha = 0.58f) else PlayerTokens.drawerFill,
                     border = if (hovered) Color.White.copy(alpha = 0.4f) else PlayerTokens.chipBorder,
                 ).padding(horizontal = 14.dp),

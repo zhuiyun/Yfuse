@@ -312,8 +312,7 @@ private fun LiftLayer(
                 .graphicsLayer {
                     val elapsed = reveal.value * revealMs
                     alpha = presence.value * ((elapsed - LIFT_PANEL_DELAY_MS) / Motion.DISCLOSURE).coerceIn(0f, 1f)
-                }.clip(AppShapes.card)
-                .glass(shape = AppShapes.card, fill = palette.glassStrong, border = palette.border)
+                }.glass(shape = AppShapes.card, fill = palette.glassStrong, border = palette.border)
                 .then(
                     if (placement.menuScrolls) {
                         Modifier.verticalScroll(rememberScrollState(), enabled = !leaving)

@@ -83,6 +83,7 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
@@ -673,6 +674,15 @@ internal fun TvActionButton(
         }
     }
 }
+
+/** Keep the entire hero in view as focus moves between its actions. */
+internal fun Modifier.tvHeroSurface(height: Dp): Modifier =
+    tvKeepWholeInView()
+        .fillMaxWidth()
+        .height(height)
+        .padding(horizontal = 8.dp)
+        .clip(RoundedCornerShape(18.dp))
+        .background(TvPlaceholder)
 
 @Composable
 internal fun TvMediaCard(

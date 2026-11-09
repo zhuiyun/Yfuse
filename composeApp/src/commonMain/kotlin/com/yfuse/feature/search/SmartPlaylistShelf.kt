@@ -32,8 +32,7 @@ import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.overlayAction
-import com.yfuse.core.designsystem.pressable
-import com.yfuse.core.designsystem.touchTarget
+import com.yfuse.core.designsystem.pressableTarget
 import org.koin.core.context.GlobalContext
 import com.yfuse.core.designsystem.ThemeText as Text
 
@@ -101,8 +100,7 @@ fun SmartPlaylistShelf(
                     color = palette.text,
                     modifier =
                         Modifier
-                            .pressable(onClick = edit)
-                            .touchTarget()
+                            .pressableTarget(AppShapes.chip, onClick = edit)
                             .liquidGlass(
                                 shape = AppShapes.chip,
                                 fill = palette.card2,
@@ -178,8 +176,7 @@ private fun SaveFilterAction(onClick: () -> Unit) {
         color = LocalAccentColors.current.accent,
         modifier =
             Modifier
-                .pressable(onClickLabel = "将当前关键词和筛选保存为智能片单", onClick = onClick)
-                .touchTarget()
+                .pressableTarget(AppShapes.chip, onClickLabel = "将当前关键词和筛选保存为智能片单", onClick = onClick)
                 .glass(AppShapes.chip, palette.card2, palette.border)
                 .padding(horizontal = 12.dp, vertical = 8.dp),
     )

@@ -44,9 +44,9 @@ import androidx.compose.ui.window.SecureFlagPolicy
 import androidx.core.content.ContextCompat
 import com.yfuse.backend.BackendAccess
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.ExclusiveUiOperation
 import com.yfuse.core.designsystem.GlassDialog
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OperationFeedback
@@ -449,7 +449,7 @@ actual fun ServerBackupTools(
     Column(
         Modifier
             .fillMaxWidth()
-            .glass(GlassShapes.card, palette.card, palette.border)
+            .glass(AppShapes.card, palette.card, palette.border)
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(13.dp),
     ) {

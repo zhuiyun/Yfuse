@@ -30,6 +30,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.CinemaSelectionCheck
 import com.yfuse.core.designsystem.CinemaSelectionGroup
@@ -37,7 +38,6 @@ import com.yfuse.core.designsystem.EpisodeGridColors
 import com.yfuse.core.designsystem.EpisodeNumberCell
 import com.yfuse.core.designsystem.EpisodeNumberGrid
 import com.yfuse.core.designsystem.FallbackImage
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.cinemaMotion
@@ -242,7 +242,7 @@ private fun EpisodeStripCard(
             Modifier
                 .fillMaxWidth()
                 .height(79.dp)
-                .clip(GlassShapes.thumb)
+                .clip(AppShapes.thumb)
                 .background(PlayerTokens.drawerFill),
         ) {
             FallbackImage(

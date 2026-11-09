@@ -23,7 +23,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.SettingRow
 import com.yfuse.core.designsystem.SettingsDivider
@@ -70,7 +70,7 @@ actual fun PermissionHealthTools() {
     Column(
         Modifier
             .fillMaxWidth()
-            .flatGlass(GlassShapes.card, palette.card2, palette.border),
+            .flatGlass(AppShapes.card, palette.card2, palette.border),
     ) {
         PermissionHealthRow(
             title = "通知",

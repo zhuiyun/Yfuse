@@ -73,6 +73,7 @@ import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.motionItemsIndexed
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.pressableTarget
 import com.yfuse.core.designsystem.rememberAnimatedColorState
 import com.yfuse.core.designsystem.rememberArtworkAccentTarget
 import com.yfuse.core.designsystem.rememberArtworkPageColor
@@ -82,7 +83,6 @@ import com.yfuse.core.designsystem.rememberScrolledPastHero
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.designsystem.themeBackground
-import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.waitingPulse
 import com.yfuse.core.model.MediaRating
 import com.yfuse.core.model.RatingSource
@@ -96,6 +96,8 @@ import com.yfuse.core.designsystem.ThemeText as Text
 /** Full TMDB detail page; Emby availability only controls the play action. */
 @Composable
 fun TmdbInfoScreen(component: TmdbInfoComponent) {
+    val infoInset = 10.dp
+    val infoPosterShape = AppShapes.card.inset(infoInset)
     val state by component.state.collectAsState()
     val following by component.following.collectAsState()
     val detail = state.detail
@@ -185,8 +187,7 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                                     .align(Alignment.TopStart)
                                     .statusBarsPadding()
                                     .padding(start = 18.dp, top = 12.dp)
-                                    .pressable(onClickLabel = "返回上一页", onClick = component.onBack)
-                                    .touchTarget()
+                                    .pressableTarget(CircleShape, onClickLabel = "返回上一页", onClick = component.onBack)
                                     .size(38.dp)
                                     .solidGlass(
                                         shape = CircleShape,
@@ -213,12 +214,12 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                         Column(
                             Modifier
                                 .fillMaxWidth()
-                                .shadow(Shadows.sheet, AppShapes.sheet)
+                                .shadow(Shadows.sheet, AppShapes.card)
                                 .solidGlass(
                                     shape = AppShapes.card,
                                     fill = palette.card2,
                                     border = palette.border,
-                                ).padding(10.dp),
+                                ).padding(infoInset),
                         ) {
                             Row(
                                 Modifier.fillMaxWidth(),
@@ -227,6 +228,7 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                             ) {
                                 Poster(
                                     url = TmdbImages.poster(item.posterPath),
+                                    shape = infoPosterShape,
                                     rating = item.rating,
                                     fallbackUrls =
                                         listOfNotNull(
@@ -240,8 +242,8 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                                         Modifier
                                             .width(78.dp)
                                             .height(110.dp)
-                                            .shadow(Shadows.detailPoster, AppShapes.card)
-                                            .border(2.dp, palette.border, AppShapes.card),
+                                            .shadow(Shadows.detailPoster, infoPosterShape)
+                                            .border(2.dp, palette.border, infoPosterShape),
                                 )
                                 Column(Modifier.weight(1f)) {
                                     RatingBadges(listOfNotNull(item.rating?.let { MediaRating(RatingSource.Tmdb, it) }))
@@ -322,11 +324,11 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                             Row(
                                 Modifier
                                     .fillMaxWidth()
-                                    .pressable(
+                                    .pressableTarget(
+                                        AppShapes.card,
                                         onClickLabel = if (following) "取消追剧" else "加入追剧",
                                         onClick = component::toggleFollow,
-                                    ).touchTarget()
-                                    .solidGlass(
+                                    ).solidGlass(
                                         shape = AppShapes.card,
                                         fill = palette.card2,
                                         border = palette.border,
@@ -536,7 +538,7 @@ private fun TmdbSourceStrip(
                 Modifier
                     .width(168.dp)
                     .heightIn(min = 52.dp)
-                    .pressable {
+                    .pressable(focusShape = AppShapes.thumb) {
                         entry.itemId?.let { onSelect(entry.serverId, it) }
                     }.then(
                         if (entry.isCurrent) {
@@ -592,6 +594,8 @@ private fun TmdbPlayDock(
     onRetrySources: () -> Unit,
 ) {
     val palette = LocalPalette.current
+    val inset = 7.dp
+    val buttonShape = AppShapes.card.inset(inset)
     Box(
         Modifier
             .fillMaxWidth()
@@ -599,18 +603,18 @@ private fun TmdbPlayDock(
                 shape = AppShapes.card,
                 fill = palette.card2,
                 border = palette.border,
-            ).padding(7.dp),
+            ).padding(inset),
     ) {
         if (playable) {
             Row(
                 Modifier
                     .fillMaxWidth()
                     .heightIn(min = 48.dp)
-                    .pressable(enabled = !resolving, onClick = onPlay)
-                    .clip(AppShapes.card)
+                    .pressable(enabled = !resolving, focusShape = buttonShape, onClick = onPlay)
+                    .clip(buttonShape)
                     .background(accent)
-                    .waitingPulse(active = resolving, shape = AppShapes.card, color = contentColorForSurface(accent))
-                    .border(1.dp, Color.White.copy(alpha = 0.24f), AppShapes.card)
+                    .waitingPulse(active = resolving, shape = buttonShape, color = contentColorForSurface(accent))
+                    .border(1.dp, Color.White.copy(alpha = 0.24f), buttonShape)
                     .padding(horizontal = 12.dp, vertical = 10.dp),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,

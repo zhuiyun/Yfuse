@@ -76,6 +76,7 @@ fun WatchInviteSheet(
     onSearchByName: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val mediaInset = 12.dp
     GlassDialog(onDismiss = onDismiss) {
         val palette = LocalPalette.current
         val accent = LocalAccentColors.current
@@ -128,12 +129,13 @@ fun WatchInviteSheet(
                                         shape = AppShapes.chip,
                                         fill = accent.container,
                                         border = glassControlHighlight(accent, palette.isDark),
-                                    ).padding(12.dp),
+                                    ).padding(mediaInset),
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Poster(
                                     url = resolution.posterUrl,
+                                    shape = AppShapes.chip.inset(mediaInset),
                                     modifier = Modifier.width(56.dp).height(82.dp),
                                 )
                                 Column(Modifier.weight(1f)) {

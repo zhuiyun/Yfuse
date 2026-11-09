@@ -95,6 +95,8 @@ fun ViewingStatisticsScreen(
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     val today = LocalDate.now()
+    val historyInset = 12.dp
+    val posterShape = AppShapes.card.inset(historyInset)
     var monthText by rememberSaveable { mutableStateOf(YearMonth.from(today).toString()) }
     val month = YearMonth.parse(monthText)
     var range by rememberSaveable { mutableStateOf(ViewingRange.Month) }
@@ -281,13 +283,13 @@ fun ViewingStatisticsScreen(
                         palette.card2,
                         Color.White.copy(alpha = if (palette.isDark) 0.18f else 0.65f),
                     ).pressable { onOpenMedia(session.media) }
-                    .padding(12.dp),
+                    .padding(historyInset),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 FallbackImage(
                     listOf(poster(session)),
                     session.displayTitle,
-                    Modifier.width(44.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(6.dp)),
+                    Modifier.width(44.dp).aspectRatio(2f / 3f).clip(posterShape),
                     progressive = false,
                 )
                 Spacer(Modifier.width(12.dp))
@@ -492,7 +494,7 @@ private fun ViewingCalendar(
                                     .then(dateSurface)
                                     .clip(shape)
                                     .returnLocator(isSelected)
-                                    .pressable {
+                                    .pressable(focusShape = shape) {
                                         onSelectDay(date.toString())
                                     }.semantics {
                                         contentDescription =

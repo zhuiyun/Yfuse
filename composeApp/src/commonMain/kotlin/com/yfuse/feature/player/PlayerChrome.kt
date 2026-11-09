@@ -85,6 +85,7 @@ import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.PressFeedback
+import com.yfuse.core.designsystem.focusBody
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.lightFeedback
 import com.yfuse.core.designsystem.liveStatus
@@ -92,6 +93,7 @@ import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberAccentColorsForSurface
 import com.yfuse.core.designsystem.rememberDelayedBusy
 import com.yfuse.core.designsystem.rememberLightFeedback
+import com.yfuse.core.designsystem.rememberTouchTargetFocus
 import com.yfuse.core.designsystem.softSelectionSurface
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.util.currentClockTime
@@ -715,13 +717,13 @@ internal fun TrickplayPreview(
                     shape = AppShapes.thumb,
                     fill = Color(0xFF151821).copy(alpha = 0.82f),
                     border = Color.White.copy(alpha = 0.28f),
-                ).padding(4.dp),
+                ).padding(trickplayFrameInset),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Box(
                 Modifier
-                    .size(TrickplayPreviewWidth - 8.dp, previewHeight)
-                    .clip(AppShapes.thumb)
+                    .size(TrickplayPreviewWidth - trickplayFrameInset * 2, previewHeight)
+                    .clip(trickplayFrameShape)
                     .background(Color.Black),
             ) {
                 TrickplayImage(
@@ -750,6 +752,9 @@ internal fun TrickplayPreview(
         }
     }
 }
+
+private val trickplayFrameInset = 4.dp
+private val trickplayFrameShape = AppShapes.thumb.inset(trickplayFrameInset)
 
 /** How tall [TrickplayPreview] is for [storyboard], with or without its chapter line. */
 internal fun trickplayPreviewHeight(
@@ -856,6 +861,7 @@ internal fun CircleControl(
     // Across a room the phone's ring is a speck: a television draws it no smaller than 40 dp, and
     // the glyph grows with it.
     val ring = chromeKeySize(size)
+    val keyFocus = rememberTouchTargetFocus(CircleShape)
     val glyphSize = iconSize * (ring / size)
     // The ring is what you see; the touch target is bigger than the ring. Sizing them
     // together is what made these controls big enough to cover a face — a 48dp disc over
@@ -871,7 +877,7 @@ internal fun CircleControl(
                             pressedScale = PressFeedback.QUIET,
                             lightFeedback = false,
                             interactionSource = interactions,
-                            focusShape = CircleShape,
+                            focusShape = keyFocus,
                             // The ring paints its own pressed colour ([softSelectionSurface] below).
                             stateLayer = false,
                             onLongClick = onLongClick,
@@ -887,6 +893,7 @@ internal fun CircleControl(
         Box(
             ringModifier
                 .size(ring)
+                .focusBody(keyFocus)
                 // A filled key gets no ring. Outlined siblings are drawn *by* their hairline;
                 // putting the same hairline around a solid disc gave the play key two edges
                 // and made it read as a third kind of object wedged between two rings rather

@@ -182,6 +182,8 @@ private fun PlaybackHistoryCard(
 ) {
     val palette = LocalPalette.current
     val entry = row.entry
+    val inset = 12.dp
+    val posterShape = AppShapes.card.inset(inset)
     Row(
         Modifier
             .padding(horizontal = Dimens.pageHorizontal)
@@ -190,8 +192,8 @@ private fun PlaybackHistoryCard(
             .pressable(
                 onClickLabel = "查看${row.title}的详情",
                 focusShape = AppShapes.card,
-                onClick = sharedMediaOnClick(sharedKey, AppShapes.card, onOpen),
-            ).padding(12.dp),
+                onClick = sharedMediaOnClick(sharedKey, posterShape, onOpen),
+            ).padding(inset),
         horizontalArrangement = Arrangement.spacedBy(14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -200,8 +202,8 @@ private fun PlaybackHistoryCard(
         Box(
             Modifier
                 .size(width = 72.dp, height = 108.dp)
-                .sharedMediaArtwork(sharedKey, AppShapes.card, urls)
-                .clip(AppShapes.card)
+                .sharedMediaArtwork(sharedKey, posterShape, urls)
+                .clip(posterShape)
                 .background(palette.card3),
             contentAlignment = Alignment.Center,
         ) {

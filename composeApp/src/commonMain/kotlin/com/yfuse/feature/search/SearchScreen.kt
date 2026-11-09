@@ -105,9 +105,11 @@ import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.motionItemsIndexed
 import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.pressableTarget
 import com.yfuse.core.designsystem.rememberDelayedBusy
 import com.yfuse.core.designsystem.rememberDisclosureProgress
 import com.yfuse.core.designsystem.rememberGlassSelectionStyle
+import com.yfuse.core.designsystem.rememberTouchTargetFocus
 import com.yfuse.core.designsystem.searchFieldArrival
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.sharedMediaOnClick
@@ -920,8 +922,7 @@ private fun ResultsHeading(
             )
             Row(
                 Modifier
-                    .pressable(onClickLabel = "打开筛选与已保存片单", onClick = onOpenFilters)
-                    .touchTarget()
+                    .pressableTarget(AppShapes.chip, onClickLabel = "打开筛选与已保存片单", onClick = onOpenFilters)
                     .then(if (filters > 0) Modifier.glassSelection(AppShapes.chip, selection) else Modifier)
                     .padding(horizontal = 8.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(3.dp),
@@ -1175,12 +1176,12 @@ private fun ServerGroup(
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .pressable(
+                    .pressableTarget(
+                        AppShapes.chip,
                         enabled = !group.loadingMore,
                         onClickLabel = if (group.loadMoreError == null) "加载更多结果" else "重试加载更多",
                         onClick = onLoadMore,
-                    ).touchTarget()
-                    .glass(AppShapes.chip, palette.card2, palette.border)
+                    ).glass(AppShapes.chip, palette.card2, palette.border)
                     .padding(horizontal = 14.dp, vertical = 9.dp),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
@@ -1218,6 +1219,8 @@ private fun SearchCoverageNotice(
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     val hiddenCount = unavailable.size + emptyServerCount
+    val coverageInset = 12.dp
+    val groupShape = AppShapes.card.inset(coverageInset)
     val disclosure = rememberDisclosureProgress(expanded)
     Column(Modifier.fillMaxWidth()) {
         Row(
@@ -1263,7 +1266,7 @@ private fun SearchCoverageNotice(
                 Modifier
                     .fillMaxWidth()
                     .glass(AppShapes.card, palette.card2, palette.border)
-                    .padding(12.dp),
+                    .padding(coverageInset),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 if (emptyServerCount > 0) {
@@ -1285,7 +1288,7 @@ private fun SearchCoverageNotice(
                     Column(
                         Modifier
                             .fillMaxWidth()
-                            .glass(AppShapes.chip, palette.card3, palette.border)
+                            .glass(groupShape, palette.card3, palette.border)
                             .padding(horizontal = 11.dp, vertical = 9.dp),
                     ) {
                         SettingRow(
@@ -1433,14 +1436,14 @@ private fun SkeletonResultRow(
     Row(
         modifier
             .glass(AppShapes.card)
-            .padding(8.dp),
+            .padding(resultCardInset),
         horizontalArrangement = Arrangement.spacedBy(11.dp),
     ) {
         SkeletonBlock(
             Modifier
                 .width(if (compact) SearchCompactPosterWidth else SearchPosterWidth)
                 .height(if (compact) SearchCompactPosterHeight else SearchPosterHeight),
-            shape = AppShapes.thumb,
+            shape = resultPosterShape,
             phaseMs = phaseMs,
         )
         Column(
@@ -1492,7 +1495,7 @@ private fun ResultRow(
     val sharedKey = MediaSharedElementKey(serverId, item.id)
     // The poster below carries the shared-element key, but the row's click never registered it,
     // so the artwork was the one poster in the app that did not grow into 详情.
-    val open = sharedMediaOnClick(sharedKey, onClick = onClick)
+    val open = sharedMediaOnClick(sharedKey, sourceShape = resultPosterShape, onClick = onClick)
     val artwork = remember { LiftAnchor() }
     val posterUrl = EmbyImages.poster(baseUrl, item, maxHeight = 360, accessToken = accessToken)
     val rating = item.communityRating?.let { MediaRating(RatingSource.Library, it) }?.takeIf { it.valid }
@@ -1504,7 +1507,7 @@ private fun ResultRow(
                 onOpen = open,
             ).pressable(onClick = open)
             .glass(AppShapes.card)
-            .padding(8.dp),
+            .padding(resultCardInset),
         horizontalArrangement = Arrangement.spacedBy(11.dp),
     ) {
         Poster(
@@ -1519,6 +1522,7 @@ private fun ResultRow(
                     .width(
                         if (compact) SearchCompactPosterWidth else SearchPosterWidth,
                     ).height(if (compact) SearchCompactPosterHeight else SearchPosterHeight),
+            shape = resultPosterShape,
             sharedTransitionKey = sharedKey,
             fitNarrow = true,
         )
@@ -1610,6 +1614,8 @@ private fun ResultRow(
 
 /** Search-result poster. A 2:3 crop, large enough to be recognised rather than counted. */
 private val SearchPosterWidth = 76.dp
+private val resultCardInset = 8.dp
+private val resultPosterShape = AppShapes.card.inset(resultCardInset)
 
 /** The loader at the end of the field: the orb's ring needs a little more room than a 15dp glyph. */
 private val SearchFieldOrbSize = 18.dp
@@ -1686,14 +1692,16 @@ private fun RecentSearches(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             terms.forEach { term ->
+                val actionFocus = rememberTouchTargetFocus(AppShapes.chip)
                 Row(
                     Modifier
                         .pressable(
+                            focusShape = actionFocus,
                             onClickLabel = if (editing) "删除搜索记录" else "搜索",
                             onLongClick = { if (canEdit) onForget(term) },
                             onLongClickLabel = if (canEdit) "删除搜索记录" else null,
                             onClick = { if (editing) onForget(term) else onSelect(term) },
-                        ).touchTarget()
+                        ).touchTarget(focus = actionFocus)
                         .glass(AppShapes.chip, palette.card2)
                         .padding(horizontal = 13.dp, vertical = 7.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -1734,8 +1742,7 @@ private fun HistoryAction(
         color = if (accent) accentColors.accent else palette.sub2,
         modifier =
             Modifier
-                .pressable(onClick = onClick)
-                .touchTarget()
+                .pressableTarget(AppShapes.chip, onClick = onClick)
                 .glass(
                     shape = AppShapes.chip,
                     fill = if (accent) accentColors.container else palette.card2,

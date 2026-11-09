@@ -64,6 +64,8 @@ import com.yfuse.core.widget.widgetCutoutFailureAttributes
 import kotlin.math.abs
 import com.yfuse.core.designsystem.ThemeText as Text
 
+private val statusShape = RoundedCornerShape(12.dp)
+
 @Composable
 internal fun WidgetBreakoutPoster(
     items: List<WidgetMedia>,
@@ -247,9 +249,9 @@ private fun BreakoutArtwork(
                     Modifier
                         .align(Alignment.BottomCenter)
                         .padding(8.dp)
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(statusShape)
                         .background(LocalPalette.current.background.copy(alpha = .94f))
-                        .pressable(enabled = configure || retry, onClick = {
+                        .pressable(focusShape = statusShape, enabled = configure || retry, onClick = {
                             if (configure) {
                                 settings = true
                             } else if (retry) {

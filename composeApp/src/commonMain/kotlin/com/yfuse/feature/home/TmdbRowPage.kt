@@ -48,6 +48,7 @@ import com.yfuse.core.designsystem.TabBarInset
 import com.yfuse.core.designsystem.coversAll
 import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.pressableTarget
 import com.yfuse.core.designsystem.selectingAll
 import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.designsystem.toggling
@@ -279,8 +280,7 @@ private fun HomeRowPageFrame(
                     tint = palette.text,
                     modifier =
                         Modifier
-                            .pressable(onClickLabel = "关闭全部内容", onClick = onDismiss)
-                            .touchTarget()
+                            .pressableTarget(CircleShape, onClickLabel = "关闭全部内容", onClick = onDismiss)
                             .size(36.dp)
                             .solidGlass(CircleShape, palette.card2, palette.border)
                             .padding(10.dp),

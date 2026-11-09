@@ -59,8 +59,8 @@ import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.pressableTarget
 import com.yfuse.core.designsystem.sharedMediaArtwork
-import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.TmdbItem
@@ -136,8 +136,7 @@ private fun PersonTopBar(
     ) {
         Box(
             Modifier
-                .pressable(onClickLabel = "返回上一页", onClick = onBack)
-                .touchTarget()
+                .pressableTarget(AppShapes.chip, onClickLabel = "返回上一页", onClick = onBack)
                 .size(34.dp)
                 .glass(AppShapes.chip),
             contentAlignment = Alignment.Center,

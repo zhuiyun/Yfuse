@@ -44,9 +44,8 @@ import com.yfuse.core.designsystem.glassButtonLift
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.liveStatus
 import com.yfuse.core.designsystem.motionAwareAnimateContentSize
-import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.pressableTarget
 import com.yfuse.core.designsystem.shadow
-import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.network.validateEmbyServerEndpoint
 import com.yfuse.feature.servers.PlexAccountUiState
@@ -470,8 +469,7 @@ private fun PlexChoiceRow(
     Row(
         Modifier
             .fillMaxWidth()
-            .pressable(role = Role.Button, focusShape = AppShapes.control, onClick = onClick)
-            .touchTarget()
+            .pressableTarget(AppShapes.control, role = Role.Button, onClick = onClick)
             .shadow(glassButtonLift(palette), AppShapes.control)
             .liquidGlass(AppShapes.control, palette.card2, palette.border)
             .padding(horizontal = 10.dp, vertical = 8.dp),

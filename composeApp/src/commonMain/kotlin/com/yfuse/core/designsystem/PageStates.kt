@@ -134,8 +134,7 @@ private fun AccentChipButton(
         color = accent.accent,
         modifier =
             Modifier
-                .pressable(onClick = onClick)
-                .touchTarget()
+                .pressableTarget(AppShapes.chip, onClick = onClick)
                 .liquidGlass(
                     shape = AppShapes.chip,
                     fill = accent.container.copy(alpha = 0.68f),

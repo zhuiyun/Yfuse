@@ -126,6 +126,7 @@ import com.yfuse.core.designsystem.motionItemsIndexed
 import com.yfuse.core.designsystem.playerArtworkOnClick
 import com.yfuse.core.designsystem.playerArtworkSource
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.pressableTarget
 import com.yfuse.core.designsystem.refreshAction
 import com.yfuse.core.designsystem.rememberArtworkAccentTarget
 import com.yfuse.core.designsystem.rememberArtworkPageColor
@@ -1196,51 +1197,41 @@ private fun HeroHeader(
         }
         if (onBack == null) {
             Box(
-                Modifier.size(48.dp).pressable(onClick = onOpenCalendar),
+                Modifier
+                    .pressableTarget(CircleShape, onClick = onOpenCalendar)
+                    .size(36.dp)
+                    .glass(
+                        shape = CircleShape,
+                        fill = if (onArtwork) Color.White.copy(alpha = 0.14f) else palette.card2,
+                        border = if (onArtwork) Color.White.copy(alpha = 0.34f) else palette.border,
+                    ),
                 contentAlignment = Alignment.Center,
             ) {
-                Box(
-                    Modifier
-                        .size(36.dp)
-                        .glass(
-                            shape = CircleShape,
-                            fill = if (onArtwork) Color.White.copy(alpha = 0.14f) else palette.card2,
-                            border = if (onArtwork) Color.White.copy(alpha = 0.34f) else palette.border,
-                        ),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        AppIcons.WatchCalendar,
-                        "追剧日历",
-                        tint = ink,
-                        modifier = Modifier.size(17.dp),
-                    )
-                }
+                Icon(
+                    AppIcons.WatchCalendar,
+                    "追剧日历",
+                    tint = ink,
+                    modifier = Modifier.size(17.dp),
+                )
             }
-        }
-        if (onBack == null) {
             Box(
                 Modifier
-                    .size(48.dp)
-                    .pressable(onClickLabel = "打开个人中心", onClick = onOpenProfile)
+                    .pressableTarget(CircleShape, onClickLabel = "打开个人中心", onClick = onOpenProfile)
                     .semantics {
                         contentDescription = userName
                             ?.takeIf(String::isNotBlank)
                             ?.let { "个人中心，$it" }
                             ?: "个人中心"
-                    },
+                    }.size(38.dp)
+                    .clip(CircleShape)
+                    .background(PrimaryGradient),
                 contentAlignment = Alignment.Center,
             ) {
-                Box(
-                    Modifier.size(38.dp).clip(CircleShape).background(PrimaryGradient),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        homeUserInitial(userName),
-                        style = AppTypography.body.strong,
-                        color = Color.White,
-                    )
-                }
+                Text(
+                    homeUserInitial(userName),
+                    style = AppTypography.body.strong,
+                    color = Color.White,
+                )
             }
         }
     }

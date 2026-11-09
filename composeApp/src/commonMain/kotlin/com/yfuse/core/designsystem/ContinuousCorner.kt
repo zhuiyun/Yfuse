@@ -9,6 +9,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.dp
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.min
@@ -38,6 +39,9 @@ data class ContinuousRoundedCornerShape(
     val radius: Dp,
     val smoothing: Float = IOS_CORNER_SMOOTHING,
 ) : Shape {
+    /** Radius of a parallel inner surface after a uniform inset. */
+    fun inset(distance: Dp): ContinuousRoundedCornerShape = copy(radius = (radius - distance).coerceAtLeast(0.dp))
+
     override fun createOutline(
         size: Size,
         layoutDirection: LayoutDirection,

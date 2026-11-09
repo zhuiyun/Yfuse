@@ -26,8 +26,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.PlatformBackHandler
@@ -97,7 +97,7 @@ private fun PauseInfoCard(info: PauseInfo) {
         Modifier
             .widthIn(max = PauseInfoMaxWidth)
             .glass(
-                shape = GlassShapes.card,
+                shape = AppShapes.card,
                 fill = Color.Black.copy(alpha = 0.44f),
                 border = Color.White.copy(alpha = 0.14f),
             ).padding(horizontal = 16.dp, vertical = 12.dp)

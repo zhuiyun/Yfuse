@@ -123,6 +123,7 @@ import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.playerArtworkOnClick
 import com.yfuse.core.designsystem.playerArtworkSource
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.pressableTarget
 import com.yfuse.core.designsystem.refreshAction
 import com.yfuse.core.designsystem.rememberArtworkAccentTarget
 import com.yfuse.core.designsystem.rememberArtworkPageColor
@@ -866,8 +867,7 @@ private fun HeroCarousel(
             // `radius:14px`, `padding:7px 12px`, `gap:6px`.
             Row(
                 Modifier
-                    .pressable(onClickLabel = "切换媒体服务器", onClick = onToggleServerMenu)
-                    .touchTarget()
+                    .pressableTarget(AppShapes.chip, onClickLabel = "切换媒体服务器", onClick = onToggleServerMenu)
                     .glass(
                         shape = AppShapes.chip,
                         fill = Color(0xFF141826).copy(alpha = 0.36f),

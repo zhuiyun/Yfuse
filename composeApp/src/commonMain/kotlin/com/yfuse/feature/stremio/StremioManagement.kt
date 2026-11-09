@@ -51,7 +51,9 @@ internal fun LazyListScope.stremioHome(
     onInstall: () -> Unit,
 ) {
     if (catalogsSelected) {
-        motionItem("catalog-heading") { StremioInset { WidgetGroupCaption("来自已启用的插件") } }
+        if (state.catalogs.isNotEmpty()) {
+            motionItem("catalog-heading") { StremioInset { WidgetGroupCaption("来自已启用的插件") } }
+        }
         motionItems(state.catalogs, key = { "catalog-${it.key}" }) { ref ->
             StremioInset {
                 Panel {
@@ -80,7 +82,9 @@ internal fun LazyListScope.stremioHome(
             }
         }
     } else {
-        motionItem("addon-heading") { StremioInset { WidgetGroupCaption("此资料的插件") } }
+        if (addons.isNotEmpty()) {
+            motionItem("addon-heading") { StremioInset { WidgetGroupCaption("此资料的插件") } }
+        }
         motionItems(
             addons,
             key = { "addon-${it.key}" },
@@ -101,6 +105,8 @@ internal fun LazyListScope.stremioHome(
     }
 }
 
+private enum class InstallAction { Idle, Inspect, Install }
+
 @Composable
 internal fun StremioInstaller(
     state: StremioScreenState,
@@ -110,11 +116,10 @@ internal fun StremioInstaller(
     var input by rememberSaveable { mutableStateOf("") }
     var browserError by remember { mutableStateOf(false) }
     var showAddress by remember { mutableStateOf(false) }
-    var submitted by remember { mutableStateOf(false) }
-    var requested by remember { mutableStateOf(false) }
+    var action by remember { mutableStateOf(InstallAction.Idle) }
     val uri = LocalUriHandler.current
-    LaunchedEffect(state.busy, state.candidate, submitted) {
-        if (submitted && !state.busy && state.candidate == null) onDismiss()
+    LaunchedEffect(state.busy, state.candidate, action) {
+        if (action == InstallAction.Install && !state.busy && state.candidate == null) onDismiss()
     }
     WidgetSheet("安装插件", onDismiss = { if (!state.busy) onDismiss() }) {
         Column(
@@ -129,7 +134,7 @@ internal fun StremioInstaller(
                         input = it.take(4096)
                         controller.discardCandidate()
                         browserError = false
-                        requested = false
+                        action = InstallAction.Idle
                     },
                     "插件 URL",
                     enabled = !state.busy,
@@ -147,7 +152,7 @@ internal fun StremioInstaller(
                 Text("安装地址可能包含个人配置，默认隐藏。", style = AppTypography.caption.regular, color = LocalPalette.current.sub2)
                 WidgetTextButton({
                     input = "https://v3-cinemeta.strem.io/manifest.json"
-                    requested = false
+                    action = InstallAction.Idle
                     controller.discardCandidate()
                 }, enabled = !state.busy) { Text("使用官方 Cinemeta 目录") }
             } else {
@@ -176,13 +181,15 @@ internal fun StremioInstaller(
                     }, icon = AppIcons.Edit, subtitle = "在浏览器中打开配置页面", enabled = !state.busy)
                 }
                 WidgetTextButton({
-                    submitted = false
-                    requested = false
+                    action = InstallAction.Idle
                     controller.discardCandidate()
                 }, enabled = !state.busy) { Text("更换链接") }
             }
-            if (state.busy) OperationFeedback(if (submitted) "正在安装…" else "正在读取插件…", OperationTone.Working)
-            if (requested && (!submitted || state.candidate != null)) {
+            if (state.busy) {
+                val progress = if (action == InstallAction.Install) "正在安装…" else "正在读取插件…"
+                OperationFeedback(progress, OperationTone.Working)
+            }
+            if (action == InstallAction.Inspect || (action == InstallAction.Install && state.candidate != null)) {
                 state.message?.let { OperationFeedback(it, OperationTone.Error) }
             }
             state.failures.forEach { OperationFeedback(it, OperationTone.Error) }
@@ -191,20 +198,18 @@ internal fun StremioInstaller(
         Spacer(Modifier.height(16.dp))
         WidgetPrimaryButton(
             {
-                requested = true
                 if (state.candidate == null) {
+                    action = InstallAction.Inspect
                     controller.inspect(input)
                 } else {
-                    submitted = true
+                    action = InstallAction.Install
                     controller.install()
                 }
             },
             Modifier.fillMaxWidth(),
             enabled =
                 !state.busy &&
-                    if (state.candidate ==
-                        null
-                    ) {
+                    if (state.candidate == null) {
                         input.isNotBlank()
                     } else {
                         !state.candidate.behaviorHints.configurationRequired

@@ -57,6 +57,7 @@ import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.pressableTarget
 import com.yfuse.core.designsystem.touchTarget
 import kotlinx.coroutines.launch
 import com.yfuse.core.designsystem.ThemeIcon as Icon
@@ -372,15 +373,15 @@ private fun SessionsHeader(
         Box(
             modifier =
                 Modifier
-                    .pressable(
+                    .pressableTarget(
+                        AppShapes.control,
                         enabled = refreshEnabled,
                         onClickLabel = "刷新登录设备",
                         // The icon below has a null contentDescription (nothing else in the
                         // control names it); this is what TalkBack reads for the button itself.
                         label = "刷新登录设备",
                         onClick = onRefresh,
-                    ).touchTarget()
-                    .liquidGlass(
+                    ).liquidGlass(
                         shape = AppShapes.control,
                         fill = palette.card2,
                         border = null,
@@ -468,13 +469,13 @@ private fun CompactSessionAction(
         modifier =
             Modifier
                 .heightIn(min = 42.dp)
-                .pressable(
+                .pressableTarget(
+                    AppShapes.pill,
                     enabled = enabled && !loading,
                     haptic = if (destructive) HapticSignal.Confirm else HapticSignal.Select,
                     onClickLabel = accessibilityLabel,
                     onClick = onClick,
-                ).touchTarget()
-                .liquidGlass(
+                ).liquidGlass(
                     shape = AppShapes.pill,
                     fill =
                         if (destructive) {

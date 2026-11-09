@@ -23,9 +23,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.cast.CastManager
 import com.yfuse.core.cast.CastPlaybackStatus
+import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.GlassDialog
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayActionRow
@@ -34,8 +34,7 @@ import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.liveStatus
 import com.yfuse.core.designsystem.motionAwareAnimateContentSize
 import com.yfuse.core.designsystem.overlayAction
-import com.yfuse.core.designsystem.pressable
-import com.yfuse.core.designsystem.touchTarget
+import com.yfuse.core.designsystem.pressableTarget
 import com.yfuse.core.offline.DownloadStatus
 import com.yfuse.core.offline.summarizeDownloads
 import kotlinx.coroutines.CancellationException
@@ -154,10 +153,9 @@ internal fun ActivityStatusCapsule(
             Modifier
                 .onSizeChanged { reportHeight(with(density) { it.height.toDp() }) }
                 .fillMaxWidth()
-                .pressable(onClick = { expanded = true })
-                .touchTarget()
+                .pressableTarget(AppShapes.chip, onClick = { expanded = true })
                 .liquidGlass(
-                    shape = GlassShapes.chip,
+                    shape = AppShapes.chip,
                     fill = palette.glassStrong,
                     border = palette.border,
                     over = palette.background,

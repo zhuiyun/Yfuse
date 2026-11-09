@@ -56,6 +56,7 @@ import com.yfuse.core.designsystem.glassControlHighlight
 import com.yfuse.core.designsystem.glassSelection
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberGlassSelectionStyle
+import com.yfuse.core.designsystem.rememberTouchTargetFocus
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -243,12 +244,13 @@ internal fun ServerProtocolSegment(
 ) {
     val palette = LocalPalette.current
     val selection = rememberGlassSelectionStyle()
+    val segmentFocus = rememberTouchTargetFocus(AppShapes.thumb)
     Box(
         modifier
             .graphicsLayer { alpha = if (enabled) 1f else 0.5f }
-            .pressable(enabled = enabled, role = Role.RadioButton, focusShape = AppShapes.thumb, onClick = onClick)
+            .pressable(enabled = enabled, role = Role.RadioButton, focusShape = segmentFocus, onClick = onClick)
             .semantics { this.selected = selected }
-            .touchTarget()
+            .touchTarget(focus = segmentFocus)
             .then(
                 if (selected) {
                     Modifier.glassSelection(AppShapes.thumb, selection)

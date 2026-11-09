@@ -154,6 +154,9 @@ fun SwitchRow(
     }
 }
 
+private val settingSegmentInset = 4.dp
+private val settingSegmentShape = AppShapes.chip.inset(settingSegmentInset)
+
 /**
  * The pick-one pill used on light settings surfaces. [expanded] spreads it to the full width
  * for a control that owns its own row rather than sitting at the end of a label.
@@ -168,13 +171,13 @@ internal fun SettingSegmentControl(
     val palette = LocalPalette.current
     val selection = rememberGlassSelectionStyle()
     val indicator =
-        rememberSegmentIndicator(selectedIndex, Color.Transparent, selectionStyle = selection)
+        rememberSegmentIndicator(selectedIndex, Color.Transparent, settingSegmentShape, selectionStyle = selection)
     Row(
         Modifier
             .then(if (expanded) Modifier.fillMaxWidth() else Modifier)
             .selectableGroup()
             .flatGlass(AppShapes.chip, palette.card3, palette.border)
-            .padding(4.dp)
+            .padding(settingSegmentInset)
             .then(indicator.container),
         horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
@@ -189,7 +192,7 @@ internal fun SettingSegmentControl(
                         pressedScale = 0.97f,
                         haptic = HapticSignal.Select,
                         role = Role.RadioButton,
-                        focusShape = AppShapes.chip,
+                        focusShape = settingSegmentShape,
                         onClickLabel = label,
                         onClick = { onSelect(index) },
                     ).semantics { selected = isSelected }
@@ -222,7 +225,7 @@ internal fun SegmentedRow(
     onSelect: (Int) -> Unit,
 ) {
     val accent = rememberAccentColorsForSurface(dark = true)
-    val indicator = rememberSegmentIndicator(selectedIndex, accent.container, accent.border)
+    val indicator = rememberSegmentIndicator(selectedIndex, accent.container, AppShapes.pill, accent.border)
     Row(
         Modifier
             .fillMaxWidth()
@@ -249,6 +252,7 @@ internal fun SegmentedRow(
                         .pressable(
                             haptic = HapticSignal.Select,
                             role = Role.RadioButton,
+                            focusShape = AppShapes.pill,
                             onClick = { onSelect(index) },
                         ).semantics { selected = active }
                         .touchTarget()

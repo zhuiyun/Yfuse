@@ -289,7 +289,11 @@ internal fun CalendarWeekNavigator(
                     Modifier
                         .width(dayWidth)
                         .heightIn(min = 64.dp)
-                        .pressable(role = Role.Tab, onClickLabel = "查看${day.date}排期") { onSelect(day) }
+                        .pressable(
+                            focusShape = AppShapes.thumb,
+                            role = Role.Tab,
+                            onClickLabel = "查看${day.date}排期",
+                        ) { onSelect(day) }
                         .semantics { selected = active }
                         .then(
                             if (active) {

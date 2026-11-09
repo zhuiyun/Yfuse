@@ -506,7 +506,7 @@ private fun ProgressAction(
     Box(
         modifier
             .heightIn(min = 48.dp)
-            .pressable(enabled = enabled, onClick = onClick)
+            .pressable(focusShape = AppShapes.thumb, enabled = enabled, onClick = onClick)
             .solidGlass(
                 AppShapes.thumb,
                 if (enabled) accent.copy(alpha = 0.16f) else palette.card2,

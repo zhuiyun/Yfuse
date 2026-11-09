@@ -46,7 +46,6 @@ import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.DarkPalette
 import com.yfuse.core.designsystem.GlassDialog
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalOverlayEntrance
 import com.yfuse.core.designsystem.Motion
@@ -671,7 +670,7 @@ private fun SearchRow(
         Modifier
             .fillMaxWidth()
             .glass(
-                shape = GlassShapes.thumb,
+                shape = AppShapes.thumb,
                 fill = Color.White.copy(alpha = 0.06f),
                 border = Color.White.copy(alpha = 0.12f),
             ).noRippleClickable(onClick)

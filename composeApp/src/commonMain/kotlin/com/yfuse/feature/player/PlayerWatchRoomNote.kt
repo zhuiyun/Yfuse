@@ -5,9 +5,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.DarkPalette
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.ThemeText as Text
 
@@ -36,7 +36,7 @@ internal fun WatchRoomNote(
         modifier =
             Modifier
                 .glass(
-                    shape = GlassShapes.chip,
+                    shape = AppShapes.chip,
                     fill = if (reconnecting) DarkPalette.errorContainer else Color.Black.copy(alpha = 0.52f),
                     border = Color.White.copy(alpha = 0.24f),
                 ).noRippleClickable(onOpenChat)

@@ -57,6 +57,7 @@ import com.yfuse.core.designsystem.liveStatus
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.pressableTarget
 import com.yfuse.core.designsystem.rememberGlassSelectionStyle
 import com.yfuse.core.designsystem.rememberSegmentIndicator
 import com.yfuse.core.designsystem.resolveGlassButtonVisuals
@@ -118,7 +119,12 @@ internal fun ServerActionsDialog(
             if (canManage) {
                 val selection = rememberGlassSelectionStyle()
                 val indicator =
-                    rememberSegmentIndicator(if (managing) 1 else 0, Color.Transparent, selectionStyle = selection)
+                    rememberSegmentIndicator(
+                        if (managing) 1 else 0,
+                        Color.Transparent,
+                        AppShapes.pill,
+                        selectionStyle = selection,
+                    )
                 Row(
                     Modifier
                         .padding(horizontal = 16.dp)
@@ -377,16 +383,16 @@ private fun ServerActionsHeader(
         }
         Box(
             Modifier
-                .size(48.dp)
-                .pressable(role = Role.Button, focusShape = CircleShape, onClickLabel = "关闭菜单", onClick = close),
+                .pressableTarget(
+                    CircleShape,
+                    role = Role.Button,
+                    onClickLabel = "关闭菜单",
+                    onClick = close,
+                ).size(32.dp)
+                .flatGlass(CircleShape, palette.card2),
             contentAlignment = Alignment.Center,
         ) {
-            Box(
-                Modifier.size(32.dp).flatGlass(CircleShape, palette.card2),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(AppIcons.Close, "关闭菜单", tint = palette.sub2, modifier = Modifier.size(18.dp))
-            }
+            Icon(AppIcons.Close, "关闭菜单", tint = palette.sub2, modifier = Modifier.size(18.dp))
         }
     }
 }

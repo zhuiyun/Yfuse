@@ -37,8 +37,8 @@ import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.OrbProgressDefaults
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.pressableTarget
 import com.yfuse.core.designsystem.rememberAccentColorsForSurface
-import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
@@ -102,8 +102,7 @@ internal fun PlayerPreparationContent(
                 .safeDrawingPadding()
                 .padding(8.dp)
                 .align(Alignment.TopStart)
-                .pressable(onClickLabel = "关闭播放", onClick = onBack)
-                .touchTarget()
+                .pressableTarget(CircleShape, onClickLabel = "关闭播放", onClick = onBack)
                 .size(38.dp)
                 .glass(
                     shape = CircleShape,
@@ -188,7 +187,7 @@ private fun PlayerLoadErrorAction(
         modifier
             .height(44.dp)
             .widthIn(min = 104.dp)
-            .pressable(onClickLabel = label, onClick = onClick)
+            .pressable(focusShape = CircleShape, onClickLabel = label, onClick = onClick)
             .glass(
                 shape = CircleShape,
                 fill = if (primary) accent.accent else Color.Black.copy(alpha = 0.28f),

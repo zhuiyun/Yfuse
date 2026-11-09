@@ -82,8 +82,7 @@ fun Section(
                     modifier =
                         Modifier
                             .widthIn(max = 160.dp)
-                            .pressable(role = Role.Button, onClick = onAction)
-                            .touchTarget()
+                            .pressableTarget(AppShapes.chip, role = Role.Button, onClick = onAction)
                             .liquidGlass(
                                 shape = AppShapes.chip,
                                 fill = palette.card2,

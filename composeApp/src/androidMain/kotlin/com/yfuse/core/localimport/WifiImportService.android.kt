@@ -402,7 +402,7 @@ private val UPLOAD_PAGE =
     </style><h1>Yfuse Wi-Fi 导入</h1>
     <p>在 Yfuse 查看配对码。每次上传一个视频，单文件最多 2 GiB；接收页面需保持在前台。</p>
     <label>配对码<input id="code" inputmode="numeric" maxlength="6" autocomplete="off"></label>
-    <input id="file" type="file" accept="video/*,.mkv,.iso,.rmvb">
+    <input id="file" type="file" aria-label="选择视频文件" accept="video/*,.mkv,.iso,.rmvb">
     <button id="send">上传视频</button><p id="status" role="status"></p>
     <script>
     const button=document.getElementById('send');

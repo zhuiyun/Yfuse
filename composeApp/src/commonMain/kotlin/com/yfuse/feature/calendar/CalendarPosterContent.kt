@@ -272,7 +272,7 @@ private fun CalendarFeaturedPoster(
                             .size(52.dp)
                             .clip(CircleShape)
                             .background(accent.accent)
-                            .pressable(onClick = onPlay)
+                            .pressable(focusShape = CircleShape, onClick = onPlay)
                             .padding(15.dp),
                 )
             } else {

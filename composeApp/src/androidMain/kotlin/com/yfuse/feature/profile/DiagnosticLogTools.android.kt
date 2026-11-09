@@ -25,8 +25,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.data.DiagnosticPreferences
+import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.ConfirmDialog
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.SettingRow
@@ -120,7 +120,7 @@ actual fun DiagnosticLogTools() {
     Column(
         Modifier
             .fillMaxWidth()
-            .glass(GlassShapes.card, palette.card2, palette.border),
+            .glass(AppShapes.card, palette.card2, palette.border),
     ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 13.dp)) {
             Text("本地诊断日志", style = sc(13f, 550), color = palette.text)
@@ -182,7 +182,7 @@ actual fun DiagnosticLogTools() {
     Column(
         Modifier
             .fillMaxWidth()
-            .glass(GlassShapes.card, palette.card2, palette.border),
+            .glass(AppShapes.card, palette.card2, palette.border),
     ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 13.dp)) {
             Text("原生播放能力", style = sc(13f, 550), color = palette.text)

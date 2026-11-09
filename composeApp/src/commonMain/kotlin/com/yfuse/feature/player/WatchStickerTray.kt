@@ -35,17 +35,19 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.calmMotion
+import com.yfuse.core.designsystem.focusBody
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.rememberTouchTargetFocus
 import com.yfuse.core.designsystem.sc
 import com.yfuse.core.sync.WatchSticker
 import com.yfuse.core.sync.WatchStickerCategory
@@ -271,6 +273,7 @@ internal fun WatchStickerTray(
                     key = WatchStickerCategory::name,
                 ) { category ->
                     val isSelected = category == selectedCategory.value
+                    val focus = rememberTouchTargetFocus(AppShapes.chip)
                     Box(
                         Modifier
                             .sizeIn(minWidth = 44.dp, minHeight = 44.dp)
@@ -278,6 +281,7 @@ internal fun WatchStickerTray(
                             .pressable(
                                 enabled = enabled,
                                 haptic = HapticSignal.Select,
+                                focusShape = focus,
                                 role = Role.Tab,
                                 onClickLabel = category.label,
                                 onClick = { selectedCategory.value = category },
@@ -295,8 +299,9 @@ internal fun WatchStickerTray(
                             color = Color.White.copy(alpha = if (isSelected) 1f else 0.66f),
                             modifier =
                                 Modifier
+                                    .focusBody(focus)
                                     .glass(
-                                        shape = GlassShapes.chip,
+                                        shape = AppShapes.chip,
                                         fill =
                                             if (isSelected) {
                                                 accent.accent.copy(alpha = 0.58f)
@@ -326,6 +331,7 @@ internal fun WatchStickerTray(
                     items = WatchStickers.inCategory(selectedCategory.value),
                     key = WatchSticker::id,
                 ) { sticker ->
+                    val focus = rememberTouchTargetFocus(AppShapes.chip)
                     // Keep the visual chip compact, but give it the same 44dp minimum target
                     // as every other control.
                     Box(
@@ -335,6 +341,7 @@ internal fun WatchStickerTray(
                             .pressable(
                                 enabled = enabled,
                                 haptic = HapticSignal.Confirm,
+                                focusShape = focus,
                                 onClickLabel = sticker.label,
                                 onClick = { onPick(sticker) },
                             ),
@@ -343,8 +350,9 @@ internal fun WatchStickerTray(
                         Box(
                             Modifier
                                 .size(34.dp)
+                                .focusBody(focus)
                                 .glass(
-                                    shape = GlassShapes.chip,
+                                    shape = AppShapes.chip,
                                     fill = PlayerTokens.chipFill,
                                     border = PlayerTokens.chipBorder,
                                 ),
