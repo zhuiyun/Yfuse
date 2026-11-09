@@ -33,6 +33,8 @@ public final class SenPlayerSessionHostChecks {
   }
 
   public static void main(String[] args) throws Exception {
+    subtitlesAreVisibleWithOrWithoutASecondaryTrack();
+    externalTrackRequiresANativeId();
     rangesNeverInventCoverage();
     progressUsesItsOwnSourceAndPreservesGaps();
     surfaceFailureIsNotSuccess();
@@ -51,6 +53,39 @@ public final class SenPlayerSessionHostChecks {
     staleLicenseCallbackCannotChangeNewOwner();
     System.out.println("SEN_BRIDGE_HOST_CHECKS_PASSED assertions=" + checks);
     System.out.println("NO_ORIGINAL_RUNTIME_NO_JNI_NO_NETWORK");
+  }
+
+  // Reflection-compatible shapes of hi3 and gi3 in the pinned original DEX.
+  public static final class SubtitleConfiguration {
+    public SubtitleStyle a, b;
+    public String c, d;
+    public boolean e, f, g, i;
+    public double l, m;
+  }
+  public static final class SubtitleStyle {
+    public String a, b, c, e;
+    public double g, i, j;
+  }
+
+  private static void subtitlesAreVisibleWithOrWithoutASecondaryTrack() throws Exception {
+    for (boolean secondary : new boolean[] {false, true}) {
+      SubtitleConfiguration config = (SubtitleConfiguration) SenPlayerSession.subtitleConfiguration(
+          SubtitleConfiguration.class, SubtitleStyle.class, secondary, 1.2, 0.8, 0.35, -0.5,
+          "#FFFFFFFF", "#000000FF", "#00000000", 2.0, false);
+      check(config.e && config.m == 1.0, "selected English text has a visible, opaque output");
+      check(config.g == secondary && config.i && !config.f, "secondary slot and source-authored style");
+      check(config.c.equals("/system/fonts") && config.d.equals("none"), "Android font source");
+      check(config.a != config.b && config.a.g == 1.2 && config.b.g == 0.8, "independent scales");
+      check(config.a.i == 0.35 && config.b.i == -0.5, "independent delays in seconds");
+      check(config.a.b.equals("#FFFFFFFF") && config.b.e.equals("#00000000"), "RGBA subtitle colors");
+    }
+  }
+
+  private static void externalTrackRequiresANativeId() throws Exception {
+    check(SenPlayerSession.subtitleTrackId("17").equals("17"), "return the id from addSubtitle");
+    for (Object result : new Object[] {null, "", "0", "-3", "success", 1}) {
+      expect(IOException.class, () -> SenPlayerSession.subtitleTrackId(result));
+    }
   }
 
   private static void rangesNeverInventCoverage() throws Exception {

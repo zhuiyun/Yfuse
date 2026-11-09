@@ -459,26 +459,7 @@ private fun PlayerMediaItem.toCore2MediaItem(
                     )
                 },
         transportCredentials = transportCredentials.takeUnless { usingServerTranscode },
-        externalSubtitles =
-            playbackExternalSubtitles().map { subtitle ->
-                YExternalSubtitleSource(
-                    uri = subtitle.uri,
-                    language = subtitle.language,
-                    format =
-                        when ((subtitle.codec ?: externalSubtitleFormatHint(subtitle.uri))?.lowercase()) {
-                            "srt", "subrip" -> YSubtitleFormat.Srt
-                            "vtt", "webvtt" -> YSubtitleFormat.WebVtt
-                            "ass" -> YSubtitleFormat.Ass
-                            "ssa" -> YSubtitleFormat.Ssa
-                            "smi", "sami" -> YSubtitleFormat.Smi
-                            "ttml", "dfxp" -> YSubtitleFormat.Ttml
-                            "microdvd" -> YSubtitleFormat.MicroDvd
-                            else -> null
-                        },
-                    default = subtitle.default,
-                    forced = subtitle.forced,
-                )
-            },
+        externalSubtitles = externalSubtitleSources(),
         disc =
             if (!usingServerTranscode && version?.discSource == true) {
                 YDiscMedia(
@@ -543,3 +524,24 @@ private val CORE2_SOURCE_SCHEMES =
         "android.resource",
     )
 private const val USER_AGENT_HEADER = "User-Agent"
+
+internal fun PlayerMediaItem.externalSubtitleSources(): List<YExternalSubtitleSource> =
+    playbackExternalSubtitles().map { subtitle ->
+        YExternalSubtitleSource(
+            uri = subtitle.uri,
+            language = subtitle.language,
+            format =
+                when ((subtitle.codec ?: externalSubtitleFormatHint(subtitle.uri))?.lowercase()) {
+                    "srt", "subrip" -> YSubtitleFormat.Srt
+                    "vtt", "webvtt" -> YSubtitleFormat.WebVtt
+                    "ass" -> YSubtitleFormat.Ass
+                    "ssa" -> YSubtitleFormat.Ssa
+                    "smi", "sami" -> YSubtitleFormat.Smi
+                    "ttml", "dfxp" -> YSubtitleFormat.Ttml
+                    "microdvd" -> YSubtitleFormat.MicroDvd
+                    else -> null
+                },
+            default = subtitle.default,
+            forced = subtitle.forced,
+        )
+    }

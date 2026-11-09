@@ -780,9 +780,11 @@ internal class PlayerQueueExecutor(
                 ?.mapIndexed { index, source ->
                     source.toMediaVersion(fallbackId = detail.id, ordinal = index)
                 }?.takeIf(List<MediaVersion>::isNotEmpty)
+                ?.preservingSourceMetadataFrom(detail.versions)
                 ?: detail.versions
         val playerVersions =
             versions.toPlayerMediaVersions(
+                serverKind = fallback.kind,
                 baseUrl = fallback.baseUrl,
                 itemId = detail.id,
                 token = fallback.accessToken,

@@ -583,7 +583,7 @@ internal class AndroidNativeEnhancedYPlayer(
                 session.setSpeed(speed)
                 session.setAudioDelayMs(audioDelayMs)
                 val tracks = result.toAudioTracks(session.selectedAudioTrackId())
-                externalSubtitleSession.reset(item.allExternalSubtitles, item.headers)
+                externalSubtitleSession.reset(item)
                 externalSubtitles = externalSubtitleSession.tracks
                 selectedExternalSubtitleId = externalSubtitleSession.defaultId
                 val initialSubtitle =

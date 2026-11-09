@@ -27,6 +27,7 @@ import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.util.UnstableApi
 import com.yfuse.core.data.PlaybackPreferences
@@ -205,7 +206,16 @@ internal fun PlayerRootSurface(
                     ambientSampler = ambient.sampler,
                     ambientLayer = ambientLayer,
                 )
-            is SenPlayerVideoEngine -> SenPlayerSurface(engine, pictureModifier)
+            is SenPlayerVideoEngine ->
+                SenPlayerSurface(
+                    engine,
+                    presentationSubtitleControls,
+                    IntSize(
+                        state.diagnostics.videoWidth.takeIf { it > 0 } ?: currentItem?.activeVersion?.sourceWidth ?: 0,
+                        state.videoHeight.takeIf { it > 0 } ?: currentItem?.activeVersion?.sourceHeight ?: 0,
+                    ),
+                    pictureModifier,
+                )
         }
 
         // Placed outside the timeline scope so the chip's anchor is not rebuilt per tick.

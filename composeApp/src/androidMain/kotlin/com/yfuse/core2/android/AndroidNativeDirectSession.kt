@@ -430,7 +430,7 @@ internal class AndroidNativeDirectSession(
             }
         }
         abortIfReleased()
-        externalSubtitleSession.reset(item.allExternalSubtitles, item.headers)
+        externalSubtitleSession.reset(item)
         externalSubtitles = externalSubtitleSession.tracks
         selectedExternalSubtitleId = externalSubtitleSession.defaultId
         if (item.initialTrackSelection?.subtitlesDisabled == true) selectedExternalSubtitleId = null

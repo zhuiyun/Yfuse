@@ -2,13 +2,21 @@ package com.yfuse.feature.player
 
 import android.content.Context
 import android.graphics.PixelFormat
+import android.os.Build
 import android.os.SystemClock
 import android.view.Display
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.widget.FrameLayout
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.viewinterop.AndroidView
 import com.yfuse.core.data.SenPlayerEnhancementLevel
 import com.yfuse.core.data.SenPlayerPictureSettings
@@ -17,8 +25,13 @@ import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.playback.PlaybackFailureKind
 import com.yfuse.core2.android.AndroidSerializedPlayerRelease
 import com.yfuse.core2.api.YBufferSnapshot
+import com.yfuse.core2.api.YInitialTrackSelection
 import com.yfuse.senplayer.SenPlayerSession
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -42,6 +55,7 @@ internal class SenPlayerVideoEngine(
     private val customUserAgent: String,
     private val videoCacheBytes: Long,
     private val pictureSettings: StateFlow<SenPlayerPictureSettings>? = null,
+    private val initialTrackSelections: Map<String, YInitialTrackSelection> = emptyMap(),
 ) : VideoEngine,
     AndroidSerializedPlayerRelease {
     private val appContext = context.applicationContext
@@ -74,6 +88,8 @@ internal class SenPlayerVideoEngine(
     private var loadPending = true
     private var pendingSeekMs: Long? = null
     private var mediaPoll = 0
+    private val subtitleScope = CoroutineScope(SupervisorJob() + worker.asCoroutineDispatcher())
+    private val subtitles = SenPlayerSubtitles(appContext, subtitleScope, { mediaPoll = 0 }, ::fail)
     private val pictureController = SenPlayerPictureController()
     private var pictureDynamicRange: String? = null
     private var pictureDolbyProfile = 0
@@ -170,6 +186,10 @@ internal class SenPlayerVideoEngine(
                             linkedMapOf(
                                 "hwdec" to (if (decoderMode == DecoderMode.Software) "no" else "auto"),
                                 "user-agent" to customUserAgent,
+                                "sub-fonts-dir" to "/system/fonts",
+                                "secondary-sub-fonts-dir" to "/system/fonts",
+                                "sub-font-provider" to "none",
+                                "secondary-sub-font-provider" to "none",
                             )
                         val created =
                             try {
@@ -196,6 +216,7 @@ internal class SenPlayerVideoEngine(
                         val current = requireNotNull(session)
                         resetVideoEvidence(current.sourceId(), current.snapshot(), "surface_created")
                         current.surface(view.video.holder.surface, view.subtitles.holder.surface)
+                        subtitles.surfaceChanged()
                         boundSurfaceEpoch = epoch
                         pictureController.reset()
                         if (loadPending) loadCurrent() else current.play(requested)
@@ -263,6 +284,7 @@ internal class SenPlayerVideoEngine(
 
     private fun detachNativeSurface() {
         boundSurfaceEpoch = -1L
+        subtitles.surfaceChanged()
         pictureController.reset()
         resetVideoEvidence(session?.sourceId() ?: 0L, reason = "surface_detached")
         session?.takeIf { it.isUsable() }?.surface(null, null)
@@ -298,6 +320,7 @@ internal class SenPlayerVideoEngine(
         pictureDurationMs = 0L
         mutableState.update { it.forSenPlayerLoad(bufferSession, bufferGeneration, item) }
         resetVideoEvidence(0L, reason = "source_loading")
+        subtitles.clear()
         val upstream = item.senPlayerPlaybackUrl()
         require(item.transportCredentials == null) { "SenPlayer file transport credentials require YCore" }
         if (session?.isUsable() == false) closeSession()
@@ -326,6 +349,7 @@ internal class SenPlayerVideoEngine(
         applyPictureSettings(current)
         current.open(url, emptyMap(), if (pendingSeekMs == null) state.value.positionMs else 0, requested)
         if (released.get()) return
+        subtitles.open(current, item, customUserAgent, initialTrackSelections[item.id])
         resetVideoEvidence(current.sourceId(), previousOutput, "source_opened")
         current.option("speed", state.value.speed.toString())
         // A pause can arrive while original native open is blocking on this worker.
@@ -539,6 +563,7 @@ internal class SenPlayerVideoEngine(
         if (released.get() || attached !== view || surfaceEpoch.get() != epoch || !view.ready) return
         current.surface(view.video.holder.surface, view.subtitles.holder.surface)
         pictureController.reset()
+        subtitles.surfaceChanged()
         current.resize(view.video.width.coerceAtLeast(1), view.video.height.coerceAtLeast(1))
         current.play(requested)
         surfaceRecoveries++
@@ -601,14 +626,21 @@ internal class SenPlayerVideoEngine(
         pictureDynamicRange = video?.optString("dynamicRange")?.takeIf { it.isNotBlank() }
         pictureDolbyProfile = video?.optInt("dvProfile") ?: 0
 
+        var secondaryTrackId: String? = null
+
         fun ofKind(kind: String): List<EngineTrack> =
             buildList {
                 for (index in 0 until tracks.length()) {
                     val track = tracks.getJSONObject(index)
                     if (track.optString("kind") == kind) {
+                        val nativeId = track.getLong("id").toString()
+                        val id = if (kind == "sub") subtitles.publicId(nativeId) else nativeId
+                        val selected = track.optBoolean("selected")
+                        val secondary = kind == "sub" && selected && track.optInt("slot", 0) == 1
+                        if (secondary) secondaryTrackId = id
                         add(
                             EngineTrack(
-                                id = track.getLong("id").toString(),
+                                id = id,
                                 label =
                                     track
                                         .optString(
@@ -620,7 +652,7 @@ internal class SenPlayerVideoEngine(
                                                 ).ifBlank { "$kind ${track.getLong("id")}" }
                                         },
                                 language = track.optString("language").ifBlank { null },
-                                selected = track.optBoolean("selected"),
+                                selected = selected && !secondary,
                                 codec = track.optString("codec").ifBlank { null },
                                 forced = if (track.has("forced")) track.optBoolean("forced") else null,
                             ),
@@ -628,7 +660,28 @@ internal class SenPlayerVideoEngine(
                     }
                 }
             }
-        mutableState.update { it.copy(audioTracks = ofKind("audio"), subtitleTracks = ofKind("sub")) }
+        val audio = ofKind("audio")
+        val captions = subtitles.merge(ofKind("sub"))
+        if (state.value.subtitleTracks != captions || state.value.secondarySubtitleTrackId != secondaryTrackId) {
+            AppLog.info(
+                "player.senplayer",
+                "subtitle_tracks_changed",
+                "Subtitle tracks reported by current source",
+                mapOf(
+                    "embedded" to captions.count { it.id.toLongOrNull() != null }.toString(),
+                    "external" to captions.count { it.id.toLongOrNull() == null }.toString(),
+                    "primary" to (captions.firstOrNull { it.selected }?.id ?: "off"),
+                    "secondary" to (secondaryTrackId ?: "off"),
+                ),
+            )
+        }
+        mutableState.update {
+            it.copy(audioTracks = audio, subtitleTracks = captions, secondarySubtitleTrackId = secondaryTrackId)
+        }
+        if (tracks.length() > 0) {
+            subtitles.observeSecondary(secondaryTrackId != null)
+            subtitles.selectDefault(captions)
+        }
     }
 
     private fun applyPictureSettings(current: SenPlayerSession) {
@@ -772,7 +825,7 @@ internal class SenPlayerVideoEngine(
     }
 
     override fun selectSubtitleTrack(id: String) {
-        submit { session?.track(1, id) }
+        submit { subtitles.select(SenPlayerSubtitles.PRIMARY, id) }
     }
 
     override val supportsAudioDelay: Boolean get() = true
@@ -783,11 +836,47 @@ internal class SenPlayerVideoEngine(
     }
 
     override val supportsSubtitleOffset: Boolean get() = true
+    override val supportsSecondarySubtitleTrack: Boolean get() = true
+    override val supportsSecondarySubtitleOffset: Boolean get() = true
+    override val supportsSubtitlePosition: Boolean get() = true
+    override val supportsSubtitleScale: Boolean get() = true
+    override val supportsSubtitleAppearance: Boolean get() = true
+    override val supportsSubtitleBrightness: Boolean get() = true
 
-    override fun setSubtitleOffsetMs(offsetMs: Long): Boolean {
-        submit { session?.option("sub-delay", (offsetMs / 1000.0).toString()) }
+    override fun selectSecondarySubtitleTrack(id: String): Boolean {
+        if (released.get()) return false
+        submit { subtitles.select(SenPlayerSubtitles.SECONDARY, id) }
         return true
     }
+
+    private fun updateSubtitleStyle(change: (SenSubtitleStyle) -> SenSubtitleStyle): Boolean {
+        if (released.get()) return false
+        submit { subtitles.setStyle(change(subtitles.style)) }
+        return true
+    }
+
+    override fun setSubtitleOffsetMs(offsetMs: Long): Boolean =
+        updateSubtitleStyle { it.copy(primaryDelayMs = offsetMs) }
+
+    override fun setSecondarySubtitleOffsetMs(offsetMs: Long): Boolean =
+        updateSubtitleStyle {
+            mutableState.update { state -> state.copy(secondarySubtitleOffsetMs = offsetMs) }
+            it.copy(secondaryDelayMs = offsetMs)
+        }
+
+    override fun setSubtitleScale(scale: Float): Boolean = updateSubtitleStyle { it.copy(primaryScale = scale) }
+
+    override fun setSubtitlePosition(position: Float): Boolean = updateSubtitleStyle { it.copy(position = position) }
+
+    fun setSubtitleMargins(useBlackBar: Boolean): Boolean = updateSubtitleStyle { it.copy(useBlackBar = useBlackBar) }
+
+    fun setSecondarySubtitleScale(scale: Float): Boolean = updateSubtitleStyle { it.copy(secondaryScale = scale) }
+
+    override fun setSubtitleBrightness(brightness: Float): Boolean =
+        updateSubtitleStyle { it.copy(brightness = brightness) }
+
+    override fun setSubtitleAppearance(appearance: SubtitleAppearance): Boolean =
+        updateSubtitleStyle { it.copy(appearance = appearance) }
 
     override fun setPauseAtEndOfCurrentItem(enabled: Boolean) {
         submit { pauseAtEnd = enabled }
@@ -823,6 +912,7 @@ internal class SenPlayerVideoEngine(
             session?.close()
         } finally {
             session = null
+            subtitles.clear()
             pictureController.reset()
             try {
                 proxy?.close()
@@ -854,6 +944,7 @@ internal class SenPlayerVideoEngine(
                     ),
             )
         }
+        subtitleScope.cancel()
         session?.cancelPendingRead()
         worker.execute {
             try {
@@ -862,7 +953,7 @@ internal class SenPlayerVideoEngine(
             } catch (error: Throwable) {
                 completed.completeExceptionally(error)
             } finally {
-                worker.shutdownNow()
+                worker.shutdown()
             }
         }
     }
@@ -876,11 +967,17 @@ internal class SenPlayerVideoEngine(
 @Composable
 internal fun SenPlayerSurface(
     engine: SenPlayerVideoEngine,
+    controls: SubtitleControlState,
+    videoSize: IntSize,
     modifier: Modifier = Modifier,
 ) {
+    var container by remember { mutableStateOf(IntSize.Zero) }
+    val picture = core2SurfaceSize(container = container, video = videoSize, scaleMode = VideoScaleMode.Fit)
+    val region = nativeSubtitleRegion(container, picture, controls)
+    LaunchedEffect(engine, region.useBlackBar) { engine.setSubtitleMargins(region.useBlackBar) }
     AndroidView(
         factory = { context -> SenPlayerSurfaceHost(context).also(engine::attach) },
-        modifier = modifier,
+        modifier = modifier.onSizeChanged { container = it },
         update = engine::attach,
         onRelease = engine::detach,
     )
@@ -901,6 +998,10 @@ internal class SenPlayerSurfaceHost(
     fun owns(holder: SurfaceHolder): Boolean = holder === video.holder || holder === subtitles.holder
 
     init {
+        if (Build.VERSION.SDK_INT >= 34) {
+            video.setSurfaceLifecycle(SurfaceView.SURFACE_LIFECYCLE_FOLLOWS_ATTACHMENT)
+            subtitles.setSurfaceLifecycle(SurfaceView.SURFACE_LIFECYCLE_FOLLOWS_ATTACHMENT)
+        }
         addView(video, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         addView(subtitles, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
     }

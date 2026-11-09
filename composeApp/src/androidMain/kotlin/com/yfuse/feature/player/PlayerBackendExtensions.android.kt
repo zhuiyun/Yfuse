@@ -51,6 +51,8 @@ internal class PlayerBackendExtensions(
 
     fun setSubtitleScale(scale: Float): Boolean = engine.setSubtitleScale(scale)
 
+    fun setSecondarySubtitleScale(scale: Float) = (engine as? SenPlayerVideoEngine)?.setSecondarySubtitleScale(scale)
+
     fun setSubtitleBrightness(brightness: Float): Boolean = engine.setSubtitleBrightness(brightness)
 
     fun setSubtitlePosition(position: Float): Boolean = engine.setSubtitlePosition(position)

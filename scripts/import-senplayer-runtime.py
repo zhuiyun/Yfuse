@@ -8,7 +8,7 @@ import sys
 import zipfile
 
 EXPECTED_APK_SHA256 = "45a9deb5018cb705432604b564189cf067473e0f52706544706457655ec5fe4c"
-DEFAULT_APK = pathlib.Path(r"C:\Users\app-inkbird\Downloads\SenPlayer.apk")
+DEFAULT_APK = pathlib.Path("C:/Users/app-inkbird/Downloads/SenPlayer.apk")
 DEFAULT_DESTINATION = pathlib.Path(__file__).resolve().parents[1] / "senplayerBridge/src/main/assets/senplayer"
 RUNTIMES = ("libFFmpegKit.so", "libMLibKit.so", "libc++_shared.so")
 FILES = {

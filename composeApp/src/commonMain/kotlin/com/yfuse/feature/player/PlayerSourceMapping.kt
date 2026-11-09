@@ -1,5 +1,6 @@
 package com.yfuse.feature.player
 
+import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.model.MediaVersion
 import com.yfuse.core.model.PlaybackMethod
 import com.yfuse.core.model.SubtitleTrackInfo
@@ -17,6 +18,7 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
     negotiatedPlaySessionId: String? = null,
     localCleartextConfirmed: Boolean = false,
     userId: String? = null,
+    serverKind: MediaServerKind = MediaServerKind.Emby,
 ): List<PlayerMediaVersion> =
     map { version ->
         val preferredAudio =
@@ -168,6 +170,7 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
                         if (!track.external) return@mapNotNull null
                         val uri =
                             track.playbackSidecarUrl(
+                                serverKind = serverKind,
                                 baseUrl = baseUrl,
                                 itemId = itemId,
                                 mediaSourceId = version.id,
@@ -193,6 +196,7 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
  * by index. Absolute provider URLs (Plex, a CDN) are kept as they are.
  */
 private fun SubtitleTrackInfo.playbackSidecarUrl(
+    serverKind: MediaServerKind,
     baseUrl: String,
     itemId: String,
     mediaSourceId: String,
@@ -200,16 +204,22 @@ private fun SubtitleTrackInfo.playbackSidecarUrl(
     localCleartextConfirmed: Boolean,
     userId: String?,
 ): String? {
-    val raw = uri?.trim()?.takeIf(String::isNotEmpty) ?: return null
+    val raw = uri.orEmpty().trim()
     val webUrl = raw.substringBefore("://", missingDelimiterValue = "").lowercase() in setOf("http", "https")
-    if (uriIsSidecarPath && !webUrl) {
+    if (raw.isEmpty() || uriIsSidecarPath && !webUrl) {
+        if (serverKind == MediaServerKind.Plex || index == null || index < 0) return null
         return EmbyStream.subtitle(
             baseUrl = baseUrl,
             itemId = itemId,
             mediaSourceId = mediaSourceId,
-            streamIndex = index ?: return null,
+            streamIndex = index,
             token = token,
-            format = codec?.lowercase()?.takeIf { it in setOf("ass", "ssa", "vtt") } ?: "srt",
+            format =
+                when (val format = codec?.lowercase()) {
+                    "ass", "ssa", "vtt" -> format
+                    "webvtt" -> "vtt"
+                    else -> "srt"
+                },
         )
     }
     return EmbyStream.negotiatedUrl(
@@ -280,9 +290,31 @@ internal fun List<MediaVersion>.preservingSourceMetadataFrom(detailVersions: Lis
             videoType = negotiated.videoType ?: detail.videoType,
             video = negotiated.video ?: detail.video,
             audioTracks = negotiated.audioTracks.ifEmpty { detail.audioTracks },
-            subtitleTracks = negotiated.subtitleTracks.ifEmpty { detail.subtitleTracks },
+            subtitleTracks =
+                if (negotiated.id == detail.id) {
+                    negotiated.subtitleTracks.withDetailSidecars(detail.subtitleTracks)
+                } else {
+                    negotiated.subtitleTracks.ifEmpty { detail.subtitleTracks }
+                },
         )
     }
+
+/** A direct-play negotiation may return only the MKV tracks, or omit a sidecar's delivery URL. */
+private fun List<SubtitleTrackInfo>.withDetailSidecars(detail: List<SubtitleTrackInfo>): List<SubtitleTrackInfo> {
+    if (isEmpty()) return detail
+    val sidecars = detail.filter { it.external }
+
+    fun SubtitleTrackInfo.matches(other: SubtitleTrackInfo): Boolean =
+        index != null && index == other.index || !uri.isNullOrBlank() && uri == other.uri
+    return map { track ->
+        val full = sidecars.firstOrNull { track.matches(it) }
+        if (track.external && track.uri.isNullOrBlank() && full != null) {
+            track.copy(uri = full.uri, uriIsSidecarPath = full.uriIsSidecarPath)
+        } else {
+            track
+        }
+    } + sidecars.filterNot { sidecar -> any { it.matches(sidecar) } }
+}
 
 internal data class PlaybackSourceMismatch(
     val expectedSizeBytes: Long?,
