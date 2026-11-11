@@ -1,6 +1,7 @@
 import importlib.util
 import json
 import tempfile
+from types import SimpleNamespace
 import unittest
 import zipfile
 from pathlib import Path
@@ -86,6 +87,36 @@ class PreparePlaybackInputsTest(unittest.TestCase):
         (self.sen / "classes.dex").write_bytes(b"changed")
         with self.assertRaisesRegex(ValueError, "checksum mismatch"):
             prepare.prepare(self.root, {}, mock.Mock())
+
+    def test_source_build_has_separate_verified_identity_without_rewriting_old_pin(self):
+        original_pins = (self.root / "scripts/playback-runtime-inputs.json").read_bytes()
+        self.ycore.write_bytes(self.ycore.read_bytes() + b"new source output")
+        new_pin = dict(self.pins["ycore"], bytes=self.ycore.stat().st_size,
+                       sha256=prepare.sha256(self.ycore.read_bytes()))
+        verify = mock.Mock(return_value={"ycore": new_pin})
+        module = SimpleNamespace(verify_receipt=verify)
+        spec = SimpleNamespace(loader=SimpleNamespace(exec_module=mock.Mock()))
+        env = {"YCORE_SOURCE_RECEIPT": str(self.root / "source-build.json"),
+               "YCORE_SOURCE_COMMIT": "b" * 40, "GITHUB_SHA": "c" * 40, "SOURCE_COMMIT": "b" * 40,
+               "YCORE_SOURCE_AAR_SHA256": new_pin["sha256"],
+               "YCORE_SOURCE_PROVENANCE_SHA256": new_pin["provenanceSha256"]}
+        with mock.patch.object(prepare.importlib.util, "spec_from_file_location", return_value=spec), \
+             mock.patch.object(prepare.importlib.util, "module_from_spec", return_value=module):
+            result = prepare.prepare(self.root, env, mock.Mock())
+        self.assertEqual("verified-source-build", result["ycoreInputKind"])
+        self.assertEqual(new_pin["sha256"], result["ycoreSha256"])
+        verify.assert_called_once_with(self.root, self.ycore, self.root / "source-build.json",
+                                       new_pin["sha256"], new_pin["provenanceSha256"], "b" * 40)
+        self.assertEqual(original_pins, (self.root / "scripts/playback-runtime-inputs.json").read_bytes())
+
+    def test_partial_or_different_commit_source_identity_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "Incomplete source-built"):
+            prepare.prepare(self.root, {"YCORE_SOURCE_RECEIPT": "receipt"}, mock.Mock())
+        env = {key: "x" for key in ("YCORE_SOURCE_RECEIPT", "YCORE_SOURCE_AAR_SHA256",
+                                   "YCORE_SOURCE_PROVENANCE_SHA256", "YCORE_SOURCE_COMMIT")}
+        env["GITHUB_SHA"] = "different"
+        with self.assertRaisesRegex(ValueError, "application commit"):
+            prepare.prepare(self.root, env, mock.Mock())
 
     def test_http_input_and_downgrade_redirect_are_rejected_before_network(self):
         with self.assertRaisesRegex(ValueError, "must use HTTPS"):

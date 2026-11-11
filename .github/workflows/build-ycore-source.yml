@@ -1,0 +1,163 @@
+name: Build YCore from this source
+
+on:
+  workflow_call:
+    outputs:
+      artifact_id:
+        description: Immutable artifact ID from this native build
+        value: ${{ jobs.build.outputs.artifact_id }}
+      artifact_name:
+        description: Name of the standalone native artifact
+        value: ${{ jobs.build.outputs.artifact_name }}
+      aar_sha256:
+        description: SHA-256 of the newly built standalone AAR, not the historical release pin
+        value: ${{ jobs.build.outputs.aar_sha256 }}
+      provenance_sha256:
+        description: SHA-256 of the embedded native provenance
+        value: ${{ jobs.build.outputs.provenance_sha256 }}
+      aar_bytes:
+        description: Byte size of the newly built AAR
+        value: ${{ jobs.build.outputs.aar_bytes }}
+      source_commit:
+        description: Exact checked-out source commit
+        value: ${{ jobs.build.outputs.source_commit }}
+  workflow_dispatch:
+
+# No signing, production input URLs, environment secrets, or release permissions.
+# The historical builder still compiles an intermediate carrier. Only the verified
+# standalone YCore closure is exported; it never becomes the old fixed input pin.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Compile and verify standalone YCore (arm64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    env:
+      IN_CI: "1"
+      # The upstream wrapper invokes WGET as a command. This audited replacement
+      # pins gas-preprocessor and verifies Lua before handing bytes to tar.
+      WGET: ${{ github.workspace }}/scripts/native-build-download.py
+      YCORE_DOWNLOAD_RECEIPTS: ${{ github.workspace }}/.native-build/downloads.jsonl
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_name: ${{ steps.identity.outputs.artifact_name }}
+      aar_sha256: ${{ steps.receipt.outputs.aar_sha256 }}
+      provenance_sha256: ${{ steps.receipt.outputs.provenance_sha256 }}
+      aar_bytes: ${{ steps.receipt.outputs.aar_bytes }}
+      source_commit: ${{ steps.receipt.outputs.source_commit }}
+    steps:
+      - name: Check out the exact calling commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Java 21
+        uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Install the native build toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y \
+            autoconf automake binutils build-essential cmake curl git gperf libtool \
+            nasm ninja-build perl pkg-config python3 python3-venv time unzip wget xz-utils yasm
+          python3 -m venv "$RUNNER_TEMP/yfuse-native-python"
+          "$RUNNER_TEMP/yfuse-native-python/bin/pip" install --disable-pip-version-check \
+            'Jinja2==3.1.6' 'meson==1.6.1'
+          echo "$RUNNER_TEMP/yfuse-native-python/bin" >> "$GITHUB_PATH"
+          chmod +x scripts/native-build-download.py
+          df -h .
+
+      - name: Verify source receipt and download boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -m unittest discover -s scripts/tests -p test_ycore_source_receipt.py -v
+          python3 -m unittest discover -s scripts/tests -p test_native_build_download.py -v
+          python3 scripts/package-ycore-native-aar.py --self-test
+          bash -n scripts/build-ycore-native.sh scripts/build-ycore-demux.sh
+
+      - name: Build the current YCore sources and pinned core dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          # No dependency cache on the first source pipeline: never restore an
+          # unverified native output or mistake a stale JNI library for this commit.
+          /usr/bin/time -v bash scripts/build-ycore-native.sh --arch arm64
+
+      - name: Verify and stage only the standalone YCore artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/verify-ycore-native.sh
+          mkdir -p .native-build/standalone-release
+          install -m 0644 .native-build/artifacts/ycore-native.aar \
+            .native-build/standalone-release/ycore-native.aar
+          install -m 0644 .native-build/artifacts/ycore-native.aar.sha256 \
+            .native-build/standalone-release/ycore-native.aar.sha256
+          install -m 0644 .native-build/artifacts/NATIVE-SOURCES.txt \
+            .native-build/standalone-release/NATIVE-SOURCES.txt
+
+      - name: Bind artifact, provenance, licenses and source commit
+        id: receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ycore-source-receipt.py create \
+            --root "$GITHUB_WORKSPACE" \
+            --artifact-dir .native-build/standalone-release \
+            --upstream .native-build/yfuse-mpv/source \
+            --download-receipts .native-build/downloads.jsonl \
+            --source-commit "$GITHUB_SHA" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Name the immutable native artifact
+        id: identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "artifact_name=ycore-source-${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload verified source-built YCore without intermediate carriers
+        id: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: ${{ steps.identity.outputs.artifact_name }}
+          path: |
+            .native-build/standalone-release/ycore-native.aar
+            .native-build/standalone-release/ycore-native.aar.sha256
+            .native-build/standalone-release/NATIVE-SOURCES.txt
+            .native-build/standalone-release/source-build.json
+            .native-build/standalone-release/licenses/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+
+      - name: Record native build identity
+        env:
+          AAR_SHA: ${{ steps.receipt.outputs.aar_sha256 }}
+          PROVENANCE_SHA: ${{ steps.receipt.outputs.provenance_sha256 }}
+          AAR_BYTES: ${{ steps.receipt.outputs.aar_bytes }}
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo '### Source-built YCore'
+            echo "Source commit: $GITHUB_SHA"
+            echo "AAR SHA-256: $AAR_SHA"
+            echo "Provenance SHA-256: $PROVENANCE_SHA"
+            echo "AAR bytes: $AAR_BYTES"
+            echo "Artifact ID: $ARTIFACT_ID"
+            echo 'New source output; historical production input pin was not changed.'
+            echo 'Native static gates passed. Device playback and redistribution review are separate gates.'
+            echo 'No SenPlayer payload, intermediate MPV carrier, or APK was exported.'
+          } >> "$GITHUB_STEP_SUMMARY"

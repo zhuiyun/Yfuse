@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare fixed YCore/SenPlayer inputs; never fetch or build MPV/MDK as a fallback."""
+"""Prepare verified YCore/SenPlayer inputs without legacy engine fallbacks."""
 import hashlib
 import importlib.util
 import io
@@ -64,9 +64,15 @@ def verify_ycore(data, pin):
 
 
 def input_path(root, environment, prefix, destination, fetch):
+    configured = environment.get(prefix + "_PATH")
+    # A source artifact carries sibling provenance. Always validate that explicit bundle,
+    # including when an earlier attempt installed the AAR before a SenPlayer input failure.
+    if prefix == "YCORE_NATIVE_AAR" and environment.get("YCORE_SOURCE_RECEIPT") and configured:
+        source = Path(configured)
+        require(source.is_file(), "Configured source-built YCore AAR does not name a file")
+        return source
     if destination.is_file():
         return destination
-    configured = environment.get(prefix + "_PATH")
     if configured:
         source = Path(configured)
         require(source.is_file(), f"Configured {prefix}_PATH does not name a file")
@@ -101,6 +107,25 @@ def verify_sen_assets(directory, expected_source):
     return manifest
 
 
+def ycore_pin(root, source, pins, environment):
+    keys = ("YCORE_SOURCE_RECEIPT", "YCORE_SOURCE_AAR_SHA256",
+            "YCORE_SOURCE_PROVENANCE_SHA256", "YCORE_SOURCE_COMMIT")
+    if not any(environment.get(key) for key in keys):
+        return pins["ycore"], "historical-pinned-input"
+    require(all(environment.get(key) for key in keys), "Incomplete source-built YCore identity")
+    expected_commit = environment["YCORE_SOURCE_COMMIT"]
+    require(environment.get("SOURCE_COMMIT", environment.get("GITHUB_SHA", expected_commit)) == expected_commit,
+            "Source-built YCore does not belong to this application commit")
+    spec = importlib.util.spec_from_file_location("ycore_source_receipt", root / "scripts/ycore-source-receipt.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    receipt = module.verify_receipt(
+        root, source, Path(environment["YCORE_SOURCE_RECEIPT"]),
+        environment["YCORE_SOURCE_AAR_SHA256"], environment["YCORE_SOURCE_PROVENANCE_SHA256"],
+        expected_commit)
+    return receipt["ycore"], "verified-source-build"
+
+
 def prepare(root=ROOT, environment=None, fetch=download):
     environment = os.environ if environment is None else environment
     pins = json.loads((root / "scripts/playback-runtime-inputs.json").read_text(encoding="utf-8"))
@@ -108,11 +133,12 @@ def prepare(root=ROOT, environment=None, fetch=download):
     source = input_path(root, environment, "YCORE_NATIVE_AAR", destination, fetch)
     try:
         data = source.read_bytes()
-        provenance = verify_ycore(data, pins["ycore"])
+        expected_ycore, input_kind = ycore_pin(root, source, pins, environment)
+        provenance = verify_ycore(data, expected_ycore)
         destination.parent.mkdir(parents=True, exist_ok=True)
         if source != destination:
             destination.write_bytes(data)
-        (destination.parent / "ycore-native.aar.sha256").write_text(pins["ycore"]["sha256"] + "  ycore-native.aar\n", encoding="utf-8")
+        (destination.parent / "ycore-native.aar.sha256").write_text(expected_ycore["sha256"] + "  ycore-native.aar\n", encoding="utf-8")
         (destination.parent / "ycore-native.sources.txt").write_bytes(provenance)
     finally:
         if source.parent == root / "build/playback-input-downloads":
@@ -132,7 +158,8 @@ def prepare(root=ROOT, environment=None, fetch=download):
             if source.parent == root / "build/playback-input-downloads":
                 source.unlink(missing_ok=True)
     verify_sen_assets(directory, pins["senPlayerSourceApkSha256"])
-    return {"profile": pins["profile"], "ycoreSha256": pins["ycore"]["sha256"], "senPlayerOriginalAssets": 5}
+    return {"profile": pins["profile"], "ycoreSha256": expected_ycore["sha256"],
+            "ycoreInputKind": input_kind, "senPlayerOriginalAssets": 5}
 
 
 def main():

@@ -1,13 +1,17 @@
 # Automatic Android builds in GitHub Releases
 
-Every push to `master` starts **Publish Android update**, even when `version.properties`
-does not change. Each push has its own concurrency group, as do its Android quality gates.
-A newer pending push therefore cannot displace an older one. Other branches and pull
-requests do not receive production signing or publish packages.
+Every push to `master` starts **Android quality gates**, including a source-built YCore,
+even when `version.properties` does not change. A successful master-push quality run then
+starts **Publish Android update** automatically through `workflow_run`. Each push and its
+release continuation have their own concurrency groups, so a newer pending push cannot
+displace an older one. There is no release runner waiting through the native/Android jobs.
+Other branches and pull requests do not receive production signing or publish packages.
 
-The automatic path builds the `ycore-senplayer` profile, waits for that exact commit's
-quality gates, signs with the existing production certificate, and installs/starts the
-signed APK on Android 35, 36 and 37. Only then may it publish a GitHub Release.
+The automatic path builds YCore from the exact source commit in the Android quality
+workflow, then tests the `ycore-senplayer` profile using that immutable native artifact.
+Only after the quality workflow succeeds does the release build consume the same AAR,
+sign with the existing production certificate, and install/start the signed APK on
+Android 35, 36 and 37. Only then may it publish a GitHub Release.
 The build, signing, version-allocation and public-upload jobs remain separate. The
 production keystore is not available to Gradle or the release-upload tooling.
 
@@ -16,8 +20,8 @@ production keystore is not available to Gradle or the release-upload tooling.
 `config/automatic-release-baseline.json` records the last known delivery floor, including
 the privately delivered **1.9.5 (347)**, which is newer than the anchor commit's checked-in
 1.9.4 (346). Each subsequent first-parent master commit advances both numbers; an explicit
-larger version in source is respected. The first automatic delivery after this anchor is
-therefore **1.9.6 (348)**. A retry of the same commit computes the same identity.
+larger version in source is respected. The first automatic identity after this anchor is
+therefore **1.9.6 (348)**; failed commits need not produce a delivered package. A retry of the same commit computes the same identity.
 
 Version names retain three one-digit components: 1.9.9 becomes 2.0.0. Exhausting 9.9.9
 fails with an explicit request for a new policy rather than generating an invalid version.
@@ -60,14 +64,39 @@ the repository: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID
 and `ANDROID_KEY_PASSWORD`. Their certificate must match the existing pinned SHA-256;
 neither a new key nor a debug signature is an acceptable delivery substitute.
 
-It must also provide authorized HTTPS locations through `YCORE_NATIVE_AAR_URL` and
-`SENPLAYER_SOURCE_APK_URL`. The input-preparation step enforces the fixed hashes and exact
-original asset inventory in `scripts/playback-runtime-inputs.json`. Private URLs are not
-logged or published. There is no fallback to obsolete engines, fabricated assets or a
-YCore-only package. Existing license checks and native input pins are unchanged.
+The repository must provide an authorized private HTTPS location through
+`SENPLAYER_SOURCE_APK_URL` to the quality jobs and the production build. An environment-only
+secret does not reach the quality jobs, which do not hold production signing access.
+The input-preparation step enforces the fixed original APK hash and exact five-asset
+inventory in `scripts/playback-runtime-inputs.json`. Private URLs are not logged or published.
+There is no fallback to obsolete engines, fabricated assets or a YCore-only package.
+Fork pull requests do not receive the private input or production credentials.
 
-At the time this automation was added, the latest remote build failed because these
-inputs were unavailable. Configuration tests do not establish a successful APK delivery;
+YCore no longer needs a download URL in the automatic quality/release path. The reusable
+`build-ycore-source.yml` job builds the current Android JNI/Vulkan sources and pinned
+native dependency chain without signing secrets or SenPlayer inputs. It verifies the
+standalone AAR, records the source commit/file hashes and the new AAR/provenance hashes,
+and uploads only the explicit native artifact files. This is a new source build, not a
+claim to reproduce the historical `10873c...` AAR byte for byte. The old pin remains intact
+for existing local/legacy callers; only an explicit, complete source-build receipt opts
+into the new path. Other auxiliary workflows which still use the historical input route
+need separate migration before they can consume source-built artifacts.
+
+Both Android quality jobs download the same immutable artifact ID. After all quality
+jobs pass, `approved-native` records the exact ID, hashes, source commit and run attempt.
+The release build accepts that record only from a successful master push quality run for
+its exact source SHA. Every checkout, embedded build revision, version request and release
+tag stays bound to that completed run, even if master advances before publication. Failed-job retries retain the selected artifact identity. Signature,
+DEX, native dependency closure, 16 KiB alignment and signed-APK startup checks remain in
+place. Startup checks are not a substitute for real-media playback/device regression.
+
+The cold source job has a 240-minute timeout, not a measured duration guarantee. It still
+uses the existing dependency/carrier build tooling internally, but MPV/MDK libraries and
+carrier artifacts are not shipped as YCore. FFmpeg's configured GPL/version3 license and
+all native notices remain applicable; rebuilding does not remove distribution obligations.
+
+At the time this automation was added, the latest remote build failed because the
+historical YCore input and private SenPlayer download location were unavailable. Configuration tests do not establish a successful APK delivery;
 the first end-to-end release remains blocked until the verified inputs are available.
 
 ## Manual server deployment remains explicit

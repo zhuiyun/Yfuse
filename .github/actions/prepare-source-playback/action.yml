@@ -1,0 +1,42 @@
+name: Prepare source-built YCore and original SenPlayer
+description: Consume one hash-bound YCore source artifact and the unchanged private SenPlayer input.
+inputs:
+  artifact-id:
+    required: true
+    description: Immutable Actions artifact ID produced by this source build.
+  run-id:
+    required: true
+    description: Workflow run that produced the artifact.
+  aar-sha256:
+    required: true
+    description: Expected AAR SHA-256 from the verified producer job.
+  provenance-sha256:
+    required: true
+    description: Expected embedded provenance SHA-256 from the producer job.
+  source-commit:
+    required: true
+    description: Exact application source commit compiled by the producer.
+runs:
+  using: composite
+  steps:
+    - name: Download the immutable source-built YCore artifact
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+      with:
+        artifact-ids: ${{ inputs.artifact-id }}
+        run-id: ${{ inputs.run-id }}
+        github-token: ${{ github.token }}
+        path: build/ycore-source
+        merge-multiple: true
+    - name: Verify source identity and prepare original runtime inputs
+      shell: bash
+      env:
+        YCORE_NATIVE_AAR_PATH: ${{ github.workspace }}/build/ycore-source/ycore-native.aar
+        YCORE_SOURCE_RECEIPT: ${{ github.workspace }}/build/ycore-source/source-build.json
+        YCORE_SOURCE_AAR_SHA256: ${{ inputs.aar-sha256 }}
+        YCORE_SOURCE_PROVENANCE_SHA256: ${{ inputs.provenance-sha256 }}
+        YCORE_SOURCE_COMMIT: ${{ inputs.source-commit }}
+      run: |
+        set -euo pipefail
+        python3 scripts/prepare-playback-inputs.py
+        bash scripts/verify-ycore-native.sh composeApp/libs/ycore-native.aar \
+          composeApp/libs/ycore-native.aar.sha256 composeApp/libs/ycore-native.sources.txt

@@ -206,6 +206,14 @@ class PublisherTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Manual artifact-only"):
             publisher.prepare(self.apk, self.request, self.output, self.env)
 
+    def test_workflow_run_does_not_confuse_new_master_tip_with_completed_source(self):
+        advanced = dict(self.env, GITHUB_SHA="b" * 40)
+        with self.assertRaisesRegex(ValueError, "different source"):
+            publisher.prepare(self.apk, self.request, self.output, advanced)
+        info, _ = publisher.prepare(self.apk, self.request, self.output,
+                                    dict(advanced, SOURCE_COMMIT="a" * 40))
+        self.assertEqual("a" * 40, info["sourceCommit"])
+
     def test_complete_release_uploads_verifies_then_publishes_without_latest(self):
         info, files = publisher.prepare(self.apk, self.request, self.output, self.env)
         fake = FakeGitHub()
@@ -271,12 +279,12 @@ class AutomaticWorkflowTest(unittest.TestCase):
     def test_every_master_push_has_independent_runs_and_production_smoke_gate(self):
         workflow = (ROOT / ".github/workflows/publish-android.yml").read_text()
         trigger = workflow.split("  workflow_dispatch:", 1)[0]
-        self.assertIn("  push:\n    branches:\n      - master\n", trigger)
+        self.assertIn("  workflow_run:\n    workflows: [Android quality gates]\n    types: [completed]\n    branches: [master]\n", trigger)
         self.assertNotIn("paths:", trigger)
-        self.assertIn("group: android-production-publish-${{ github.event_name == 'push' && github.run_id || 'manual' }}", workflow)
+        self.assertIn("group: android-production-publish-${{ github.event_name == 'workflow_run' && github.run_id || 'manual' }}", workflow)
         release = workflow.split("\n  github-release:\n", 1)[1].split("\n  deploy:\n", 1)[0]
         self.assertIn("needs: [request, sign, smoke, release-identity]", release)
-        self.assertIn("if: github.event_name == 'push'", release)
+        self.assertIn("if: github.event_name == 'workflow_run'", release)
         self.assertNotIn("secrets.", release)
         self.assertNotIn("-PyfuseVersionCode=", workflow)
         self.assertNotIn("-PyfuseVersionName=", workflow)
@@ -284,7 +292,7 @@ class AutomaticWorkflowTest(unittest.TestCase):
         self.assertIn("automatic_release_metadata.py verify", workflow)
         allocation = workflow.split("\n  release-identity:\n", 1)[1].split("\n  github-release:\n", 1)[0]
         self.assertIn("needs: [request, sign, smoke]", allocation)
-        self.assertIn("if: github.event_name == 'push' || needs.request.outputs.publish == 'true'", allocation)
+        self.assertIn("if: github.event_name == 'workflow_run' || needs.request.outputs.publish == 'true'", allocation)
         self.assertIn("--reserve-only", allocation)
         deploy = workflow.split("\n  deploy:\n", 1)[1]
         self.assertIn("needs: [request, sign, smoke, release-identity]", deploy)

@@ -36,7 +36,7 @@ KEYSTORE = {"ANDROID_KEYSTORE_BASE64", "ANDROID_KEYSTORE_PASSWORD", "ANDROID_KEY
 SECRETS_BY_JOB = {
     "request": {"UPDATE_MANIFEST_SIGNING_KEY"},
     "gates": set(),
-    "build": {"YCORE_NATIVE_AAR_URL", "SENPLAYER_SOURCE_APK_URL"},
+    "build": {"SENPLAYER_SOURCE_APK_URL"},
     "sign": KEYSTORE,
     "smoke": set(),
     "release-identity": set(),
@@ -128,7 +128,7 @@ class PublishJobSplitTest(unittest.TestCase):
                 if SECRETS_BY_JOB[name]:
                     self.assertIn("    environment:\n      name: production\n", block)
                 # Package-only runs build, sign and save the package through the same jobs.
-                if name not in {"github-release", "deploy"}:
+                if name not in {"request", "github-release", "deploy"}:
                     self.assertNotRegex(block, r"(?m)^    if:")
 
     def test_signing_waits_for_the_gates_and_publishing_follows_signing(self):

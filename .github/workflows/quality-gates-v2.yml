@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: quality-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
@@ -17,6 +18,10 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  native:
+    name: Compile this commit's YCore runtime
+    uses: ./.github/workflows/build-ycore-source.yml
+
   fast-jvm:
     name: Backend, protocol and server tests
     runs-on: ubuntu-24.04
@@ -78,6 +83,7 @@ jobs:
         run: node --test castReceiver/receiver.test.cjs watchTogetherServer/calendarRenderer/*.test.mjs
 
   verify:
+    needs: native
     name: Compile, test, lint, and verify design contracts
     runs-on: ubuntu-24.04
     # Cold pinned native dependency bootstrap can take as long as the dedicated native build.
@@ -105,16 +111,16 @@ jobs:
           test -x "$sdkmanager"
           yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
           "$sdkmanager" "platforms;android-37.0" "ndk;29.0.14206865" "cmake;3.22.1"
-      - name: Prepare pinned YCore and SenPlayer inputs
+      - name: Prepare source-built YCore and original SenPlayer inputs
+        uses: ./.github/actions/prepare-source-playback
         env:
-          YCORE_NATIVE_AAR_URL: ${{ secrets.YCORE_NATIVE_AAR_URL }}
           SENPLAYER_SOURCE_APK_URL: ${{ secrets.SENPLAYER_SOURCE_APK_URL }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          chmod +x gradlew scripts/fetch-engines.sh
-          scripts/fetch-engines.sh
-          test -s composeApp/libs/ycore-native.aar
+        with:
+          artifact-id: ${{ needs.native.outputs.artifact_id }}
+          run-id: ${{ github.run_id }}
+          aar-sha256: ${{ needs.native.outputs.aar_sha256 }}
+          provenance-sha256: ${{ needs.native.outputs.provenance_sha256 }}
+          source-commit: ${{ needs.native.outputs.source_commit }}
       # Formatting is recorded here and enforced at the end of the job, so a line-wrap
       # violation can no longer hide the compile, test, lint and release signals behind it.
       - name: Record ktlint violations
@@ -332,6 +338,7 @@ jobs:
   # master push, beside `verify` rather than after it: with the native dependency cache warm it
   # costs the Kotlin build, one emulator boot and the tests, and it never delays the other gates.
   instrumented:
+    needs: native
     name: Instrumented tests on Android API ${{ matrix.api }}
     runs-on: ubuntu-24.04
     strategy:
@@ -373,16 +380,16 @@ jobs:
           test -x "$sdkmanager"
           yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
           "$sdkmanager" "platforms;android-37.0" "ndk;29.0.14206865" "cmake;3.22.1"
-      - name: Prepare pinned YCore and SenPlayer inputs
+      - name: Prepare source-built YCore and original SenPlayer inputs
+        uses: ./.github/actions/prepare-source-playback
         env:
-          YCORE_NATIVE_AAR_URL: ${{ secrets.YCORE_NATIVE_AAR_URL }}
           SENPLAYER_SOURCE_APK_URL: ${{ secrets.SENPLAYER_SOURCE_APK_URL }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          chmod +x gradlew scripts/fetch-engines.sh
-          scripts/fetch-engines.sh
-          test -s composeApp/libs/ycore-native.aar
+        with:
+          artifact-id: ${{ needs.native.outputs.artifact_id }}
+          run-id: ${{ github.run_id }}
+          aar-sha256: ${{ needs.native.outputs.aar_sha256 }}
+          provenance-sha256: ${{ needs.native.outputs.provenance_sha256 }}
+          source-commit: ${{ needs.native.outputs.source_commit }}
       # The playback tests refuse the production application id so they can never touch a real
       # installation's data; they install as com.yfuse.validation, as the device-gate docs do.
       - name: Build the debug app and its instrumented test APK
@@ -490,3 +497,37 @@ jobs:
           path: build/sbom/yfuse.spdx.json
           if-no-files-found: error
           retention-days: 7
+
+  approved-native:
+    name: Record the YCore artifact approved by all quality gates
+    needs: [native, verify, instrumented, fast-jvm, fast-contracts, supply-chain]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Write the approved source artifact identity
+        env:
+          NATIVE_ARTIFACT_ID: ${{ needs.native.outputs.artifact_id }}
+          NATIVE_AAR_SHA256: ${{ needs.native.outputs.aar_sha256 }}
+          NATIVE_PROVENANCE_SHA256: ${{ needs.native.outputs.provenance_sha256 }}
+          NATIVE_SOURCE_COMMIT: ${{ needs.native.outputs.source_commit }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYCODE'
+          import json, os, pathlib, re
+          env = os.environ
+          assert re.fullmatch(r'[1-9][0-9]*', env['NATIVE_ARTIFACT_ID'])
+          assert env['NATIVE_SOURCE_COMMIT'] == env['GITHUB_SHA']
+          assert all(re.fullmatch(r'[0-9a-f]{64}', env[key]) for key in ('NATIVE_AAR_SHA256', 'NATIVE_PROVENANCE_SHA256'))
+          record = {'sourceCommit': env['GITHUB_SHA'], 'runId': int(env['GITHUB_RUN_ID']),
+                    'runAttempt': int(env['GITHUB_RUN_ATTEMPT']), 'artifactId': int(env['NATIVE_ARTIFACT_ID']),
+                    'aarSha256': env['NATIVE_AAR_SHA256'], 'provenanceSha256': env['NATIVE_PROVENANCE_SHA256']}
+          pathlib.Path('approved-native.json').write_text(json.dumps(record, indent=2) + '\n')
+          PYCODE
+      - name: Save the approved source artifact identity
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: approved-ycore-${{ github.run_attempt }}
+          path: approved-native.json
+          if-no-files-found: error
+          retention-days: 30

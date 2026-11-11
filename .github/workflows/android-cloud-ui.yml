@@ -8,6 +8,10 @@ on:
   # installed that build on Android 17.
   workflow_call:
     inputs:
+      source_sha:
+        description: Exact source commit for the calling signed package
+        required: true
+        type: string
       apk_artifact:
         description: Artifact of the calling run that holds only the signed APK
         required: true

@@ -51,7 +51,7 @@ class PublishPackageOnlyTest(unittest.TestCase):
         workflow = (WORKFLOWS / "publish-android.yml").read_text()
         self.assertIn("      PUBLISH_UPDATE: 'false'\n", workflow)
         job_header = workflow.split("\n  request:\n", 1)[1].split("    steps:\n", 1)[0]
-        self.assertNotRegex(job_header, r"(?m)^    if:")
+        self.assertIn("github.event.workflow_run.conclusion == 'success'", job_header)
         publish_input = workflow.split("      publish:\n", 1)[1].split("\npermissions:", 1)[0]
         self.assertIn("default: true", publish_input)
         self.assertIn("type: boolean", publish_input)
@@ -59,10 +59,10 @@ class PublishPackageOnlyTest(unittest.TestCase):
     def test_publication_mode_handles_pushes_and_manual_requests(self):
         resolve = script(step("publish-android.yml", "Resolve publication mode"))
         cases = (
-            ("push", "Release 1.0.89", "", "false"),
-            ("push", "Release 1.0.89 [artifact only]", "", "false"),
-            ("push", "Merge pull request #200\n\n[ARTIFACT ONLY]", "true", "false"),
-            ("push", "[artifact only] $(exit 99) `exit 99`", "", "false"),
+            ("workflow_run", "Release 1.0.89", "", "false"),
+            ("workflow_run", "Release 1.0.89 [artifact only]", "", "false"),
+            ("workflow_run", "Merge pull request #200\n\n[ARTIFACT ONLY]", "true", "false"),
+            ("workflow_run", "[artifact only] $(exit 99) `exit 99`", "", "false"),
             ("workflow_dispatch", "", "false", "false"),
             ("workflow_dispatch", "[artifact only]", "true", "true"),
             ("workflow_dispatch", "", "", None),
@@ -121,11 +121,12 @@ class PublishPackageOnlyTest(unittest.TestCase):
         for publish, package_only in (("true", "false"), ("false", "true")):
             with self.subTest(publish=publish):
                 result, _ = run_with_fake("gradlew", 'printf "%s\\n" "$@"\n', build.replace("./gradlew", "gradlew"), {
-                    "PUBLISH_UPDATE": publish, "VERSION_CODE": "248", "VERSION_NAME": "1.0.86",
+                    "PUBLISH_UPDATE": publish, "VERSION_CODE": "248", "VERSION_NAME": "1.0.86", "SOURCE_COMMIT": "a" * 40,
                 })
                 self.assertEqual(0, result.returncode, result.stderr)
                 self.assertIn("-PyfusePackageOnly=" + package_only, result.stdout.splitlines())
                 self.assertIn("-PyfuseNativeOnlyRuntime=true", result.stdout.splitlines())
+                self.assertIn("-PyfuseBuildRevision=" + "a" * 40, result.stdout.splitlines())
                 self.assertIn("-PyfuseIncludeMdk=false", result.stdout.splitlines())
                 self.assertIn("-PyfusePlaybackProfile=ycore-senplayer", result.stdout.splitlines())
                 # The build job never holds the release keystore; the sign job replaces this

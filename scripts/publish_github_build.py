@@ -31,7 +31,7 @@ def json_api(*args):
 def prepare(apk, request_dir, output, environment=os.environ):
     require(environment["GITHUB_REPOSITORY"] == REPOSITORY and environment["GITHUB_REF"] == "refs/heads/master",
             "Automatic public packages are restricted to zhuiyun/Yfuse master")
-    request = validate(request_dir, environment["GITHUB_SHA"], environment)
+    request = validate(request_dir, environment.get("SOURCE_COMMIT", environment["GITHUB_SHA"]), environment)
     require(request["mode"] == "automatic", "Manual artifact-only requests must not become public releases")
     require(apk.is_file() and not apk.is_symlink(), "Expected one regular signed APK")
     require(digest(apk) == environment["SIGNED_SHA256"] and str(apk.stat().st_size) == environment["SIGNED_SIZE"],
@@ -187,7 +187,7 @@ def main():
         if args.reserve_only:
             require(os.environ["GITHUB_REPOSITORY"] == REPOSITORY and os.environ["GITHUB_REF"] == "refs/heads/master",
                     "Production identities are restricted to zhuiyun/Yfuse master")
-            request = validate(args.request, os.environ["GITHUB_SHA"])
+            request = validate(args.request, os.environ.get("SOURCE_COMMIT", os.environ["GITHUB_SHA"]))
             print(reserve_identity(request))
             return
         require(args.apk is not None and args.output is not None, "Publishing requires an APK and an output directory")
