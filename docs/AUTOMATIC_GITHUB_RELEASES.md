@@ -64,13 +64,16 @@ the repository: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID
 and `ANDROID_KEY_PASSWORD`. Their certificate must match the existing pinned SHA-256;
 neither a new key nor a debug signature is an acceptable delivery substitute.
 
-The repository must provide an authorized private HTTPS location through
-`SENPLAYER_SOURCE_APK_URL` to the quality jobs and the production build. An environment-only
-secret does not reach the quality jobs, which do not hold production signing access.
-The input-preparation step enforces the fixed original APK hash and exact five-asset
-inventory in `scripts/playback-runtime-inputs.json`. Private URLs are not logged or published.
+The reviewed SCore runtime (display name for SenPlayer) is committed under
+`senplayerBridge/src/main/assets/senplayer`: one DEX, the original license configuration,
+and exactly three ARM64 libraries. A clean checkout packages those existing files directly;
+it does not compile SCore or download the original APK. Quality and release builds no longer
+reference `SENPLAYER_SOURCE_APK_URL`. The original APK is not in the repository or release.
+The preparation and final-APK checks retain the fixed original source identity and each
+asset's exact size/SHA-256. Corrupt existing assets fail instead of being silently replaced.
+The importer remains available to reproduce the same files from the reviewed local APK.
 There is no fallback to obsolete engines, fabricated assets or a YCore-only package.
-Fork pull requests do not receive the private input or production credentials.
+Fork pull requests can read the public runtime files but receive no production credentials.
 
 YCore no longer needs a download URL in the automatic quality/release path. The reusable
 `build-ycore-source.yml` job builds the current Android JNI/Vulkan sources and pinned
@@ -95,9 +98,10 @@ uses the existing dependency/carrier build tooling internally, but MPV/MDK libra
 carrier artifacts are not shipped as YCore. FFmpeg's configured GPL/version3 license and
 all native notices remain applicable; rebuilding does not remove distribution obligations.
 
-At the time this automation was added, the latest remote build failed because the
-historical YCore input and private SenPlayer download location were unavailable. Configuration tests do not establish a successful APK delivery;
-the first end-to-end release remains blocked until the verified inputs are available.
+The initial automation runs failed because playback inputs were unavailable. The automatic
+path now builds YCore from source and obtains SCore from the checkout. Those input changes
+are not evidence of a successful signed APK delivery: the full quality, signing, device
+startup and publication gates must still pass for the exact source commit.
 
 ## Manual server deployment remains explicit
 
