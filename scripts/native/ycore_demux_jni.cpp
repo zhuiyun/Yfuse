@@ -20,6 +20,7 @@
 #include <unistd.h>
 #include "ycore_extradata_budget.h"
 #include "ycore_demux_interrupt.h"
+#include "ycore_demux_seek.h"
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -3764,6 +3765,15 @@ jint native_seek(JNIEnv* env, jclass, jlong handle, jlong position_us) {
         return failure_status(error, session->remote_source);
     }
     avformat_flush(session->format);
+    // The pinned DASH demuxer closes exhausted representations and sets their streams to
+    // AVDISCARD_ALL. Its seek can succeed with the representation still closed; restoring
+    // selected streams lets the next read reopen it at the new segment, even after EOF.
+    ycore_demux::restore_selected_streams_after_seek(
+        error,
+        session->format->streams,
+        session->format->nb_streams,
+        session->selected,
+        AVDISCARD_DEFAULT);
     if (session->format->pb) {
         session->format->pb->error = 0;
         session->format->pb->eof_reached = 0;

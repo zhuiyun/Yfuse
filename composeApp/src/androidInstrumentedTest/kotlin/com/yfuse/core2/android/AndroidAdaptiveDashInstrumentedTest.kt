@@ -13,6 +13,9 @@ import com.yfuse.core2.api.YPlaybackRoute
 import com.yfuse.core2.api.YPlayer
 import com.yfuse.core2.api.YPlayerOpenRequest
 import com.yfuse.core2.api.YPlayerState
+import com.yfuse.core2.demux.YDemuxSource
+import com.yfuse.core2.demux.YDemuxTrackType
+import com.yfuse.core2.demux.YTrackId
 import com.yfuse.core2.network.YByteRange
 import com.yfuse.core2.network.YCacheIdentity
 import com.yfuse.core2.network.YMediaTransport
@@ -40,6 +43,67 @@ import java.util.concurrent.atomic.AtomicInteger
 /** Only device-generated pixels and loopback sockets; no user files, server accounts, or external network. */
 @RunWith(AndroidJUnit4::class)
 class AndroidAdaptiveDashInstrumentedTest {
+    @Test(timeout = 90_000L)
+    fun generated_fragmented_dash_can_seek_after_read_ahead_reaches_eof() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        GeneratedDashTestMedia.create(context.cacheDir).use { fixture ->
+            val origin = GeneratedDashOrigin(fixture, fixture)
+            AndroidYCoreHttpProxy(
+                context = context,
+                userAgent = "YCore-generated-DASH-EOF-test",
+                cacheMaximumBytes = 0L,
+                createTransport = origin::transport,
+                isMeteredNetwork = { false },
+            ).use { proxy ->
+                val uri =
+                    proxy.localUrl(
+                        upstreamUri = "https://generated.invalid/first-only.mpd",
+                        cacheable = false,
+                        cacheIdentity = YCacheIdentity("generated-fixture", "dash-seek-after-eof"),
+                    )
+                val demuxer = AndroidFfmpegDemuxer()
+                try {
+                    val opened = demuxer.open(YDemuxSource(uri, startupAnalysis = true))
+                    val video = opened.tracks.single { it.type == YDemuxTrackType.Video }.id
+                    demuxer.selectTracks(setOf(video))
+                    assertEquals(100, drainDash(demuxer, video).size)
+
+                    // Force the race deterministically: the short Period has been fully read
+                    // before seeking. The pinned DASH demuxer has closed its representation
+                    // and discarded the stream, even though the user's selection is unchanged.
+                    for (targetUs in listOf(1_000_000L, 0L, 2_300_000L)) {
+                        demuxer.seekTo(targetUs)
+                        val timestamps = drainDash(demuxer, video)
+                        assertTrue("DASH remained at EOF after seeking to $targetUs", timestamps.isNotEmpty())
+                        assertTrue("Seek skipped its sync-safe landing: $timestamps", timestamps.first() <= targetUs)
+                        assertEquals(9_900_000L, timestamps.last())
+                        assertTrue(
+                            "Seek lost the remaining media",
+                            timestamps.size >= 100 - (targetUs / 100_000L).toInt(),
+                        )
+                    }
+                } finally {
+                    demuxer.close()
+                }
+            }
+        }
+    }
+
+    private fun drainDash(
+        demuxer: AndroidFfmpegDemuxer,
+        video: YTrackId,
+    ): List<Long> {
+        val timestamps = mutableListOf<Long>()
+        while (true) {
+            val sample = demuxer.readSample() ?: break
+            assertEquals(video, sample.trackId)
+            assertTrue("DASH returned an empty packet", sample.data.isNotEmpty())
+            timestamps.add(sample.presentationTimeUs)
+            assertTrue("The 100-frame DASH fixture did not reach EOF", timestamps.size <= 100)
+        }
+        return timestamps
+    }
+
     @Test(timeout = 180_000L)
     fun generated_fragmented_dash_seeks_across_periods_and_automatically_advances_on_ended() =
         runBlocking {
@@ -259,6 +323,7 @@ private class GeneratedDashOrigin(
     private val resources =
         mapOf(
             "/presentation.mpd" to manifest(first, second).encodeToByteArray(),
+            "/first-only.mpd" to singlePeriodManifest(first).encodeToByteArray(),
             "/first/init.mp4" to first.initialization.readBytes(),
             "/first/segment-1.m4s" to first.segment.readBytes(),
             "/second/init.mp4" to second.initialization.readBytes(),
@@ -319,6 +384,14 @@ private class GeneratedDashOrigin(
             profiles="urn:mpeg:dash:profile:isoff-live:2011" mediaPresentationDuration="PT20S">
           ${period("first", 0, first)}
           ${period("second", 10, second)}
+        </MPD>
+        """.trimIndent()
+
+    private fun singlePeriodManifest(fixture: GeneratedDashTestMedia): String =
+        """
+        <MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static" minBufferTime="PT1.5S"
+            profiles="urn:mpeg:dash:profile:isoff-live:2011" mediaPresentationDuration="PT10S">
+          ${period("first", 0, fixture)}
         </MPD>
         """.trimIndent()
 
