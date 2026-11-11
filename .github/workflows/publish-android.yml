@@ -540,10 +540,14 @@ jobs:
       # 1.0.97 (259) was packaged with a player that crashed as it opened. The mapping names the
       # app's own methods, which must stay within 256 registers.
       - name: Reject DEX code ART would not verify
-        run: >-
-          scripts/verify-release-dex.sh
-          --mapping composeApp/build/outputs/mapping/release/mapping.txt
-          build/compact/composeApp-release.apk
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/release-diagnostics
+          scripts/verify-release-dex.sh \
+            --mapping composeApp/build/outputs/mapping/release/mapping.txt \
+            build/compact/composeApp-release.apk \
+            2>&1 | tee build/release-diagnostics/dex-verification.txt
 
       - name: Verify release build did not mutate version metadata
         run: >-
@@ -560,8 +564,10 @@ jobs:
           metadata="composeApp/build/outputs/apk/release/output-metadata.json"
           test -f "$apk"
           test -f "$metadata"
+          mkdir -p build/release-diagnostics
           python3 scripts/verify-playback-package.py "$apk" \
-            --mapping composeApp/build/outputs/mapping/release/mapping.txt
+            --mapping composeApp/build/outputs/mapping/release/mapping.txt \
+            2>&1 | tee build/release-diagnostics/playback-package-verification.txt
 
           actual_version_code="$(jq -r '.elements[0].versionCode' "$metadata")"
           actual_version_name="$(jq -r '.elements[0].versionName' "$metadata")"
@@ -599,6 +605,72 @@ jobs:
           if-no-files-found: error
           retention-days: 1
           compression-level: 0
+
+      # R8 mappings belong to this exact APK build, not a later rebuild of the source. Keep
+      # only diagnostics from this secret-free job, including when a later check fails.
+      - name: Record release build diagnostic identity
+        if: always()
+        shell: bash
+        env:
+          BUILD_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          mapping = Path("composeApp/build/outputs/mapping/release/mapping.txt")
+          if not mapping.is_file():
+              print("::warning::No release R8 mapping is available; the build may have failed before R8 completed")
+          # Read only named identity fields, never dump the environment or GitHub context.
+          identity = {
+              "sourceCommit": os.environ["SOURCE_COMMIT"],
+              "workflowCommit": os.environ["GITHUB_SHA"],
+              "repository": os.environ["GITHUB_REPOSITORY"],
+              "runId": os.environ["GITHUB_RUN_ID"],
+              "runAttempt": os.environ["GITHUB_RUN_ATTEMPT"],
+              "versionCode": os.environ["VERSION_CODE"],
+              "versionName": os.environ["VERSION_NAME"],
+              "buildStatus": os.environ["BUILD_STATUS"],
+              "files": {},
+          }
+          for path in (mapping, Path("build/compact/composeApp-release.apk")):
+              if path.is_file():
+                  identity["files"][str(path)] = {
+                      "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                      "size": path.stat().st_size,
+                  }
+          output = Path("build/release-diagnostics/identity.json")
+          output.parent.mkdir(parents=True, exist_ok=True)
+          output.write_text(json.dumps(identity, indent=2) + "\n", encoding="utf-8")
+          PY
+
+      - name: Keep release build diagnostics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: android-release-diagnostics-${{ env.SOURCE_COMMIT }}-${{ github.run_id }}-${{ github.run_attempt }}
+          # Exact file allowlist: no APKs, keys, native inputs, environment dumps or workspace.
+          # The public publisher still downloads only its named signed-APK and request artifacts.
+          path: |
+            build/release-diagnostics/identity.json
+            build/release-diagnostics/dex-verification.txt
+            build/release-diagnostics/playback-package-verification.txt
+            composeApp/build/outputs/mapping/release/mapping.txt
+            composeApp/build/outputs/mapping/release/configuration.txt
+            composeApp/build/outputs/mapping/release/seeds.txt
+            composeApp/build/outputs/mapping/release/usage.txt
+            composeApp/build/outputs/apk/release/output-metadata.json
+            composeApp/build/outputs/logs/manifest-merger-release-report.txt
+            composeApp/build/reports/lint-results-release-fatal.html
+            composeApp/build/reports/lint-results-release-fatal.xml
+            composeApp/build/reports/lint-results-release-fatal.txt
+            build/reports/problems/problems-report.html
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: false
 
   sign:
     name: Sign release APK with the production key
