@@ -12,6 +12,56 @@ def workflow(name):
 
 
 class SourcePlaybackWorkflowTest(unittest.TestCase):
+    def test_auxiliary_android_jobs_consume_their_own_verified_native_build(self):
+        expected_inputs = {
+            "artifact-id": "${{ needs.native.outputs.artifact_id }}",
+            "run-id": "${{ github.run_id }}",
+            "aar-sha256": "${{ needs.native.outputs.aar_sha256 }}",
+            "provenance-sha256": "${{ needs.native.outputs.provenance_sha256 }}",
+            "source-commit": "${{ needs.native.outputs.source_commit }}",
+        }
+        for filename, consumer in (("codeql.yml", "analyze"), ("validate-dolby-fixes.yml", "validate")):
+            with self.subTest(workflow=filename):
+                config = workflow(filename)
+                jobs = config["jobs"]
+                self.assertEqual("./.github/workflows/build-ycore-source.yml", jobs["native"]["uses"])
+                self.assertNotIn("secrets", jobs["native"])
+                self.assertEqual("native", jobs[consumer]["needs"])
+                permissions = jobs[consumer].get("permissions", config["permissions"])
+                self.assertEqual("read", permissions["actions"])
+                steps = jobs[consumer]["steps"]
+                inputs = [step for step in steps if step.get("uses") == "./.github/actions/prepare-source-playback"]
+                self.assertEqual(1, len(inputs))
+                self.assertEqual(expected_inputs, inputs[0]["with"])
+                self.assertEqual({}, inputs[0].get("env", {}))
+                self.assertFalse(any("fetch-engines.sh" in step.get("run", "") for step in steps))
+                self.assertNotIn("secrets.YCORE_NATIVE_AAR_URL", str(config))
+                self.assertNotIn("secrets.SENPLAYER_SOURCE_APK_URL", str(config))
+
+    def test_codeql_preserves_all_scanners_and_prepares_inputs_before_extraction(self):
+        jobs = workflow("codeql.yml")["jobs"]
+        steps = jobs["analyze"]["steps"]
+        preparation = next(i for i, step in enumerate(steps)
+                           if step.get("uses") == "./.github/actions/prepare-source-playback")
+        initialization = next(i for i, step in enumerate(steps)
+                              if step.get("uses", "").startswith("github/codeql-action/init@"))
+        self.assertLess(preparation, initialization)
+        self.assertEqual("java-kotlin", steps[initialization]["with"]["languages"])
+        self.assertEqual("manual", steps[initialization]["with"]["build-mode"])
+        compilation = next(step["run"] for step in steps if "compileDebugKotlin" in step.get("run", ""))
+        for task in (":composeApp:compileDebugKotlin", ":tvApp:compileDebugKotlin", ":watchTogetherServer:classes"):
+            self.assertIn(task, compilation)
+        self.assertNotIn("needs", jobs["analyze-sources"])
+        self.assertEqual(["actions", "python"], jobs["analyze-sources"]["strategy"]["matrix"]["language"])
+
+    def test_dolby_validation_tracks_the_source_runtime_pipeline(self):
+        config = workflow("validate-dolby-fixes.yml")
+        trigger = config.get("on", config.get(True))
+        paths = trigger["push"]["paths"]
+        for path in (".github/workflows/build-ycore-source.yml", ".github/actions/prepare-source-playback/**",
+                     "senplayerBridge/**", "scripts/ycore-source-receipt.py", "scripts/native-build-download.py"):
+            self.assertIn(path, paths)
+
     def test_quality_tests_share_one_secret_free_native_producer(self):
         quality = workflow("quality-gates-v2.yml")
         jobs = quality["jobs"]

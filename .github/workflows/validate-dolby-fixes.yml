@@ -7,7 +7,10 @@ on:
       - feature/fix-uhd-dolby-playback
     paths:
       - .github/workflows/validate-dolby-fixes.yml
+      - .github/workflows/build-ycore-source.yml
+      - .github/actions/prepare-source-playback/**
       - composeApp/**
+      - senplayerBridge/**
       - watchTogetherProtocol/**
       - watchTogetherServer/**
       - gradle/**
@@ -18,6 +21,8 @@ on:
       - scripts/build-yfuse-mpv-dolby.sh
       - scripts/prepare-playback-inputs.py
       - scripts/playback-runtime-inputs.json
+      - scripts/ycore-source-receipt.py
+      - scripts/native-build-download.py
       - scripts/build-current-ycore-native.sh
       - scripts/install-ycore-native.sh
       - scripts/engine-checksums.sha256
@@ -32,6 +37,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
   statuses: write
 
 concurrency:
@@ -39,7 +45,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  native:
+    name: Compile this commit's YCore runtime
+    uses: ./.github/workflows/build-ycore-source.yml
+
   validate:
+    needs: native
     runs-on: ubuntu-24.04
     timeout-minutes: 300
     steps:
@@ -59,16 +70,14 @@ jobs:
           test -x "$sdkmanager"
           yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
           "$sdkmanager" "platforms;android-37.0" "ndk;29.0.14206865" "cmake;3.22.1"
-      - name: Prepare pinned YCore and SenPlayer inputs
-        env:
-          YCORE_NATIVE_AAR_URL: ${{ secrets.YCORE_NATIVE_AAR_URL }}
-          SENPLAYER_SOURCE_APK_URL: ${{ secrets.SENPLAYER_SOURCE_APK_URL }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          chmod +x gradlew scripts/fetch-engines.sh
-          scripts/fetch-engines.sh
-          test -s composeApp/libs/ycore-native.aar
+      - name: Prepare source-built YCore and original SenPlayer inputs
+        uses: ./.github/actions/prepare-source-playback
+        with:
+          artifact-id: ${{ needs.native.outputs.artifact_id }}
+          run-id: ${{ github.run_id }}
+          aar-sha256: ${{ needs.native.outputs.aar_sha256 }}
+          provenance-sha256: ${{ needs.native.outputs.provenance_sha256 }}
+          source-commit: ${{ needs.native.outputs.source_commit }}
       - name: Compile, test, lint and R8
         id: verify
         continue-on-error: true
