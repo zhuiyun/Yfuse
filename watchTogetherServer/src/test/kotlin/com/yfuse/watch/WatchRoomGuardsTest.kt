@@ -17,6 +17,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -144,14 +145,33 @@ class WatchRoomGuardsTest {
             val code = assertNotNull(host.awaitType("welcome").field("roomCode"))
             val carol = socketAs("carol")
             carol.hello("tablet-1", roomCode = code)
-            val carolResume = assertNotNull(carol.awaitType("welcome").field("resumeCapability"))
+            val carolWelcome = carol.awaitType("welcome")
+            val carolResume = assertNotNull(carolWelcome.field("resumeCapability"))
+            // Welcome can arrive before publication; observe the join before waiting for its leave.
+            val carolJoined =
+                host.awaitWhere("roomUpdate") {
+                    it.field("participantCount") == "2" &&
+                        it.getValue("roomRevision").jsonPrimitive.long >
+                        carolWelcome.getValue("roomRevision").jsonPrimitive.long
+                }
             carol.close()
-            host.awaitWhere("roomUpdate") { it.field("participantCount") == "1" }
+            // The host's buffered initial one-member snapshot is not evidence of Carol's cleanup.
+            host.awaitWhere("roomUpdate") {
+                it.field("participantCount") == "1" &&
+                    it.getValue("roomRevision").jsonPrimitive.long >
+                    carolJoined.getValue("roomRevision").jsonPrimitive.long
+            }
 
             // The id was carol's; it no longer binds anyone else out of the room.
             val bob = socketAs("bob")
             bob.hello("tablet-1", roomCode = code)
-            bob.awaitType("welcome")
+            val bobWelcome = bob.awaitType("welcome")
+            val bobJoined =
+                host.awaitWhere("roomUpdate") {
+                    it.field("participantCount") == "2" &&
+                        it.getValue("roomRevision").jsonPrimitive.long >
+                        bobWelcome.getValue("roomRevision").jsonPrimitive.long
+                }
 
             val carolAgain = socketAs("carol")
             carolAgain.hello("tablet-1", roomCode = code, extra = ""","resumeCapability":"$carolResume"""")
@@ -163,7 +183,11 @@ class WatchRoomGuardsTest {
 
             // Once bob's device leaves, carol's own membership (and capability) still works.
             bob.close()
-            host.awaitWhere("roomUpdate") { it.field("participantCount") == "1" }
+            host.awaitWhere("roomUpdate") {
+                it.field("participantCount") == "1" &&
+                    it.getValue("roomRevision").jsonPrimitive.long >
+                    bobJoined.getValue("roomRevision").jsonPrimitive.long
+            }
             val carolBack = socketAs("carol")
             carolBack.hello("tablet-1", roomCode = code, extra = ""","resumeCapability":"$carolResume"""")
             carolBack.awaitType("welcome")
