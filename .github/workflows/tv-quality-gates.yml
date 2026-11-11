@@ -9,43 +9,95 @@ on:
       - codex/**
     paths:
       - .github/workflows/tv-quality-gates.yml
+      - .github/workflows/build-ycore-source.yml
+      - .github/actions/prepare-source-playback/**
       - composeApp/src/commonMain/**
       - composeApp/src/androidMain/**
       - composeApp/src/androidUnitTest/**
       - tvApp/**
       - tvShared/**
+      - senplayerBridge/**
       - gradle/**
       - settings.gradle.kts
       - gradle.properties
       - version.properties
       - scripts/fetch-engines.sh
+      - scripts/prepare-playback-inputs.py
+      - scripts/playback-runtime-inputs.json
+      - scripts/ycore-source-receipt.py
+      - scripts/native-build-*.py
+      - scripts/build-ycore*.sh
+      - scripts/build-yfuse-mpv*.sh
+      - scripts/package-ycore-native-aar.py
+      - scripts/install-ycore-native.sh
+      - scripts/verify-ycore-native.sh
+      - scripts/verify-yfuse-mpv-dolby-aar.sh
+      - scripts/engine-checksums.sha256
+      - scripts/yfuse-mpv-sources.txt
+      - scripts/embed-mini-debuginfo.sh
+      - scripts/test-ycore*
+      - scripts/native-test-build.sh
+      - scripts/native/**
+      - NOTICE
+      - LICENSE
+      - docs/third-party-licenses/**
+      - scripts/tests/test_source_playback_workflow.py
       - scripts/verify-tv-*.py
       - scripts/tests/test_verify_tv_artifact.py
   pull_request:
     paths:
       - .github/workflows/tv-quality-gates.yml
+      - .github/workflows/build-ycore-source.yml
+      - .github/actions/prepare-source-playback/**
       - composeApp/src/commonMain/**
       - composeApp/src/androidMain/**
       - composeApp/src/androidUnitTest/**
       - tvApp/**
       - tvShared/**
+      - senplayerBridge/**
       - gradle/**
       - settings.gradle.kts
       - gradle.properties
       - version.properties
       - scripts/fetch-engines.sh
+      - scripts/prepare-playback-inputs.py
+      - scripts/playback-runtime-inputs.json
+      - scripts/ycore-source-receipt.py
+      - scripts/native-build-*.py
+      - scripts/build-ycore*.sh
+      - scripts/build-yfuse-mpv*.sh
+      - scripts/package-ycore-native-aar.py
+      - scripts/install-ycore-native.sh
+      - scripts/verify-ycore-native.sh
+      - scripts/verify-yfuse-mpv-dolby-aar.sh
+      - scripts/engine-checksums.sha256
+      - scripts/yfuse-mpv-sources.txt
+      - scripts/embed-mini-debuginfo.sh
+      - scripts/test-ycore*
+      - scripts/native-test-build.sh
+      - scripts/native/**
+      - NOTICE
+      - LICENSE
+      - docs/third-party-licenses/**
+      - scripts/tests/test_source_playback_workflow.py
       - scripts/verify-tv-*.py
       - scripts/tests/test_verify_tv_artifact.py
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: android-tv-quality-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  native:
+    name: Compile this commit's YCore runtime
+    uses: ./.github/workflows/build-ycore-source.yml
+
   tv:
+    needs: native
     name: Compile, test, and inspect TV APK
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -89,16 +141,14 @@ jobs:
           yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
           "$sdkmanager" "platforms;android-37.0" "build-tools;36.0.0"
 
-      - name: Prepare pinned YCore and SenPlayer inputs
-        env:
-          YCORE_NATIVE_AAR_URL: ${{ secrets.YCORE_NATIVE_AAR_URL }}
-          SENPLAYER_SOURCE_APK_URL: ${{ secrets.SENPLAYER_SOURCE_APK_URL }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          chmod +x gradlew scripts/fetch-engines.sh
-          scripts/fetch-engines.sh
-          test -s composeApp/libs/ycore-native.aar
+      - name: Prepare source-built YCore and original SenPlayer inputs
+        uses: ./.github/actions/prepare-source-playback
+        with:
+          artifact-id: ${{ needs.native.outputs.artifact_id }}
+          run-id: ${{ github.run_id }}
+          aar-sha256: ${{ needs.native.outputs.aar_sha256 }}
+          provenance-sha256: ${{ needs.native.outputs.provenance_sha256 }}
+          source-commit: ${{ needs.native.outputs.source_commit }}
 
       # The signing branch is under explicit review before APK packaging. Its TV
       # checks compile and test; artifact assembly remains available on other branches.

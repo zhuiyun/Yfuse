@@ -20,7 +20,8 @@ class SourcePlaybackWorkflowTest(unittest.TestCase):
             "provenance-sha256": "${{ needs.native.outputs.provenance_sha256 }}",
             "source-commit": "${{ needs.native.outputs.source_commit }}",
         }
-        for filename, consumer in (("codeql.yml", "analyze"), ("validate-dolby-fixes.yml", "validate")):
+        for filename, consumer in (("codeql.yml", "analyze"), ("validate-dolby-fixes.yml", "validate"),
+                                   ("tv-quality-gates.yml", "tv")):
             with self.subTest(workflow=filename):
                 config = workflow(filename)
                 jobs = config["jobs"]
@@ -61,6 +62,69 @@ class SourcePlaybackWorkflowTest(unittest.TestCase):
         for path in (".github/workflows/build-ycore-source.yml", ".github/actions/prepare-source-playback/**",
                      "senplayerBridge/**", "scripts/ycore-source-receipt.py", "scripts/native-build-download.py"):
             self.assertIn(path, paths)
+
+    def test_tv_push_and_pr_paths_track_the_source_runtime_pipeline(self):
+        config = workflow("tv-quality-gates.yml")
+        trigger = config.get("on", config.get(True))
+        self.assertEqual(["master", "feature/**", "codex/**"], trigger["push"]["branches"])
+        self.assertIn("workflow_dispatch", trigger)
+        for event in ("push", "pull_request"):
+            with self.subTest(event=event):
+                paths = trigger[event]["paths"]
+                for path in (".github/workflows/build-ycore-source.yml", ".github/actions/prepare-source-playback/**",
+                             "senplayerBridge/**", "scripts/prepare-playback-inputs.py",
+                             "scripts/playback-runtime-inputs.json", "scripts/ycore-source-receipt.py",
+                             "scripts/native-build-*.py", "scripts/build-ycore*.sh", "scripts/build-yfuse-mpv*.sh",
+                             "scripts/package-ycore-native-aar.py", "scripts/install-ycore-native.sh",
+                             "scripts/verify-ycore-native.sh", "scripts/verify-yfuse-mpv-dolby-aar.sh",
+                             "scripts/engine-checksums.sha256", "scripts/yfuse-mpv-sources.txt",
+                             "scripts/embed-mini-debuginfo.sh", "scripts/test-ycore*", "scripts/native-test-build.sh",
+                             "scripts/native/**", "NOTICE", "LICENSE", "docs/third-party-licenses/**",
+                             "scripts/tests/test_source_playback_workflow.py"):
+                    self.assertIn(path, paths)
+
+    def test_tv_preserves_signing_review_tests_and_all_artifact_gates(self):
+        steps = workflow("tv-quality-gates.yml")["jobs"]["tv"]["steps"]
+        preparation = next(i for i, step in enumerate(steps)
+                           if step.get("uses") == "./.github/actions/prepare-source-playback")
+        by_name = {step["name"]: step for step in steps}
+        review = by_name["Run TV unit tests during signing review"]
+        self.assertEqual("github.ref == 'refs/heads/codex/ycore-sign-20260830'", review["if"])
+        self.assertEqual("./gradlew :tvApp:ktlintCheck :tvShared:ktlintCheck :tvShared:testAndroidHostTest --no-daemon",
+                         review["run"])
+        gated_names = (
+            "Run TV unit tests and build debug APK", "Reject DEX code ART would not verify",
+            "Verify packaged TV contract", "Upload verified TV APK",
+        )
+        for name in gated_names:
+            with self.subTest(step=name):
+                self.assertEqual("github.ref != 'refs/heads/codex/ycore-sign-20260830'", by_name[name]["if"])
+                self.assertLess(preparation, steps.index(by_name[name]))
+        self.assertLess(preparation, steps.index(review))
+        build = by_name[gated_names[0]]["run"]
+        for command in (":tvApp:ktlintCheck :tvShared:ktlintCheck", ":tvShared:testAndroidHostTest",
+                        ":tvApp:assembleDebug", ":tvApp:assembleRelease -PallowDebugSigning=true",
+                        "-Dorg.gradle.jvmargs=-Xmx6g -Dfile.encoding=UTF-8", "--no-daemon",
+                        "test -s tvApp/build/outputs/apk/release/tvApp-release.apk",
+                        "scripts/verify-playback-package.py tvApp/build/outputs/apk/release/tvApp-release.apk",
+                        "--mapping tvApp/build/outputs/mapping/release/mapping.txt"):
+            self.assertIn(command, build)
+        dex = by_name[gated_names[1]]["run"]
+        for command in ("scripts/verify-release-dex.sh", "--mapping tvApp/build/outputs/mapping/release/mapping.txt",
+                        "tvApp/build/outputs/apk/release/tvApp-release.apk"):
+            self.assertIn(command, dex)
+        artifact = by_name[gated_names[2]]["run"]
+        for command in ("scripts/verify-tv-artifact.py", "tvApp/build/outputs/apk/debug/tvApp-debug.apk",
+                        "--aapt", "--readelf", "sha256sum build/tv-quality/Yfuse-TV-debug.apk"):
+            self.assertIn(command, artifact)
+        upload = by_name[gated_names[3]]
+        self.assertTrue(upload["uses"].startswith("actions/upload-artifact@"))
+        self.assertEqual({"name": "yfuse-tv-debug-${{ github.sha }}", "path": "build/tv-quality/",
+                          "if-no-files-found": "error", "retention-days": 7}, upload["with"])
+        source = by_name["Verify source TV contract"]["run"]
+        for command in ("scripts/verify-tv-source.py", "scripts/verify-tv-artifact.py",
+                        "test_verify_tv_artifact.py", "git diff --check"):
+            self.assertIn(command, source)
 
     def test_quality_tests_share_one_secret_free_native_producer(self):
         quality = workflow("quality-gates-v2.yml")
