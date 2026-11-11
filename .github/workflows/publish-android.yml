@@ -2,24 +2,22 @@ name: Publish Android update
 run-name: >-
   ${{ github.event_name == 'workflow_dispatch' && !inputs.publish
   && format('Package Yfuse {0} ({1}) without publishing', inputs.version_name, inputs.version_code)
-  || github.event_name == 'push' && contains(github.event.head_commit.message, '[artifact only]')
-  && format('Package Yfuse from {0} without publishing', github.sha)
+  || github.event_name == 'push'
+  && format('Build and release Yfuse from {0}', github.sha)
   || '' }}
 
 on:
   push:
     branches:
       - master
-    paths:
-      - version.properties
   workflow_dispatch:
     inputs:
       version_code:
-        description: Android versionCode (must be greater than the published version)
+        description: Android versionCode (must match this commit's automatic identity)
         required: true
         type: string
       version_name:
-        description: Public version name (numeric major.minor.patch, for example 0.2.01)
+        description: Public version (three single-digit parts; must match this commit's automatic identity)
         required: true
         type: string
       release_notes:
@@ -40,7 +38,9 @@ permissions:
   actions: read
 
 concurrency:
-  group: android-production-publish
+  # Preserve every push. Manual server deployments stay serialized across the entire workflow,
+  # so their live-version check cannot race a newer request that finishes building first.
+  group: android-production-publish-${{ github.event_name == 'push' && github.run_id || 'manual' }}
   cancel-in-progress: false
 
 env:
@@ -67,6 +67,7 @@ jobs:
       contents: read
     outputs:
       publish: ${{ steps.request.outputs.publish }}
+      metadata_artifact: ${{ steps.metadata.outputs.artifact }}
       version_code: ${{ steps.request.outputs.version_code }}
       version_name: ${{ steps.request.outputs.version_name }}
       release_notes: ${{ steps.request.outputs.release_notes }}
@@ -80,8 +81,8 @@ jobs:
       VERSION_CODE: ${{ inputs.version_code }}
       VERSION_NAME: ${{ inputs.version_name }}
       RELEASE_NOTES: ${{ inputs.release_notes }}
-      # Fail closed until the request is resolved. Artifact-only pushes and manual runs with
-      # publish off save the signed APK while every deployment step remains skipped.
+      # Pushes publish to GitHub Releases only. Updating the live server remains an explicit
+      # manual request; publish=false manual runs remain artifact-only.
       PUBLISH_UPDATE: 'false'
       DEPLOY_HOST: ${{ vars.DEPLOY_HOST || '47.112.219.60' }}
       DEPLOY_USER: ${{ vars.DEPLOY_USER || 'yfuse-deploy' }}
@@ -96,21 +97,22 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Resolve publication mode
         shell: bash
         env:
           REQUEST_EVENT: ${{ github.event_name }}
-          REQUEST_MESSAGE: ${{ github.event.head_commit.message }}
           REQUEST_PUBLISH: ${{ inputs.publish }}
         run: |
           set -euo pipefail
           publish=false
           case "$REQUEST_EVENT" in
             push)
-              if [[ "${REQUEST_MESSAGE,,}" != *'[artifact only]'* ]]; then
-                publish=true
-              fi
+              # Every push produces a GitHub build release, never an implicit server deployment.
+              publish=false
               ;;
             workflow_dispatch)
               case "$REQUEST_PUBLISH" in
@@ -123,13 +125,27 @@ jobs:
           echo "PUBLISH_UPDATE=$publish" >> "$GITHUB_ENV"
           echo "Publish update: $publish"
 
-      - name: Resolve automatic release request
-        if: github.event_name == 'push'
+      - name: Resolve effective release metadata
+        id: metadata
         shell: bash
+        env:
+          REQUEST_EVENT: ${{ github.event_name }}
         run: |
           set -euo pipefail
+          mode=manual
+          [[ "$REQUEST_EVENT" != push ]] || mode=automatic
+          python3 scripts/automatic_release_metadata.py prepare \
+            --directory build/release-request --commit "$GITHUB_SHA" --mode "$mode"
+          python3 scripts/release_metadata.py --root build/release-request --format github-env >> "$GITHUB_ENV"
+          echo "artifact=release-request-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
 
-          python3 scripts/release_metadata.py --format github-env >> "$GITHUB_ENV"
+      - name: Save effective release metadata
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: ${{ steps.metadata.outputs.artifact }}
+          path: build/release-request/
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Validate release request
         shell: bash
@@ -291,7 +307,7 @@ jobs:
             echo '::notice::No update-manifest public key configured; continuing with standard APK verification'
             exit 0
           fi
-          if [[ -z "${UPDATE_MANIFEST_SIGNING_KEY:-}" ]]; then
+          if [[ -z "${UPDATE_MANIFEST_SIGNING_KEY:-}" && "${PUBLISH_UPDATE:-true}" == true ]]; then
             echo '::error::A configured update-manifest public key needs its matching private signing key when publishing; otherwise pinned clients cannot accept the update'
             exit 1
           fi
@@ -340,7 +356,7 @@ jobs:
     name: Require green Android quality gates
     needs: request
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 310
     # The same commit's quality gates run the unit, protocol and server tests, Android lint and
     # ktlint, so the release jobs no longer repeat them. Signing waits for this job; the build,
     # which holds no signing or deployment secret, runs alongside it.
@@ -354,9 +370,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          # Editing version.properties starts this workflow and the quality gates at the same
-          # time. Production signing waits for the gates to finish and refuses a red commit.
-          for attempt in $(seq 1 90); do
+          # Every master push starts both workflows. Signing waits for this exact commit's gates.
+          for attempt in $(seq 1 600); do
             run="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow quality-gates-v2.yml --commit "$GITHUB_SHA" --limit 1 --json status,conclusion --jq '.[0] // empty')"
             status="$(jq -r '.status // "missing"' <<<"${run:-null}")"
             conclusion="$(jq -r '.conclusion // ""' <<<"${run:-null}")"
@@ -394,6 +409,17 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download effective release metadata
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: ${{ needs.request.outputs.metadata_artifact }}
+          path: build/release-request
+
+      - name: Install effective version and release notes before building
+        run: >-
+          python3 scripts/automatic_release_metadata.py install
+          --directory build/release-request --commit "$GITHUB_SHA"
 
       - name: Set up Java
         uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
@@ -465,8 +491,6 @@ jobs:
           ./gradlew :composeApp:assembleRelease \
             -PyfuseNativeOnlyRuntime=true \
             -PyfuseIncludeMdk=false -PyfusePlaybackProfile=ycore-senplayer \
-            -PyfuseVersionCode="$VERSION_CODE" \
-            -PyfuseVersionName="$VERSION_NAME" \
             -PyfusePackageOnly="$package_only" \
             -PallowDebugSigning=true \
             -Pkotlin.incremental=false \
@@ -493,7 +517,9 @@ jobs:
           build/compact/composeApp-release.apk
 
       - name: Verify release build did not mutate version metadata
-        run: git diff --exit-code -- version.properties
+        run: >-
+          python3 scripts/automatic_release_metadata.py verify
+          --directory build/release-request --commit "$GITHUB_SHA"
 
       - name: Verify release APK contents
         id: built
@@ -773,9 +799,78 @@ jobs:
       version_code: ${{ needs.request.outputs.version_code }}
       version_name: ${{ needs.request.outputs.version_name }}
 
+  release-identity:
+    name: Reserve the verified Android version for this commit
+    needs: [request, sign, smoke]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      VERSION_CODE: ${{ needs.request.outputs.version_code }}
+      VERSION_NAME: ${{ needs.request.outputs.version_name }}
+    steps:
+      - name: Check out version allocation tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download the verified release request
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: ${{ needs.request.outputs.metadata_artifact }}
+          path: build/release-request
+      - name: Allocate code and name before any public delivery
+        if: github.event_name == 'push' || needs.request.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python3 scripts/publish_github_build.py --reserve-only
+          --request build/release-request
+
+  github-release:
+    name: Publish this commit's production APK to GitHub Releases
+    if: github.event_name == 'push'
+    needs: [request, sign, smoke, release-identity]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      VERSION_CODE: ${{ needs.request.outputs.version_code }}
+      VERSION_NAME: ${{ needs.request.outputs.version_name }}
+      SIGNED_SHA256: ${{ needs.sign.outputs.sha256 }}
+      SIGNED_SIZE: ${{ needs.sign.outputs.size }}
+      SIGNING_CERTIFICATE: 373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84
+    steps:
+      - name: Check out release tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download this run's signed APK
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: ${{ needs.sign.outputs.artifact }}
+          path: build/github-signed
+      - name: Download this run's effective release metadata
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: ${{ needs.request.outputs.metadata_artifact }}
+          path: build/release-request
+      - name: Publish verified GitHub build release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python3 scripts/publish_github_build.py
+          --apk build/github-signed/composeApp-release.apk
+          --request build/release-request --output build/github-release
+
   deploy:
     name: Sign update manifests and publish
-    needs: [request, sign, smoke]
+    if: github.event_name == 'workflow_dispatch'
+    concurrency:
+      group: android-production-server-deploy
+      cancel-in-progress: false
+    needs: [request, sign, smoke, release-identity]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment:

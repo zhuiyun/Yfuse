@@ -1,0 +1,7 @@
+{
+  "branch": "master",
+  "commit": "d34ef8083c14cf6f507bdafb02aa0260ba4553bd",
+  "versionCode": 347,
+  "versionName": "1.9.5",
+  "reason": "The privately delivered 1.9.5 (347) is newer than this commit's 1.9.4 (346). Automatic deliveries must start above both."
+}

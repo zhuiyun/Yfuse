@@ -39,6 +39,8 @@ SECRETS_BY_JOB = {
     "build": {"YCORE_NATIVE_AAR_URL", "SENPLAYER_SOURCE_APK_URL"},
     "sign": KEYSTORE,
     "smoke": set(),
+    "release-identity": set(),
+    "github-release": set(),
     "deploy": {"UPDATE_MANIFEST_SIGNING_KEY", "DEPLOY_SSH_PRIVATE_KEY", "DEPLOY_KNOWN_HOSTS"},
 }
 SECRET_REFERENCE = re.compile(r"secrets\.([A-Z0-9_]+)")
@@ -126,13 +128,14 @@ class PublishJobSplitTest(unittest.TestCase):
                 if SECRETS_BY_JOB[name]:
                     self.assertIn("    environment:\n      name: production\n", block)
                 # Package-only runs build, sign and save the package through the same jobs.
-                self.assertNotRegex(block, r"(?m)^    if:")
+                if name not in {"github-release", "deploy"}:
+                    self.assertNotRegex(block, r"(?m)^    if:")
 
     def test_signing_waits_for_the_gates_and_publishing_follows_signing(self):
         _, job_blocks = jobs()
         self.assertRegex(job_blocks["sign"], r"(?m)^    needs: \[request, gates, build\]$")
         # Neither the saved package nor an upload exists unless the signed APK passed the smoke.
-        self.assertRegex(job_blocks["deploy"], r"(?m)^    needs: \[request, sign, smoke\]$")
+        self.assertRegex(job_blocks["deploy"], r"(?m)^    needs: \[request, sign, smoke, release-identity\]$")
         for name in ("Save release artifact", "Publish update atomically"):
             owners = [job for job, block in job_blocks.items() if f"      - name: {name}\n" in block]
             self.assertEqual(["deploy"], owners, name)

@@ -1,4 +1,4 @@
-"""A package-only run of publish-android.yml must never reach the servers or create a release."""
+"""Manual package-only runs stay private; automatic pushes publish to GitHub, not the servers."""
 
 import json
 import os
@@ -59,7 +59,7 @@ class PublishPackageOnlyTest(unittest.TestCase):
     def test_publication_mode_handles_pushes_and_manual_requests(self):
         resolve = script(step("publish-android.yml", "Resolve publication mode"))
         cases = (
-            ("push", "Release 1.0.89", "", "true"),
+            ("push", "Release 1.0.89", "", "false"),
             ("push", "Release 1.0.89 [artifact only]", "", "false"),
             ("push", "Merge pull request #200\n\n[ARTIFACT ONLY]", "true", "false"),
             ("push", "[artifact only] $(exit 99) `exit 99`", "", "false"),

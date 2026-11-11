@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: quality-${{ github.workflow }}-${{ github.ref }}
+  group: quality-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   # A newer push to a pull request supersedes the older run. On master every commit has to keep
   # its own verdict: the release workflow waits on the gates of the exact commit it packages, and a
   # version bump followed by a quick second push used to cancel those gates and fail the release.
