@@ -20,6 +20,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -407,19 +408,28 @@ fun Modifier.pressable(
         label = "pressTilt",
     )
 
-    val onClickWithHaptic: () -> Unit = {
-        haptic?.let(haptics::play)
-        light.emit(lightEffect ?: if (tilt) LightEffect.Edge else LightEffect.Node, at = pressPoint)
-        onClick()
-    }
-    val onLongClickWithHaptic: (() -> Unit)? =
-        onLongClick?.let { action ->
-            {
-                // The one long-press tick: `combinedClickable`'s own is switched off below, or a
-                // long press on a poster buzzed twice.
-                haptics.play(HapticSignal.LongPress)
-                light.emit(LightEffect.Edge, at = pressPoint)
-                action()
+    // Isolate callback caches from animation state. The minified search-toggle flow
+    // previously read AnimationState as Function0 here. Keep these action dependencies
+    // together when a label changes or a press triggers a partial recomposition.
+    val actions =
+        key("pressable-actions") {
+            remember(haptic, haptics, light, lightEffect, tilt, onClick, onLongClick) {
+                PressableActions(
+                    onClick = {
+                        haptic?.let(haptics::play)
+                        light.emit(lightEffect ?: if (tilt) LightEffect.Edge else LightEffect.Node, at = pressPoint)
+                        onClick()
+                    },
+                    onLongClick =
+                        onLongClick?.let { action ->
+                            {
+                                // combinedClickable's own tick stays off: one haptic per long press.
+                                haptics.play(HapticSignal.LongPress)
+                                light.emit(LightEffect.Edge, at = pressPoint)
+                                action()
+                            }
+                        },
+                )
             }
         }
 
@@ -485,7 +495,7 @@ fun Modifier.pressable(
                 Modifier
             },
         ).let { modifier ->
-            if (onLongClickWithHaptic != null) {
+            if (actions.onLongClick != null) {
                 modifier.combinedClickable(
                     interactionSource = source,
                     indication = null,
@@ -493,9 +503,9 @@ fun Modifier.pressable(
                     onClickLabel = onClickLabel,
                     role = role,
                     onLongClickLabel = onLongClickLabel,
-                    onLongClick = onLongClickWithHaptic,
+                    onLongClick = actions.onLongClick,
                     hapticFeedbackEnabled = false,
-                    onClick = onClickWithHaptic,
+                    onClick = actions.onClick,
                 )
             } else {
                 modifier.clickable(
@@ -504,11 +514,16 @@ fun Modifier.pressable(
                     enabled = enabled,
                     onClickLabel = onClickLabel,
                     role = role,
-                    onClick = onClickWithHaptic,
+                    onClick = actions.onClick,
                 )
             }
         }
 }
+
+private class PressableActions(
+    val onClick: () -> Unit,
+    val onLongClick: (() -> Unit)?,
+)
 
 internal fun pressScaleTarget(
     reduceMotion: Boolean,
