@@ -1,2 +1,10 @@
-/src/main/assets/senplayer/classes.dex
-/src/main/assets/senplayer/native/
+# Keep only the reviewed runtime inventory; never add the original APK or extra libraries.
+/src/main/assets/senplayer/*
+!/src/main/assets/senplayer/classes.dex
+!/src/main/assets/senplayer/license.json
+!/src/main/assets/senplayer/runtime.json
+!/src/main/assets/senplayer/native/
+/src/main/assets/senplayer/native/*
+!/src/main/assets/senplayer/native/libFFmpegKit.so
+!/src/main/assets/senplayer/native/libMLibKit.so
+!/src/main/assets/senplayer/native/libc++_shared.so

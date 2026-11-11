@@ -53,7 +53,7 @@ env:
 # so each production secret is referenced only by the job that uses it, and the build tooling
 # never shares a runner with a signing or deployment key:
 #   request - UPDATE_MANIFEST_SIGNING_KEY, only to derive the public key the APK embeds
-#   build   - pinned engine download URLs only, during playback input preparation
+#   build   - no production secrets; native artifacts and committed SCore assets only
 #   sign    - the release keystore and its passwords
 #   deploy  - UPDATE_MANIFEST_SIGNING_KEY to sign the manifests, and the deployment SSH key
 # The gates and smoke jobs hold no secret.
@@ -487,8 +487,6 @@ jobs:
 
       - name: Prepare source-built YCore and original SenPlayer inputs
         uses: ./.github/actions/prepare-source-playback
-        env:
-          SENPLAYER_SOURCE_APK_URL: ${{ secrets.SENPLAYER_SOURCE_APK_URL }}
         with:
           artifact-id: ${{ steps.native.outputs.artifact_id }}
           run-id: ${{ needs.gates.outputs.run_id }}

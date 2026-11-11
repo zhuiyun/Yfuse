@@ -36,7 +36,7 @@ KEYSTORE = {"ANDROID_KEYSTORE_BASE64", "ANDROID_KEYSTORE_PASSWORD", "ANDROID_KEY
 SECRETS_BY_JOB = {
     "request": {"UPDATE_MANIFEST_SIGNING_KEY"},
     "gates": set(),
-    "build": {"SENPLAYER_SOURCE_APK_URL"},
+    "build": set(),
     "sign": KEYSTORE,
     "smoke": set(),
     "release-identity": set(),

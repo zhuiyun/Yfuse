@@ -1,5 +1,5 @@
 name: Prepare source-built YCore and original SenPlayer
-description: Consume one hash-bound YCore source artifact and the unchanged private SenPlayer input.
+description: Consume one hash-bound YCore source artifact and the unchanged committed SCore runtime.
 inputs:
   artifact-id:
     required: true

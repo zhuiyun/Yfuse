@@ -1,0 +1,33 @@
+name: Assemble reviewed SCore files
+on:
+  push:
+    branches:
+      - automation/assemble-score-runtime-20261111
+permissions:
+  contents: write
+jobs:
+  assemble:
+    if: github.repository == 'zhuiyun/Yfuse' && github.ref == 'refs/heads/automation/assemble-score-runtime-20261111'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify chunks and reconstruct reviewed runtime files
+        run: python3 .ci-score-upload/assemble.py
+      - name: Store verified full-file Git objects on this temporary branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/automation/assemble-score-runtime-20261111
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Assemble byte-identical approved SCore runtime inputs'
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push origin HEAD:refs/heads/automation/assemble-score-runtime-20261111
+          unset auth GH_TOKEN
+          printf 'Verified reconstructed runtime commit: %s\n' "$(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+          printf 'Reviewed final source tree: afd17658fcb600553dbd6ecceae897abd593b304\n' >> "$GITHUB_STEP_SUMMARY"

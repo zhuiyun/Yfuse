@@ -5,14 +5,26 @@ This module adapts the runtime from the user-supplied `SenPlayer.apk`, SHA-256
 It is an integration of supplied binaries, not a recovered or independently buildable native SDK.
 The original DEX, native libraries and license configuration remain unchanged.
 
-## Reproduce the local input
+## Pinned runtime packaged as SCore
+
+Yfuse displays this runtime as **SCore**. The repository includes exactly the reviewed
+`classes.dex`, `license.json`, and three ARM64 libraries listed in `runtime.json`.
+These are unchanged build inputs, not newly compiled native code. The original SenPlayer APK
+is not included. A clean checkout can package these assets without a private download URL
+or a new SCore compilation. The existing preparation and final-APK gates still verify their
+exact inventory, sizes and SHA-256 hashes. Original runtime license enforcement is unchanged.
+
+Committing these assets does not change the third-party license terms or grant others any
+additional rights. Do not replace a runtime file or edit its expected hash without reviewing
+the source, ABI and applicable redistribution permission.
+
+## Reproduce the reviewed assets locally
 
 Run `python scripts/import-senplayer-runtime.py path/to/SenPlayer.apk` with your local input path.
 The importer rejects a different APK and records each APK entry, byte count and SHA-256 in
-`src/main/assets/senplayer/runtime.json`. DEX/native assets are locally generated and ignored by Git.
-No runtime is downloaded. This import does not establish redistribution rights. Git contains the
-bridge, importer and provenance metadata; the original DEX/native payload remains local. A fresh
-checkout needs the same user-supplied APK and this import before the experimental engine is available.
+`src/main/assets/senplayer/runtime.json`. Its output must match the committed five assets and
+manifest byte for byte. No runtime is downloaded by this importer. Importing or successfully
+checking the original runtime license does not independently establish redistribution rights.
 
 ## Runtime and licensing
 

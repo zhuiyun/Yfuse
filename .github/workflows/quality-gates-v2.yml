@@ -113,8 +113,6 @@ jobs:
           "$sdkmanager" "platforms;android-37.0" "ndk;29.0.14206865" "cmake;3.22.1"
       - name: Prepare source-built YCore and original SenPlayer inputs
         uses: ./.github/actions/prepare-source-playback
-        env:
-          SENPLAYER_SOURCE_APK_URL: ${{ secrets.SENPLAYER_SOURCE_APK_URL }}
         with:
           artifact-id: ${{ needs.native.outputs.artifact_id }}
           run-id: ${{ github.run_id }}
@@ -382,8 +380,6 @@ jobs:
           "$sdkmanager" "platforms;android-37.0" "ndk;29.0.14206865" "cmake;3.22.1"
       - name: Prepare source-built YCore and original SenPlayer inputs
         uses: ./.github/actions/prepare-source-playback
-        env:
-          SENPLAYER_SOURCE_APK_URL: ${{ secrets.SENPLAYER_SOURCE_APK_URL }}
         with:
           artifact-id: ${{ needs.native.outputs.artifact_id }}
           run-id: ${{ github.run_id }}

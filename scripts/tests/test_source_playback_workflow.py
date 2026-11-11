@@ -22,7 +22,7 @@ class SourcePlaybackWorkflowTest(unittest.TestCase):
             step = next(step for step in jobs[name]["steps"] if step.get("uses") == "./.github/actions/prepare-source-playback")
             self.assertEqual("${{ needs.native.outputs.artifact_id }}", step["with"]["artifact-id"])
             self.assertEqual("${{ needs.native.outputs.aar_sha256 }}", step["with"]["aar-sha256"])
-            self.assertEqual({"SENPLAYER_SOURCE_APK_URL"}, set(step["env"]))
+            self.assertEqual({}, step.get("env", {}))
         approval = jobs["approved-native"]
         self.assertEqual({"native", "verify", "instrumented", "fast-jvm", "fast-contracts", "supply-chain"}, set(approval["needs"]))
         self.assertNotIn("if", approval)
@@ -53,6 +53,7 @@ class SourcePlaybackWorkflowTest(unittest.TestCase):
         self.assertEqual("approved-ycore-${{ needs.gates.outputs.run_attempt }}", approved["with"]["name"])
         self.assertEqual("${{ needs.gates.outputs.run_id }}", approved["with"]["run-id"])
         native = next(step for step in steps if step.get("uses") == "./.github/actions/prepare-source-playback")
+        self.assertEqual({}, native.get("env", {}))
         self.assertEqual("${{ steps.native.outputs.artifact_id }}", native["with"]["artifact-id"])
         build = next(step for step in steps if step["name"] == "Build release APK without production signing")
         self.assertIn('-PyfuseBuildRevision="$SOURCE_COMMIT"', build["run"])
