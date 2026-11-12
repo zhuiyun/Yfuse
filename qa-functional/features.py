@@ -60,12 +60,31 @@ def step(name,action):
 def launch():
  adb('shell','am','force-stop',pkg)
  adb('shell','am','start','-W','-n',pkg+'/com.yfuse.MainActivity',t=90);wait('我的',50)
+def dock(t,tab):
+ candidates=[n for n in nodes(t) if n.get('content-desc')==tab and n.get('package')==pkg]
+ return max(candidates,key=lambda n:coords(n)[1]) if candidates else None
+def hide_keyboard():
+ state=shell('dumpsys','input_method')
+ if re.search(r'(?:mInputShown|isInputViewShown|mIsInputViewShown)=true|mImeWindowVis=0x3',state):shell('input','keyevent',4);time.sleep(.45)
 def root(tab):
- for _ in range(4):
-  t=snapshot();n=find(t,tab)
-  if n is not None and find(t,'我的') is not None:tap(n);return
+ hide_keyboard()
+ for _ in range(6):
+  t=snapshot()
+  if find(t,'切换服务器') is not None and find(t,'关闭') is not None:tap(find(t,'关闭'));continue
+  visible=page_info(t)
+  markers={'我的':['账号与同步','搜索设置'],'服务器':['我的服务器'],'观看':['追剧日历','发现'],'媒体库':['Seek','ProbeA','ProbeB']}
+  if dock(t,tab) is not None and any(s in visible for s in markers.get(tab,[])):return
+  n=dock(t,tab)
+  if n is not None:
+   tap(n)
+   t=snapshot()
+   if find(t,'切换服务器') is not None and find(t,'关闭') is not None:tap(find(t,'关闭'))
+   if any(s in page_info(snapshot()) for s in markers.get(tab,[])):return
+   continue
   shell('input','keyevent',4);time.sleep(.45)
- launch();tap(grab(tab))
+ launch()
+ n=dock(snapshot(),tab)
+ if n is not None:tap(n)
 def view(tab,keys,marker):
  root(tab);n=grab(keys,6);before=set(page_info(snapshot()));tap(n);expect(marker);after=set(page_info(snapshot()))
  if len(before.symmetric_difference(after))<2:raise RuntimeError('view transition not observed')
@@ -96,14 +115,21 @@ def setup():
  root('媒体库');return expect(['Seek','ProbeA','ProbeB'])
 def browse():
  root('媒体库');t=snapshot()
- if find(t,'Seek') is not None:tap(find(t,'Seek'))
+ if find(t,'ProbeA') is None and find(t,'Seek') is not None:tap(find(t,'Seek'))
  return expect(['ProbeA','ProbeB'])
 def detail():
  browse();tap(grab('ProbeA',4));return expect(['播放','立即播放','继续播放','从头播放','演职人员'])
 def search():
- root('媒体库');tap(grab(['搜索','搜索媒体'],3));t=snapshot()
+ root('媒体库');tap(dock(snapshot(),'搜索') or grab(['搜索','搜索媒体'],3));t=snapshot()
  edit=next(n for n in nodes(t) if n.get('class','').endswith('EditText'));type_into(edit,'ProbeA')
- shell('input','keyevent','66');return expect('ProbeA')
+ shell('input','keyevent','66');hide_keyboard()
+ until=time.monotonic()+12
+ while time.monotonic()<until:
+  t=snapshot()
+  hit=[n for n in nodes(t) if 'ProbeA' in labels(n) and 'EditText' not in n.get('class','') and not n.get('focusable')=='true' and '所有服务器中都没有找到相关内容' not in page_info(t)]
+  if hit:return 'matched search result outside query editor'
+  time.sleep(.4)
+ raise LookupError('no result card for ProbeA')
 def download():
  detail();tap(grab(['下载','下载影片','离线下载'],5));return expect(['下载到本地','添加下载','下载中心','下载任务','选择版本','选择下载源','已加入下载队列','下载中'])
 def start_player():
@@ -115,12 +141,15 @@ def start_player():
  else:raise RuntimeError('PlayerActivity did not resume')
  pressback();return expect(['ProbeA','播放','继续播放'])
 def background():
- root('我的');shell('input','keyevent','3');adb('shell','am','start','-W','-n',pkg+'/com.yfuse.MainActivity',t=40);return expect('我的')
+ root('我的');expect('账号与同步');shell('input','keyevent','3');adb('shell','am','start','-W','-n',pkg+'/com.yfuse.MainActivity',t=40);return expect('我的')
 launch()
 for name,fn in [('00-em​by-sign-in'.replace('\u200b',''),setup),('01-library-index',browse),('02-details',detail),('03-library-search',search),('04-library-play-and-return',start_player),('05-download-entry',download),('06-background-resume',background)]:
  if name.startswith('00-') and '--populated' in sys.argv:continue
  step(name,fn)
 profiles=[
+ ('stats',['观影统计'],['观影统计','观看时长','观看次数']),
+ ('family',['家庭资料'],['家庭资料','添加资料','个人']),
+ ('capabilities',['设备能力'],['设备能力','刷新率','视频解码']),
  ('account',['账号与同步'],['登录账号','注册账号','账号与同步']),
  ('lists',['我的片单'],['新建片单','搜索片单','我的片单']),
  ('history',['播放记录'],['播放记录','清空记录']),
@@ -129,12 +158,20 @@ profiles=[
  ('playback',['播放设置','播放与字幕','播放与兼容'],['播放模式','默认倍速','播放器设置']),
  ('advanced',['高级播放设置'],['内核与解码','显示与音频输出']),
  ('downloads',['下载与离线库','下载中心'],['下载任务','下载中心','离线库','暂无下载任务']),
- ('extras',['附加组件','插件','组件管理'],['已安装','组件管理','组件库']),
+ ('extras',['Stremio 插件','附加组件','插件','组件管理'],['已安装','组件管理','组件库','安装插件','添加插件']),
  ('danmaku',['弹幕'],['弹幕设置','来源与内容过滤']),
  ('watch-together',['一起看'],['房间','聊天显示','创建房间']),
  ('about',['关于'],['版本','开源许可','关于 Yfuse','Yfuse'])]
 for name,keys,marker in profiles:
  step('profile-'+name,lambda k=keys,m=marker:view('我的',k,m))
+for nm,keys,marks in [
+ ('server-form',['添加服务器','添加'],['地址','服务器类型','用户名','连接到服务器']),
+ ('iptv',['IPTV · 电视直播','IPTV・电视直播'],['直播源','添加直播源','频道','IPTV · 电视直播']),
+ ('wifi-import',['Wi-Fi 导入视频'],['局域网','上传地址','Wi-Fi 导入视频','本机地址']),
+ ('file-sources',['添加文件来源'],['SMB','WebDAV','文件来源']),
+]:
+ step('source-'+nm,lambda k=keys,m=marks:view('服务器',k,m))
+step('watch-calendar',lambda:view('观看','追剧日历',['今天','日历','订阅','追剧日历']))
 step('watch-history',lambda:view('观看','播放记录',['播放记录','ProbeA']))
 step('watch-discover',lambda:view('观看','发现',['返回媒体库','发现']))
 step('library-after-cold-start',lambda:(launch(),browse())[1])

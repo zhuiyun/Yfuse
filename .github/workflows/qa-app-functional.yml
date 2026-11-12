@@ -1,13 +1,85 @@
-name: Full functional recheck with status bar contrast
+name: Android functional acceptance
 on:
   push:
-    branches:
-      - qa/app-functional-20261112
+    branches: [qa/app-functional-20261112]
 permissions:
-  contents: read
   actions: read
+  contents: read
 jobs:
-  compile:
+  exercise:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {api: '35', suite: library}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          ref: 477b23b90f3ae5f31e56a37c53b34526508f5eee
+          path: app
+      - name: Locate the exact fixed APK producer
+        id: producer
+        env: {GH_TOKEN: "${{ github.token }}"}
+        run: |
+          for attempt in $(seq 1 60); do
+            run=$(gh api 'repos/zhuiyun/Yfuse/actions/runs?head_sha=c600c2321bddfd97950099172c59272467222fe4&per_page=10' --jq '.workflow_runs[] | select(.name=="Full functional recheck with status bar contrast") | .id' | head -1)
+            if [[ -n "$run" ]]; then
+              id=$(gh api "repos/zhuiyun/Yfuse/actions/runs/$run/artifacts" --jq '.artifacts[] | select(.name=="fixed-device-build") | .id' | head -1)
+              if [[ -n "$id" ]]; then echo "run=$run" >> "$GITHUB_OUTPUT"; echo "id=$id" >> "$GITHUB_OUTPUT"; exit 0; fi
+            fi
+            sleep 15
+          done
+          exit 1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          artifact-ids: ${{ steps.producer.outputs.id }}
+          run-id: ${{ steps.producer.outputs.run }}
+          github-token: ${{ github.token }}
+          path: app-apk
+      - name: Prepare emulator and independent media
+        env: {SUITE: "${{ matrix.suite }}"}
+        run: |
+          mkdir -p app-evidence feature-evidence
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          if [[ "$SUITE" == library ]]; then
+            sudo apt-get update -qq
+            sudo apt-get install -y ffmpeg python3-pil
+            /usr/bin/python3 qa-scrub/fixture.py qa-media
+            printf '1\n00:00:01,000 --> 00:02:00,000\nSubtitle fixture\n' > qa-media/ProbeA.en.srt
+            sed -i "s/'CollectionType':'homevideos'/'CollectionType':'movies'/" qa-scrub/emby.py
+            curl -fsSL --retry 2 https://github.com/MediaBrowser/Emby.Releases/releases/download/4.10.2.0/emby-server-deb_4.10.2.0_amd64.deb -o "$RUNNER_TEMP/server.deb"
+            echo "80c8666fc6f6143558c235c57932189a3f0b3f899b44519fc4621dd7dea16e32  $RUNNER_TEMP/server.deb" | sha256sum -c -
+            dpkg-deb -x "$RUNNER_TEMP/server.deb" qa-emby-bin
+          fi
+      - name: Use Android 17 platform tools for minor-version images
+        if: matrix.suite == 'settings' && matrix.api != 35
+        run: sudo rm -rf "${ANDROID_HOME:?}/cmdline-tools"
+      - uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: ${{ matrix.api }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          ram-size: 4096M
+          emulator-boot-timeout: 600
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -accel on
+          script: bash qa-functional/run.sh ${{ matrix.suite }} ${{ matrix.api }}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: functional-${{ matrix.suite }}-${{ matrix.api }}
+          path: |
+            app-evidence
+            feature-evidence
+
+  common-device:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -15,9 +87,9 @@ jobs:
         with: {persist-credentials: false}
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          persist-credentials: false
           ref: ceb8123815c6b0cec0f0bef3cb9a24ea63260752
           path: app
+          persist-credentials: false
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
         with: {distribution: temurin, java-version: '17', cache: gradle}
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
@@ -27,73 +99,37 @@ jobs:
           github-token: ${{ github.token }}
           merge-multiple: true
           path: qa-native
-      - name: Verify exact native artifact and assemble the fixed player
+      - name: Prepare source and its shared functional cases for this emulator
         working-directory: app
         run: |
           export YCORE_NATIVE_AAR_PATH="$GITHUB_WORKSPACE/qa-native/ycore-native.aar"
           export YCORE_SOURCE_RECEIPT="$GITHUB_WORKSPACE/qa-native/source-build.json"
-          export YCORE_SOURCE_COMMIT=ceb8123815c6b0cec0f0bef3cb9a24ea63260752
-          export SOURCE_COMMIT="$YCORE_SOURCE_COMMIT"
+          export SOURCE_COMMIT=ceb8123815c6b0cec0f0bef3cb9a24ea63260752
+          export YCORE_SOURCE_COMMIT="$SOURCE_COMMIT"
           export YCORE_SOURCE_AAR_SHA256=$(sha256sum "$YCORE_NATIVE_AAR_PATH" | cut -d' ' -f1)
           export YCORE_SOURCE_PROVENANCE_SHA256=$(sha256sum "$GITHUB_WORKSPACE/qa-native/NATIVE-SOURCES.txt" | cut -d' ' -f1)
           python3 scripts/prepare-playback-inputs.py
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0"
           git fetch --no-tags --depth=1 origin 477b23b90f3ae5f31e56a37c53b34526508f5eee
           test "$(git diff --name-only HEAD FETCH_HEAD)" = "composeApp/src/androidMain/kotlin/com/yfuse/core/designsystem/SystemBars.android.kt"
           git checkout --detach FETCH_HEAD
-          ./gradlew :composeApp:assembleDebug -PyfuseApplicationId=com.yfuse.validation --no-daemon
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        with:
-          name: fixed-device-build
-          path: app/composeApp/build/outputs/apk/debug/*.apk
-          retention-days: 2
-
-  verify:
-    needs: compile
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        sdk: ['35','37.0']
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with: {persist-credentials: false}
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          persist-credentials: false
-          ref: 477b23b90f3ae5f31e56a37c53b34526508f5eee
-          path: app
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
-        with:
-          name: fixed-device-build
-          path: app-apk
-      - name: Prepare device
-        run: |
-          mkdir -p app-evidence
-          sudo apt-get install -y python3-pil
+          python3 ../qa-functional/logic-config.py
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0"
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - name: Use current Android 17 tools
-        if: matrix.sdk == '37.0'
-        run: sudo rm -rf "${ANDROID_HOME:?}/cmdline-tools"
       - uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
-          api-level: ${{ matrix.sdk }}
+          api-level: 35
           arch: x86_64
           target: google_apis
           profile: pixel_2
-          ram-size: 4096M
+          ram-size: 3000M
           emulator-boot-timeout: 600
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -accel on
-          script: bash qa-functional/run.sh settings ${{ matrix.sdk }}
-      - name: Read status bar pixels after each layout change
-        if: always()
-        run: /usr/bin/python3 qa-functional/bar-check.py app-evidence
+          script: bash qa-functional/device-logic.sh
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
-          name: fixed-ui-${{ matrix.sdk }}
-          path: app-evidence
+          name: shared-feature-device-results
+          path: logic-evidence
