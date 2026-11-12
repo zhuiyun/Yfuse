@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
@@ -12,8 +13,11 @@ import androidx.core.view.WindowCompat
 actual fun StatusBarIconStyle(darkIcons: Boolean) {
     val view = LocalView.current
     val routeVisible = LocalRouteVisible.current
+    val configuration = LocalConfiguration.current
 
-    DisposableEffect(view, darkIcons, routeVisible) {
+    // Edge-to-edge reapplies the system theme on configuration changes, even when this
+    // activity and its visible route are retained. Reapply the route's foreground as well.
+    DisposableEffect(view, darkIcons, routeVisible, configuration) {
         val window = view.context.findActivity()?.window
         if (!routeVisible || window == null) {
             onDispose {}
