@@ -6,7 +6,7 @@ task=$(awk '$1 ~ /^connected.*AndroidDeviceTest$/ || $1=="connectedDeviceTest" |
 if [[ -z "$task" ]]; then task=connectedCheck; fi
 echo "Running :phoneShared:$task"
 set +e
-./gradlew ":phoneShared:$task" --console=plain --no-daemon > ../logic-evidence/gradle.log 2>&1
+./gradlew ":phoneShared:$task" "-Pandroid.testInstrumentationRunnerArguments.notClass=$(cat ../logic-host-store-classes.txt)" --console=plain --no-daemon > ../logic-evidence/gradle.log 2>&1
 rc=$?
 set -e
 tail -45 ../logic-evidence/gradle.log

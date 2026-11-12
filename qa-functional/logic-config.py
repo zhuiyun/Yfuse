@@ -48,10 +48,6 @@ for test in Path("composeApp/src/commonTest/kotlin").rglob("*.kt"):
     old='File("src/commonTest/fixtures/calendar-production-r12.json").readText()'
     if old in source:test.write_text(source.replace(old,expression))
 
-# Execute store tests on Android main just like the screens that own them.
-classes=['CalendarInteractionTest', 'DetailCastTest', 'DetailStoreTest', 'DeviceHandoffStoreTest', 'HomeLibraryShelvesTest', 'HomeStoreTest', 'LibraryGridStoreTest', 'LibraryStoreTest', 'PersonalCenterStoreTest', 'PlayerSeriesLaunchTest', 'PlayerStoreTest', 'SearchServerRetryTest', 'SearchStoreTest', 'ServersStoreTest', 'TraktSettingsStoreTest', 'WatchTogetherSettingsStoreTest']
-for test in Path("composeApp/src/commonTest/kotlin").rglob("*.kt"):
-    if test.stem not in classes:continue
-    source=test.read_text()
-    source=re.sub(r"@(kotlin\.test\.)?Test\b",lambda m:"@androidx.test.annotation.UiThreadTest "+m.group(0),source)
-    test.write_text(source)
+
+# These store suites inject host/virtual dispatchers; the normal Android host job executes them.
+Path('../logic-host-store-classes.txt').write_text('com.yfuse.feature.calendar.CalendarInteractionTest,com.yfuse.feature.detail.DetailCastTest,com.yfuse.feature.detail.DetailStoreTest,com.yfuse.feature.handoff.DeviceHandoffStoreTest,com.yfuse.feature.home.HomeLibraryShelvesTest,com.yfuse.feature.home.HomeStoreTest,com.yfuse.feature.library.LibraryGridStoreTest,com.yfuse.feature.library.LibraryStoreTest,com.yfuse.feature.personal.PersonalCenterStoreTest,com.yfuse.feature.player.PlayerSeriesLaunchTest,com.yfuse.feature.player.PlayerStoreTest,com.yfuse.feature.search.SearchServerRetryTest,com.yfuse.feature.search.SearchStoreTest,com.yfuse.feature.servers.ServersStoreTest,com.yfuse.feature.trakt.TraktSettingsStoreTest,com.yfuse.feature.watch.WatchTogetherSettingsStoreTest')

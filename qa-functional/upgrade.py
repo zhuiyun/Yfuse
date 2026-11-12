@@ -88,3 +88,6 @@ def open_saved():
   time.sleep(.25)
  raise RuntimeError('new binary still cannot open video with previous preferences')
 for name,fn in [('reproduce-unsupported-library',old_error),('recover-by-choosing-ycore-for-this-video',select_ycore_on_error),('upgrade-and-verify-engine-eligibility',upgrade),('old-engine-preference-opens-good-video',open_saved),('family-member-survives-restart',family)]:step(name,fn)
+
+from features import rows
+if any(row['result'] != 'passed' for row in rows):raise SystemExit(1)

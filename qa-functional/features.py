@@ -13,7 +13,14 @@ def snapshot():
  if pathlib.Path('/tmp/yfuse-tree-active').exists():
   result=adb('shell','am','instrument','-w','-e','mode','tree','qa.yfuse.gesture/.Driver',t=18)
   m=re.search(r'INSTRUMENTATION_RESULT: tree=([A-Za-z0-9+/=]+)',result)
-  if m:return ET.fromstring(base64.b64decode(m.group(1)))
+  if m:
+   tree=ET.fromstring(base64.b64decode(m.group(1)))
+   if any(n.get('text')=="Pixel Launcher isn't responding" for n in tree.iter('node')):
+    close=next((n for n in tree.iter('node') if n.get('text')=='Close app'),None)
+    if close is not None:
+     print('Dismissing crashed emulator launcher',flush=True)
+     tap(close);return ET.Element('launcher-dismissed')
+   return tree
  for attempt in range(3):
   try:
    adb('shell','uiautomator','dump','/sdcard/full-qa.xml',t=18)
