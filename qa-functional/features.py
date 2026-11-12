@@ -9,14 +9,18 @@ def adb(*a,output=False,t=20):
  return r.stdout if output else r.stdout.decode(errors='replace')
 def shell(*a):return adb('shell',*a)
 def snapshot():
- for attempt in range(4):
+ import base64
+ if pathlib.Path('/tmp/yfuse-tree-active').exists():
+  result=adb('shell','am','instrument','-w','-e','mode','tree','qa.yfuse.gesture/.Driver',t=18)
+  m=re.search(r'INSTRUMENTATION_RESULT: tree=([A-Za-z0-9+/=]+)',result)
+  if m:return ET.fromstring(base64.b64decode(m.group(1)))
+ for attempt in range(3):
   try:
-   shell('rm','-f','/sdcard/full-qa.xml')
-   adb('shell','uiautomator','dump','--compressed','/sdcard/full-qa.xml',t=24)
+   adb('shell','uiautomator','dump','/sdcard/full-qa.xml',t=18)
    return ET.fromstring(adb('shell','cat','/sdcard/full-qa.xml'))
   except (RuntimeError,ET.ParseError,subprocess.TimeoutExpired):
-   if attempt==3:return ET.Element('empty')
-   time.sleep(.35)
+   if attempt==2:return ET.Element('empty')
+   time.sleep(.4)
 def nodes(tree):return list(tree.iter('node'))
 def labels(n):return [x.strip() for k in ('text','content-desc') for x in n.get(k,'').split('\n') if x.strip()]
 def coords(n):
@@ -65,7 +69,11 @@ def step(name,action):
   except Exception:pass
 def launch():
  adb('shell','am','force-stop',pkg)
- adb('shell','am','start','-W','-n',pkg+'/com.yfuse.MainActivity',t=90);wait('我的',50)
+ shell('input','keyevent',224);shell('wm','dismiss-keyguard')
+ adb('shell','am','start','-W','-n',pkg+'/com.yfuse.MainActivity',t=90)
+ try:wait(['我的','服务器','媒体库'],65)
+ except Exception:
+  snap('startup-unavailable');raise
 def dock(t,tab):
  candidates=[n for n in nodes(t) if n.get('content-desc')==tab and n.get('package')==pkg]
  return max(candidates,key=lambda n:coords(n)[1]) if candidates else None

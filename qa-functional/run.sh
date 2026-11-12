@@ -1,6 +1,13 @@
 set -eu
 adb shell settings put secure immersive_mode_confirmations confirmed
 adb shell wm dismiss-keyguard
+mkdir -p feature-evidence
+collect(){ adb logcat -b crash -d | sed -E 's@https?://[^ ]+@[url]@g' >feature-evidence/crashes.txt || true; adb shell dumpsys activity activities | grep -E 'mResumedActivity|topResumedActivity|mFocusedApp' >feature-evidence/foreground.txt || true; adb exec-out screencap -p >feature-evidence/final.png || true; }
+trap collect EXIT
+if [[ "$1" == extra || "$1" == settings-actions ]]; then
+ bash qa-functional/driver-build.sh
+ touch /tmp/yfuse-tree-active
+fi
 if [[ "$1" == settings ]]; then
  /usr/bin/python3 qa-functional/smoke.py "${2%%.*}"
  exit

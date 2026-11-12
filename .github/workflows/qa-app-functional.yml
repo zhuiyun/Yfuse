@@ -1,4 +1,4 @@
-name: Persisted playback settings, family profiles and experimental engine playback
+name: Device import actions and cold-launch diagnostics
 on:
   push:
     branches:
@@ -14,7 +14,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {api: '35', suite: settings-actions}
+          - {api: '35', suite: extra}
+          - {api: '35', suite: settings}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with: {persist-credentials: false}
@@ -23,19 +24,9 @@ jobs:
           persist-credentials: false
           ref: 60390e45c371e3bdc23349d3f03b5915eb22d11e
           path: app
-      - name: Find the fixed device artifact
-        id: producer
-        env: {GH_TOKEN: "${{ github.token }}"}
-        run: |
-          for attempt in $(seq 1 40); do
-            id=$(gh api repos/zhuiyun/Yfuse/actions/runs/43260828993/artifacts --jq '.artifacts[] | select(.name=="fixed-device-build") | .id' | head -1)
-            if [[ -n "$id" ]]; then echo "id=$id" >> "$GITHUB_OUTPUT"; exit 0; fi
-            sleep 12
-          done
-          exit 1
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
-          artifact-ids: ${{ steps.producer.outputs.id }}
+          artifact-ids: '13962534341'
           run-id: '43260828993'
           github-token: ${{ github.token }}
           merge-multiple: true
