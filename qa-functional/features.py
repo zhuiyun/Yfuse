@@ -9,8 +9,14 @@ def adb(*a,output=False,t=20):
  return r.stdout if output else r.stdout.decode(errors='replace')
 def shell(*a):return adb('shell',*a)
 def snapshot():
- adb('shell','uiautomator','dump','/sdcard/full-qa.xml',t=22)
- return ET.fromstring(adb('shell','cat','/sdcard/full-qa.xml'))
+ for attempt in range(4):
+  try:
+   shell('rm','-f','/sdcard/full-qa.xml')
+   adb('shell','uiautomator','dump','--compressed','/sdcard/full-qa.xml',t=24)
+   return ET.fromstring(adb('shell','cat','/sdcard/full-qa.xml'))
+  except (RuntimeError,ET.ParseError,subprocess.TimeoutExpired):
+   if attempt==3:return ET.Element('empty')
+   time.sleep(.35)
 def nodes(tree):return list(tree.iter('node'))
 def labels(n):return [x.strip() for k in ('text','content-desc') for x in n.get(k,'').split('\n') if x.strip()]
 def coords(n):
@@ -120,7 +126,7 @@ def browse():
 def detail():
  browse();tap(grab('ProbeA',4));return expect(['播放','立即播放','继续播放','从头播放','演职人员'])
 def search():
- root('媒体库');tap(dock(snapshot(),'搜索') or grab(['搜索','搜索媒体'],3));t=snapshot()
+ root('媒体库');search_tab=dock(snapshot(),'搜索');tap(search_tab if search_tab is not None else grab(['搜索','搜索媒体'],3));t=snapshot()
  edit=next(n for n in nodes(t) if n.get('class','').endswith('EditText'));type_into(edit,'ProbeA')
  shell('input','keyevent','66');hide_keyboard()
  until=time.monotonic()+12
@@ -142,36 +148,37 @@ def start_player():
  pressback();return expect(['ProbeA','播放','继续播放'])
 def background():
  root('我的');expect('账号与同步');shell('input','keyevent','3');adb('shell','am','start','-W','-n',pkg+'/com.yfuse.MainActivity',t=40);return expect('我的')
-launch()
-for name,fn in [('00-em​by-sign-in'.replace('\u200b',''),setup),('01-library-index',browse),('02-details',detail),('03-library-search',search),('04-library-play-and-return',start_player),('05-download-entry',download),('06-background-resume',background)]:
- if name.startswith('00-') and '--populated' in sys.argv:continue
- step(name,fn)
-profiles=[
- ('stats',['观影统计'],['观影统计','观看时长','观看次数']),
- ('family',['家庭资料'],['家庭资料','添加资料','个人']),
- ('capabilities',['设备能力'],['设备能力','刷新率','视频解码']),
- ('account',['账号与同步'],['登录账号','注册账号','账号与同步']),
- ('lists',['我的片单'],['新建片单','搜索片单','我的片单']),
- ('history',['播放记录'],['播放记录','清空记录']),
- ('calendar',['追剧日历'],['追剧日历','今天']),
- ('appearance',['外观与交互','外观设置'],['首页与导航','动画与动效','辅助功能']),
- ('playback',['播放设置','播放与字幕','播放与兼容'],['播放模式','默认倍速','播放器设置']),
- ('advanced',['高级播放设置'],['内核与解码','显示与音频输出']),
- ('downloads',['下载与离线库','下载中心'],['下载任务','下载中心','离线库','暂无下载任务']),
- ('extras',['Stremio 插件','附加组件','插件','组件管理'],['已安装','组件管理','组件库','安装插件','添加插件']),
- ('danmaku',['弹幕'],['弹幕设置','来源与内容过滤']),
- ('watch-together',['一起看'],['房间','聊天显示','创建房间']),
- ('about',['关于'],['版本','开源许可','关于 Yfuse','Yfuse'])]
-for name,keys,marker in profiles:
- step('profile-'+name,lambda k=keys,m=marker:view('我的',k,m))
-for nm,keys,marks in [
- ('server-form',['添加服务器','添加'],['地址','服务器类型','用户名','连接到服务器']),
- ('iptv',['IPTV · 电视直播','IPTV・电视直播'],['直播源','添加直播源','频道','IPTV · 电视直播']),
- ('wifi-import',['Wi-Fi 导入视频'],['局域网','上传地址','Wi-Fi 导入视频','本机地址']),
- ('file-sources',['添加文件来源'],['SMB','WebDAV','文件来源']),
-]:
- step('source-'+nm,lambda k=keys,m=marks:view('服务器',k,m))
-step('watch-calendar',lambda:view('观看','追剧日历',['今天','日历','订阅','追剧日历']))
-step('watch-history',lambda:view('观看','播放记录',['播放记录','ProbeA']))
-step('watch-discover',lambda:view('观看','发现',['返回媒体库','发现']))
-step('library-after-cold-start',lambda:(launch(),browse())[1])
+if __name__=='__main__':
+ launch()
+ for name,fn in [('00-em​by-sign-in'.replace('\u200b',''),setup),('01-library-index',browse),('02-details',detail),('03-library-search',search),('04-library-play-and-return',start_player),('05-download-entry',download),('06-background-resume',background)]:
+  if name.startswith('00-') and '--populated' in sys.argv:continue
+  step(name,fn)
+ profiles=[
+  ('stats',['观影统计'],['观影统计','观看时长','观看次数']),
+  ('family',['家庭资料'],['家庭资料','添加资料','个人']),
+  ('capabilities',['设备能力'],['设备能力','刷新率','视频解码']),
+  ('account',['账号与同步'],['登录账号','注册账号','账号与同步']),
+  ('lists',['我的片单'],['新建片单','搜索片单','我的片单']),
+  ('history',['播放记录'],['播放记录','清空记录']),
+  ('calendar',['追剧日历'],['追剧日历','今天']),
+  ('appearance',['外观与交互','外观设置'],['首页与导航','动画与动效','辅助功能']),
+  ('playback',['播放设置','播放与字幕','播放与兼容'],['播放模式','默认倍速','播放器设置']),
+  ('advanced',['高级播放设置'],['内核与解码','显示与音频输出']),
+  ('downloads',['下载与离线库','下载中心'],['下载任务','下载中心','离线库','暂无下载任务']),
+  ('extras',['Stremio 插件','附加组件','插件','组件管理'],['已安装','组件管理','组件库','安装插件','添加插件']),
+  ('danmaku',['弹幕'],['弹幕设置','来源与内容过滤']),
+  ('watch-together',['一起看'],['房间','聊天显示','创建房间']),
+  ('about',['关于'],['版本','开源许可','关于 Yfuse','Yfuse'])]
+ for name,keys,marker in profiles:
+  step('profile-'+name,lambda k=keys,m=marker:view('我的',k,m))
+ for nm,keys,marks in [
+  ('server-form',['添加服务器','添加'],['地址','服务器类型','用户名','连接到服务器']),
+  ('iptv',['IPTV · 电视直播','IPTV・电视直播'],['直播源','添加直播源','频道','IPTV · 电视直播']),
+  ('wifi-import',['Wi-Fi 导入视频'],['局域网','上传地址','Wi-Fi 导入视频','本机地址']),
+  ('file-sources',['添加文件来源'],['SMB','WebDAV','文件来源']),
+ ]:
+  step('source-'+nm,lambda k=keys,m=marks:view('服务器',k,m))
+ step('watch-calendar',lambda:view('观看','追剧日历',['今天','日历','订阅','追剧日历']))
+ step('watch-history',lambda:view('观看','播放记录',['播放记录','ProbeA']))
+ step('watch-discover',lambda:view('观看','发现',['返回媒体库','发现']))
+ step('library-after-cold-start',lambda:(launch(),browse())[1])

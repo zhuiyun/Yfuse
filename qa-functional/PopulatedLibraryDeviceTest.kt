@@ -6,6 +6,9 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.yfuse.MainActivity
 import com.yfuse.core.data.EmbyRepository
+import com.yfuse.core.sync.watchKey
+import com.yfuse.core.sync.ServerSyncManager
+import com.yfuse.core.sync.playback.PlaybackSyncManager
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.offline.OfflineDownloadRequest
@@ -82,10 +85,13 @@ class PopulatedLibraryDeviceTest {
                             check(repo.itemDetail(server,mediaId).getOrThrow().isFavorite==value)
                         }
                     }
-                    checkCase("watched flag survives reread and removal") {
+                    checkCase("watched flag through the detail action survives reread and removal") {
                         for (value in listOf(true,false)) {
-                            repo.setPlayed(server,mediaId,value).getOrThrow()
-                            check(repo.itemDetail(server,mediaId).getOrThrow().played==value)
+                            koin.get<PlaybackSyncManager>().markWatched(mediaKey=repo.itemDetail(server,mediaId).getOrThrow().providerIds.watchKey(mediaId),watched=value,serverId=server.id,serverItemId=mediaId)
+                            koin.get<ServerSyncManager>().setPlayed(server,mediaId,"ProbeA",value).getOrThrow()
+                            withTimeout(6000) {
+                                while (repo.itemDetail(server,mediaId).getOrThrow().played!=value) kotlinx.coroutines.delay(150)
+                            }
                         }
                     }
                     checkCase("playback negotiation includes video audio and external subtitle") {

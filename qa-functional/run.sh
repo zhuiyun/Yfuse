@@ -5,6 +5,11 @@ if [[ "$1" == settings ]]; then
  /usr/bin/python3 qa-functional/smoke.py "${2%%.*}"
  exit
 fi
+if [[ "$1" == extra ]]; then
+ adb install -r -g "$(find app-apk -name '*.apk' | head -1)"
+ /usr/bin/python3 qa-functional/extra.py
+ exit
+fi
 sock="$RUNNER_TEMP/functional-media.sock"
 mkdir -p qa-emby-local feature-evidence
 sudo unshare -n -- /usr/bin/python3 qa-scrub/isolated.py qa-emby-bin/opt/emby-server qa-media qa-emby-local "$sock" > qa-server.log 2>&1 &

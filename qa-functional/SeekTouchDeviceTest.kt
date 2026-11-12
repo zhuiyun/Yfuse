@@ -112,7 +112,9 @@ class SeekTouchDeviceTest {
                     fun x(v:Double)=r.left+((r.width()-1)*v).roundToInt()
                     val from=if(f>0.5) 0.15 else 0.83
                     val steps=if(i%2==0) 7 else 12
-                    finger(x(from),x(f),r.centerY(),steps)
+                    val cmd = "input swipe ${x(from)} ${r.centerY()} ${x(f)} ${r.centerY()} 320"
+                    val pipe = ui.executeShellCommand(cmd)
+                    android.os.ParcelFileDescriptor.AutoCloseInputStream(pipe).use { it.readBytes() }
                     val t=SystemClock.elapsedRealtime()
                     var firstFrame:Double?=null;var last:Double?=null;var firstDelay=-1L;var ok=false
                     while(SystemClock.elapsedRealtime()-t<6500) {
@@ -125,7 +127,7 @@ class SeekTouchDeviceTest {
                         if(ok)break
                         SystemClock.sleep(120)
                     }
-                    note(JSONObject().put("case",name).put("moveSteps",steps).put("target",target).put("firstFrame",firstFrame?:-1).put("laterFrame",last?:-1).put("firstSeenMs",firstDelay).put("ok",ok))
+                    note(JSONObject().put("case",name).put("gesture","adb-input-swipe-320ms").put("target",target).put("firstFrame",firstFrame?:-1).put("laterFrame",last?:-1).put("firstSeenMs",firstDelay).put("ok",ok))
                     if(!ok) {failures.add("$name/$i");val b=shot();save(b,"$name-$i-failure");b.recycle()}
                 }
             }
