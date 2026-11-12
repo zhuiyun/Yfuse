@@ -112,6 +112,9 @@ internal class AndroidNativeDirectYPlayer(
     @Volatile
     private var activeSession: AndroidNativeDirectSession? = null
 
+    // A worker cancelled before its first instruction never acquired a session.
+    @Volatile private var cleanupCompleted = true
+
     private val worker: Job = scope.launch { runLoop() }
 
     override val playbackRequested: Boolean get() = mutableState.value.playbackRequested
@@ -318,9 +321,6 @@ internal class AndroidNativeDirectYPlayer(
         submit(Command.Prepare)
     }
 
-    @Volatile
-    private var cleanupCompleted = false
-
     override val releaseCompleted: Boolean get() = worker.isCompleted && cleanupCompleted
 
     override suspend fun releaseAndJoin() {
@@ -361,6 +361,7 @@ internal class AndroidNativeDirectYPlayer(
     }
 
     private suspend fun runLoop() {
+        cleanupCompleted = false
         val session =
             AndroidNativeDirectSession(
                 context = appContext,

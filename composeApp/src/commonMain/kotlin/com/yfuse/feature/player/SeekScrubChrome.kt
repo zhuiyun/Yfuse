@@ -5,7 +5,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
-import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -87,12 +86,12 @@ internal suspend fun PointerInputScope.detectSeekScrubGestures(
             awaitHorizontalTouchSlopOrCancellation(down.id) { change, _ -> change.consume() }
                 ?: return@awaitEachGesture
         onDragStart(down.position, start.position)
-        val released =
-            drag(start.id) { change ->
-                onDrag(change)
-                change.consume()
-            }
-        if (released) onDragEnd() else onDragCancel()
+        var released = false
+        try {
+            released = trackPlayerDrag(start, onDrag)
+        } finally {
+            if (released) onDragEnd() else onDragCancel()
+        }
     }
 }
 

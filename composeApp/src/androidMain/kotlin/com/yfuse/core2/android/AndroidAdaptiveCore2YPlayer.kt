@@ -2248,11 +2248,18 @@ internal class AndroidAdaptiveCore2YPlayer(
                     ),
                 )
                 pendingPositionMs = positionMs
-                if (adaptiveTarget != null) {
+                val target = adaptiveTarget
+                val active = child
+                if (target != null && (target.periodEndGlobalMs != null || active == null)) {
+                    // Static DASH resolves the destination Period before opening its decoder.
+                    // Retiring a still-starting decoder must not cancel the new probe.
+                    invalidateProbe("superseded")
                     pausedSeekPreviewRequested = !requestedPlay
                     rebuild(positionMs)
                 } else {
-                    child?.seekTo(positionMs)
+                    // A managed HLS VOD exposes its entire playlist on the active graph.
+                    // Keeping its demuxer also preserves the seek ordering and segment cache.
+                    active?.seekTo(positionMs)
                 }
             }
             if (pendingSeekMs.get() >= 0L) queuePendingSeek()

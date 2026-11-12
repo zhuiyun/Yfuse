@@ -9,12 +9,18 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.serialization.encodeToString
+import kotlinx.io.Buffer
+import kotlinx.io.RawSink
+import kotlinx.io.buffered
+import kotlinx.io.readString
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.add
+import kotlinx.serialization.json.io.encodeToSink
+import okio.utf8Size
 
 interface WidgetRuntime {
     suspend fun metadata(source: String): String
@@ -347,7 +353,7 @@ class WidgetRepository(
         source: String,
         origin: String,
     ): InstalledWidget {
-        require(source.encodeToByteArray().size <= MAX_WIDGET_SOURCE_BYTES) { "JS 文件不能超过 1 MB" }
+        require(source.utf8Size() <= MAX_WIDGET_SOURCE_BYTES) { "JS 文件不能超过 1 MB" }
         require(source.isNotBlank()) { "JS 文件为空" }
         val normalized = source.removePrefix("\uFEFF")
         val metadata = parseWidgetMetadata(runtime.metadata(normalized), "local-${hash(origin).take(24)}")
@@ -446,11 +452,11 @@ class WidgetRepository(
     suspend fun backup(): String {
         ready.await()
         check(mutableError.value == null) { mutableError.value.orEmpty() }
-        return widgetJson.encodeToString(database.value)
+        return encodeSnapshot(database.value)
     }
 
     suspend fun restore(raw: String) {
-        require(raw.encodeToByteArray().size <= MAX_WIDGET_DATABASE_BYTES) { "备份文件过大" }
+        require(raw.utf8Size() <= MAX_WIDGET_DATABASE_BYTES) { "备份文件过大" }
         val value = widgetJson.decodeFromString<WidgetDatabase>(raw)
         validate(value)
         // Defaults omitted by another exporter can make the persisted snapshot larger than its input.
@@ -653,10 +659,28 @@ class WidgetRepository(
         }
     }
 
+    @OptIn(ExperimentalSerializationApi::class)
     private fun encodeSnapshot(value: WidgetDatabase): String {
-        val snapshot = widgetJson.encodeToString(value)
-        require(snapshot.encodeToByteArray().size <= MAX_WIDGET_DATABASE_BYTES) { "组件与页面配置已达到存储上限" }
-        return snapshot
+        val encoded = Buffer()
+        // Count the persisted form, including JSON escaping and defaults, as it is written.
+        // A contiguous character writer can exhaust an Android heap before its final size check.
+        val sink =
+            object : RawSink {
+                override fun write(
+                    source: Buffer,
+                    byteCount: Long,
+                ) {
+                    require(byteCount <= MAX_WIDGET_DATABASE_BYTES - encoded.size) { "组件与页面配置已达到存储上限" }
+                    encoded.write(source, byteCount)
+                }
+
+                override fun flush() = Unit
+
+                override fun close() = Unit
+            }.buffered()
+        widgetJson.encodeToSink(value, sink)
+        sink.flush()
+        return encoded.readString()
     }
 
     private fun validate(db: WidgetDatabase) {
@@ -678,7 +702,7 @@ class WidgetRepository(
                 .distinct()
                 .size == db.widgets.size,
         ) { "组件 ID 重复" }
-        require(db.widgets.all { it.source.encodeToByteArray().size <= MAX_WIDGET_SOURCE_BYTES }) { "脚本文件过大" }
+        require(db.widgets.all { it.source.utf8Size() <= MAX_WIDGET_SOURCE_BYTES }) { "脚本文件过大" }
         require(
             db.pages
                 .map { it.id }

@@ -95,7 +95,7 @@ private fun WifiImportDialog(onDismiss: () -> Unit) {
             service.stop()
         }
     }
-    GlassDialog(onDismiss = onDismiss) {
+    GlassDialog(onDismiss = onDismiss, scrollable = false) {
         OverlayHeader(title = "Wi-Fi 导入视频", subtitle = "开启后，在同一局域网的浏览器访问地址并输入配对码。离开页面或进入后台会关闭接收。", onClose = onDismiss)
         LazyColumn(
             Modifier.fillMaxWidth().weight(1f, fill = false).heightIn(max = 600.dp),

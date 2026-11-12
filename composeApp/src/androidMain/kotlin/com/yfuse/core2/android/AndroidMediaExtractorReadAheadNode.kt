@@ -452,7 +452,9 @@ internal class AndroidMediaExtractorReadAheadNode(
             )
         }
 
-    fun release() {
+    fun release() = releaseOnOwner(timeoutMs = 2_000L)
+
+    private fun releaseOnOwner(timeoutMs: Long?) {
         val owner =
             synchronized(monitor) {
                 opened = false
@@ -468,7 +470,7 @@ internal class AndroidMediaExtractorReadAheadNode(
         openedFormats = null
         if (owner != null) {
             abortPendingReads()
-            runOnOwner(timeoutMs = 2_000L, retiring = true) {
+            runOnOwner(timeoutMs = timeoutMs, retiring = true) {
                 delegate.release()
                 ownerStagingBuffer = null
                 synchronized(monitor) {
@@ -480,8 +482,9 @@ internal class AndroidMediaExtractorReadAheadNode(
         }
     }
 
+    /** Final worker cleanup outlives a timed-out join. The owner may still be returning from seek. */
     fun close() {
-        release()
+        releaseOnOwner(timeoutMs = null)
         val owner = synchronized(monitor) { executor.also { executor = null } }
         owner?.shutdownNow()
     }
@@ -681,7 +684,7 @@ internal class AndroidMediaExtractorReadAheadNode(
         }
 
     private fun <T> runOnOwner(
-        timeoutMs: Long = ownerTimeoutMs,
+        timeoutMs: Long? = ownerTimeoutMs,
         retiring: Boolean = false,
         block: () -> T,
     ): T {
@@ -704,10 +707,10 @@ internal class AndroidMediaExtractorReadAheadNode(
 
     private fun <T> await(
         future: Future<T>,
-        timeoutMs: Long,
+        timeoutMs: Long?,
     ): T {
         try {
-            return future.get(timeoutMs, TimeUnit.MILLISECONDS)
+            return if (timeoutMs == null) future.get() else future.get(timeoutMs, TimeUnit.MILLISECONDS)
         } catch (timeout: TimeoutException) {
             val failure = IOException("Platform extractor operation exceeded ${timeoutMs}ms", timeout)
             ownerFailure = failure
