@@ -1,79 +1,135 @@
-name: Sustain final HLS playback after 72 real seeks
+name: Gather measured Android regression results and screenshots
 on:
   push:
-    branches:
-      - qa/app-functional-20261112
+    branches: [qa/app-functional-20261112]
 permissions:
-  contents: read
   actions: read
+  contents: read
 jobs:
-  exercise:
+  summarize:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - {api: '35', suite: soak}
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with: {persist-credentials: false}
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Wait for test evidence to finish uploading
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import os,urllib.request,json,time
+          deadline=time.monotonic()+37*60
+          while time.monotonic()<deadline:
+              done=[]
+              for rid in (43271135331,43272214769):
+                  url='https://api.github.com/repos/zhuiyun/Yfuse/actions/runs/'+str(rid)
+                  req=urllib.request.Request(url,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN']})
+                  with urllib.request.urlopen(req,timeout=25) as r: row=json.load(r)
+                  print(rid,row['status'],row['conclusion'],flush=True)
+                  done.append(row['status']=='completed')
+              if all(done):break
+              time.sleep(30)
+          else:raise SystemExit('Timed out waiting for the test artifacts')
+          PY
+      - name: Collect all
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
-          persist-credentials: false
-          ref: 1bd86af361e5430c0ca5f56306f415102a58d979
-          path: app
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
-        with:
-          artifact-ids: '13969340622'
+          name: functional-all-35
+          path: raw/all
           run-id: '43271135331'
           github-token: ${{ github.token }}
-          merge-multiple: true
-          path: app-apk
-      - name: Prepare emulator and independent media
-        env: {SUITE: "${{ matrix.suite }}"}
+      - name: Collect hls
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: functional-hls-35
+          path: raw/hls
+          run-id: '43271135331'
+          github-token: ${{ github.token }}
+      - name: Collect standard
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: functional-standard-35
+          path: raw/standard
+          run-id: '43271135331'
+          github-token: ${{ github.token }}
+      - name: Collect upgrade
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: functional-upgrade-35
+          path: raw/upgrade
+          run-id: '43271135331'
+          github-token: ${{ github.token }}
+      - name: Collect soak
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: functional-soak-35
+          path: raw/soak
+          run-id: '43272214769'
+          github-token: ${{ github.token }}
+      - name: Collect subtitle
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: functional-subtitle-35
+          path: raw/subtitle
+          run-id: '43269615384'
+          github-token: ${{ github.token }}
+      - name: Collect shared
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: shared-feature-device-results
+          path: raw/shared
+          run-id: '43269280583'
+          github-token: ${{ github.token }}
+      - name: Collect baseline
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: functional-external-35
+          path: raw/baseline
+          run-id: '43266819964'
+          github-token: ${{ github.token }}
+      - name: Collect priorfeatures
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: functional-extra-35
+          path: raw/priorfeatures
+          run-id: '43262539122'
+          github-token: ${{ github.token }}
+      - name: Collect library
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: functional-library-35
+          path: raw/library
+          run-id: '43257961326'
+          github-token: ${{ github.token }}
+      - name: Assemble the results and check the HTML
         run: |
-          mkdir -p app-evidence feature-evidence
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-          sudo apt-get update -qq
-          sudo apt-get install -y python3-pil
-          if [[ "$SUITE" != settings ]]; then
-            sudo apt-get update -qq
-            sudo apt-get install -y ffmpeg python3-pil
-            /usr/bin/python3 qa-scrub/fixture.py qa-media
-            printf '1\n00:00:01,000 --> 00:02:00,000\nSubtitle fixture\n' > qa-media/ProbeA.en.srt
-            sed -i "s/'CollectionType':'homevideos'/'CollectionType':'movies'/" qa-scrub/emby.py
-            curl -fsSL --retry 2 https://github.com/MediaBrowser/Emby.Releases/releases/download/4.10.2.0/emby-server-deb_4.10.2.0_amd64.deb -o "$RUNNER_TEMP/server.deb"
-            echo "80c8666fc6f6143558c235c57932189a3f0b3f899b44519fc4621dd7dea16e32  $RUNNER_TEMP/server.deb" | sha256sum -c -
-            dpkg-deb -x "$RUNNER_TEMP/server.deb" qa-emby-bin
-          fi
-      - name: Use Android 17 platform tools for minor-version images
-        if: matrix.suite == 'settings' && matrix.api != 35
-        run: sudo rm -rf "${ANDROID_HOME:?}/cmdline-tools"
-      - uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
-        with:
-          api-level: ${{ matrix.api }}
-          target: google_apis
-          arch: x86_64
-          profile: pixel_2
-          ram-size: 4096M
-          emulator-boot-timeout: 600
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -accel on
-          script: bash qa-functional/soak.sh
-      - name: Check contrast of the actual time indicator
-        if: matrix.suite == 'settings' && success()
-        run: /usr/bin/python3 qa-functional/bar-check.py app-evidence
+          sudo apt-get update -qq && sudo apt-get install -y python3-pil
+          /usr/bin/python3 qa-functional/evidence-report.py
+          python3 - <<'PY'
+          from html.parser import HTMLParser
+          from pathlib import Path
+          import base64, json
+          class Images(HTMLParser):
+              def __init__(self):super().__init__();self.n=0
+              def handle_starttag(self,t,attrs):
+                  if t=="img":
+                      uri=dict(attrs)["src"];data=base64.b64decode(uri.split(",",1)[1],validate=True);assert data[:4]==b"RIFF"
+                      self.n+=1
+          doc=Images();doc.feed(Path("report/Yfuse-Android-Regression-20261112.html").read_text());assert doc.n>=5
+          d=json.loads(Path("report/measurements.json").read_text())
+          print('REPORT_IMAGES',doc.n)
+          for group in ('all','hls','standard','soak'):
+              for media,val in d[group].items():
+                  for i,x in enumerate(val['shots'],1):
+                      if not x['ok']:print('MISSED',group,media,i,x)
+          for key in ('all','hls','standard','soak'):
+              for file in Path('raw',key).rglob('app-events.jsonl'):
+                  for line in file.read_text().splitlines():
+                      e=json.loads(line)
+                      if e.get('level')=='ERROR':print('PLAYER_ERROR',key,e.get('event'),e.get('attributes',{}).get('failurestage'), e.get('exception',{}).get('type'))
+          PY
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        if: always()
         with:
-          name: functional-${{ matrix.suite }}-${{ matrix.api }}
-          path: |
-            app-evidence
-            feature-evidence
-            qa-emby-evidence
-
-
-
-
+          name: Yfuse-Android-Regression-Report
+          path: report
+          retention-days: 30
