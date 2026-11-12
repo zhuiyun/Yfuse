@@ -15,6 +15,8 @@ s=s.replace(needle,'''        getByName("androidDeviceTest") {
                 implementation(kotlin("test-junit"))
                 implementation(libs.androidx.test.runner)
                 implementation(libs.androidx.test.junit)
+                implementation(libs.androidx.work.runtime)
+                implementation(libs.bouncycastle.provider)
             }
         }
 '''+needle)
@@ -44,3 +46,11 @@ for test in Path("composeApp/src/commonTest/kotlin").rglob("*.kt"):
     source=test.read_text()
     old='File("src/commonTest/fixtures/calendar-production-r12.json").readText()'
     if old in source:test.write_text(source.replace(old,expression))
+
+# Execute store tests on Android main just like the screens that own them.
+classes=['CalendarInteractionTest', 'DetailCastTest', 'DetailStoreTest', 'DeviceHandoffStoreTest', 'HomeLibraryShelvesTest', 'HomeStoreTest', 'LibraryGridStoreTest', 'LibraryStoreTest', 'PersonalCenterStoreTest', 'PlayerSeriesLaunchTest', 'PlayerStoreTest', 'SearchServerRetryTest', 'SearchStoreTest', 'ServersStoreTest', 'TraktSettingsStoreTest', 'WatchTogetherSettingsStoreTest']
+for test in Path("composeApp/src/commonTest/kotlin").rglob("*.kt"):
+    if test.stem not in classes:continue
+    source=test.read_text()
+    source=re.sub(r"@(kotlin\.test\.)?Test\b",lambda m:"@androidx.test.annotation.UiThreadTest "+m.group(0),source)
+    test.write_text(source)
