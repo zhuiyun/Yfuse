@@ -24,5 +24,9 @@ test -S "$sock"
 /usr/bin/python3 qa-scrub/isolated.py relay "$sock" >/dev/null 2>&1 &
 adb reverse tcp:18196 tcp:18196
 adb install -r -g "$(find app-apk -name '*.apk' | head -1)"
-/usr/bin/python3 qa-functional/features.py
+if [[ "$1" == settings-actions ]]; then
+ /usr/bin/python3 qa-functional/settings-actions.py
+else
+ /usr/bin/python3 qa-functional/features.py
+fi
 adb shell dumpsys activity exit-info com.yfuse.validation > feature-evidence/process-exit.txt
