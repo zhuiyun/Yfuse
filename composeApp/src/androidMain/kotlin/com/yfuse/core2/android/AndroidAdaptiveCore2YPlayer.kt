@@ -2249,6 +2249,9 @@ internal class AndroidAdaptiveCore2YPlayer(
                 )
                 pendingPositionMs = positionMs
                 if (adaptiveTarget != null) {
+                    // An HLS or DASH seek opens a new segment graph. While the previous graph
+                    // is still starting, releasing it can cancel its probe budget.
+                    invalidateProbe("superseded")
                     pausedSeekPreviewRequested = !requestedPlay
                     rebuild(positionMs)
                 } else {
