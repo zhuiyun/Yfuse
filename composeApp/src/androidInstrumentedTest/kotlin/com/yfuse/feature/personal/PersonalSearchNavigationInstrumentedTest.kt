@@ -71,8 +71,10 @@ class PersonalSearchNavigationInstrumentedTest {
                 }
             }
             instrumentation.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
-            await("Back returns to the immediate parent") { node("片单返回后的个人页") != null }
-            assertTrue("Personal list is still visible after Back", node("搜索片单") == null)
+            // Navigation keeps both destinations visible during the pop animation.
+            await("Back shows the immediate parent and finishes the list exit") {
+                node("片单返回后的个人页") != null && node("搜索片单") == null
+            }
             assertTrue("Back removed more than one route", pages.value == listOf("profile"))
         }
     }
