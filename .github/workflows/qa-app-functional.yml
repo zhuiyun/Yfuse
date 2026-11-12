@@ -1,37 +1,64 @@
-name: Identify failing device case from Android test XML
+name: Repeat animated search return and release-only touch tests on Android 15
 on:
   push:
-    branches: [qa/app-functional-20261112]
+    branches:
+      - qa/app-functional-20261112
 permissions:
-  actions: read
   contents: read
+  actions: read
 jobs:
-  analyze:
+  compile:
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          ref: b5f81bb6b6e380f7f01fd8ec293a728e744a0cce
+          path: app
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
+        with: {distribution: temurin, java-version: '17', cache: gradle}
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
-          name: instrumented-tests-api35-9774c5ad7b3451402925035f37d001cd26986926-2
-          run-id: '43271195229'
-          path: result
+          artifact-ids: '13964017958'
+          run-id: '43260409499'
           github-token: ${{ github.token }}
-      - name: Summarize the failing test in the final build
+          merge-multiple: true
+          path: qa-native
+      - name: Build the current source and device tests
+        working-directory: app
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import xml.etree.ElementTree as E,re
-          p=Path('result')
-          def clean(s):
-              s=re.sub(r'https?://[^\s\]\)]+','[url]',s)
-              return re.sub(r'(?i)(password|api_key|x-emby-token|authorization|token)\s*[:=][^\s,]*',r'\1=[redacted]',s)
-          for f in p.rglob('TEST-*.xml'):
-              for t in E.parse(f).iter('testcase'):
-                  fail=t.find('failure');name=t.get('name');cl=t.get('classname')
-                  if fail is None:
-                      if 'DragRelease' in cl:print('NEW_GESTURE_TEST_PASSED',cl,name)
-                      continue
-                  print('FAILED_DEVICE_CASE',cl,name,clean(str(fail.text or fail.get('message') or ''))[:3500])
-                  for a in p.rglob('logcat-'+cl+'-'+name+'.txt'):
-                      rows=[clean(x)[:320] for x in a.read_text(errors='replace').splitlines() if re.search(r'Assertion|TestRunner.*failed|ANR in|FATAL EXCEPTION|TestRunner.*error|not responding',x,re.I)]
-                      print('LOG_OBSERVATIONS','\n'.join(rows[-14:]))
-          PY
+          export YCORE_NATIVE_AAR_PATH="$GITHUB_WORKSPACE/qa-native/ycore-native.aar"
+          export YCORE_SOURCE_RECEIPT="$GITHUB_WORKSPACE/qa-native/source-build.json"
+          export YCORE_SOURCE_COMMIT=b5f81bb6b6e380f7f01fd8ec293a728e744a0cce
+          export SOURCE_COMMIT="$YCORE_SOURCE_COMMIT"
+          export YCORE_SOURCE_AAR_SHA256=$(sha256sum "$YCORE_NATIVE_AAR_PATH" | cut -d' ' -f1)
+          export YCORE_SOURCE_PROVENANCE_SHA256=$(sha256sum "$GITHUB_WORKSPACE/qa-native/NATIVE-SOURCES.txt" | cut -d' ' -f1)
+          python3 scripts/prepare-playback-inputs.py
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0"
+          git fetch --no-tags --depth=1 origin 2e095fa741a080e340183ec8fc327005756cc8da
+          files=$(git diff --name-only HEAD FETCH_HEAD)
+          test -z "$(echo "$files" | grep -vE '^(composeApp/src/androidMain/kotlin/com/yfuse/(feature/player/PlayerRootRecovery.kt|core2/android/AndroidAdaptiveCore2YPlayer.kt)|senplayerBridge/src/main/java/com/yfuse/senplayer/SenPlayerSession.java|composeApp/src/androidInstrumentedTest/kotlin/com/yfuse/feature/personal/PersonalSearchNavigationInstrumentedTest.kt)$' || true)"
+          git checkout --detach FETCH_HEAD
+          ./gradlew :composeApp:assembleDebug :composeApp:assembleDebugAndroidTest -PyfuseApplicationId=com.yfuse.validation --no-daemon
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          ram-size: 4096M
+          disable-animations: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -accel on
+          script: bash qa-functional/repeat-navigation.sh
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: return-navigation-and-drag-repetitions
+          path: navigation-evidence
