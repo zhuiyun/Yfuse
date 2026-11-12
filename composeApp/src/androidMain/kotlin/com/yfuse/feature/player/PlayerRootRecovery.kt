@@ -346,8 +346,8 @@ internal fun rememberPlayerSourceSwitching(
         sourceSwitchCoordinator.invalidate()
         // Read the position before the old engine is torn down.
         capturePlaybackHandover()
-        player.pause()
         val positionMs = player.currentPositionMs()
+        player.pause()
         AppLog.info(
             category = "player",
             event = "engine_switch_requested",
@@ -360,7 +360,14 @@ internal fun rememberPlayerSourceSwitching(
                     "positionMs" to positionMs.toString(),
                 ),
         )
-        build.resume = build.resume.copy(itemIndex = state.currentIndex, positionMs = positionMs)
+        // Choosing a different engine from the error panel is an explicit retry. The failed
+        // engine has already cleared playbackRequested; a healthy paused item stays paused.
+        build.resume =
+            build.resume.copy(
+                itemIndex = state.currentIndex,
+                positionMs = positionMs,
+                playbackRequested = build.resume.playbackRequested || (state.error != null && !state.ended),
+            )
         build.kind = target
     }
 
