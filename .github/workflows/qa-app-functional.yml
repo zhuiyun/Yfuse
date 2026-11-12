@@ -1,4 +1,4 @@
-name: Gather measured Android regression results and screenshots
+name: Identify failing device case from Android test XML
 on:
   push:
     branches: [qa/app-functional-20261112]
@@ -6,130 +6,32 @@ permissions:
   actions: read
   contents: read
 jobs:
-  summarize:
+  analyze:
     runs-on: ubuntu-24.04
-    timeout-minutes: 50
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with: {persist-credentials: false}
-      - name: Wait for test evidence to finish uploading
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: instrumented-tests-api35-9774c5ad7b3451402925035f37d001cd26986926-2
+          run-id: '43271195229'
+          path: result
+          github-token: ${{ github.token }}
+      - name: Summarize the failing test in the final build
         run: |
           python3 - <<'PY'
-          import os,urllib.request,json,time
-          deadline=time.monotonic()+37*60
-          while time.monotonic()<deadline:
-              done=[]
-              for rid in (43271135331,43272214769):
-                  url='https://api.github.com/repos/zhuiyun/Yfuse/actions/runs/'+str(rid)
-                  req=urllib.request.Request(url,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN']})
-                  with urllib.request.urlopen(req,timeout=25) as r: row=json.load(r)
-                  print(rid,row['status'],row['conclusion'],flush=True)
-                  done.append(row['status']=='completed')
-              if all(done):break
-              time.sleep(30)
-          else:raise SystemExit('Timed out waiting for the test artifacts')
-          PY
-      - name: Collect all
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
-        with:
-          name: functional-all-35
-          path: raw/all
-          run-id: '43271135331'
-          github-token: ${{ github.token }}
-      - name: Collect hls
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
-        with:
-          name: functional-hls-35
-          path: raw/hls
-          run-id: '43271135331'
-          github-token: ${{ github.token }}
-      - name: Collect standard
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
-        with:
-          name: functional-standard-35
-          path: raw/standard
-          run-id: '43271135331'
-          github-token: ${{ github.token }}
-      - name: Collect upgrade
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
-        with:
-          name: functional-upgrade-35
-          path: raw/upgrade
-          run-id: '43271135331'
-          github-token: ${{ github.token }}
-      - name: Collect soak
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
-        with:
-          name: functional-soak-35
-          path: raw/soak
-          run-id: '43272214769'
-          github-token: ${{ github.token }}
-      - name: Collect subtitle
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
-        with:
-          name: functional-subtitle-35
-          path: raw/subtitle
-          run-id: '43269615384'
-          github-token: ${{ github.token }}
-      - name: Collect shared
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
-        with:
-          name: shared-feature-device-results
-          path: raw/shared
-          run-id: '43269280583'
-          github-token: ${{ github.token }}
-      - name: Collect baseline
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
-        with:
-          name: functional-external-35
-          path: raw/baseline
-          run-id: '43266819964'
-          github-token: ${{ github.token }}
-      - name: Collect priorfeatures
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
-        with:
-          name: functional-extra-35
-          path: raw/priorfeatures
-          run-id: '43262539122'
-          github-token: ${{ github.token }}
-      - name: Collect library
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
-        with:
-          name: functional-library-35
-          path: raw/library
-          run-id: '43257961326'
-          github-token: ${{ github.token }}
-      - name: Assemble the results and check the HTML
-        run: |
-          sudo apt-get update -qq && sudo apt-get install -y python3-pil
-          /usr/bin/python3 qa-functional/evidence-report.py
-          python3 - <<'PY'
-          from html.parser import HTMLParser
           from pathlib import Path
-          import base64, json
-          class Images(HTMLParser):
-              def __init__(self):super().__init__();self.n=0
-              def handle_starttag(self,t,attrs):
-                  if t=="img":
-                      uri=dict(attrs)["src"];data=base64.b64decode(uri.split(",",1)[1],validate=True);assert data[:4]==b"RIFF"
-                      self.n+=1
-          doc=Images();doc.feed(Path("report/Yfuse-Android-Regression-20261112.html").read_text());assert doc.n>=5
-          d=json.loads(Path("report/measurements.json").read_text())
-          print('REPORT_IMAGES',doc.n)
-          for group in ('all','hls','standard','soak'):
-              for media,val in d[group].items():
-                  for i,x in enumerate(val['shots'],1):
-                      if not x['ok']:print('MISSED',group,media,i,x)
-          for key in ('all','hls','standard','soak'):
-              for file in Path('raw',key).rglob('app-events.jsonl'):
-                  for line in file.read_text().splitlines():
-                      e=json.loads(line)
-                      if e.get('level')=='ERROR':print('PLAYER_ERROR',key,e.get('event'),e.get('attributes',{}).get('failurestage'), e.get('exception',{}).get('type'))
+          import xml.etree.ElementTree as E,re
+          p=Path('result')
+          def clean(s):
+              s=re.sub(r'https?://[^\s\]\)]+','[url]',s)
+              return re.sub(r'(?i)(password|api_key|x-emby-token|authorization|token)\s*[:=][^\s,]*',r'\1=[redacted]',s)
+          for f in p.rglob('TEST-*.xml'):
+              for t in E.parse(f).iter('testcase'):
+                  fail=t.find('failure');name=t.get('name');cl=t.get('classname')
+                  if fail is None:
+                      if 'DragRelease' in cl:print('NEW_GESTURE_TEST_PASSED',cl,name)
+                      continue
+                  print('FAILED_DEVICE_CASE',cl,name,clean(str(fail.text or fail.get('message') or ''))[:3500])
+                  for a in p.rglob('logcat-'+cl+'-'+name+'.txt'):
+                      rows=[clean(x)[:320] for x in a.read_text(errors='replace').splitlines() if re.search(r'Assertion|TestRunner.*failed|ANR in|FATAL EXCEPTION|TestRunner.*error|not responding',x,re.I)]
+                      print('LOG_OBSERVATIONS','\n'.join(rows[-14:]))
           PY
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        with:
-          name: Yfuse-Android-Regression-Report
-          path: report
-          retention-days: 30
