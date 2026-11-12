@@ -6,7 +6,7 @@ service_pid=$!
 trap 'sudo kill "$service_pid" 2>/dev/null || true' EXIT
 for ((i=0;i<130;i++)); do
  if [[ -S "$sock" ]]; then break; fi
- if ! kill -0 "$service_pid" 2>/dev/null; then cat qa-emby-start.log; exit 1; fi
+ if ! sudo kill -0 "$service_pid" 2>/dev/null; then cat qa-emby-start.log; exit 1; fi
  sleep 1
 done
 test -S "$sock"

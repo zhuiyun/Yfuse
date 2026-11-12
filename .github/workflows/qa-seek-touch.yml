@@ -1,4 +1,4 @@
-name: PlayerActivity touch and decoded-frame checks
+name: Emby touch seek release-position retest
 on:
   push:
     branches:
@@ -39,12 +39,15 @@ jobs:
           python3 scripts/prepare-playback-inputs.py
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0"
-          cp "$GITHUB_WORKSPACE/qa-scrub/SeekTouchDeviceTest.kt" composeApp/src/androidInstrumentedTest/kotlin/com/yfuse/feature/player/
-          ./gradlew :composeApp:assembleDebug :composeApp:assembleDebugAndroidTest -PyfuseApplicationId=com.yfuse.validation --no-daemon
+          git fetch --no-tags --depth=1 origin 7ebbdeba7175c5a47501bf216293c3d28af05e90
+          test "$(git diff --name-only HEAD FETCH_HEAD)" = "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/SeekScrubChrome.kt"
+          git checkout --detach FETCH_HEAD
+          echo "Tested application $(git rev-parse HEAD)"
+          ./gradlew :composeApp:assembleDebug -PyfuseApplicationId=com.yfuse.validation --no-daemon
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: seek-device-apks
-          path: app/composeApp/build/outputs/apk/**/*.apk
+          name: fixed-player-debug-apk
+          path: app/composeApp/build/outputs/apk/debug/*.apk
           retention-days: 2
       - name: Prepare two independent video markers
         run: |
@@ -66,9 +69,9 @@ jobs:
           ram-size: 4096M
           emulator-boot-timeout: 600
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -accel on
-          script: bash qa-scrub/instrument.sh
+          script: bash qa-scrub/emby-edge.sh
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
-          name: actual-player-touch-evidence
+          name: emby-touch-release-retest
           path: qa-emby-evidence
