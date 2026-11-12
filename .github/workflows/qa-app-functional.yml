@@ -1,4 +1,4 @@
-name: Experimental engine diagnostics and per-item recovery
+name: Rapid consecutive Emby seek and late-frame validation
 on:
   push:
     branches:
@@ -14,7 +14,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {api: '35', suite: score}
+          - {api: '35', suite: external}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with: {persist-credentials: false}
@@ -61,7 +61,7 @@ jobs:
           ram-size: 4096M
           emulator-boot-timeout: 600
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -accel on
-          script: bash qa-functional/run.sh ${{ matrix.suite }} ${{ matrix.api }}
+          script: bash qa-functional/burst.sh
       - name: Check contrast of the actual time indicator
         if: matrix.suite == 'settings' && success()
         run: /usr/bin/python3 qa-functional/bar-check.py app-evidence
