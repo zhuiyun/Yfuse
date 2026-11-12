@@ -11,6 +11,8 @@ for i,(clip,key,seconds,targets) in enumerate(cases):
  if i:
   adb('shell','input','keyevent','4');time.sleep(2)
  uri=streams[clip][key]
+ os.environ["QA_ACTIVE_MEDIA"]=uri
+ os.environ["QA_ACTIVE_MIME"]="video/"+("mp4" if key=="url" else "mpegurl")
  # A single remote shell argument must keep URL query separators literal.
  import shlex
  adb('shell','am start -a android.intent.action.VIEW -n '+pkg+'/com.yfuse.feature.player.ExternalPlaybackActivity -t video/'+('mp4' if key=='url' else 'mpegurl')+' -d '+shlex.quote(uri))

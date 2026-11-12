@@ -1,4 +1,4 @@
-name: Verify visible Emby sidecar subtitles selected in the player
+name: Verify final native compatibility and reproducible playback gestures
 on:
   push:
     branches:
@@ -7,28 +7,77 @@ permissions:
   contents: read
   actions: read
 jobs:
-  exercise:
+  compile:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - {api: '35', suite: subtitle}
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with: {persist-credentials: false}
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-          ref: 969df5a876970b4d8e6883947d15e7ef76ecda21
+          ref: b5f81bb6b6e380f7f01fd8ec293a728e744a0cce
+          path: app
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
+        with: {distribution: temurin, java-version: '17', cache: gradle}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          artifact-ids: '13964017958'
+          run-id: '43260409499'
+          github-token: ${{ github.token }}
+          merge-multiple: true
+          path: qa-native
+      - name: Verify exact native artifact and assemble the fixed player
+        working-directory: app
+        run: |
+          export YCORE_NATIVE_AAR_PATH="$GITHUB_WORKSPACE/qa-native/ycore-native.aar"
+          export YCORE_SOURCE_RECEIPT="$GITHUB_WORKSPACE/qa-native/source-build.json"
+          export YCORE_SOURCE_COMMIT=b5f81bb6b6e380f7f01fd8ec293a728e744a0cce
+          export SOURCE_COMMIT="$YCORE_SOURCE_COMMIT"
+          export YCORE_SOURCE_AAR_SHA256=$(sha256sum "$YCORE_NATIVE_AAR_PATH" | cut -d' ' -f1)
+          export YCORE_SOURCE_PROVENANCE_SHA256=$(sha256sum "$GITHUB_WORKSPACE/qa-native/NATIVE-SOURCES.txt" | cut -d' ' -f1)
+          python3 scripts/prepare-playback-inputs.py
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0"
+          git fetch --no-tags --depth=1 origin 1bd86af361e5430c0ca5f56306f415102a58d979
+          files=$(git diff --name-only HEAD FETCH_HEAD)
+          test -z "$(echo "$files" | grep -vE '^(composeApp/src/androidMain/kotlin/com/yfuse/(feature/player/PlayerRootRecovery.kt|core2/android/AndroidAdaptiveCore2YPlayer.kt)|senplayerBridge/src/main/java/com/yfuse/senplayer/SenPlayerSession.java)$' || true)"
+          git fetch --no-tags --depth=1 origin 9eefc4a9cd74e242fa8b4dc9ea121c54b128147e
+          for rev in 9eefc4a9cd74e242fa8b4dc9ea121c54b128147e 1bd86af361e5430c0ca5f56306f415102a58d979; do
+            git checkout --detach "$rev"
+            ./gradlew :composeApp:assembleDebug -PyfuseApplicationId=com.yfuse.validation --no-daemon
+            mkdir -p ../qa-versions
+            cp "$(find composeApp/build/outputs/apk/debug -name '*.apk' | head -1)" "../qa-versions/$rev.apk"
+          done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: upgrade-builds
+          path: qa-versions/*.apk
+          retention-days: 2
+
+  exercise:
+    needs: compile
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {api: '35', suite: upgrade}
+          - {api: '35', suite: all}
+          - {api: '35', suite: hls}
+          - {api: '35', suite: standard}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          ref: 1bd86af361e5430c0ca5f56306f415102a58d979
           path: app
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
-          artifact-ids: '13966751798'
-          run-id: '43266336170'
-          github-token: ${{ github.token }}
-          merge-multiple: true
+          name: upgrade-builds
           path: app-apk
       - name: Prepare emulator and independent media
         env: {SUITE: "${{ matrix.suite }}"}
@@ -41,7 +90,7 @@ jobs:
           sudo apt-get install -y python3-pil
           if [[ "$SUITE" != settings ]]; then
             sudo apt-get update -qq
-            sudo apt-get install -y ffmpeg python3-pil tesseract-ocr tesseract-ocr-eng
+            sudo apt-get install -y ffmpeg python3-pil
             /usr/bin/python3 qa-scrub/fixture.py qa-media
             printf '1\n00:00:01,000 --> 00:02:00,000\nSubtitle fixture\n' > qa-media/ProbeA.en.srt
             sed -i "s/'CollectionType':'homevideos'/'CollectionType':'movies'/" qa-scrub/emby.py
@@ -61,7 +110,7 @@ jobs:
           ram-size: 4096M
           emulator-boot-timeout: 600
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -accel on
-          script: bash qa-functional/subtitle.sh
+          script: bash qa-functional/final-accept.sh ${{ matrix.suite }}
       - name: Check contrast of the actual time indicator
         if: matrix.suite == 'settings' && success()
         run: /usr/bin/python3 qa-functional/bar-check.py app-evidence

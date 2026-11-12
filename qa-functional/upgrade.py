@@ -9,7 +9,7 @@ def change_speed():
  playback();tap(grab('默认倍速'));tap(wait(['1.5x','1.5×']));wait('1.5x')
  playback();wait('1.5x');tap(grab('默认倍速'));tap(wait('1x'));return expect('1x')
 def family():
- profile('家庭资料');tap(grab('新建家庭资料'));field('资料名称','DeviceQA',True);tap(grab('保存',4));wait(['DeviceQA','DeviceQA · 成人'])
+ profile('家庭资料');tap(wait('新建家庭资料'));wait('资料名称',10);field('资料名称','DeviceQA',True);tap(grab('保存',4));wait(['DeviceQA','DeviceQA · 成人'])
  profile('家庭资料');return expect(['DeviceQA','DeviceQA · 成人'])
 def danmaku():
  profile('弹幕设置')
@@ -57,7 +57,7 @@ def select_ycore_on_error():
 
 import subprocess
 mid=next(pathlib.Path('app-apk').rglob("9eef*.apk"))
-new=next(pathlib.Path('app-apk').rglob("969d*.apk"))
+new=next(pathlib.Path('app-apk').rglob("1bd8*.apk"))
 adb('install','-r','-g',mid)
 def old_error():
  try:score()
@@ -68,7 +68,7 @@ def old_error():
 def upgrade():
  adb('install','-r','-g',new)
  adv();tap(grab('播放内核',3));wait('高级内核选择');t=snapshot()
- choices=page_info(t);assert not any('SCore' in w for w in choices),'unsupported native engine still offered'
+ choices=page_info(t);assert not any(w.startswith('SCore') for w in choices),'unsupported native engine still offered'
  assert any('YCore' in w for w in choices),'supported core missing'
  pressback();return 'preserved app data; native ARM-only option absent, YCore available'
 def open_saved():

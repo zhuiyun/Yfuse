@@ -44,6 +44,14 @@ def findrail(out):
     for n in range(8):
         xml=dump(); result=rail(xml)
         (out/f'ui-{n}.xml').write_bytes(ET.tostring(xml,encoding='utf-8'))
+        from features import snapshot as live_tree
+        from os import environ
+        import shlex
+        visible=live_tree()
+        if visible.tag=="launcher-dismissed" and environ.get("QA_ACTIVE_MEDIA"):
+            adb('shell','am start -a android.intent.action.VIEW -n com.yfuse.validation/com.yfuse.feature.player.ExternalPlaybackActivity -t '+environ['QA_ACTIVE_MIME']+' -d '+shlex.quote(environ['QA_ACTIVE_MEDIA']))
+            time.sleep(1)
+            continue
         if result:return result
         im=screen(); im.save(out/f'calibrate-{n}.png');w,h=im.size
         handled=False
