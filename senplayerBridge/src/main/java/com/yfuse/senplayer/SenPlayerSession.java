@@ -77,11 +77,10 @@ public final class SenPlayerSession implements AutoCloseable {
 
   public static boolean supportsProcess() {
     if (android.os.Build.VERSION.SDK_INT < 28 || !android.os.Process.is64Bit()) return false;
-    // Translated x86 devices advertise arm64-v8a for APK libraries, but the isolated
-    // DexClassLoader namespace uses the host linker for this runtime's extracted libraries.
-    String arch = System.getProperty("os.arch", "");
-    return "aarch64".equalsIgnoreCase(arch) || "arm64".equalsIgnoreCase(arch)
-        || "arm64-v8a".equalsIgnoreCase(arch);
+    // Native Bridge can label the running app arm64 while DexClassLoader still loads
+    // extracted JNI libraries with the device's preferred 64-bit linker.
+    String[] abis = android.os.Build.SUPPORTED_64_BIT_ABIS;
+    return abis.length > 0 && "arm64-v8a".equals(abis[0]);
   }
 
   public SenPlayerSession(Context context, Surface surface, Surface subtitleSurface, Display display,
