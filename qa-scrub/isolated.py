@@ -74,5 +74,8 @@ if __name__=='__main__':
     records[name]={'hls':'http://127.0.0.1:18196'+hls_path if hls_path else None,'id':id,'server':'127.0.0.1:18196','url':'http://127.0.0.1:18196/emby/Videos/'+id+'/stream.mp4?Static=true&api_key='+emby.token}
    sec=base/'streams.json';f=os.open(sec,os.O_WRONLY|os.O_CREAT|os.O_TRUNC,0o600);os.write(f,json.dumps(records).encode());os.close(f)
    print('local indexed videos',len(items),flush=True)
-   if len(sys.argv)>4:serve_incoming(sys.argv[4])
+   if len(sys.argv)>4 and sys.argv[4]=='--verify':
+    from media_check import verify
+    verify(sec,[78,13,92,36],base)
+   elif len(sys.argv)>4:serve_incoming(sys.argv[4])
   finally:proc.terminate();proc.wait(timeout=30)

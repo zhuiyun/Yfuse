@@ -18,10 +18,11 @@ def setup(media,private):
  if not data.exists():
   fd=os.open(data,os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600);os.write(fd,secret.encode());os.close(fd)
  info=call('/System/Info/Public');print('Emby',info['Version'],'wizard',info.get('StartupWizardCompleted'),flush=True)
- if not info.get('StartupWizardCompleted'):
+ if not data.with_suffix('.configured').exists() and not (data.parent/'streams.json').exists():
   call('/Startup/Configuration',{'UICulture':'en-US','MetadataCountryCode':'US','PreferredMetadataLanguage':'en'})
   call('/Startup/User',{'Name':'seekqa','Password':secret})
   call('/Startup/Complete',{})
+  data.with_suffix('.configured').touch()
  auth=call('/Users/AuthenticateByName',{'Username':'seekqa','Pw':secret})
  token=auth['AccessToken'];uid=auth['User']['Id']
  libs=call('/Library/VirtualFolders')

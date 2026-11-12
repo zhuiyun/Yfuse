@@ -1,4 +1,4 @@
-name: Emby touch seek verification
+name: PlayerActivity touch and decoded-frame checks
 on:
   push:
     branches:
@@ -39,7 +39,13 @@ jobs:
           python3 scripts/prepare-playback-inputs.py
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0"
-          ./gradlew :composeApp:assembleDebug -PyfuseApplicationId=com.yfuse.validation --no-daemon
+          cp "$GITHUB_WORKSPACE/qa-scrub/SeekTouchDeviceTest.kt" composeApp/src/androidInstrumentedTest/kotlin/com/yfuse/feature/player/
+          ./gradlew :composeApp:assembleDebug :composeApp:assembleDebugAndroidTest -PyfuseApplicationId=com.yfuse.validation --no-daemon
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: seek-device-apks
+          path: app/composeApp/build/outputs/apk/**/*.apk
+          retention-days: 2
       - name: Prepare two independent video markers
         run: |
           sudo apt-get update -qq
@@ -60,9 +66,9 @@ jobs:
           ram-size: 4096M
           emulator-boot-timeout: 600
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -accel on
-          script: bash qa-scrub/emby-edge.sh
+          script: bash qa-scrub/instrument.sh
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
-          name: emby-touch-evidence
+          name: actual-player-touch-evidence
           path: qa-emby-evidence
