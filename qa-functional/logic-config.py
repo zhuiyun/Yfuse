@@ -15,6 +15,7 @@ s=s.replace(needle,'''        getByName("androidDeviceTest") {
                 implementation(kotlin("test-junit"))
                 implementation(libs.androidx.test.runner)
                 implementation(libs.androidx.test.junit)
+                implementation("androidx.test:rules:1.7.0")
                 implementation(libs.androidx.work.runtime)
                 implementation(libs.bouncycastle.provider)
             }
