@@ -518,7 +518,9 @@ internal fun PlayerRuntimeFaultRecovery(
                         playbackRequested = player.playbackRequested,
                     )
                 build.runtimeSessionGeneration++
-                player.seekTo(positionMs)
+                // YCore reopens at its current position. A seek here queues a second native
+                // reposition on the very source whose read just stalled.
+                if (build.kind != PlayerEngine.YCore) player.seekTo(positionMs)
                 player.retry()
                 AppLog.warning(
                     category = "player.network",
@@ -528,7 +530,7 @@ internal fun PlayerRuntimeFaultRecovery(
                         } else {
                             "long_rebuffer_recovery"
                         },
-                    message = "Playback transport was reopened after sustained source starvation",
+                    message = "Requested a transport reopen after sustained source starvation",
                     attributes =
                         mapOf(
                             "engine" to attachedEngineLabel,

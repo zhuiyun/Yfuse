@@ -43,6 +43,7 @@ import com.yfuse.core2.render.YFrameRateSwitchMode
 import com.yfuse.core2.strategy.YDecodePath
 import com.yfuse.core2.strategy.YDemuxPath
 import com.yfuse.core2.strategy.YPlaybackPlan
+import com.yfuse.core2.strategy.YPlaybackStrategy
 import com.yfuse.core2.strategy.YRenderPath
 import com.yfuse.core2.test.YMediaObservedFacts
 import com.yfuse.core2.test.YMediaTestCase
@@ -97,6 +98,66 @@ class YCoreMediaSuiteInstrumentedTest {
             }
         assumeTrue("This optional media lane requires an explicitly supplied device fixture", !required.isNullOrBlank())
     }
+
+    @Test
+    fun enhanced_transport_retry_keeps_the_assigned_route_and_renders_again() =
+        runBlocking {
+            val context = InstrumentationRegistry.getInstrumentation().targetContext
+            val file = GeneratedAvcAacTestMedia.create(context.cacheDir)
+            try {
+                val item = YMediaItem(id = "enhanced-retry", uri = Uri.fromFile(file).toString())
+                val mediaProbe = AndroidCore2MediaProbe(context)
+                val probe =
+                    try {
+                        mediaProbe.probe(item) as YCore2ProbeResult.Success
+                    } finally {
+                        mediaProbe.closePreparedExtractor()
+                    }
+                val plan =
+                    YPlaybackPlan(
+                        route = YPlaybackRoute.NativeEnhanced,
+                        demuxPath = YDemuxPath.Enhanced,
+                        decodePath = YDecodePath.Hardware,
+                        renderPath = YRenderPath.SurfaceDirect,
+                        outputHdrType = YHdrType.Sdr,
+                        reason = "Enhanced route selected before the transport reopen",
+                    )
+                ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                    val output = createSurfaceViewOutput(scenario, 320, 180)
+                    val player =
+                        AndroidNativeEnhancedYPlayer(
+                            context,
+                            YPlayerOpenRequest(items = listOf(item), autoPlay = true),
+                            routeEvaluator =
+                                AndroidCore2RouteEvaluator(
+                                    context,
+                                    strategy =
+                                        YPlaybackStrategy { _, _ ->
+                                            error("Unexpected route election on reopen")
+                                        },
+                                ),
+                            initialDecision = YCore2RouteDecision(probe, plan),
+                            allowAudioPassthrough = false,
+                        )
+                    try {
+                        assertTrue(player.setVideoOutput(output.output))
+                        player.prepare()
+                        player.play()
+                        awaitPlayable(player, "enhanced-before-retry")
+                        awaitFreshVideoOutput(player, "enhanced-after-retry") { player.retry() }
+                        assertTrue(player.state.value.diagnostics.route == YPlaybackRoute.NativeEnhanced)
+                    } finally {
+                        try {
+                            player.releaseAndJoin()
+                        } finally {
+                            output.close()
+                        }
+                    }
+                }
+            } finally {
+                check(file.delete() || !file.exists())
+            }
+        }
 
     @Test
     fun generated_avc_aac_paused_seek_shows_one_frame_and_keeps_audio_paused() =

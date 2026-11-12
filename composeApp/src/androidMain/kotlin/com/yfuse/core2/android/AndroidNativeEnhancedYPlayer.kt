@@ -463,7 +463,6 @@ internal class AndroidNativeEnhancedYPlayer(
         private var activePlan: YPlaybackPlan? = null
         private var activeDolbyProfile: Int? = null
         private var adaptiveFeedbackGeneration = 0L
-        private var pendingInitialDecision = initialDecision
         private val rebufferTracker =
             com.yfuse.core2.api
                 .YRebufferTracker()
@@ -525,9 +524,9 @@ internal class AndroidNativeEnhancedYPlayer(
                 budget.ensureActive()
                 currentCoroutineContext().ensureActive()
                 val decision =
-                    pendingInitialDecision
-                        .takeIf { currentIndex == request.startIndex }
-                        .also { pendingInitialDecision = null }
+                    // The router chose this child's graph for this item. A transport reopen gets
+                    // a fresh demux/proxy, but must not run a competing route election in the child.
+                    initialDecision.takeIf { currentIndex == request.startIndex }
                         ?: if (forcedPlan?.route == YPlaybackRoute.NativeEnhanced && !forceSoftwareDecode) {
                             // session.open validates the demuxed formats and Dolby identity.
                             // A forced enhanced recovery must not repeat the failed platform probe.

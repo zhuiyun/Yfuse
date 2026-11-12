@@ -2738,7 +2738,12 @@ internal class AndroidNativeDirectSession(
         return keepSource
     }
 
-    fun releaseMedia(keepSource: Boolean = false) {
+    private fun releaseMedia(keepSource: Boolean = false) {
+        releaseOutputsAndResetState(keepSource)
+        if (keepSource) runCatching(demux::pauseReadAhead) else runCatching(demux::release)
+    }
+
+    private fun releaseOutputsAndResetState(keepSource: Boolean) {
         if (!keepSource) retainedSourceIndex = null
         val stats = rebufferTracker.stop(control.releasedAtMs ?: System.nanoTime() / 1_000_000L)
         mutableState.update {
@@ -2791,7 +2796,6 @@ internal class AndroidNativeDirectSession(
         drmBinding = null
         drmSession = null
         if (!retainedVideo) frameRateManager.clear()
-        if (keepSource) runCatching(demux::pauseReadAhead) else runCatching(demux::release)
         prepared = false
         videoConfigured = false
         audioRendererConfigured = false
@@ -2839,7 +2843,7 @@ internal class AndroidNativeDirectSession(
     }
 
     fun releaseAll() {
-        releaseMedia()
+        releaseOutputsAndResetState(keepSource = false)
         demux.close()
         surfaceOutput = null
     }
