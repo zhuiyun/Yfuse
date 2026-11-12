@@ -1,83 +1,13 @@
-name: Android functional acceptance
+name: Populated Android features and fast seek validation
 on:
   push:
-    branches: [qa/app-functional-20261112]
+    branches:
+      - qa/app-functional-20261112
 permissions:
-  actions: read
   contents: read
+  actions: read
 jobs:
-  exercise:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - {api: '37.0', suite: settings}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with: {persist-credentials: false}
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          persist-credentials: false
-          ref: 7ebbdeba7175c5a47501bf216293c3d28af05e90
-          path: app
-      - name: Locate the exact fixed APK producer
-        id: producer
-        env: {GH_TOKEN: "${{ github.token }}"}
-        run: |
-          for attempt in $(seq 1 60); do
-            run=$(gh api 'repos/zhuiyun/Yfuse/actions/runs?head_sha=036de65410038a091975842dd9c909bbf32f772a&per_page=10' --jq '.workflow_runs[] | select(.name=="Emby touch seek release-position retest") | .id' | head -1)
-            if [[ -n "$run" ]]; then
-              id=$(gh api "repos/zhuiyun/Yfuse/actions/runs/$run/artifacts" --jq '.artifacts[] | select(.name=="fixed-player-debug-apk") | .id' | head -1)
-              if [[ -n "$id" ]]; then echo "run=$run" >> "$GITHUB_OUTPUT"; echo "id=$id" >> "$GITHUB_OUTPUT"; exit 0; fi
-            fi
-            sleep 15
-          done
-          exit 1
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
-        with:
-          artifact-ids: ${{ steps.producer.outputs.id }}
-          run-id: ${{ steps.producer.outputs.run }}
-          github-token: ${{ github.token }}
-          path: app-apk
-      - name: Prepare emulator and independent media
-        env: {SUITE: "${{ matrix.suite }}"}
-        run: |
-          mkdir -p app-evidence feature-evidence
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-          if [[ "$SUITE" == library ]]; then
-            sudo apt-get update -qq
-            sudo apt-get install -y ffmpeg python3-pil
-            /usr/bin/python3 qa-scrub/fixture.py qa-media
-            curl -fsSL --retry 2 https://github.com/MediaBrowser/Emby.Releases/releases/download/4.10.2.0/emby-server-deb_4.10.2.0_amd64.deb -o "$RUNNER_TEMP/server.deb"
-            echo "80c8666fc6f6143558c235c57932189a3f0b3f899b44519fc4621dd7dea16e32  $RUNNER_TEMP/server.deb" | sha256sum -c -
-            dpkg-deb -x "$RUNNER_TEMP/server.deb" qa-emby-bin
-          fi
-      - name: Use Android 17 platform tools for minor-version images
-        if: matrix.suite == 'settings' && matrix.api != 35
-        run: sudo rm -rf "${ANDROID_HOME:?}/cmdline-tools"
-      - uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
-        with:
-          api-level: ${{ matrix.api }}
-          target: google_apis
-          arch: x86_64
-          profile: pixel_2
-          ram-size: 4096M
-          emulator-boot-timeout: 600
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -accel on
-          script: bash qa-functional/run.sh ${{ matrix.suite }} ${{ matrix.api }}
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        if: always()
-        with:
-          name: functional-${{ matrix.suite }}-${{ matrix.api }}
-          path: |
-            app-evidence
-            feature-evidence
-
-  common-device:
+  seek:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -85,9 +15,9 @@ jobs:
         with: {persist-credentials: false}
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          persist-credentials: false
           ref: ceb8123815c6b0cec0f0bef3cb9a24ea63260752
           path: app
-          persist-credentials: false
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
         with: {distribution: temurin, java-version: '17', cache: gradle}
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
@@ -97,34 +27,52 @@ jobs:
           github-token: ${{ github.token }}
           merge-multiple: true
           path: qa-native
-      - name: Prepare source and its shared functional cases for this emulator
+      - name: Verify exact native artifact and assemble the fixed player
         working-directory: app
         run: |
           export YCORE_NATIVE_AAR_PATH="$GITHUB_WORKSPACE/qa-native/ycore-native.aar"
           export YCORE_SOURCE_RECEIPT="$GITHUB_WORKSPACE/qa-native/source-build.json"
-          export SOURCE_COMMIT=ceb8123815c6b0cec0f0bef3cb9a24ea63260752
-          export YCORE_SOURCE_COMMIT="$SOURCE_COMMIT"
+          export YCORE_SOURCE_COMMIT=ceb8123815c6b0cec0f0bef3cb9a24ea63260752
+          export SOURCE_COMMIT="$YCORE_SOURCE_COMMIT"
           export YCORE_SOURCE_AAR_SHA256=$(sha256sum "$YCORE_NATIVE_AAR_PATH" | cut -d' ' -f1)
           export YCORE_SOURCE_PROVENANCE_SHA256=$(sha256sum "$GITHUB_WORKSPACE/qa-native/NATIVE-SOURCES.txt" | cut -d' ' -f1)
           python3 scripts/prepare-playback-inputs.py
-          python3 ../qa-functional/logic-config.py
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0"
+          cp "$GITHUB_WORKSPACE/qa-functional/"*DeviceTest.kt composeApp/src/androidInstrumentedTest/kotlin/com/yfuse/feature/player/
+          ./gradlew :composeApp:assembleDebug :composeApp:assembleDebugAndroidTest -PyfuseApplicationId=com.yfuse.validation --no-daemon
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: seek-device-apks
+          path: app/composeApp/build/outputs/apk/**/*.apk
+          retention-days: 2
+      - name: Prepare two independent video markers
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg python3-pil
+          python3 qa-scrub/fixture.py qa-media
+          printf '1\n00:00:01,000 --> 00:02:00,000\nExternal English subtitle\n' > qa-media/ProbeA.en.srt
+          sed -i "s/'CollectionType':'homevideos'/'CollectionType':'movies'/" qa-scrub/emby.py
+          curl --fail --silent --show-error --location --retry 2 https://github.com/MediaBrowser/Emby.Releases/releases/download/4.10.2.0/emby-server-deb_4.10.2.0_amd64.deb -o "$RUNNER_TEMP/seek-emby.deb"
+          echo "80c8666fc6f6143558c235c57932189a3f0b3f899b44519fc4621dd7dea16e32  $RUNNER_TEMP/seek-emby.deb" | sha256sum -c -
+          dpkg-deb -x "$RUNNER_TEMP/seek-emby.deb" qa-emby-bin
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
       - uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
           api-level: 35
-          arch: x86_64
           target: google_apis
+          arch: x86_64
           profile: pixel_2
-          ram-size: 3000M
+          ram-size: 4096M
           emulator-boot-timeout: 600
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -accel on
-          script: bash qa-functional/device-logic.sh
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -accel on
+          script: bash qa-functional/domain.sh
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
-          name: shared-feature-device-results
-          path: logic-evidence
+          name: populated-features-and-seek
+          path: |
+            qa-emby-evidence
+            feature-evidence

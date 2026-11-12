@@ -67,7 +67,9 @@ def root(tab):
   shell('input','keyevent',4);time.sleep(.45)
  launch();tap(grab(tab))
 def view(tab,keys,marker):
- root(tab);tap(grab(keys,6));return expect(marker)
+ root(tab);n=grab(keys,6);before=set(page_info(snapshot()));tap(n);expect(marker);after=set(page_info(snapshot()))
+ if len(before.symmetric_difference(after))<2:raise RuntimeError('view transition not observed')
+ return marker
 def pressback():
  shell('input','keyevent',4);time.sleep(.5)
 def type_into(node,value,clear=False):
@@ -116,6 +118,7 @@ def background():
  root('我的');shell('input','keyevent','3');adb('shell','am','start','-W','-n',pkg+'/com.yfuse.MainActivity',t=40);return expect('我的')
 launch()
 for name,fn in [('00-em​by-sign-in'.replace('\u200b',''),setup),('01-library-index',browse),('02-details',detail),('03-library-search',search),('04-library-play-and-return',start_player),('05-download-entry',download),('06-background-resume',background)]:
+ if name.startswith('00-') and '--populated' in sys.argv:continue
  step(name,fn)
 profiles=[
  ('account',['账号与同步'],['登录账号','注册账号','账号与同步']),
