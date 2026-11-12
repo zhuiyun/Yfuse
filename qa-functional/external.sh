@@ -12,6 +12,9 @@ done
 test -S "$sock"
 /usr/bin/python3 qa-scrub/isolated.py relay "$sock" > /dev/null 2>&1 &
 bash qa-functional/driver-build.sh
+touch /tmp/yfuse-tree-active
+adb shell settings put secure accessibility_interactive_ui_timeout_ms 60000
+adb shell settings get secure accessibility_interactive_ui_timeout_ms >qa-emby-evidence/control-visibility-timeout-ms.txt
 set +e
 /usr/bin/python3 qa-functional/external.py
 scrub_rc=$?

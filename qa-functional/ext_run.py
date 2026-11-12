@@ -74,31 +74,36 @@ def run(opt):
             time.sleep(.23)
         if im:im.save(out/f'{i:02}-end.png')
         return dict(target=round(target,2),confirmed=good,firstSampleSec=(round(first[0],2) if first else None),observations=times)
-    def chrome(im):
-        area=im.crop((0,int(height*.035),int(width*.32),int(height*.12))).resize((180,28))
-        return sum(1 for red,green,blue in area.getdata() if min(red,green,blue)>95 and max(red,green,blue)-min(red,green,blue)<65)>18
+    from features import snapshot
+    def live_rail():
+        return rail(snapshot())
+    def reveal_rail():
+        for attempt in range(5):
+            current=live_rail()
+            if current:return current
+            tap(width*.52,height*.35)
+            time.sleep(.42)
+        raise RuntimeError("playing video has no visible progress control")
     def hide():
-        end=time.monotonic()+10
-        while time.monotonic()<end:
-            im=screen()
-            if marker(im) is not None and not chrome(im):return im
-            time.sleep(.22)
-        raise RuntimeError("controls never settled hidden")
+        if live_rail():
+            tap(width*.52,height*.35)
+            time.sleep(.45)
+        for _ in range(12):
+            if live_rail() is None:
+                im=screen()
+                if marker(im) is not None:return im
+            time.sleep(.18)
+        raise RuntimeError("cannot verify hidden rail and readable frame")
     for i,f in enumerate(opt.targets,1):
-        for reveal_try in range(3):
-            hide()
-            tap(width*.52,height*.36)
-            time.sleep(.25)
-            before=screen()
-            if chrome(before):break
-        else:raise RuntimeError("controls not visible before rail gesture")
-        before.save(out/f'{i:02}-before.png')
+        r=reveal_rail()
+        x0,y0,x1,y1=r;y=(y0+y1)//2
+        before=screen();before.save(out/f'{i:02}-before.png')
         start=.18 if f>.5 else .81
         swipe(start,f)
         result=verify(opt.duration*f,i);results.append(result)
         print('swipe',i,json.dumps(result),flush=True)
         (out/'results.json').write_text(json.dumps({'rail':r,'duration':opt.duration,'results':results},indent=2))
-    if str(out).endswith('ProbeA-url'):
+    if out.name=='ProbeA-url':
         body=[]
         for i,(a,b,moves) in enumerate([(.26,.62,7),(.66,.28,7),(.23,.71,12),(.76,.33,12)],40):
             im=hide();start_time=marker(im)
