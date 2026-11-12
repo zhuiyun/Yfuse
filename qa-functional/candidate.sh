@@ -16,7 +16,9 @@ touch /tmp/yfuse-tree-active
 adb shell settings put secure accessibility_interactive_ui_timeout_ms 60000
 adb shell settings get secure accessibility_interactive_ui_timeout_ms >qa-emby-evidence/control-visibility-timeout-ms.txt
 set +e
-if [[ "$1" == hls ]]; then
+if [[ "$1" == standard ]]; then
+ /usr/bin/python3 qa-functional/external.py
+elif [[ "$1" == hls ]]; then
  /usr/bin/python3 qa-functional/burst-hls.py
 else
  /usr/bin/python3 qa-functional/burst.py

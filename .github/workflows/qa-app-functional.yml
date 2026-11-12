@@ -1,4 +1,4 @@
-name: Validate adaptive seek isolation against back-to-back Emby requests
+name: Compare in-place HLS seeks through triple and single real gestures
 on:
   push:
     branches:
@@ -39,7 +39,7 @@ jobs:
           python3 scripts/prepare-playback-inputs.py
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0"
-          git fetch --no-tags --depth=1 origin 31d784ecf3cfdecd3ff4ecc5f60aa551cde011d6
+          git fetch --no-tags --depth=1 origin cab74b1d110879392974aca7e3ab68fdf66d4ae1
           files=$(git diff --name-only HEAD FETCH_HEAD)
           test -z "$(echo "$files" | grep -vE '^(composeApp/src/androidMain/kotlin/com/yfuse/(feature/player/PlayerRootRecovery.kt|core2/android/AndroidAdaptiveCore2YPlayer.kt)|senplayerBridge/src/main/java/com/yfuse/senplayer/SenPlayerSession.java)$' || true)"
           git checkout --detach FETCH_HEAD
@@ -60,6 +60,7 @@ jobs:
         include:
           - {api: '35', suite: all}
           - {api: '35', suite: hls}
+          - {api: '35', suite: standard}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with: {persist-credentials: false}
