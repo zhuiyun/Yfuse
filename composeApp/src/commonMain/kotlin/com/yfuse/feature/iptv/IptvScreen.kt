@@ -114,7 +114,7 @@ private fun IptvDialog(onDismiss: () -> Unit) {
                     (query.isBlank() || it.name.contains(query.trim(), true))
             }
         }
-    GlassDialog(onDismiss = onDismiss) {
+    GlassDialog(onDismiss = onDismiss, scrollable = false) {
         OverlayHeader(title = "IPTV · 电视直播", subtitle = "支持 HTTP / HTTPS 频道；刷新失败会保留旧列表", onClose = onDismiss)
         LazyColumn(
             Modifier.fillMaxWidth().weight(1f, fill = false).heightIn(max = 650.dp),

@@ -2,7 +2,6 @@ package com.yfuse.feature.player
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.awaitDragOrCancellation
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
@@ -87,24 +86,9 @@ internal suspend fun PointerInputScope.detectSeekScrubGestures(
             awaitHorizontalTouchSlopOrCancellation(down.id) { change, _ -> change.consume() }
                 ?: return@awaitEachGesture
         onDragStart(down.position, start.position)
-        var pointer = start.id
-        var lastPosition = start.position
         var released = false
         try {
-            while (true) {
-                val change = awaitDragOrCancellation(pointer) ?: break
-                if (!change.pressed) {
-                    // An UP event can carry the rest of the drag when the UI coalesces moves.
-                    // Feed its coordinates through the same tier and chapter rules before commit.
-                    if (change.position != lastPosition) onDrag(change)
-                    released = true
-                    break
-                }
-                onDrag(change)
-                change.consume()
-                pointer = change.id
-                lastPosition = change.position
-            }
+            released = trackPlayerDrag(start, onDrag)
         } finally {
             if (released) onDragEnd() else onDragCancel()
         }
