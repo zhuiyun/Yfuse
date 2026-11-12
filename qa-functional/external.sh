@@ -12,4 +12,8 @@ done
 test -S "$sock"
 /usr/bin/python3 qa-scrub/isolated.py relay "$sock" > /dev/null 2>&1 &
 bash qa-functional/driver-build.sh
+set +e
 /usr/bin/python3 qa-functional/external.py
+scrub_rc=$?
+/usr/bin/python3 qa-functional/recovery.py
+exit "$scrub_rc"

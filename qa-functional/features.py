@@ -78,7 +78,7 @@ def root(tab):
   t=snapshot()
   if find(t,'切换服务器') is not None and find(t,'关闭') is not None:tap(find(t,'关闭'));continue
   visible=page_info(t)
-  markers={'我的':['账号与同步','搜索设置'],'服务器':['我的服务器'],'观看':['追剧日历','发现'],'媒体库':['Seek','ProbeA','ProbeB']}
+  markers={'我的':['账号与同步','搜索设置'],'服务器':['我的服务器','浏览 NAS 与网盘里的视频','连接 Emby、Jellyfin 或 Plex 服务器'],'观看':['追剧日历','发现'],'媒体库':['Seek','ProbeA','ProbeB']}
   if dock(t,tab) is not None and any(s in visible for s in markers.get(tab,[])):return
   n=dock(t,tab)
   if n is not None:

@@ -85,11 +85,12 @@ def run(opt):
             time.sleep(.22)
         raise RuntimeError("controls never settled hidden")
     for i,f in enumerate(opt.targets,1):
-        hide();tap(width*.52,height*.36)
-        for _ in range(8):
+        for reveal_try in range(3):
+            hide()
+            tap(width*.52,height*.36)
+            time.sleep(.25)
             before=screen()
             if chrome(before):break
-            time.sleep(.05)
         else:raise RuntimeError("controls not visible before rail gesture")
         before.save(out/f'{i:02}-before.png')
         start=.18 if f>.5 else .81
@@ -108,7 +109,7 @@ def run(opt):
             if 'outcome=injected' not in ans:raise RuntimeError('picture input rejected')
             row=verify(expected,i);row.update({'origin':current,'retainedMoves':moves,'kind':'relative-picture'});body.append(row)
             (out/'picture.json').write_text(json.dumps(body,indent=2))
-        print('Picture results',[(v['retainedMoves'],v['confirmed']) for v in body])
+        print('Picture results',[(v['retainedMoves'],v['confirmed']) for v in body]); results.extend(body)
     adb('shell','dumpsys','media_session',check=False)
     return all(v['confirmed'] for v in results)
 if __name__=='__main__':

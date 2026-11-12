@@ -5,6 +5,10 @@ if [[ "$1" == settings ]]; then
  /usr/bin/python3 qa-functional/smoke.py "${2%%.*}"
  exit
 fi
+if [[ "$1" == external ]]; then
+ bash qa-functional/external.sh
+ exit
+fi
 if [[ "$1" == extra ]]; then
  adb install -r -g "$(find app-apk -name '*.apk' | head -1)"
  /usr/bin/python3 qa-functional/extra.py
