@@ -18,6 +18,7 @@ jobs:
       - name: Build network and gesture recorder
         run: |
           mkdir qa-private-driver
+          cp qa-source-trace/Driver.java qa-volume/input-driver.java
           sed 's|adb install -r driver.apk|cp driver.apk "$GITHUB_WORKSPACE/qa-private-driver/driver.apk"|' qa-source-trace/build-driver.sh > "$RUNNER_TEMP/driver.sh"
           bash "$RUNNER_TEMP/driver.sh"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
