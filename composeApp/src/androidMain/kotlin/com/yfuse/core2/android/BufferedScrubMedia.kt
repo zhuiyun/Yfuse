@@ -13,6 +13,21 @@ import java.util.concurrent.atomic.AtomicReference
 internal object BufferedScrubMedia {
     private val active = AtomicReference<Session?>()
 
+    interface CachedSource {
+        fun matches(uri: String, headers: Map<String, String>, credentials: YTransportCredentials?): Boolean
+        fun cachedSize(): Long
+        fun cachedRead(position: Long, bytes: ByteArray, offset: Int, size: Int): Int
+    }
+    private val existing = java.util.concurrent.CopyOnWriteArrayList<java.lang.ref.WeakReference<CachedSource>>()
+
+    fun register(source: CachedSource) {
+        existing.removeAll { it.get() == null }
+        existing.add(java.lang.ref.WeakReference(source))
+    }
+
+    private fun reader(uri: String, headers: Map<String, String>, credentials: YTransportCredentials?) =
+        existing.asReversed().firstNotNullOfOrNull { it.get()?.takeIf { s -> s.matches(uri, headers, credentials) && s.cachedSize() > 0L } }
+
     fun attach(uri: String, headers: Map<String, String>, credentials: YTransportCredentials?): Session =
         Session(uri, headers, credentials).also { active.getAndSet(it)?.close() }
 
@@ -68,8 +83,9 @@ internal object BufferedScrubMedia {
                 segments[key]?.let { timeUs >= it.start && timeUs - it.start < it.duration } == true
             }
             val window = if (entry == null) file else stores[entry] ?: return null
-            if (window.size() <= 0) return null
-            return Input(this, window) to (timeUs - (entry?.let { segments[it]?.start } ?: 0L))
+            val cached = reader(entry ?: root, headers, credentials)
+            if (window.size() <= 0 && cached == null) return null
+            return Input(this, window, cached) to (timeUs - (entry?.let { segments[it]?.start } ?: 0L))
         }
 
         fun current() = !closed.get() && active.get() === this
@@ -91,14 +107,19 @@ internal object BufferedScrubMedia {
         fun current() = session.current()
     }
 
-    class Input internal constructor(private val session: Session, private val window: ScrubByteWindow) : MediaDataSource() {
+    class Input internal constructor(private val session: Session, private val window: ScrubByteWindow, private val fallback: CachedSource?) : MediaDataSource() {
         private val closed = AtomicBoolean()
         private val missed = AtomicBoolean()
         fun valid() = session.current() && !closed.get() && !missed.get()
-        override fun getSize(): Long = if (valid()) window.size() else -1
+        override fun getSize(): Long = if (valid()) maxOf(window.size(), fallback?.cachedSize() ?: -1L) else -1L
         override fun readAt(position: Long, buffer: ByteArray, offset: Int, size: Int): Int {
             if (!valid()) throw EOFException("Inactive playback buffer")
-            return try { window.read(position, buffer, offset, size) } catch (e: EOFException) { missed.set(true); throw e }
+            return try { window.read(position, buffer, offset, size) } catch (e: EOFException) {
+                try {
+                    val current = fallback ?: throw e
+                    current.cachedRead(position, buffer, offset, size)
+                } catch (miss: java.io.IOException) { missed.set(true); throw miss }
+            }
         }
         override fun close() { closed.set(true) }
     }

@@ -61,7 +61,7 @@ internal class AndroidTransportMediaDataSource(
     private val representationSession: AndroidMediaRepresentationSession? = null,
     private val rangeReadClock: () -> Long = System::nanoTime,
     private val originBoundHeaderNames: Set<String> = emptySet(),
-) : MediaDataSource() {
+) : MediaDataSource(), BufferedScrubMedia.CachedSource {
     private var scrubWriter: BufferedScrubMedia.Writer? = null
     private val sourceInstance = transportSourceSequence.incrementAndGet().toString()
     private val sourceTrace by lazy {
@@ -155,7 +155,7 @@ internal class AndroidTransportMediaDataSource(
     private val prefetchTransportLock = Any()
     private val bandwidthMeter = YAggregateBandwidthMeter()
     private var cachedBytes = 0L
-    private var knownSize = -1L
+    @Volatile private var knownSize = -1L
 
     @Volatile private var cacheValidated = diskCache == null && representationSession == null
 
@@ -296,6 +296,40 @@ internal class AndroidTransportMediaDataSource(
 
     @Volatile
     private var foregroundFailure: Throwable? = null
+
+    init { BufferedScrubMedia.register(this) }
+
+    override fun matches(uri: String, headers: Map<String, String>, credentials: YTransportCredentials?): Boolean =
+        !closed && !resourcesClosed.get() && this.uri == uri && this.credentials == credentials &&
+            headers.all { (k, v) -> this.headers.entries.any { it.key.equals(k, true) && it.value == v } } &&
+            this.headers.none { (k, _) -> (k.equals("Authorization",true) || k.equals("Cookie",true)) &&
+                headers.keys.none { it.equals(k,true) } && !(k.equals("Authorization",true) && credentials != null) }
+
+    override fun cachedSize(): Long = if (closed || !cacheValidated) -1L else knownSize
+
+    /** A separate preview cursor. This path may only inspect a completed range; it never calls resolveBlock,
+     * getSize, readAt, validation, prefetch, or the transport. It does not move the playback cursor. */
+    @Synchronized
+    override fun cachedRead(position: Long, bytes: ByteArray, offset: Int, size: Int): Int {
+        if (closed || !cacheValidated || knownSize <= 0) throw java.io.EOFException("Inactive cache")
+        if (position >= knownSize) return -1
+        val wanted = minOf(size.toLong(), knownSize - position).toInt()
+        var done = 0
+        while (done < wanted) {
+            val p = position + done
+            val index = p / blockSize
+            val at = (p % blockSize).toInt()
+            val slice = startupSlice?.takeIf { it.first == index && at in it.second.offsetInBlock until (it.second.offsetInBlock + it.second.bytes.size) }?.second
+            val partial = slice ?: completedPrefetchBlock(index)?.takeIf { at in it.offsetInBlock until (it.offsetInBlock+it.bytes.size) }
+            val data = partial?.bytes ?: blocks[index] ?: diskCache?.readBlock(index) ?: throw java.io.EOFException("Unbuffered")
+            val within = at - (partial?.offsetInBlock ?: 0)
+            val count = minOf(wanted - done, data.size - within)
+            if (within < 0 || count <= 0) throw java.io.EOFException("Sparse cache hole")
+            data.copyInto(bytes, offset + done, within, within + count)
+            done += count
+        }
+        return done
+    }
 
     /** MediaExtractor may turn a MediaDataSource IOException into EOF. Preserve the real cause. */
     fun throwIfReadFailed() {
