@@ -93,15 +93,33 @@ private class LocalFramePreviewSession(
     suspend fun decode(timeMs: Long): Bitmap? = withContext(previewDecoder) {
         val session = buffer ?: return@withContext null
         runInterruptible {
-            val (data, timeUs) = session.input(timeMs * 1_000L) ?: return@runInterruptible null
-            data.use {
-                val decoder = MediaMetadataRetriever()
-                try {
-                    decoder.setDataSource(data)
-                    val bitmap = decoder.getScaledFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST, 320, 180)
-                    if (data.valid()) bitmap else { bitmap?.recycle(); null }
-                } catch (_: Exception) { null } finally { runCatching { decoder.release() } }
-            }
+            decodeCachedScrubFrame(session, timeMs * 1_000L)
+        }
+    }
+}
+
+internal fun decodeCachedScrubFrame(session: BufferedScrubMedia.Session, positionUs: Long): Bitmap? {
+    val (input, timeUs) = session.input(positionUs) ?: return null
+    val platform = input.use { data ->
+        val decoder = MediaMetadataRetriever()
+        try {
+            decoder.setDataSource(data)
+            val bitmap = decoder.getScaledFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST, 320, 180)
+            if (data.valid()) bitmap else { bitmap?.recycle(); null }
+        } catch (_: Exception) {
+            null
+        } finally {
+            runCatching { decoder.release() }
+        }
+    }
+    if (platform != null) return platform
+    // Open a fresh reader: the platform probe may have hit a different sparse extent.
+    val (retry, at) = session.input(positionUs) ?: return null
+    return retry.use {
+        val pixels = com.yfuse.core2.android.FfmpegNativeBridge.cachedPreview(it, at) ?: return null
+        if (!it.valid() || pixels.size != 320 * 180 * 4) return null
+        Bitmap.createBitmap(320, 180, Bitmap.Config.ARGB_8888).apply {
+            copyPixelsFromBuffer(java.nio.ByteBuffer.wrap(pixels))
         }
     }
 }

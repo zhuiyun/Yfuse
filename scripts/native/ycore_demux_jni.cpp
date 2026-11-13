@@ -50,6 +50,7 @@ extern "C" {
 #include <libswscale/swscale.h>
 }
 
+#include "ycore_cached_preview.h"
 #include "ycore_parallel_rows.h"
 #include "ycore_tone_map.h"
 #include "ycore_deinterlace.h"
@@ -3794,6 +3795,7 @@ jint native_seek(JNIEnv* env, jclass, jlong handle, jlong position_us) {
 }
 
 static const JNINativeMethod kMethods[] = {
+    {"nativeCachedPreview", "(Landroid/media/MediaDataSource;JJ)[B", reinterpret_cast<void*>(cached_preview::decode)},
     {"nativeTrackFontName", "(JI)Ljava/lang/String;", reinterpret_cast<void*>(native_track_font_name)},
     {"nativeCreateAssRenderer", "([BZII[Ljava/lang/String;[[BI[Ljava/lang/String;)J", reinterpret_cast<void*>(native_create_ass_renderer)},
     {"nativeRenderAss", "(JJJ[[B[J[J)[B", reinterpret_cast<void*>(native_render_ass)},
