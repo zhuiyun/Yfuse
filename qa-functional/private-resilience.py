@@ -96,13 +96,19 @@ def measured(label, **detail):
 
 
 def media_clock(tree):
-    times=[]
-    for n in tree.iter("node"):
-        val=n.get("text","").strip()
-        if re.fullmatch(r"(?:\d{1,2}:)?\d{1,3}:\d\d",val):
-            secs=0
-            for p in val.split(":"):secs=secs*60+int(p)
-            times.append(secs)
+    def clock_in(s):
+        match=re.search(r"(?<!\d)(?:(?:\d{1,2}:)?\d{1,3}:\d\d)(?!\d)",s)
+        if not match:return None
+        value=0
+        for part in match.group().split(":"):value=value*60+int(part)
+        return value
+    for node in tree.iter("node"):
+        state=node.get("state","")
+        if "播放进度" in state or "SeekBar" in node.get("class",""):
+            here=clock_in(state)
+            if here is not None:return here
+    times=[clock_in(node.get("text","")) for node in tree.iter("node") if re.fullmatch(r"(?:\d{1,2}:)?\d{1,3}:\d\d",node.get("text","").strip())]
+    times=[v for v in times if v is not None]
     return min(times) if times else None
 
 
@@ -130,13 +136,19 @@ def decode_playback(label,target,duration,max_wait=60):
     first=None
     speech=[]
     laststatus=None
+    history=[]
+    max_wait=max(max_wait,80 if target is None else 55)
     while time.monotonic()-begin<max_wait:
         try:r,tree=reveal()
         except AssertionError:
+            tree=snapshot()
+            flags=sorted({s for node in tree.iter("node") for s in ("播放失败","重新播放","不支持","解码","正在缓冲","重新连接","播放进度","加载超时") if s in (node.get("text","")+" "+node.get("state","")+" "+node.get("content-desc",""))})
+            history.append({"flags":flags,"noRail":True,"elapsed":round(time.monotonic()-begin,1)})
             time.sleep(.5);continue
         pos=media_clock(tree)
         pix=patch(screen())
         elapsed=time.monotonic()-begin
+        history.append({"s":pos,"elapsed":round(elapsed,1),"contrast":round(sum(ImageStat.Stat(pix).stddev)/3,2)})
         if pos is not None and pos<duration-1 and (target is None or target-12 <= pos <= target+elapsed+12):
             if prev:
                 oldpos,oldim=prev
@@ -148,6 +160,7 @@ def decode_playback(label,target,duration,max_wait=60):
                         return {"firstPos":first[0],"laterPos":pos,"secToFirst":round(first[1],2),"secToConfirm":round(elapsed,2),"changes":speech[-3:]}
             prev=(pos,pix)
         time.sleep(.8)
+    measured(label+"-observation",history=history[-16:])
     raise AssertionError("no moving movie image with advancing player time")
 
 
@@ -163,7 +176,7 @@ def check_source(label,item):
     except OSError:status=0;ok=False
     measured(label+"-source-range",ok=ok,status=status,video=item["video"],width=item["width"])
     if not ok:raise AssertionError("runner cannot read issued film location")
-    if ROWS and any(x["case"].endswith("-open") for x in ROWS):
+    if label!="film-hd":
         adb("shell","input","keyevent","4");time.sleep(1)
     url="http://127.0.0.1:18628/"+label+".mkv"
     adb("shell","am start -a android.intent.action.VIEW -n com.yfuse/com.yfuse.feature.player.ExternalPlaybackActivity -t video/x-matroska -d "+shlex.quote(url))

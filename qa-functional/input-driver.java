@@ -13,8 +13,8 @@ public final class Driver extends Instrumentation {
         if(n==null||depth>70)return;
         xml.startTag(null,"node");
         android.graphics.Rect box=new android.graphics.Rect();n.getBoundsInScreen(box);
-        String[] keys={"text","content-desc","class","package","bounds","enabled","checked","clickable","focusable","scrollable"};
-        Object[] vals={n.getText(),n.getContentDescription(),n.getClassName(),n.getPackageName(),"["+box.left+","+box.top+"]["+box.right+","+box.bottom+"]",n.isEnabled(),n.isChecked(),n.isClickable(),n.isFocusable(),n.isScrollable()};
+        String[] keys={"text","content-desc","class","package","bounds","enabled","checked","clickable","focusable","scrollable","state"};
+        Object[] vals={n.getText(),n.getContentDescription(),n.getClassName(),n.getPackageName(),"["+box.left+","+box.top+"]["+box.right+","+box.bottom+"]",n.isEnabled(),n.isChecked(),n.isClickable(),n.isFocusable(),n.isScrollable(),android.os.Build.VERSION.SDK_INT>=30?n.getStateDescription():null};
         for(int i=0;i<keys.length;i++)xml.attribute(null,keys[i],vals[i]==null?"":vals[i].toString());
         for(int j=0;j<n.getChildCount();j++)node(n.getChild(j),xml,depth+1);
         xml.endTag(null,"node");
