@@ -25,9 +25,9 @@ jobs:
           set -euo pipefail
           api="https://api.github.com/repos/$GITHUB_REPOSITORY"
           while :; do
-            artifact=$(curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/43365660269/artifacts?per_page=100" | jq -r '.artifacts[] | select(.name|startswith("ycore-source-79c0ae559f7deeebe756e49dc0e9d2f44437e258-")) | select(.expired==false) | .id' | head -1)
+            artifact=$(curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/43366339241/artifacts?per_page=100" | jq -r '.artifacts[] | select(.name|startswith("ycore-source-79c0ae559f7deeebe756e49dc0e9d2f44437e258-")) | select(.expired==false) | .id' | head -1)
             if [[ -n "$artifact" ]]; then break; fi
-            state=$(curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/43365660269" | jq -r .status)
+            state=$(curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/43366339241" | jq -r .status)
             test "$state" != completed || { echo "Pinned native artifact unavailable"; exit 1; }
             sleep 10
           done
