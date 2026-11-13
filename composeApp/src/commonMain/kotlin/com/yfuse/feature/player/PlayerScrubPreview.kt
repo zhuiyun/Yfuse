@@ -1,15 +1,9 @@
 package com.yfuse.feature.player
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.offset
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.model.PlaybackChapter
 
 /**
@@ -30,29 +24,13 @@ internal fun PictureScrubPreview(
     modifier: Modifier = Modifier,
 ) {
     if (storyboard == null) return
-    val position = positionMs()
-    // The card leaves showing the last frame it had, not an empty one. A plain holder, not
-    // state: it only remembers, and never needs to recompose anything.
-    val last = remember { LongArray(1) }
-    if (position != null) last[0] = position
-    val shown = position ?: last[0]
-    val chapterLine = chapters.isNotEmpty()
-    val cardHeight = trickplayPreviewHeight(storyboard, chapterLine)
-    AnimatedVisibility(
-        visible = position != null,
-        enter = fadeIn(Motion.tween(Motion.QUICK)),
-        exit = fadeOut(Motion.tween(Motion.QUICK)),
-        // Centred above the HUD, whose own centre is the frame's, clear of the paused key too.
-        modifier = modifier.offset(y = -(cardHeight / 2 + PictureScrubPreviewClearance)),
-    ) {
-        TrickplayPreview(
-            storyboard = storyboard,
-            positionMs = shown,
-            chapter = fileChapterNameAt(chapters, shown),
-            chapterLine = chapterLine,
-        )
-    }
+    val position = positionMs() ?: return
+    TrickplayPreview(
+        storyboard, position,
+        modifier = modifier.offset(y = -(trickplayPreviewHeight(storyboard, chapters.isNotEmpty()) / 2 + PictureScrubPreviewClearance)),
+        chapter = fileChapterNameAt(chapters, position),
+        chapterLine = chapters.isNotEmpty(),
+    )
 }
 
-/** From the centre of the frame to the card's bottom edge: half the HUD and a little air. */
-private val PictureScrubPreviewClearance: Dp = 32.dp
+private val PictureScrubPreviewClearance = 32.dp

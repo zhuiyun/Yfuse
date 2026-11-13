@@ -1235,6 +1235,7 @@ internal class AndroidYCoreHttpProxy(
                 is YHlsPlaylist.Media -> pinned ?: HlsPlaybackManifest(rootText, route.upstreamUri, root)
                 is YHlsPlaylist.Master -> loadHlsPlaybackManifest(root, route)
             }
+        if (!route.drmProtected) BufferedScrubMedia.hlsManifest(route.credentialOrigin, playback.text, playback.uri)
         playback.media.requireSupportedEncryption(route.drmProtected)
         var segmentIndex = 0
         val rewritten =
@@ -1914,6 +1915,7 @@ internal class AndroidYCoreHttpProxy(
                 acceptRanges = seekable,
             )
             if (method == "GET") {
+                val scrubWriter = if (route.drmProtected) null else BufferedScrubMedia.lookup(route.upstreamUri, route.upstreamHeaders, route.credentials)
                 var networkReadDurationNs = 0L
                 var transferredBytes = 0L
                 val buffer = ByteArray(NETWORK_BUFFER_BYTES)
@@ -1925,6 +1927,7 @@ internal class AndroidYCoreHttpProxy(
                     if (count > 0) {
                         // Local loopback backpressure is deliberately outside networkReadDurationNs.
                         socket.getOutputStream().write(buffer, 0, count)
+                        scrubWriter?.put(transferredBytes, buffer, 0, count, response.contentLength ?: -1L)
                         transferredBytes += count
                     }
                 }

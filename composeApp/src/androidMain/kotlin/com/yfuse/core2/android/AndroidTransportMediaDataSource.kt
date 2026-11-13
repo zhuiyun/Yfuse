@@ -62,6 +62,7 @@ internal class AndroidTransportMediaDataSource(
     private val rangeReadClock: () -> Long = System::nanoTime,
     private val originBoundHeaderNames: Set<String> = emptySet(),
 ) : MediaDataSource() {
+    private var scrubWriter: BufferedScrubMedia.Writer? = null
     private val sourceInstance = transportSourceSequence.incrementAndGet().toString()
     private val sourceTrace by lazy {
         com.yfuse.core.logging
@@ -350,11 +351,13 @@ internal class AndroidTransportMediaDataSource(
                             },
                     )
             val block = loaded.bytes
+            val writer = scrubWriter ?: BufferedScrubMedia.lookup(uri, headers, credentials)?.also { scrubWriter = it }
             if (!prefetchSuppressed) schedulePrefetch(blockIndex + 1L)
             val blockOffset = offsetInBlock - loaded.offsetInBlock
             if (blockOffset >= block.size) break
             val count = minOf(remaining, block.size - blockOffset)
             block.copyInto(buffer, outputOffset, blockOffset, blockOffset + count)
+            writer?.put(readPosition, block, blockOffset, count, knownSize)
             readPosition += count
             outputOffset += count
             remaining -= count

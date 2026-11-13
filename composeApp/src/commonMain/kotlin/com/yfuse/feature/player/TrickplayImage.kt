@@ -39,3 +39,6 @@ internal fun trickplayRegion(
     require(region.right > region.left && region.bottom > region.top)
     return region
 }
+
+@Composable
+internal expect fun bufferedScrubBitmap(frame: TrickplayFrame, positionMs: Long): androidx.compose.ui.graphics.ImageBitmap?

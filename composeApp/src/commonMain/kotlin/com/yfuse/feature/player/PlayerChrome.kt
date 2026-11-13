@@ -693,6 +693,7 @@ internal fun TrickplayPreview(
     timeSuffix: String? = null,
 ) {
     val frame = storyboard.frameAt(positionMs)
+    val image = bufferedScrubBitmap(frame, positionMs) ?: return
     val previewHeight =
         (TrickplayPreviewWidth.value * storyboard.height / storyboard.width.coerceAtLeast(1)).dp
     Box(
@@ -726,12 +727,8 @@ internal fun TrickplayPreview(
                     .clip(trickplayFrameShape)
                     .background(Color.Black),
             ) {
-                TrickplayImage(
-                    storyboard = storyboard,
-                    frame = frame,
-                    description = "${formatTime(positionMs)} 预览",
-                    modifier = Modifier.fillMaxSize(),
-                )
+                androidx.compose.foundation.Image(image, "${formatTime(positionMs)} 预览", Modifier.fillMaxSize(),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Fit)
             }
             Text(
                 timeSuffix?.let { "${formatTime(positionMs)} · $it" } ?: formatTime(positionMs),

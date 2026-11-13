@@ -8,6 +8,7 @@ import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.ContentMetadata
+import com.yfuse.core2.android.BufferedScrubMedia
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.playback.PLAYBACK_PROXY_HEADER_TIMEOUT_MS
 import com.yfuse.core.playback.PlaybackProxyAdmission
@@ -329,6 +330,9 @@ internal class AndroidPlaybackHttpProxy(
                 dataSource = dataSource,
                 request = request,
                 contentLength = contentLength,
+                start = start,
+                total = totalLength ?: -1L,
+                preview = BufferedScrubMedia.lookup(route.upstreamUrl, emptyMap(), null),
             )
             socket.getOutputStream().flush()
         } catch (error: HttpDataSource.InvalidResponseCodeException) {
@@ -386,6 +390,7 @@ internal class AndroidPlaybackHttpProxy(
                 val manifest = method == "GET" && connection.isHlsManifest(route.upstreamUrl)
                 if (manifest) {
                     val bytes = body?.readBounded(MAX_HLS_MANIFEST_BYTES) ?: ByteArray(0)
+                    BufferedScrubMedia.hlsManifest(null, bytes.toString(StandardCharsets.UTF_8), route.upstreamUrl)
                     val rewritten =
                         routes
                             .rewriteManifest(
@@ -406,7 +411,22 @@ internal class AndroidPlaybackHttpProxy(
                     if (method == "GET") {
                         body?.let { source ->
                             socket.writeResponseBodyWithWatchdog { output ->
-                                source.copyTo(output, NETWORK_BUFFER_BYTES)
+                                val writer = BufferedScrubMedia.lookup(route.upstreamUrl, route.widgetRequest?.headers?.values.orEmpty(), null)
+                                val range = connection.header("Content-Range")?.let { Regex("bytes ([0-9]+)-[0-9]+/([0-9]+)", RegexOption.IGNORE_CASE).matchEntire(it) }
+                                val start = if (status == 200) 0L else range?.groupValues?.get(1)?.toLongOrNull()
+                                val total = if (status == 200) length else range?.groupValues?.get(2)?.toLongOrNull() ?: -1L
+                                if (writer == null || start == null || total <= 0L) source.copyTo(output, NETWORK_BUFFER_BYTES)
+                                else {
+                                    val chunk = ByteArray(NETWORK_BUFFER_BYTES)
+                                    var position: Long = start
+                                    while (true) {
+                                        val n = source.read(chunk)
+                                        if (n < 0) break
+                                        output.write(chunk, 0, n)
+                                        writer.put(position, chunk, 0, n, total)
+                                        position += n
+                                    }
+                                }
                             }
                         }
                     }
@@ -441,10 +461,14 @@ internal class AndroidPlaybackHttpProxy(
         dataSource: CacheDataSource,
         request: PlaybackProxyRequest,
         contentLength: Long,
+        start: Long,
+        total: Long,
+        preview: BufferedScrubMedia.Writer?,
     ) {
         request.socket.writeResponseBodyWithWatchdog { output ->
             val buffer = ByteArray(NETWORK_BUFFER_BYTES)
             var remaining = contentLength
+            var position = start
             while (remaining != 0L) {
                 request.ensureOpen()
                 val requested =
@@ -457,6 +481,8 @@ internal class AndroidPlaybackHttpProxy(
                 request.ensureOpen()
                 if (read == C.RESULT_END_OF_INPUT) break
                 output.write(buffer, 0, read)
+                preview?.put(position, buffer, 0, read, total)
+                position += read
                 if (remaining != UNKNOWN_LENGTH) remaining -= read.toLong()
             }
         }

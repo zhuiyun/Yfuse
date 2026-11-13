@@ -603,7 +603,7 @@ private fun RefinedBottomBarContent(
                                 )
                         },
                 ) {
-                    if (preview != null) {
+                    if (preview != null && scrubbing.value) {
                         val previewHeight = trickplayPreviewHeight(preview, chapterLine = chapters.isNotEmpty())
                         BoxWithConstraints(
                             Modifier

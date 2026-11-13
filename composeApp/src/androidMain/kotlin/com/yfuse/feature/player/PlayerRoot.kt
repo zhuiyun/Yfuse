@@ -975,9 +975,9 @@ internal fun PlayerRoot(
         val remoteSubtitleRegistry = remember { GlobalContext.get().get<ServerRegistry>() }
         val currentTrickplay =
             rememberCurrentTrickplay(
-                currentItem = currentItem,
-                remoteSubtitleRepository = remoteSubtitleRepository,
-                remoteSubtitleRegistry = remoteSubtitleRegistry,
+                currentItem = currentItem.takeUnless { castAuthoritative },
+                playback = livePlayback,
+                engineKey = engine,
                 durationMs = state.durationMs,
             )
         // Selection is its own state, separate from position/buffering updates. Keying this on
