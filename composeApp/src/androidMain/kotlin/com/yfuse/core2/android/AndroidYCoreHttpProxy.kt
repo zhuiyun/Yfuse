@@ -748,7 +748,7 @@ internal class AndroidYCoreHttpProxy(
     private fun routeForLocalUri(uri: String): Route? {
         val parsed = runCatching { URI(uri) }.getOrNull() ?: return null
         if (parsed.host != LOOPBACK_HOST || parsed.port != server.localPort) return null
-        val prefix = "/$ROUTE_PREFIX/"
+        val prefix = "/$YCORE_HTTP_ROUTE_PREFIX/"
         val path = parsed.path ?: return null
         if (!path.startsWith(prefix)) return null
         return findRoute(path.removePrefix(prefix).substringBefore('/'))
@@ -907,7 +907,7 @@ internal class AndroidYCoreHttpProxy(
                     routes.remove(existing)?.let { routes[existing] = it }
                 } ?: registerRoute(route)
             }
-        return "http://$LOOPBACK_HOST:${server.localPort}/$ROUTE_PREFIX/$routeId$pathSuffix"
+        return "http://$LOOPBACK_HOST:${server.localPort}/$YCORE_HTTP_ROUTE_PREFIX/$routeId$pathSuffix"
     }
 
     private fun acceptLoop() {
@@ -975,7 +975,7 @@ internal class AndroidYCoreHttpProxy(
         val localPath =
             requestTarget
                 .substringBefore('?')
-                ?.substringAfter("/$ROUTE_PREFIX/", missingDelimiterValue = "")
+                ?.substringAfter("/$YCORE_HTTP_ROUTE_PREFIX/", missingDelimiterValue = "")
                 ?.takeIf(String::isNotEmpty)
         val routeId = localPath?.substringBefore('/')
         val routeSuffix = localPath?.substringAfter('/', missingDelimiterValue = "").orEmpty()
@@ -2357,7 +2357,7 @@ private fun String.sha256(): String =
 private const val HLS_SEGMENT_RECOVERY_SECONDS = 16L
 private const val LOOPBACK_HOST = "127.0.0.1"
 private const val LOOPBACK_BACKLOG = 8
-private const val ROUTE_PREFIX = "ycore-resource"
+internal const val YCORE_HTTP_ROUTE_PREFIX = "ycore-resource"
 private const val NETWORK_BUFFER_BYTES = 64 * 1024
 private const val MAX_HLS_MANIFEST_BYTES = 4 * 1024 * 1024
 private const val MAX_DASH_MANIFEST_BYTES = 8 * 1024 * 1024

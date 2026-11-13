@@ -1246,7 +1246,11 @@ internal fun shouldProxyEnhancedSourceUri(uri: String): Boolean {
     if (uri.rawUriScheme() in setOf("smb", "ftp", "yfuse-cloud", "content")) return true
     val parsed = runCatching { URI(uri) }.getOrNull() ?: return false
     if (parsed.scheme?.lowercase() !in setOf("http", "https", "webdav", "webdavs")) return false
-    return parsed.host?.lowercase() !in setOf("127.0.0.1", "localhost", "::1")
+    val host = parsed.host?.lowercase()?.removeSurrounding("[", "]") ?: return false
+    // A user's local media server still needs a playback byte source for scrub previews.
+    // YCore's own already-localized route must continue directly to its owning proxy.
+    val loopback = host in setOf("127.0.0.1", "localhost", "::1")
+    return !(loopback && parsed.path?.startsWith("/$YCORE_HTTP_ROUTE_PREFIX/") == true)
 }
 
 internal fun yCoreEnhancedFailureMessage(failure: YPlaybackException?): String =

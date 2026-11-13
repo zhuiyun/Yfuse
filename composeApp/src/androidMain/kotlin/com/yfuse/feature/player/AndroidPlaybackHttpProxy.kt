@@ -9,6 +9,7 @@ import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.ContentMetadata
 import com.yfuse.core2.android.BufferedScrubMedia
+import com.yfuse.core2.network.YTransportCredentials
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.playback.PLAYBACK_PROXY_HEADER_TIMEOUT_MS
 import com.yfuse.core.playback.PlaybackProxyAdmission
@@ -26,6 +27,7 @@ import com.yfuse.core.playback.writeResponseBodyWithWatchdog
 import okhttp3.Request
 import okhttp3.Response
 import java.io.Closeable
+import java.io.EOFException
 import java.io.InputStream
 import java.net.CookieManager
 import java.net.CookiePolicy
@@ -96,6 +98,7 @@ internal class AndroidPlaybackHttpProxy(
             null
         }
     private val closed = AtomicBoolean(false)
+    @Volatile private var previewCache: ProxyPreviewCache? = null
     private val requests =
         PlaybackProxyRequests {
             runCatching { cacheHandle?.close() }.onFailure { error ->
@@ -122,6 +125,7 @@ internal class AndroidPlaybackHttpProxy(
     val isListening: Boolean
         get() = !server.isClosed
 
+    @Synchronized
     fun localUrl(
         upstreamUrl: String,
         cacheable: Boolean = false,
@@ -131,7 +135,44 @@ internal class AndroidPlaybackHttpProxy(
         val routeId =
             routes.registerRoot(PlaybackProxyRoute(upstreamUrl, cacheable && widgetRequest == null, widgetRequest))
                 ?: return upstreamUrl
+        previewCache = if (cacheable && widgetRequest == null && cacheHandle != null) {
+            ProxyPreviewCache(upstreamUrl).also { BufferedScrubMedia.register(it) }
+        } else null
         return routeUrl(routeId)
+    }
+
+    /** Independent cursor over completed playback cache spans. A hole cannot start an upstream request. */
+    private inner class ProxyPreviewCache(private val upstream: String) : BufferedScrubMedia.CachedSource {
+        private val key = secureMediaCacheKeyForUrl(upstream)
+
+        override fun matches(uri: String, headers: Map<String, String>, credentials: YTransportCredentials?): Boolean =
+            previewCache === this && !closed.get() && uri == upstream && headers.isEmpty() && credentials == null
+
+        override fun cachedSize(): Long =
+            if (closed.get() || previewCache !== this) -1L else cachedContentLength(upstream) ?: -1L
+
+        override fun cachedRead(position: Long, bytes: ByteArray, offset: Int, size: Int): Int {
+            val length = cachedSize()
+            if (length <= 0L) throw EOFException("Playback cache unavailable")
+            if (size == 0) return 0
+            if (position >= length) return -1
+            val count = minOf(size.toLong(), length - position).toInt()
+            val cache = cacheHandle?.cache ?: throw EOFException("Playback cache closed")
+            if (!cache.isCached(key, position, count.toLong())) throw EOFException("Unbuffered preview")
+            val cursor = CacheDataSource.Factory().setCache(cache).setCacheWriteDataSinkFactory(null).createDataSource()
+            try {
+                cursor.open(DataSpec.Builder().setUri(upstream).setKey(key).setPosition(position).setLength(count.toLong()).build())
+                var read = 0
+                while (read < count) {
+                    val n = cursor.read(bytes, offset + read, count - read)
+                    if (n <= 0) throw EOFException("Incomplete playback cache span")
+                    read += n
+                }
+                return read
+            } finally {
+                cursor.close()
+            }
+        }
     }
 
     private fun routeUrl(routeId: String): String = "http://$LOOPBACK_HOST:$port/$ROUTE_PREFIX/$routeId"
