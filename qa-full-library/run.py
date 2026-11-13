@@ -69,8 +69,17 @@ def wait_node(get, seconds=18):
 
 
 def active_player():
+    tree=ui.snapshot()
+    for n in ui.nodes(tree):
+        if n.get('package')!=ui.pkg:continue
+        values=' '.join(ui.labels(n))+ ' '+n.get('state','')
+        if any(flag in values for flag in ('关闭播放','播放遇到问题','纯内核路径无法打开','播放进度','查看原因与导出日志','暂停播放')) or n.get('class','').endswith('SeekBar'):
+            return True
+    in_app=any(n.get('package')==ui.pkg for n in ui.nodes(tree))
+    if in_app and (ui.find(tree,['字幕','音轨']) is not None and ui.find(tree,['倍速','片头片尾']) is not None):
+        return True
     state=ui.shell('dumpsys','activity','activities')
-    return any('com.yfuse.feature.player.PlayerActivity' in line and any(x in line for x in ('ResumedActivity','topResumedActivity','mFocusedApp')) for line in state.splitlines())
+    return any('PlayerActivity' in line and 'ExternalPlaybackActivity' not in line and any(x in line for x in ('ResumedActivity','topResumedActivity','mFocusedApp')) for line in state.splitlines())
 
 
 def press_node(node, tree=None):
@@ -259,8 +268,16 @@ def main():
                         route(core,media)
                     time.sleep(2)
                     capture(prefix+'-screen')
+                    if any('播放遇到问题' in v for n in ui.nodes(ui.snapshot()) for v in ui.labels(n)):
+                        raise RuntimeError('player error screen')
                     proof=measure.decode_playback(prefix,None,media['seconds'])
-                    if not pilot.engine.engine_evidence(core,start)['active']:raise RuntimeError('unconfirmed engine')
+                    selection=pilot.engine.engine_evidence(core,start)
+                    if not selection['active']:
+                        _,tree=measure.reveal()
+                        legend=' '.join(val for n in ui.nodes(tree) for val in ui.labels(n))
+                        expected=('SCore','SenPlayer') if core=='SenPlayer' else ('YCore',)
+                        if not any(name in legend for name in expected):raise RuntimeError('unconfirmed engine')
+                    capture(prefix+'-playing')
                     measure.measured(prefix+'-load',verified=True,**proof)
                     controls(prefix,media)
                 except Exception as error:
@@ -268,7 +285,10 @@ def main():
                     capture(prefix+'-failed')
                     screen=ui.snapshot()
                     visible=[m for m in markers if matching(screen,[m],True) is not None]
-                    measure.measured(prefix+'-failed',error=type(error).__name__,reason=str(error) if isinstance(error,RuntimeError) and str(error) in ('missing UI control','session migration','search input','episode selection','internal player not opened','unconfirmed engine','position unavailable','fast forward') else 'unverified',visible=visible,labels=displays(screen),screen=component(),internalPlayer=active_player())
+                    events=[v for v in measure.app_events() if v.get('time')]
+                    recent=events[-22:] if active_player() else []
+                    measure.measured(prefix+'-failed',signals=[(v['event'],v['values'],v['hints']) for v in recent],
+                                     error=type(error).__name__,reason=str(error) if isinstance(error,RuntimeError) and str(error) in ('missing UI control','session migration','search input','episode selection','internal player not opened','unconfirmed engine','player error screen','position unavailable','fast forward') else 'unverified',visible=visible,labels=displays(screen),screen=component(),internalPlayer=active_player())
     finally:
         ui.shell('am','force-stop',ui.pkg)
         ui.shell('pm','clear',ui.pkg)
