@@ -1,0 +1,47 @@
+name: Check the real held seek preview on and off the buffer
+on:
+  push:
+    branches: [codex/cloud-playback-resilience-20261113]
+    paths: ['qa-preview-screen/**', '.github/workflows/qa-preview-screen.yml']
+permissions: {contents: read, actions: read}
+jobs:
+  menu:
+    strategy:
+      fail-fast: false
+      matrix: {api: [35, 36]}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 27
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - name: Read exact new preview
+        env: {API_TOKEN: "${{ github.token }}"}
+        run: |
+          set -euo pipefail
+          mkdir preview results
+          curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/14008809511/zip" -o "$RUNNER_TEMP/input.zip"
+          unzip -q "$RUNNER_TEMP/input.zip" -d preview
+          (cd preview && sha256sum -c apk.sha256)
+          grep -F 224c838b53dff9f323f830ae64bfbc310288dd20 preview/source.txt
+      - name: Prepare the emulator
+        run: |
+          set -euo pipefail
+          test -c /dev/kvm
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg python3-pil python3-numpy
+          /usr/bin/python3 qa-scrub/fixture.py qa-media
+      - uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: ${{ matrix.api }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          ram-size: 4096M
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -accel on
+          script: bash qa-preview-screen/run.sh
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: 'held-${{ matrix.api }}', path: results, retention-days: 7}
