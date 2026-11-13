@@ -14,6 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with: {persist-credentials: false}
+      # This UI test consumes the exact candidate assembled in the same QA change.
       - name: Read exact new preview
         env: {API_TOKEN: "${{ github.token }}"}
         run: |

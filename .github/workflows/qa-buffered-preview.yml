@@ -17,6 +17,7 @@ jobs:
         with:
           ref: 79c0ae559f7deeebe756e49dc0e9d2f44437e258
           persist-credentials: false
+          fetch-depth: 2
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
         with: {distribution: temurin, java-version: '17', cache: gradle}
       - name: Verify native inputs and build the release candidate
@@ -24,23 +25,36 @@ jobs:
         run: |
           set -euo pipefail
           api="https://api.github.com/repos/$GITHUB_REPOSITORY"
-          while :; do
-            artifact=$(curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/43366717198/artifacts?per_page=100" | jq -r '.artifacts[] | select(.name|startswith("ycore-source-79c0ae559f7deeebe756e49dc0e9d2f44437e258-")) | select(.expired==false) | .id' | head -1)
-            if [[ -n "$artifact" ]]; then break; fi
-            state=$(curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/43366717198" | jq -r .status)
-            test "$state" != completed || { echo "Pinned native artifact unavailable"; exit 1; }
-            sleep 10
+          app_sha=$(git rev-parse HEAD)
+          test "$app_sha" = "79c0ae559f7deeebe756e49dc0e9d2f44437e258"
+          native_sha=$(git rev-parse HEAD^)
+          test "$native_sha" = "224c838b53dff9f323f830ae64bfbc310288dd20"
+          printf '%s\n' 'composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidTransportMediaDataSource.kt' 'composeApp/src/androidMain/kotlin/com/yfuse/core2/android/BufferedScrubMedia.kt' | LC_ALL=C sort > "$RUNNER_TEMP/expected-files"
+          git diff --name-only "$native_sha" "$app_sha" | LC_ALL=C sort | diff -u "$RUNNER_TEMP/expected-files" -
+          git worktree add --detach "$RUNNER_TEMP/native-parent" "$native_sha"
+          artifact=14008644829
+          curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/artifacts/$artifact" | jq -e --arg n "ycore-source-$native_sha-43362570869-1" '.name==$n and .expired==false and .workflow_run.id==43362570869' > /dev/null
+          curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/artifacts/$artifact/zip" -o "$RUNNER_TEMP/native.zip"
+          mkdir "$RUNNER_TEMP/native-in"
+          unzip -q "$RUNNER_TEMP/native.zip" -d "$RUNNER_TEMP/native-in"
+          (
+            cd "$RUNNER_TEMP/native-parent"
+            export YCORE_NATIVE_AAR_PATH="$RUNNER_TEMP/native-in/ycore-native.aar"
+            export YCORE_SOURCE_RECEIPT="$RUNNER_TEMP/native-in/source-build.json"
+            export YCORE_SOURCE_COMMIT="$native_sha" SOURCE_COMMIT="$native_sha"
+            export YCORE_SOURCE_AAR_SHA256=$(sha256sum "$YCORE_NATIVE_AAR_PATH" | cut -d' ' -f1)
+            export YCORE_SOURCE_PROVENANCE_SHA256=$(sha256sum "$RUNNER_TEMP/native-in/NATIVE-SOURCES.txt" | cut -d' ' -f1)
+            python3 scripts/prepare-playback-inputs.py
+          )
+          mkdir -p composeApp/libs
+          for item in ycore-native.aar ycore-native.aar.sha256 ycore-native.sources.txt; do
+            cp "$RUNNER_TEMP/native-parent/composeApp/libs/$item" "composeApp/libs/$item"
+            cmp "$RUNNER_TEMP/native-parent/composeApp/libs/$item" "composeApp/libs/$item"
           done
-          curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/artifacts/$artifact/zip" > "$RUNNER_TEMP/native.zip"
-          mkdir -p qa-native
-          unzip -qo "$RUNNER_TEMP/native.zip" -d qa-native
-          native=$(git rev-parse HEAD)
-          export YCORE_NATIVE_AAR_PATH="$GITHUB_WORKSPACE/qa-native/ycore-native.aar"
-          export YCORE_SOURCE_RECEIPT="$GITHUB_WORKSPACE/qa-native/source-build.json"
-          export YCORE_SOURCE_COMMIT="$native" SOURCE_COMMIT="$native"
-          export YCORE_SOURCE_AAR_SHA256=$(sha256sum "$YCORE_NATIVE_AAR_PATH" | cut -d' ' -f1)
-          export YCORE_SOURCE_PROVENANCE_SHA256=$(sha256sum "$GITHUB_WORKSPACE/qa-native/NATIVE-SOURCES.txt" | cut -d' ' -f1)
-          python3 scripts/prepare-playback-inputs.py
+          (cd composeApp/libs && sha256sum -c ycore-native.aar.sha256)
+          printf 'Instrumented QA only; app commit %s; unchanged native inputs compiled and receipt-verified at parent %s, Actions artifact %s.\n' "$app_sha" "$native_sha" "$artifact" | tee -a "$GITHUB_STEP_SUMMARY"
+          test "$(git rev-parse HEAD)" = "$app_sha"
+          git diff --exit-code -- .
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-37.0'
           ./gradlew :composeApp:assembleRelease :phoneShared:testAndroidHostTest --tests 'com.yfuse.core2.android.ScrubByteWindowTest' :composeApp:assembleDebug :composeApp:assembleDebugAndroidTest -PyfuseIncludeMdk=false -PyfusePlaybackProfile=ycore-senplayer -PyfuseNativeOnlyRuntime=true -PallowDebugSigning=true '-Dorg.gradle.jvmargs=-Xmx6g -Dfile.encoding=UTF-8' --no-daemon
@@ -50,6 +64,7 @@ jobs:
           cp composeApp/build/outputs/apk/debug/*.apk instrumented/app.apk
           cp composeApp/build/outputs/apk/androidTest/debug/*.apk instrumented/test.apk
           printf '%s\n' "$GITHUB_SHA 79c0ae559f7deeebe756e49dc0e9d2f44437e258" > preview/source.txt
+          printf 'app=%s\nnative_built_from=%s\nsource_artifact=%s\n' "$app_sha" "$native_sha" "$artifact" > preview/provenance.txt
           (cd preview && sha256sum composeApp-release.apk > apk.sha256)
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with: {name: candidate-test-input, path: preview, retention-days: 2}
