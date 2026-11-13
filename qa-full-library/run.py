@@ -115,6 +115,37 @@ def capture(label):
     (Path('private-results')/(label+'.bin')).write_bytes(nonce+data)
 
 
+def collect_failure(prefix, since):
+    """Keep new failure diagnostics encrypted with the per-run display key."""
+    from datetime import datetime
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    raw=measure.adb('shell','cat /data/user/0/com.yfuse/no_backup/diagnostics/diagnostic-*.jsonl',check=False)
+    keep=[]
+    for line in raw.splitlines():
+        try:
+            event=json.loads(line)
+            stamp=datetime.fromisoformat(event['timestamp'].replace('Z','+00:00')).timestamp()
+        except (ValueError,KeyError,TypeError):
+            continue
+        if stamp < since or event.get('event') not in ('router_command_failed','native_enhanced_failed','native_direct_failed','video_decoder_candidates','internal_route_unavailable','startup_probe_aborted'):
+            continue
+        attrs=event.get('attributes') or {}
+        # Restrict the export to decoder fields, exception types and JVM frame coordinates.
+        fields={k:str(v)[:500] for k,v in attrs.items() if k.lower() in {
+            'command','exceptiontype','origin','candidates','mime','requestedmime','decoder','decodername',
+            'codecnames','route','failurecategory','inputhdr','dolbyguard','stage','width','height'}}
+        exc=event.get('exception') or {}
+        stack=str(exc.get('stackTrace') or exc.get('stack') or '')
+        frames=re.findall(r'(?:^|\n)\s*at ([a-zA-Z0-9_.$<>]+\([a-zA-Z0-9_. :-]+\))',stack)[:32]
+        known=('no decoder','no candidate','configure','insufficient resource','unsupported','bad value','failed to initialize','verification','could not initialize','failed resolution','no implementation found','index out of bounds','null pointer')
+        hints=[h for h in known if h in (str(exc.get('message',''))+' '+stack[:650]).lower()]
+        keep.append(dict(event=event['event'],fields=fields,exception=exc.get('type'),frames=frames,hints=hints))
+    label=prefix+'-causes'
+    nonce=os.urandom(12)
+    encrypted=AESGCM(screenshot_key).encrypt(nonce,json.dumps(keep).encode(),label.encode())
+    (Path('private-results')/(label+'.bin')).write_bytes(nonce+encrypted)
+
+
 def route(core, media):
     prefix=core+'-'+media['label']
     def stage(name,**details):
@@ -256,7 +287,8 @@ def main():
     pilot.engine.guard()
     failures=0
     try:
-        for i,core in enumerate(('YCore','SenPlayer')):
+        cores=['YCore'] if payload.get('startupAudit') else ['YCore','SenPlayer']
+        for i,core in enumerate(cores):
             provision(core,payload['account'] if i==0 else None)
             for media in payload['samples']:
                 prefix=core+'-'+media['label']
@@ -279,9 +311,11 @@ def main():
                         if not any(name in legend for name in expected):raise RuntimeError('unconfirmed engine')
                     capture(prefix+'-playing')
                     measure.measured(prefix+'-load',verified=True,**proof)
-                    controls(prefix,media)
+                    if not payload.get('startupAudit'):
+                        controls(prefix,media)
                 except Exception as error:
                     failures+=1
+                    collect_failure(prefix,start)
                     capture(prefix+'-failed')
                     screen=ui.snapshot()
                     visible=[m for m in markers if matching(screen,[m],True) is not None]
