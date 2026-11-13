@@ -309,8 +309,20 @@ def suite(relay):
         result=launch(clip,"url","error-recover-"+str(i))
         if not pid or pid!=state():raise AssertionError("player process changed")
         return dict(sameProcess=True,**result)
-    for i in range(1,4):
+    for i in range(1,7):
         captured("error-next-"+str(i),lambda i=i:handle_error(i))
+    # Each image requests 64 independent three-gesture groups. Leave the
+    # quantized media clock as the oracle after the final touch in each group.
+    for branch, clip, kind in (("hls","ProbeA","hls"),("direct","ProbeB","url")):
+        back()
+        if not captured("random-"+branch+"-open",lambda:launch(clip,kind,"random-"+branch)):continue
+        for i in range(1,33):
+            fractions=[round(RNG.uniform(.07,.84),3) for _ in range(3)]
+            def generated(i=i, fractions=fractions):
+                goal=round(DURATION[clip]*fractions[-1],2)
+                issued=issue(show_rail(),fractions)
+                return dict(target=goal,issued=issued,**advancing(clip,"random-"+branch+"-"+str(i),goal,timeout=15,landed_after=1.5))
+            captured("random-"+branch+"-"+str(i),generated)
     if any(row.get("passed") is False for row in ROWS):
         raise AssertionError("one or more independent scenarios failed")
 

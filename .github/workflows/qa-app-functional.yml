@@ -1,4 +1,4 @@
-name: Validate HLS segment recovery on Android 15 and 17
+name: High volume Emby playback and outage verification
 on:
   push:
     branches: [codex/cloud-playback-resilience-20261113]
@@ -19,19 +19,22 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
         with: {distribution: temurin, java-version: '17', cache: gradle}
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
-        with:
-          artifact-ids: '13971049437'
-          run-id: '43278690413'
-          github-token: ${{ github.token }}
-          merge-multiple: true
-          path: qa-native
       - name: Verify native inputs and build the release candidate
+        env: {API_TOKEN: "${{ github.token }}"}
         run: |
           set -euo pipefail
-          native=3f867b11d302d1f0f7d1e548716ea47623effd63
-          git fetch --no-tags --depth=1 origin "$native"
-          test "$(git diff --name-only "$native" HEAD)" = composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidYCoreHttpProxy.kt
+          api="https://api.github.com/repos/$GITHUB_REPOSITORY"
+          while :; do
+            artifact=$(curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/43358120841/artifacts?per_page=100" | jq -r '.artifacts[] | select(.name|startswith("ycore-source-6db79e3250515e3dfb6236d0342ecbe096590c08-")) | select(.expired==false) | .id' | head -1)
+            if [[ -n "$artifact" ]]; then break; fi
+            state=$(curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/43358120841" | jq -r .status)
+            test "$state" != completed || { echo "Pinned native artifact unavailable"; exit 1; }
+            sleep 10
+          done
+          curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/artifacts/$artifact/zip" > "$RUNNER_TEMP/native.zip"
+          mkdir -p qa-native
+          unzip -qo "$RUNNER_TEMP/native.zip" -d qa-native
+          native=$(git rev-parse HEAD)
           export YCORE_NATIVE_AAR_PATH="$GITHUB_WORKSPACE/qa-native/ycore-native.aar"
           export YCORE_SOURCE_RECEIPT="$GITHUB_WORKSPACE/qa-native/source-build.json"
           export YCORE_SOURCE_COMMIT="$native" SOURCE_COMMIT="$native"
@@ -57,6 +60,7 @@ jobs:
       matrix:
         include:
           - {api: 35, image: '35', seed: 131135}
+          - {api: 36, image: '36', seed: 131136}
           - {api: 37, image: '37.0', seed: 131137}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
