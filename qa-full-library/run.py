@@ -2,6 +2,7 @@
 import base64
 import json
 import re
+import os
 import subprocess
 import sys
 import time
@@ -72,6 +73,39 @@ def active_player():
     return any('com.yfuse.feature.player.PlayerActivity' in line and any(x in line for x in ('ResumedActivity','topResumedActivity','mFocusedApp')) for line in state.splitlines())
 
 
+def press_node(node, tree=None):
+    if tree is None:
+        ui.tap(node)
+        return
+    parents={child:parent for parent in tree.iter() for child in parent}
+    current=node
+    while current is not None:
+        if current.get('clickable')=='true' and current.get('enabled')=='true':
+            ui.tap(current)
+            return
+        current=parents.get(current)
+    ui.tap(node)
+
+
+def displays(tree):
+    allow=['无法播放','加载超时','播放信息加载超时','无法连接','播放失败','准备播放','正在播放','继续观看','正在加载','加载失败','重试','从头播放','播放来源','选择播放来源','选择版本','详情','服务器','媒体库','搜索','播放','简介','演员','演职人员','收藏','稍后看','已看','下载','图克罗','第 3 集','剧集','暂时无法','网络','读取失败','错误','连接失败','取消','确认','知道了','选择','确认打开','允许','正在缓冲','播放进度','正在连接','其他来源','立即播放','版本','资源','线路','影片信息','搜索结果','搜索记录','回声']
+    words=[word for node in ui.nodes(tree) for word in ui.labels(node)]
+    return [flag for flag in allow if any(flag in word for word in words)]
+
+
+def component():
+    state=ui.shell('dumpsys','window','windows')
+    return [part.rsplit('.',1)[-1] for part in re.findall(r'(?:mCurrentFocus|mFocusedApp)[^\n]*?com\.yfuse/([A-Za-z0-9_.]+)',state)][:2]
+
+
+def capture(label):
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    pixels=ui.adb('exec-out','screencap','-p',output=True)
+    nonce=os.urandom(12)
+    data=AESGCM(screenshot_key).encrypt(nonce,pixels,label.encode())
+    (Path('private-results')/(label+'.bin')).write_bytes(nonce+data)
+
+
 def route(core, media):
     prefix=core+'-'+media['label']
     def stage(name,**details):
@@ -94,11 +128,16 @@ def route(core, media):
     stage('library',opened=True)
     ui.tap(search)
     edit=wait_node(lambda t:next((n for n in ui.nodes(t) if 'EditText' in n.get('class','')),None))
-    ui.tap(edit)
+    ui.hide_keyboard()
     term=media['series'] or media['name']
     value=base64.b64encode(term.encode()).decode()
-    res=ui.shell('am','instrument','-w','-e','mode','searchtext','-e','query',value,'qa.yfuse.gesture/.Driver')
-    if 'changed=true' not in res: raise RuntimeError('search input')
+    for attempt in range(4):
+        res=ui.shell('am','instrument','-w','-e','mode','searchtext','-e','query',value,'qa.yfuse.gesture/.Driver')
+        if 'changed=true' in res:break
+        edit=wait_node(lambda t:next((n for n in ui.nodes(t) if 'EditText' in n.get('class','')),None))
+        ui.tap(edit)
+        ui.hide_keyboard()
+    else: raise RuntimeError('search input')
     ui.shell('input','keyevent','66')
     ui.hide_keyboard()
     def result(t):
@@ -113,7 +152,8 @@ def route(core, media):
                 if ui.coords(n)[1] > ui.coords(edit)[1]+28:
                     return n
         return None
-    ui.tap(wait_node(result,32))
+    found=wait_node(result,35)
+    ui.tap(found)
     stage('search-result',matched=True)
     if media['series']:
         ep=media['episode']
@@ -127,12 +167,29 @@ def route(core, media):
         ui.tap(target)
         stage('episode',selected=True)
     if not active_player():
-        play=wait_node(lambda t:matching(t,['立即播放','继续播放','从头播放','播放','Play','Resume'],True),22)
-        stage('detail',playVisible=True)
-        ui.tap(play)
-    deadline=time.monotonic()+20
-    while not active_player() and time.monotonic()<deadline:time.sleep(.55)
-    if not active_player():raise RuntimeError('internal player not opened')
+        keys=['立即播放','继续播放','从头播放','播放','Play','Resume']
+        wait_node(lambda t:matching(t,keys),28)
+        tree=ui.snapshot()
+        play=matching(tree,keys)
+        if play is None:raise RuntimeError('missing UI control')
+        stage('detail',playVisible=True,labels=displays(tree),screen=component(),tap=ui.coords(play))
+        capture(prefix+'-detail')
+        press_node(play,tree)
+    deadline=time.monotonic()+50
+    seen=set()
+    attempt=0
+    while not active_player() and 'PlayerActivity' not in component() and time.monotonic()<deadline:
+        tree=ui.snapshot()
+        seen.update(displays(tree))
+        if attempt==1:capture(prefix+'-screen')
+        if attempt in (3,9):
+            control=matching(tree,['立即播放','继续播放','从头播放','播放','Play','Resume'])
+            if control is not None:press_node(control,tree)
+        attempt+=1
+        time.sleep(.4)
+    stage('after-play-tap',seen=sorted(seen),screen=component())
+    if not active_player() and 'PlayerActivity' not in component():raise RuntimeError('internal player not opened')
+    capture(prefix+'-player')
     stage('open',internalPlayer=True)
     return prefix
 
@@ -160,7 +217,9 @@ def controls(prefix, media):
 
 
 def main():
+    global screenshot_key
     payload=measure.load_envelope()
+    screenshot_key=base64.b64decode(payload['screenKey'])
     pilot.engine.guard()
     failures=0
     try:
@@ -177,9 +236,10 @@ def main():
                     controls(prefix,media)
                 except Exception as error:
                     failures+=1
+                    capture(prefix+'-failed')
                     screen=ui.snapshot()
                     visible=[m for m in markers if matching(screen,[m],True) is not None]
-                    measure.measured(prefix+'-failed',error=type(error).__name__,reason=str(error) if isinstance(error,RuntimeError) and str(error) in ('missing UI control','session migration','search input','episode selection','internal player not opened','unconfirmed engine','position unavailable','fast forward') else 'unverified',visible=visible,internalPlayer=active_player())
+                    measure.measured(prefix+'-failed',error=type(error).__name__,reason=str(error) if isinstance(error,RuntimeError) and str(error) in ('missing UI control','session migration','search input','episode selection','internal player not opened','unconfirmed engine','position unavailable','fast forward') else 'unverified',visible=visible,labels=displays(screen),screen=component(),internalPlayer=active_player())
     finally:
         ui.shell('am','force-stop',ui.pkg)
         ui.shell('pm','clear',ui.pkg)
