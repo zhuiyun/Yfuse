@@ -127,7 +127,7 @@ def frame_time(im, clip):
     return pts if votes >= 2 else None
 
 
-def advancing(clip, label, target=None, timeout=50, allow_dialog=False, landed_after=2.5):
+def advancing(clip, label, target=None, timeout=50, allow_dialog=False, landed_after=2.5, already_elapsed=0):
     begin = time.monotonic()
     first = None
     observations = []
@@ -138,7 +138,7 @@ def advancing(clip, label, target=None, timeout=50, allow_dialog=False, landed_a
         v = frame_time(im, clip)
         if v is not None:
             observations.append([round(elapsed, 2), v])
-            inside = target is None or target - 2.1 <= v <= target + elapsed + 1.8
+            inside = target is None or target - 2.1 <= v <= target + elapsed + already_elapsed + 1.8
             if inside:
                 if first is None or v < first[1] or v - first[1] > elapsed - first[0] + 2.25:
                     first = (elapsed, v)
@@ -172,12 +172,12 @@ def show_rail():
     raise AssertionError("visible playback seek bar unavailable")
 
 
-def issue(r, fractions):
+def issue(r, fractions, gesture_ms=150):
     x0,y0,x1,y1 = r
     y = (y0+y1)//2
     def x(f):
         return round(x0 + (x1-x0-1)*f)
-    cmds = [f"input swipe {x(.18 if f>.5 else .81)} {y} {x(f)} {y} 150" for f in fractions]
+    cmds = [f"input swipe {x(.18 if f>.5 else .81)} {y} {x(f)} {y} {gesture_ms}" for f in fractions]
     started = time.monotonic()
     adb("shell", " && ".join(cmds))
     return round(time.monotonic()-started,2)
@@ -204,73 +204,115 @@ def uninterrupted(clip, label, seconds):
 
 
 def suite(relay):
-    for clip, kind in (("ProbeA","hls"),("ProbeB","url")):
-        name = clip+"-"+kind
-        if ROWS:
-            adb("shell","input","keyevent","4")
-            time.sleep(.7)
+    def captured(label, operation):
+        try:
+            data=operation()
+            record(label,passed=True,**(data or {}))
+            return True
+        except Exception as e:
+            record(label,passed=False,reason=str(e)[:160] if isinstance(e,AssertionError) else type(e).__name__)
+            return False
+
+    def back():
+        adb("shell","input","keyevent","4")
+        time.sleep(.65)
+
+    def launch(clip, kind, label):
         open_url(MEDIA[clip][kind],kind)
-        record(name+"-open",**advancing(clip,name+"-open",allow_dialog=True))
-        pid = state()
-        if not pid:
-            raise AssertionError("player has no process")
-        for i in range(1,17):
-            goal = [RNG.uniform(.12,.78) for _ in range(3)]
-            r = show_rail()
-            label = name+"-burst-"+str(i)
-            issued = issue(r,goal)
-            result = advancing(clip,label,goal[-1]*DURATION[clip],timeout=18)
-            record(label,targets=[round(f*DURATION[clip],2) for f in goal],issued=issued,**result)
-        if kind=="hls":
-            # Seek away from the buffered section while the relay is offline.
-            for outage, restore_at in ((4,.14),(12,.78)):
-                r=show_rail()
-                before=relay.call(relay.switch(True))
-                try:
-                    issue(r,[restore_at])
-                    time.sleep(outage)
-                finally:
-                    after=relay.call(relay.switch(False))
-                label = name+"-outage-"+str(outage)
-                result = advancing(clip,label,restore_at*DURATION[clip],timeout=38)
-                resumed=relay.call(relay.switch(False))
-                proof = {"dropped":before["closed"],"refused":after["rejected"]-before["rejected"],"servedAfter":resumed["bytes"]-after["bytes"]}
-                if not (proof["dropped"] or proof["refused"]) or proof["servedAfter"]<=0:
-                    record(label+"-inconclusive",**proof)
-                    raise AssertionError("outage did not exercise a disconnected media read")
-                record(label,outageSeconds=outage,**proof,**result)
-        start=.12
-        issue(show_rail(),[start])
-        advancing(clip,name+"-start-long",start*DURATION[clip])
-        seconds=100 if kind=="hls" else 65
-        record(name+"-sustained",**uninterrupted(clip,name+"-sustained",seconds))
-        if not state() or state()!=pid:
-            raise AssertionError("app restarted in playback")
-    for i in range(1,4):
+        return advancing(clip,label,allow_dialog=True)
+
+    def control_position():
+        import re
+        tree=snapshot()
+        r=rail(tree)
+        for node in tree.iter("node"):
+            words=node.get("content-desc","")
+            if "播放进度" not in words:continue
+            times=re.findall(r"(?<!\d)(?:(?:\d{1,2}:)?\d{1,3}:\d\d)(?!\d)",words)
+            if times:
+                value=0
+                for number in times[0].split(":"):value=60*value+int(number)
+                return value
+        return None
+
+    def cut_case(seconds):
+        # Reset to a visibly verified reference for both isolated HLS cases.
+        r=show_rail()
+        issue(r,[.62],320)
+        advancing("ProbeA","anchor-"+str(seconds),93,timeout=25)
+        r=show_rail()
+        pre=frame_time(screen(),"ProbeA")
+        pre_rail=control_position()
+        before=relay.call(relay.switch(seconds>0))
+        target=.14 if seconds<10 else .78
+        try:
+            issued=issue(r,[target],320)
+            sent_at=time.monotonic()
+            during=[]
+            while time.monotonic()-sent_at<seconds:
+                p=frame_time(screen(),"ProbeA")
+                during.append([round(time.monotonic()-sent_at,2),p])
+                time.sleep(.25)
+        finally:
+            after=relay.call(relay.switch(False))
+        early=frame_time(screen(),"ProbeA")
+        label="hls-"+("control" if seconds==0 else "outage-"+str(seconds))
+        # The player can keep going on cached data during the cut. Its clock
+        # must still trace back to the requested landing point.
+        elapsed_from_seek=time.monotonic()-sent_at
+        proof={"target":round(150*target,2),"pre":pre,"uiBefore":pre_rail,"box":r,"issued":issued,"closed":before["closed"],"refused":after["rejected"]-before["rejected"],"vBeforeRestore":during,"firstAfter":early}
+        record(label+"-input",**proof)
+        try:
+            data=advancing("ProbeA",label,150*target,timeout=28,already_elapsed=elapsed_from_seek)
+        finally:
+            resumed=relay.call(relay.switch(False))
+            record(label+"-transport",servedAfter=resumed["bytes"]-after["bytes"],uiAfter=control_position())
+        if seconds and not (before["closed"] or after["rejected"]>before["rejected"]):
+            raise AssertionError("no interrupted or rejected media connection; this instance was fully buffered")
+        return data
+
+    if captured("hls-open",lambda:launch("ProbeA","hls","open-hls")):
+        for gap in (0,4,12):
+            captured("hls-seek-"+str(gap),lambda gap=gap:cut_case(gap))
+        def hls_long():
+            issue(show_rail(),[.10],320)
+            advancing("ProbeA","hls-long-anchor",15,timeout=23)
+            return uninterrupted("ProbeA","hls-long",100)
+        captured("hls-long",hls_long)
+    back()
+    if captured("direct-open",lambda:launch("ProbeB","url","open-direct")):
+        for i in range(1,9):
+            targets=[RNG.uniform(.12,.78) for _ in range(3)]
+            def triplet(i=i,targets=targets):
+                issued=issue(show_rail(),targets)
+                return dict(target=round(targets[-1]*105,2),issued=issued,**advancing("ProbeB","direct-"+str(i),targets[-1]*105,timeout=20))
+            captured("direct-burst-"+str(i),triplet)
+        def direct_long():
+            issue(show_rail(),[.12],320)
+            advancing("ProbeB","long-anchor",12.6,timeout=25)
+            return uninterrupted("ProbeB","direct-long",65)
+        captured("direct-long",direct_long)
+    def handle_error(i):
         pid=state()
-        if not pid:
-            raise AssertionError("no active player process")
-        adb("shell","input","keyevent","4");time.sleep(.65)
+        back()
         open_url("http://127.0.0.1:18196/qa-missing-video.mp4","url")
         deadline=time.monotonic()+35
         while time.monotonic()<deadline:
             tree=snapshot()
-            if allow_open(tree):
-                time.sleep(.3)
-                continue
+            if allow_open(tree):continue
             words=page_info(tree)
-            if any(s.lower() in w.lower() for w in words for s in ("播放失败","重新播放","重试","无法播放","打开失败","404","无法读取","retry","playback error")):
-                break
+            if any(s.lower() in w.lower() for w in words for s in ("播放失败","重新播放","重试","无法播放","打开失败","404","无法读取","retry","playback error")):break
             time.sleep(.5)
-        else:
-            raise AssertionError("missing media did not show a visible error")
-        adb("shell","input","keyevent","4");time.sleep(.7)
-        clip="ProbeB" if i%2 else "ProbeA"
-        open_url(MEDIA[clip]["url"],"url")
-        result=advancing(clip,"recover-"+str(i),allow_dialog=True)
-        if pid!=state():
-            raise AssertionError("app restarted during recovery")
-        record("error-then-good-"+str(i),sameProcess=True,clip=clip,**result)
+        else:raise AssertionError("visible error missing")
+        back()
+        clip="ProbeA" if i%2 else "ProbeB"
+        result=launch(clip,"url","error-recover-"+str(i))
+        if not pid or pid!=state():raise AssertionError("player process changed")
+        return dict(sameProcess=True,**result)
+    for i in range(1,4):
+        captured("error-next-"+str(i),lambda i=i:handle_error(i))
+    if any(row.get("passed") is False for row in ROWS):
+        raise AssertionError("one or more independent scenarios failed")
 
 
 if __name__ == "__main__":
