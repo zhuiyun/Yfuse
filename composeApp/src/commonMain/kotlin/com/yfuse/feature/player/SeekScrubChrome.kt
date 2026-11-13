@@ -29,9 +29,10 @@ import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.yfuse.core.designsystem.DragAxis
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.DragAxis
+import com.yfuse.core.designsystem.resolveDragAxis
 import com.yfuse.core.designsystem.glass
 import kotlin.math.roundToInt
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -93,7 +94,7 @@ internal suspend fun PointerInputScope.detectSeekScrubGestures(
                 if (change.id != down.id || change.isConsumed) break
                 if (!dragging) {
                     val delta = change.position - down.position
-                    when (seekRailGestureAxis(delta.x, delta.y, viewConfiguration.touchSlop)) {
+                    when (resolveDragAxis(delta.x, delta.y, viewConfiguration.touchSlop)) {
                         DragAxis.Vertical -> break
                         DragAxis.Horizontal -> {
                             dragging = true

@@ -58,7 +58,7 @@ data class ResolvedPlaybackOptimization(
     val reason: String? = null,
 )
 
-/** Power saving may lower cost, but never silently turns a compatibility request into Exo-only. */
+/** Power saving preserves the requested engine selection. */
 fun resolvePlaybackOptimization(
     requested: PlaybackOptimizationMode,
     environment: PlaybackRuntimeEnvironment,

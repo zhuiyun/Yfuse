@@ -2,7 +2,7 @@ package com.yfuse.core2.bitstream
 
 /** What Android's audio decoders need beyond the codec private data a container carries. */
 object YAudioConfiguration {
-    /** Opus's fixed pre-roll after a seek, 80 ms (RFC 7845 section 4.6), as ExoPlayer configures it. */
+    /** Opus's fixed pre-roll after a seek, 80 ms (RFC 7845 section 4.6). */
     const val OPUS_SEEK_PRE_ROLL_NS = 80_000_000L
 
     /**

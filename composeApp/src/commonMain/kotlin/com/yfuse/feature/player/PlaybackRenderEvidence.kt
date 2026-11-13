@@ -4,8 +4,8 @@ import com.yfuse.core2.api.YDolbyAtmosOutputMode
 
 /**
  * How an engine turns what it saw of its own output (a first frame drawn, an AudioTrack opened, a
- * sink released, frames dropped) into the readiness and evidence it reports. Exo, mpv and MDK each
- * observe their backend in their own way and feed the observation here, so that "verified" means
+ * sink released, frames dropped) into the readiness and evidence it reports. The engines
+ * feed their observations here, so that "verified" means
  * the same thing, and a new load attempt starts from the same evidence, whichever engine plays.
  *
  * Labels stay with the engines: they describe the backend, and only the machine-readable fields

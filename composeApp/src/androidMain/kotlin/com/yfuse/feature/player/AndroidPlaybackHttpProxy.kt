@@ -43,7 +43,7 @@ import kotlin.math.min
  * Gives native players an HTTP loopback URL while Android reads the real source.
  *
  * The bridge keeps credentials in process memory, preserves byte-range requests and rewrites HLS
- * child URLs. Eligible direct files use the same sparse Media3 cache as ExoPlayer; manifests,
+ * child URLs. Eligible direct files use the shared sparse Media3 cache; manifests,
  * transcodes, DRM and local/disc sources never enter that persistent cache.
  */
 @OptIn(UnstableApi::class)

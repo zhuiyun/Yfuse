@@ -225,7 +225,7 @@ internal class AndroidNativeDirectSession(
      *
      * Requiring a live Surface for the whole pump is what made a destroyed Surface stop the
      * sound with it: background listening, lock-screen playback and the PiP transition all go
-     * through exactly that path. Exo's `clearVideoSurface` detaches only the video renderer.
+     * through exactly that path.
      */
     private val audioPumpAllowed: Boolean
         get() = outputLifecycle.allowsAudioPump(hasVideoTrack, audioTrackIndex != null)

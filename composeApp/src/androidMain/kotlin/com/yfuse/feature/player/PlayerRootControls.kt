@@ -722,8 +722,7 @@ internal fun PlayerRootControls(
                         label to (selection == choices.sessionEngineSelection)
                     },
                 // Manual escape hatch when the picture is black but audio plays. Offered on
-                // every engine now — it used to be ExoPlayer-only, which left the native
-                // engines with no way out of a file the device can't decode.
+                // every engine when a server transcode is available.
                 transcodeLabel =
                     "转码播放".takeIf {
                         !core2NativeOnlyActive &&

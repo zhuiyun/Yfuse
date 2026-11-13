@@ -110,7 +110,7 @@ fun statedPixelAspectRatio(
 /**
  * The size a picture is shown at, which the player's surface is laid out from.
  *
- * Pixels that are not square are squared first, the way mpv does: widened for a ratio above one
+ * Pixels that are not square are squared first: widened for a ratio above one
  * (720×480 at 32:27 is shown 853×480), heightened below it. Then a stream turned a quarter is
  * shown on its side — a phone clip stored 1920×1080 with a 90° flag stands upright at 1080×1920.
  * Reporting the stored size instead squeezed anamorphic DVDs into 3:2 and turned pictures into

@@ -134,7 +134,7 @@ open class YfuseApp :
                         // started it, and so UpdateDownloadService can reach the same instance.
                         single { AppUpdateManager(this@YfuseApp, settings) }
                         // Detail pages prepare playback before the tap. The Android implementation
-                        // warms direct-play bytes into the same Media3 cache used by ExoPlayer.
+                        // warms direct-play bytes into the shared Media3 data cache.
                         single<PlaybackSourcePreloader> {
                             AndroidPlaybackSourcePreloader(
                                 context = this@YfuseApp,

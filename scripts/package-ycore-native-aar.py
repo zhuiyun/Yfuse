@@ -222,7 +222,7 @@ def package_ycore_gpu_aar(
     notice: pathlib.Path,
     readelf: str,
 ) -> Mapping[str, tuple[str, ...]]:
-    """Build the GPU-only companion used next to the verified MPV runtime.
+    """Build the GPU-only YCore companion.
 
     This companion contains the Vulkan executor for builds supplying the rest of YCore separately.
     """

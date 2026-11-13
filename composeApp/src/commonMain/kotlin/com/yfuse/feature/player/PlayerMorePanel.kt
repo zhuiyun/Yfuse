@@ -187,7 +187,7 @@ internal fun MorePanel(
 
             AdvancedPage.Playback -> {
                 PopupBackLabel("播放设置") { onAdvancedPage(AdvancedPage.Root) }
-                // Native HDMV state is richer than mpv's edition/chapter properties:
+                // Native HDMV provides menu and angle information in addition to chapters:
                 // it owns menu/angle state and is pushed from libbluray callbacks.
                 // Observing the revision the shell collects makes menu availability and
                 // activation visible immediately without polling the native session.

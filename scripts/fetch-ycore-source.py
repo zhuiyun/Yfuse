@@ -24,6 +24,9 @@ for name, source in lock["repositories"].items():
     if not (path / ".git").is_dir():
         path.mkdir(exist_ok=True)
         git(path, "init", "--quiet")
+    try:
+        git(path, "rev-parse", "--verify", "HEAD")
+    except subprocess.CalledProcessError:
         git(path, "fetch", "--depth=1", source["url"], source["commit"])
         git(path, "checkout", "--quiet", "--detach", "FETCH_HEAD")
     if git(path, "rev-parse", "HEAD") != source["commit"]:

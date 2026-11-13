@@ -4,7 +4,6 @@ package com.yfuse.feature.player
  * The queue entries whose step onto the progressive MP4 is under way: the HLS encoder is being
  * stopped before the MP4 request, which carries the same PlaySessionId, may start. While an entry
  * is here the stream ladder answers "switching" for it ([PlaybackStreamRung.ProgressivePending]).
- * Exo, mpv and MDK each keep one, next to their other per-entry sets.
  */
 internal class PendingProgressiveSwitches {
     /** Identity, rather than index alone, distinguishes retries of the same queue entry. */

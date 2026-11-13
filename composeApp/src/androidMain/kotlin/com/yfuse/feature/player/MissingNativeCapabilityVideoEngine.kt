@@ -12,7 +12,7 @@ internal const val UNAVAILABLE_VIDEO_ENGINE_LABEL = "Unavailable"
  * Terminal backend used when the selected native binary provably lacks a required feature.
  *
  * This is not recorded as a decoder/container quirk: installing the correct AAR changes the answer,
- * so poisoning YCore's week-long failure memory would keep a repaired build from trying mpv later.
+ * so poisoning YCore's week-long failure memory would suppress a valid future attempt.
  */
 internal class MissingNativeCapabilityVideoEngine(
     message: String,

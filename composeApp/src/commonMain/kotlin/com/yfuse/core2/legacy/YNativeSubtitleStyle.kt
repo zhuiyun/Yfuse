@@ -6,8 +6,8 @@ import com.yfuse.feature.player.SubtitleAppearance
 /**
  * The viewer's 字幕 settings, for a backend that draws subtitles inside its own video output.
  *
- * Core2's own routes publish cues and Core2Surface styles them in Compose. The libmpv
- * compatibility executor draws embedded subtitles itself, so the same settings have to reach it:
+ * Core2Surface styles published cues in Compose. Backends that render embedded subtitles
+ * internally receive the same viewer settings:
  * otherwise 字幕偏移, 字号, 位置 and 样式 report success on that route and change nothing.
  * [appearance] already carries 字幕亮度, as the player screen hands it over.
  */

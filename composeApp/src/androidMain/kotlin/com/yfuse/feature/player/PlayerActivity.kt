@@ -1262,7 +1262,7 @@ class PlayerActivity :
         // Only the cheap bookkeeping happens before finish(). The engine itself is released when
         // PlayerRoot's composition is disposed in onDestroy, which Android delivers after the
         // Activity underneath has resumed and drawn. Releasing it here used to block the main
-        // thread for the whole Media3 or mpv teardown while the last frame of the departure sat
+        // thread for the entire player teardown while the last frame of the departure sat
         // on screen, so the player looked frozen for a beat before it finally went away.
         // Audio focus is abandoned first, so nothing resumes the paused engine in between.
         val finishPlayback = {
@@ -1976,7 +1976,7 @@ class PlayerActivity :
      * is deferred until the activity becomes visible again; notification/media-session actions
      * get one immediate retry because they are explicit user actions. Once started, the service is
      * retained across pause/buffer/engine-handover states and is stopped by the player lifecycle;
-     * otherwise a fast Exo -> MPV handover can stop it before Android delivers Service.onCreate.
+     * otherwise a fast engine handover can stop it before Android delivers Service.onCreate.
      */
     private fun startPlaybackKeepAliveService(fromUserAction: Boolean = false) {
         if (playbackKeepAliveRequested) return
@@ -2125,8 +2125,7 @@ class PlayerActivity :
     override fun reorientForCurrentEntry() = applyPhoneOrientation(orientationItem, orientationState)
 
     private fun activePictureInPictureAspectRatio(): Rational {
-        // The server's size knows the file's rotation, which only ExoPlayer applies to its decoded
-        // size: a 1920×1080 file tagged rotate=90 is an upright window, not a landscape one.
+        // The server's size knows the file's rotation. For example, a 1920×1080 file tagged rotate=90 is an upright window, not a landscape one.
         orientationItem?.activeVersion?.displayAspectRatio()?.let { aspect ->
             val (ratioWidth, ratioHeight) =
                 pictureInPictureAspectRatioDimensions((aspect * ASPECT_PRECISION).roundToInt(), ASPECT_PRECISION)

@@ -147,7 +147,7 @@ private val TERMINAL_SURFACE_LOSS_FAILURES =
     )
 
 // FFmpeg also prints "Both surface and native_window are NULL" during mediacodec-copy
-// initialization, then successfully decodes into buffers for MPV's GPU output. That message
+// initialization, then successfully decodes into buffers for GPU output. That message
 // alone is neither a lost output Surface nor a terminal decoder failure. END_FILE and the
 // existing startup watchdog still handle a decoder that subsequently cannot make progress.
 

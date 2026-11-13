@@ -293,7 +293,3 @@ internal fun convergingFraction(
         }
     return fraction.coerceIn(0f, 1f)
 }
-
-/** Includes displacement on UP when Android batches the final movement with the release. */
-internal fun seekRailGestureAxis(dx: Float, dy: Float, touchSlop: Float): com.yfuse.core.designsystem.DragAxis =
-    com.yfuse.core.designsystem.resolveDragAxis(dx, dy, touchSlop)

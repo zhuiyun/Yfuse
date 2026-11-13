@@ -35,8 +35,7 @@ internal actual fun ThemeSongOutput(song: ThemeSong?) {
 internal actual fun silenceThemeSong() = ThemeSongPlayer.stop()
 
 /**
- * The app's one theme song, on the platform's own MediaPlayer: a short audio file needs no more,
- * and it is there in every build, the ones without ExoPlayer included.
+ * The app's one theme song, on the platform's own MediaPlayer, available for short audio clips in every build.
  *
  * Main thread only — Compose effects call it, and the player's callbacks arrive there.
  */

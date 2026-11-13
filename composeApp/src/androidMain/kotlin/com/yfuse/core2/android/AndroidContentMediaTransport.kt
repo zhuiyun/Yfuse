@@ -34,9 +34,7 @@ internal class AndroidOpenedDocument(
  * Random-access transport over a ContentResolver document: a SAF pick, a downloads tree.
  *
  * The FFmpeg routes read such documents through YCore's loopback proxy rather than FFmpeg's own
- * android_content protocol. That protocol reads through an application-context global reference
- * that libmpv hands FFmpeg and deletes when an mpv player is destroyed; a read afterwards aborts
- * the process, and without libmpv it never works at all.
+ * android_content protocol. YCore routes content URIs through the Android content resolver.
  */
 internal class AndroidContentMediaTransport(
     private val openDocument: (String) -> AndroidOpenedDocument,

@@ -103,7 +103,7 @@ internal fun trackLabel(
 /**
  * True once the current item has finished and stands on its last frame.
  *
- * [PlaybackState.ended] says so for most engines. ExoPlayer told to stop at the end of a queue item
+ * [PlaybackState.ended] says so for most engines. A player told to stop at the end of a queue item
  * — 自动播放下一集 off, 取消 on the next-up card, 睡眠定时's 本集结束 — does not end it: it pauses on
  * the final frame with the next item still queued, and resuming runs straight into that one. To
  * whoever is watching, that pause is the end of the episode, not a pause in the middle of it.
@@ -209,7 +209,7 @@ internal fun hasUnreadChat(
  * top bar, a centred transport cluster, a gradient bottom bar with the scrubber and
  * chip row, plus the lock screen, settings panel and episode drawer.
  *
- * Everything shown comes from [playback], so ExoPlayer and libmpv get the same controls. The rest
+ * Everything shown comes from [playback], so both engines get the same controls. The rest
  * arrives by area — the transport, the picture, tracks, the source, 更多's pages, 投屏, 弹幕, 一起看
  * and what the player root lends the chrome — each as a state snapshot and its callbacks; see
  * PlayerControlAreas.kt.
@@ -357,7 +357,7 @@ internal fun PlayerControls(
     // One instance of the room's callbacks for the whole session, forwarding to whatever the
     // caller last passed.
     //
-    // This chrome recomposes on every position tick — twice a second on mpv — and the caller
+    // This chrome recomposes on every position tick and the caller
     // builds a fresh [WatchRoomActions] each time, which is a fresh set of lambdas. Handed
     // straight down they are never equal to last frame's, so nothing below could skip: the
     // chat transcript rebuilt every visible bubble, and every gradient inside them, several

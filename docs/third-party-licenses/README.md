@@ -8,13 +8,10 @@ It is not a substitute for a release-time legal review or the generated SBOM.
 | QuickJS-KT | `io.github.dokar3:quickjs-kt:1.0.15` | [Upstream](https://github.com/dokar3/quickjs-kt), Apache-2.0 | JS component runtime; license ships in `assets/widget-licenses/quickjs-kt-Apache-2.0.txt`. Its native dependencies QuickJS and c-vector carry the accompanying MIT notices. |
 | jsoup | `org.jsoup:jsoup:1.23.2` | [Upstream](https://github.com/jhy/jsoup/tree/jsoup-1.23.2), MIT | Component HTML parsing; license ships in `assets/widget-licenses/jsoup-MIT.txt`. |
 | Anime4K Original | Vendored `Anime4K_Upscale_Original_x2.glsl` | [Upstream](https://github.com/bloc97/Anime4K), MIT | Shader notices and full LICENSE ship in `assets/anime4k/`; native GLES port preserves the six Original passes. |
-| libmpv Android | `libmpv-android` v1.0.0 | <https://github.com/jarnedemeulemeester/libmpv-android> | Bundles mpv and FFmpeg-family native libraries. Preserve upstream notices and comply with the licenses of the exact build configuration. |
 | libbluray | `7d94f2660af5bfc16015291a03539329135c18f1` (1.4.1) | <https://code.videolan.org/videolan/libbluray/-/tree/7d94f2660af5bfc16015291a03539329135c18f1> | LGPL-2.1-or-later; see [LGPL-2.1.txt](LGPL-2.1.txt). The Yfuse build disables BD-J. |
 | libudfread | `139a2194525f2745b98a98e4d8fa627d07440176` | <https://code.videolan.org/videolan/libudfread/-/tree/139a2194525f2745b98a98e4d8fa627d07440176> | LGPL-2.1-or-later; see [LGPL-2.1.txt](LGPL-2.1.txt). Pulled as libbluray's pinned submodule. |
-| mpv | Included through libmpv Android | <https://github.com/mpv-player/mpv/blob/master/Copyright> | mpv's effective license depends on build options; verify the downloaded binary's configuration before distribution. |
-| FFmpeg | Included by the native player engines and linked by the YCore runtime (`libycore_demux`) | <https://ffmpeg.org/legal.html> | LGPL-2.1-or-later unless the build was configured with `--enable-gpl` (GPL) and/or `--enable-version3` (version 3). The YCore runtime reuses the FFmpeg of the pinned libmpv-android buildscripts, so its license is whatever those configure flags made it: every YCore native build records it as `ycore-demux-ffmpeg-license` in `NATIVE-SOURCES.txt` (read from libavutil) and `scripts/verify-ycore-native.sh` prints it. A GPL value means the runtime that links FFmpeg carries GPL obligations; check it before each distribution. |
-| MDK SDK | `mdk-sdk` v0.37.0 | <https://github.com/wang-bin/mdk-sdk> | The artifact README states that free use is limited to specified categories. Commercial or other distribution requires confirming eligibility or obtaining an appropriate license. |
-| dav1d | Included by MDK | <https://code.videolan.org/videolan/dav1d/-/blob/master/COPYING> | BSD 2-Clause. |
+| FFmpeg | Linked by YCore. Commit recorded in scripts/ycore-dependencies.json. | <https://ffmpeg.org/legal.html> | The native build records the effective license reported by libavutil in NATIVE-SOURCES.txt. |
+| dav1d | Linked by YCore through FFmpeg | <https://code.videolan.org/videolan/dav1d/-/blob/master/COPYING> | BSD 2-Clause. |
 | libass | Statically linked into the standalone YCore native runtime | <https://github.com/libass/libass/blob/master/COPYING> | ISC license. |
 | FreeType | Statically linked into the standalone YCore native runtime through libass | <https://gitlab.freedesktop.org/freetype/freetype/-/blob/master/docs/FTL.TXT> | FreeType License or GPLv2; YCore uses the FreeType License option. |
 | FriBidi | Statically linked into the standalone YCore native runtime through libass | <https://github.com/fribidi/fribidi/blob/master/COPYING> | LGPL-2.1-or-later. |
@@ -27,8 +24,7 @@ It is not a substitute for a release-time legal review or the generated SBOM.
 
 Before every production release:
 
-1. Review the exact native artifacts named in `scripts/engine-checksums.sha256`.
+1. Review the YCore source lock, the native build receipt and the pinned SenPlayer assets.
 2. Archive the upstream license/notices that correspond to those exact versions.
-3. Confirm MDK usage rights for the intended distribution and commercial status.
-4. Retain the generated SPDX SBOM with the release artifact.
-5. Make required notices available to recipients; do not rely on this summary alone.
+3. Retain the generated SPDX SBOM with the release artifact.
+4. Make required notices available to recipients; do not rely on this summary alone.

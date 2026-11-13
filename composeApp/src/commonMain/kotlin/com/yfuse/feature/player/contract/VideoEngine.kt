@@ -120,7 +120,7 @@ data class PlaybackOutputEvidence(
     val outputDynamicRange: String = "",
     val dynamicRangeOutputMode: PlaybackDynamicRangeOutputMode =
         PlaybackDynamicRangeOutputMode.Unknown,
-    /** MPV/libplacebo facts emitted only after the corresponding frame completed rendering. */
+    /** Output evidence emitted only after the corresponding frame completed rendering. */
     val dolbyVisionRpuRendered: Boolean = false,
     val dolbyVisionFelComposed: Boolean = false,
     val renderApi: PlaybackVideoRenderApi = PlaybackVideoRenderApi.Unknown,
@@ -501,10 +501,7 @@ interface VideoEngine {
      * Reloads the current entry from the server's transcoded stream, returning false when
      * there is nothing left to fall back to — no transcode URL, or one already in use.
      *
-     * Every engine implements this rather than only ExoPlayer. A file the device cannot
-     * decode is the single most common way playback fails, and on the native engines it
-     * used to be a dead end: no automatic retry and, because the manual 转码播放 control was
-     * gated on the engine being ExoPlayer, no way to ask for one either.
+     * Provided by each engine so the manual 转码播放 control can request a server transcode.
      *
      * [reason] is shown in diagnostics only; [viewerRequested] marks the viewer's own 转码播放.
      */

@@ -122,7 +122,7 @@ internal class PlaybackProgressReporter(
      * Written by [update] when the entry changes, consumed by the actor when it stops that entry.
      *
      * Reports are throttled to ten seconds, so the last *reported* position of an episode that
-     * ran to its end can be up to ten seconds short of it. ExoPlayer's playlist moves to the next
+     * ran to its end can be up to ten seconds short of it. A playlist may move to the next
      * entry without an ended state, and a 60-second episode stopped at 50 seconds read as 83%
      * watched: never finished, left in 继续观看 and picked again by 播放. The last *sampled*
      * position is at most one tick old.
@@ -268,7 +268,7 @@ internal class PlaybackProgressReporter(
      *
      * A version handover is ordered stop-old → bind-new → start-new. A tail append merely
      * grows [items], because the active `(item, session)` pair did not change and stopping
-     * it would kill the healthy transcode ExoPlayer is still consuming.
+     * it would kill the healthy transcode the player is still consuming.
      */
     fun rebind(
         items: List<PlayerMediaItem>,

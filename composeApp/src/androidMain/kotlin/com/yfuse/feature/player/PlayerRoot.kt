@@ -94,7 +94,7 @@ internal fun nextOutputRepeatCount(
  * starts, well before construction finishes (see PlaybackEngineSlot.start), so [engine] can
  * still be the [PreparingVideoEngine] placeholder when this runs. Checking the concrete
  * instance first, rather than trusting [attachedKind] alone, is what keeps a log line from
- * reading e.g. `engine=Exo` for a player that has not attached anything yet.
+ * identifying an engine before a player attaches.
  */
 internal fun engineAttachedLabel(
     engine: VideoEngine,

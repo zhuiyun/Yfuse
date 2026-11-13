@@ -62,7 +62,7 @@ python scripts/android_performance.py --mode profile --serial YOUR_API33_PHONE -
 
 ## CI 与回归
 
-`.github/workflows/android-performance.yml` 仅支持手动触发，要求管理员先配置 `self-hosted, Linux, X64, android-physical, yfuse-performance` 标签的可信 runner、上述工具链和真机，提供 native action 使用的 sudo/apt 与网络权限。干净 checkout 会先运行已有 `fetch-engines.sh` 校验固定引擎，再运行 `build-current-ycore` 构建当前源码运行时，不依赖工作区里碰巧存在的 AAR。
+`.github/workflows/android-performance.yml` 仅支持手动触发，要求管理员先配置 `self-hosted, Linux, X64, android-physical, yfuse-performance` 标签的可信 runner、上述工具链和真机。干净 checkout 会运行 `scripts/fetch-engines.sh`，根据固定 SHA-256 准备独立 YCore 和 SenPlayer 原始资产。
 
 首次运行不填 baseline 输入，保存真实样本。后续填写同设备成功运行的 `baseline_run_id`、精确 `baseline_artifact` 名称和明确的 `max_regression_percent`，作业下载该基线，验证身份/样本并执行实际回退门槛；缺失结果、设备不匹配或超过门槛都会让作业失败。三个输入必须成组提供，没有编造默认阈值。这个物理 runner 尚未被此改动创建，作业也未被冒充为已经运行的必过 PR 检查。成功或失败均上传已产生的证据，不自动提交采集规则。
 

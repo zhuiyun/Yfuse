@@ -63,8 +63,7 @@ audit/**
 !audit/**/
 !audit/**/*.md
 
-# Extracted native AAR contents are fetched and verified during the build.
-mpvaar/
+# Native build workspaces and downloaded inputs.
 .native-build/
 .android-native-build/
 

@@ -98,7 +98,7 @@ private class SelectivePlaybackCacheDataSource(
 /**
  * Shares one Media3 cache between player rebuilds.
  *
- * SimpleCache exclusively locks its directory, so constructing one per Exo engine fails during
+ * SimpleCache exclusively locks its directory, so constructing one per player instance fails during
  * version/decoder handovers. Reference counting also lets a changed size take effect on the next
  * player once the previous engine has released the directory.
  */

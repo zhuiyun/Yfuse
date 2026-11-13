@@ -267,12 +267,7 @@ internal fun PlaybackState.runtimeObservation(
             playbackRequested = playbackRequested,
             buffering = buffering,
             playing = playing,
-            // Read from the backend's own report rather than from the wording of its diagnostic
-            // label. Deciding this by substring meant MDK — whose label says, accurately, that it
-            // cannot verify its output — was read as *ready* because that sentence happens not to
-            // contain 等待, which silently disabled every missing-output fault on that backend. It
-            // also meant "音频输出已释放" counted as ready, and that the two sides disagreed on
-            // `contains` versus `startsWith`. Media presence and output verifiability are separate:
+            // Use the typed output evidence supplied by the active backend.
             // Unknown withholds a missing-output judgement, while the shared position-stall clock
             // still detects a backend that goes completely silent.
             videoReady = diagnostics.effectiveVideoReadiness == PlaybackOutputReadiness.Rendering,

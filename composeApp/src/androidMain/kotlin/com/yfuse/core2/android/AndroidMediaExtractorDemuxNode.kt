@@ -92,8 +92,7 @@ internal interface YPlatformExtractorSource : YDemuxNode {
  * never logs the source URI or headers, because both may contain Emby/Jellyfin credentials.
  *
  * MediaExtractor exposes container PTS values. Core2 rebases the first selected sample to 0 so its
- * public position/seek contract matches Exo, mpv and MDK instead of leaking a file-specific start
- * timestamp into YMediaClock.
+ * public position and seek targets use elapsed time from the start of the item.
  */
 internal class AndroidMediaExtractorDemuxNode(
     context: Context,

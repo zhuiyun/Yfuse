@@ -26,8 +26,7 @@ object YAvSync {
     /**
      * How far a decoded audio timestamp jumps from where the audio written before it leads, when
      * that is a discontinuity, else null. A transport stream jumps at a splice or where two
-     * captures were joined; anything beyond 200 ms either way counts, as ExoPlayer's audio sink
-     * judges it. Decoder jitter and a partly written buffer stay far below that.
+     * captures were joined; anything beyond 200 ms either way counts as a discontinuity. Decoder jitter and a partly written buffer stay far below that.
      */
     fun audioTimestampJumpUs(
         expectedUs: Long,
