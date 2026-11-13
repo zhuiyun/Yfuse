@@ -27,9 +27,25 @@ try:
     if kind=='phone':
         F.launch();F.root('我的');click(['播放设置','播放与字幕'],7);time.sleep(.6);capture('phone-playback-settings');click(['高级播放设置','高级播放'],10)
         F.wait('内核与解码',15);click(['播放内核'],4)
+        F.wait(['高级内核选择','自动选择（推荐）'],12)
         _,words=capture('phone-settings-engine-picker')
         verify(words,['自动选择','YCore'])
         adb('shell','input','keyevent',4)
+        import http.server,threading
+        class Local(http.server.SimpleHTTPRequestHandler):
+            def __init__(self,*a,**k):super().__init__(*a,directory='qa-media',**k)
+            def log_message(self,*a):pass
+        server=http.server.ThreadingHTTPServer(('127.0.0.1',18479),Local);threading.Thread(target=server.serve_forever,daemon=True).start()
+        adb('reverse','tcp:18479','tcp:18479')
+        adb('shell','am start -a android.intent.action.VIEW -n com.yfuse/com.yfuse.feature.player.ExternalPlaybackActivity -t video/mp4 -d http://127.0.0.1:18479/ProbeA.mp4')
+        for i in range(22):
+            tree=F.snapshot();node=F.find(tree,['打开','确认打开','知道了','Got it','Open'])
+            if node is not None:F.tap(node);time.sleep(.65);continue
+            more=F.find(tree,'更多')
+            if more is not None:F.tap(more);break
+            im=screen();tap(im.width*.52,im.height*.36);time.sleep(.6)
+        F.wait('播放内核',20);click('播放内核');time.sleep(1.2)
+        _,words=capture('phone-playing-engine-menu');verify(words,['YCore'])
     else:
         adb('shell','monkey','-p','com.yfuse','-c','android.intent.category.LEANBACK_LAUNCHER','1')
         time.sleep(7);capture('tv-initial')

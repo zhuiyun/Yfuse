@@ -8,7 +8,7 @@ jobs:
   menu:
     strategy:
       fail-fast: false
-      matrix: {form: [tv]}
+      matrix: {form: [phone]}
     runs-on: ubuntu-24.04
     timeout-minutes: 27
     steps:
@@ -35,6 +35,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
           sudo apt-get update -qq
           sudo apt-get install -y ffmpeg python3-pil
+          /usr/bin/python3 qa-scrub/fixture.py qa-media
       - uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
           api-level: ${{ matrix.form == 'tv' && '36' || '35' }}
