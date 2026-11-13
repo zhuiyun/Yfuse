@@ -33,8 +33,10 @@ try:
     else:
         adb('shell','monkey','-p','com.yfuse','-c','android.intent.category.LEANBACK_LAUNCHER','1')
         time.sleep(7);capture('tv-initial')
-        F.tap(tv_find(['设置','设置中心']));time.sleep(1)
-        F.tap(tv_find(['高级播放','内核、解码与设备输出'],20));time.sleep(.8)
+        F.tap(tv_find(['我的与设置','设置中心','设置']));time.sleep(1)
+        search=tv_find(['搜索设置'],8);F.tap(search);adb('shell','input','text','ycore');time.sleep(.7)
+        if 'true' in adb('shell','dumpsys','input_method').split('mInputShown=')[-1][:5]:adb('shell','input','keyevent','4')
+        capture('tv-search');F.tap(tv_find(['高级播放','内核、解码与设备输出'],12));time.sleep(.8)
         capture('tv-advanced');seen=[]
         for i in range(4):
             t,w=capture('tv-choice-'+str(i));seen+=w
