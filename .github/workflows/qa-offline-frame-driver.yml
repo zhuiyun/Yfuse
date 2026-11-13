@@ -1,0 +1,58 @@
+name: Measure platform decoding of buffered AVC on native cloud Android
+on:
+  push:
+    branches: [codex/cloud-playback-resilience-20261113]
+    paths: ['.github/workflows/qa-offline-frame-driver.yml','qa-offline-frame-probe/**']
+permissions: {contents: read, actions: read}
+jobs:
+  driver:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - name: Build the screenshot and touch instrumentation
+        run: |
+          set -euo pipefail
+          mkdir qa-driver
+          cp qa-offline-frame-probe/Driver.java qa-volume/input-driver.java
+          sed 's|dex classes/qa/yfuse/gesture/Driver.class|dex classes/qa/yfuse/gesture/*.class|;s|adb install -r driver.apk|cp driver.apk "$GITHUB_WORKSPACE/qa-driver/driver.apk"|' qa-volume/build-driver.sh > "$RUNNER_TEMP/build-qa.sh"
+          bash "$RUNNER_TEMP/build-qa.sh"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: arm-input-driver, path: qa-driver/, retention-days: 5}
+  probe:
+    needs: driver
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: arm-input-driver, path: qa-driver}
+      - name: Generate a local synthetic timecode file
+        run: |
+          sudo apt-get -qq update && sudo apt-get install -y ffmpeg python3-pil fonts-dejavu-core
+          /usr/bin/python3 qa-scrub/fixture.py qa-media
+          /usr/bin/python3 qa-cache-fixed/boundary.py
+          jq -r .before qa-media/boundary.json > qa-media/limit
+      - name: Start the isolated Android guest
+        run: bash qa-arm-dual/redroid.sh
+      - name: Test the platform decoder on a file and sparse playback bytes
+        run: |
+          set -euo pipefail
+          adb install -r qa-driver/driver.apk
+          app=/data/user/0/qa.yfuse.gesture
+          uid=$(adb shell stat -c %u "$app" | tr -d '\r')
+          [[ "$uid" =~ ^[0-9]+$ ]]
+          adb shell mkdir -p "$app/files"
+          adb push qa-media/ProbeA.mp4 "$app/files/media"
+          adb push qa-media/limit "$app/files/limit"
+          adb shell chown -R "$uid:$uid" "$app/files"
+          adb shell restorecon -R "$app/files"
+          mkdir results
+          adb shell am instrument -w qa.yfuse.gesture/.Driver | tee "$RUNNER_TEMP/offline.txt"
+          sed -n 's/^INSTRUMENTATION_RESULT: receipt=//p' "$RUNNER_TEMP/offline.txt" | jq -e . > results/offline.json
+          test -s results/offline.json
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: platform-frame-evidence, path: results, retention-days: 7}
