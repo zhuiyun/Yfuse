@@ -1,0 +1,52 @@
+{
+  "repositories": {
+    "mbedtls": {
+      "url": "https://github.com/Mbed-TLS/mbedtls.git",
+      "commit": "0bebf8b8c7f07abe3571ded48a11aa907a1ffb20"
+    },
+    "dav1d": {
+      "url": "https://github.com/videolan/dav1d.git",
+      "commit": "b546257f770768b2c88258c533da38b91a06f737"
+    },
+    "libxml2": {
+      "url": "https://github.com/GNOME/libxml2.git",
+      "commit": "3d840e17858de03a09fba8b202e3a89267d5795a"
+    },
+    "ffmpeg": {
+      "url": "https://github.com/FFmpeg/FFmpeg.git",
+      "commit": "b79d4c4c0a160fc46988e98505af6039a53ad53e"
+    },
+    "freetype": {
+      "url": "https://github.com/freetype/freetype.git",
+      "commit": "0a0221a1347e2f1e07c395263540026e9a0aa7c7"
+    },
+    "fontconfig": {
+      "url": "https://github.com/fontconfig/fontconfig.git",
+      "commit": "6d0a98982ec351c165c9224c8b7dbdfca3010e47"
+    },
+    "fribidi": {
+      "url": "https://github.com/fribidi/fribidi.git",
+      "commit": "68162babff4f39c4e2dc164a5e825af93bda9983"
+    },
+    "harfbuzz": {
+      "url": "https://github.com/harfbuzz/harfbuzz.git",
+      "commit": "cfb70b0b91af933a08339c7c8eef459df1098d7b"
+    },
+    "libass": {
+      "url": "https://github.com/libass/libass.git",
+      "commit": "bbb3c7f1570a4a021e52683f3fbdf74fe492ae84"
+    }
+  },
+  "archives": {
+    "libbluray": {
+      "url": "https://downloads.videolan.org/pub/videolan/libbluray/1.4.1/libbluray-1.4.1.tar.xz",
+      "sha256": "76b5dc40097f28dca4ebb009c98ed51321b2927453f75cc72cf74acd09b9f449",
+      "version": "1.4.1"
+    },
+    "libunibreak": {
+      "url": "https://github.com/adah1972/libunibreak/releases/download/libunibreak_6_1/libunibreak-6.1.tar.gz",
+      "sha256": "cc4de0099cf7ff05005ceabff4afed4c582a736abc38033e70fdac86335ce93f",
+      "version": "6.1"
+    }
+  }
+}

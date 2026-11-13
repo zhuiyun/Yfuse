@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,6 +29,7 @@ import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.yfuse.core.designsystem.DragAxis
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.glass
@@ -75,22 +75,45 @@ internal val SeekPreviewMaxLift: Dp = 160.dp
  * cancels it, as before.
  */
 internal suspend fun PointerInputScope.detectSeekScrubGestures(
+    onTap: (Offset) -> Unit,
     onDragStart: (down: Offset, start: Offset) -> Unit,
     onDragEnd: () -> Unit,
     onDragCancel: () -> Unit,
     onDrag: (PointerInputChange) -> Unit,
 ) {
     awaitEachGesture {
-        val down = awaitFirstDown(requireUnconsumed = false)
-        val start =
-            awaitHorizontalTouchSlopOrCancellation(down.id) { change, _ -> change.consume() }
-                ?: return@awaitEachGesture
-        onDragStart(down.position, start.position)
-        var released = false
+        val down = awaitFirstDown()
+        down.consume()
+        var dragging = false
+        var completed = false
         try {
-            released = trackPlayerDrag(start, onDrag)
+            while (true) {
+                val event = awaitPointerEvent()
+                val change = event.changes.singleOrNull() ?: break
+                if (change.id != down.id || change.isConsumed) break
+                if (!dragging) {
+                    val delta = change.position - down.position
+                    when (seekRailGestureAxis(delta.x, delta.y, viewConfiguration.touchSlop)) {
+                        DragAxis.Vertical -> break
+                        DragAxis.Horizontal -> {
+                            dragging = true
+                            onDragStart(down.position, change.position)
+                        }
+                        DragAxis.Undecided -> Unit
+                    }
+                } else {
+                    onDrag(change)
+                }
+                if (!change.pressed) {
+                    change.consume()
+                    completed = true
+                    if (dragging) onDragEnd() else onTap(change.position)
+                    break
+                }
+                if (dragging) change.consume()
+            }
         } finally {
-            if (released) onDragEnd() else onDragCancel()
+            if (dragging && !completed) onDragCancel()
         }
     }
 }

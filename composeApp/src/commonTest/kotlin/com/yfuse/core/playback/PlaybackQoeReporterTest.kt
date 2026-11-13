@@ -72,7 +72,7 @@ class PlaybackQoeReporterTest {
             try {
                 assertFalse(reporter.submit(report()))
                 assertEquals(1, reporter.pendingReports())
-                assertTrue(reporter.submit(report().copy(engine = QoeEngine.Mpv)))
+                assertTrue(reporter.submit(report().copy(engine = QoeEngine.SenPlayer)))
                 assertEquals(3, requests)
                 assertEquals(0, reporter.pendingReports())
             } finally {
@@ -162,7 +162,7 @@ class PlaybackQoeReporterTest {
     private fun report() =
         AnonymousPlaybackQoeReport(
             appVersion = "1.0.0",
-            engine = QoeEngine.Exo,
+            engine = QoeEngine.YCore,
             platformApi = QoePlatformApiBucket.Api35Plus,
             deviceFamily = QoeDeviceFamily.Qualcomm,
             videoCodec = QoeCodecFamily.Hevc,

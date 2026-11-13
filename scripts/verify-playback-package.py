@@ -28,7 +28,8 @@ SEN_ASSETS = {
     "native/libMLibKit.so", "native/libc++_shared.so",
 }
 FORBIDDEN_PACKAGES = (
-    "androidx.media3.exoplayer.", "dev.jdtech.mpv.", "dev.yfuse.mpv.",
+    "com.google.android.exoplayer2.", "androidx.media3.exoplayer.",
+    "dev.jdtech.mpv.", "dev.yfuse.mpv.",
     "com.mediadevkit.sdk.", "org.videolan.libvlc.",
 )
 

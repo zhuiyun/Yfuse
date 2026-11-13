@@ -22,7 +22,6 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -1352,15 +1351,12 @@ internal fun StandardSeekBar(
                 if (!enabled) return@let base
                 base
                     .pointerInput(enabled) {
-                        detectTapGestures { offset ->
-                            val width = size.width.toFloat().coerceAtLeast(1f)
-                            val target = magneticTarget((offset.x / width).coerceIn(0f, 1f))
-                            if (commit(target.fraction)) {
-                                haptics.play(HapticSignal.Select)
-                            }
-                        }
-                    }.pointerInput(enabled) {
                         detectSeekScrubGestures(
+                            onTap = { offset ->
+                                val width = size.width.toFloat().coerceAtLeast(1f)
+                                val target = magneticTarget((offset.x / width).coerceIn(0f, 1f))
+                                if (commit(target.fraction)) haptics.play(HapticSignal.Select)
+                            },
                             onDragStart = { down, start ->
                                 val width = size.width.toFloat().coerceAtLeast(1f)
                                 val startFraction = scrubGesture.begin(start.x, down.y, width)

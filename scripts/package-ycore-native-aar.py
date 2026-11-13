@@ -224,10 +224,7 @@ def package_ycore_gpu_aar(
 ) -> Mapping[str, tuple[str, ...]]:
     """Build the GPU-only companion used next to the verified MPV runtime.
 
-    The full application already receives libc++_shared from libmpv. Keeping only the Vulkan
-    executor here avoids duplicate FFmpeg/demux libraries while allowing YCore GPU, MPV and MDK
-    to coexist in one package. The dependency check deliberately fails if the executor starts
-    depending on anything except Android system libraries and that single companion runtime.
+    This companion contains the Vulkan executor for builds supplying the rest of YCore separately.
     """
     if not source_aar.is_file():
         raise PackagingError(f"source AAR does not exist: {source_aar}")
@@ -359,7 +356,7 @@ def main() -> int:
     parser.add_argument(
         "--gpu-only",
         action="store_true",
-        help="package only libycore_gpu.so for use next to the full MPV/MDK runtime",
+        help="package only libycore_gpu.so for a build with the matching standalone YCore libraries",
     )
     args = parser.parse_args()
     if args.self_test:

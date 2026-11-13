@@ -59,7 +59,7 @@ class QoeAggregateBackendTest {
     private fun report(appVersion: String) =
         AnonymousPlaybackQoeReport(
             appVersion = appVersion,
-            engine = QoeEngine.Exo,
+            engine = QoeEngine.YCore,
             platformApi = QoePlatformApiBucket.Api35Plus,
             deviceFamily = QoeDeviceFamily.GoogleTensor,
             videoCodec = QoeCodecFamily.Hevc,

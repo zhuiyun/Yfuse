@@ -566,10 +566,8 @@ val verifySourceSize by tasks.registering {
                 "src/androidMain/kotlin/com/yfuse/core2/android/AndroidNativeDirectSession.kt" to 2_936,
                 "src/androidMain/kotlin/com/yfuse/core2/android/AndroidEnhancedPlaybackSession.kt" to 2_712,
                 "src/androidMain/kotlin/com/yfuse/core2/android/AndroidYCoreHttpProxy.kt" to 2_403,
-                "src/androidMain/kotlin/com/yfuse/feature/player/MpvVideoEngine.kt" to 2_291,
                 "src/androidMain/kotlin/com/yfuse/feature/player/PlayerActivity.kt" to 2_257,
                 "src/androidMain/kotlin/com/yfuse/update/AppUpdateManager.kt" to 2_160,
-                "src/androidMain/kotlin/com/yfuse/feature/player/ExoVideoEngine.kt" to 2_096,
                 "src/androidMain/kotlin/com/yfuse/core/cast/CastManager.android.kt" to 2_071,
                 "src/commonMain/kotlin/com/yfuse/feature/home/HomeScreen.kt" to 1_996,
                 "src/commonMain/kotlin/com/yfuse/core/account/AccountRepository.kt" to 1_938,
@@ -877,7 +875,6 @@ android {
         buildConfigField("String", "TMDB_TOKEN", "\"$tmdbToken\"")
         buildConfigField("String", "UPDATE_MANIFEST_PUBLIC_KEY", "\"$updateManifestPublicKey\"")
         buildConfigField("String", "BUILD_REVISION", "\"$diagnosticBuildRevision\"")
-        buildConfigField("boolean", "YFUSE_MDK_INCLUDED", "false")
         buildConfigField("boolean", "YFUSE_NATIVE_ONLY_RUNTIME", nativeOnlyRuntime.toString())
         buildConfigField("boolean", "YFUSE_YCORE_GPU_INCLUDED", packagedYCoreGpu.toString())
         buildConfigField(

@@ -16,7 +16,6 @@ class TvApplicationShell : com.yfuse.tv.TvApplication() {
                 BUILD_REVISION = BuildConfig.BUILD_REVISION,
                 TMDB_TOKEN = BuildConfig.TMDB_TOKEN,
                 UPDATE_MANIFEST_PUBLIC_KEY = BuildConfig.UPDATE_MANIFEST_PUBLIC_KEY,
-                YFUSE_MDK_INCLUDED = BuildConfig.YFUSE_MDK_INCLUDED,
                 YFUSE_NATIVE_ONLY_RUNTIME = BuildConfig.YFUSE_NATIVE_ONLY_RUNTIME,
                 YFUSE_YCORE_GPU_INCLUDED = BuildConfig.YFUSE_YCORE_GPU_INCLUDED,
                 YFUSE_CAST_RECEIVER_APPLICATION_ID = BuildConfig.YFUSE_CAST_RECEIVER_APPLICATION_ID,

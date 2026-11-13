@@ -3,8 +3,6 @@ package com.yfuse.core.playback
 /** Native ownership used by crash accounting. Keep these separate even when libraries share FFmpeg. */
 enum class NativePlaybackComponent {
     Unknown,
-    Mpv,
-    Mdk,
     SenPlayer,
     YCoreDemux,
     YCoreGpu,
@@ -19,10 +17,6 @@ fun classifyNativePlaybackCrash(tombstone: String): NativePlaybackComponent {
             NativePlaybackComponent.YCoreGpu
         "libycore_demux" in text || "libycore-demux" in text || "ycore demux" in text ->
             NativePlaybackComponent.YCoreDemux
-        "libyfuse-mdk-jni" in text || "libmdk" in text || "mdkplayer" in text ->
-            NativePlaybackComponent.Mdk
-        "libmpv" in text || "mpv_render" in text || "mpv_render_context" in text ->
-            NativePlaybackComponent.Mpv
         else -> NativePlaybackComponent.Unknown
     }
 }
@@ -131,8 +125,6 @@ private fun componentForLibrary(library: String): NativePlaybackComponent? =
         "libffmpegkit.so", "libmlibkit.so" -> NativePlaybackComponent.SenPlayer
         "libycore_gpu.so" -> NativePlaybackComponent.YCoreGpu
         "libycore_demux.so" -> NativePlaybackComponent.YCoreDemux
-        "libmdk.so", "libyfuse-mdk-jni.so" -> NativePlaybackComponent.Mdk
-        "libmpv.so", "libplayer.so" -> NativePlaybackComponent.Mpv
         else -> null
     }
 
@@ -141,7 +133,6 @@ private fun componentForThread(name: String): NativePlaybackComponent? =
     when {
         name.startsWith("YCore-Vulkan") -> NativePlaybackComponent.YCoreGpu
         name.startsWith("YCore") -> NativePlaybackComponent.YCoreDemux
-        name.startsWith("mpv/") || name == "mpv" -> NativePlaybackComponent.Mpv
         else -> null
     }
 

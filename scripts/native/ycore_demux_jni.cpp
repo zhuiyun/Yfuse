@@ -694,10 +694,9 @@ bool is_remote_source(const std::string& source) {
 }
 
 /**
- * Sources FFmpeg must never open itself. This build has no smb protocol, and FFmpeg's
- * android_content protocol reads through the application context libmpv registers and deletes
- * again when its player is destroyed, so using it after that aborts the process. YCore's loopback
- * proxy serves both; one that reaches here was never localized.
+ * YCore localizes SMB and Android content URIs before FFmpeg opens them.
+ * The standalone build supplies neither a native SMB protocol nor an application context
+ * for FFmpeg's android_content protocol.
  */
 bool needs_ycore_transport(const std::string& source) {
     const std::string scheme = source_scheme(source);
@@ -3855,9 +3854,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
     if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK || !env) {
         return JNI_ERR;
     }
-    // FFmpeg's JNI helpers need the VM before first use whether or not libmpv ever loads; the same
-    // VM may be registered again by libmpv. No application context is handed over: content://
-    // goes through YCore's proxy, never FFmpeg's android_content protocol.
+    // Register the VM used by FFmpeg's JNI helpers. Android content URIs use YCore transport.
     av_jni_set_java_vm(vm, nullptr);
     jclass bridge = env->FindClass("com/yfuse/core2/android/FfmpegNativeBridge");
     if (!bridge) return JNI_ERR;

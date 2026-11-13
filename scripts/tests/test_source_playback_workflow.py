@@ -74,10 +74,10 @@ class SourcePlaybackWorkflowTest(unittest.TestCase):
                 for path in (".github/workflows/build-ycore-source.yml", ".github/actions/prepare-source-playback/**",
                              "senplayerBridge/**", "scripts/prepare-playback-inputs.py",
                              "scripts/playback-runtime-inputs.json", "scripts/ycore-source-receipt.py",
-                             "scripts/native-build-*.py", "scripts/build-ycore*.sh", "scripts/build-yfuse-mpv*.sh",
+                             "scripts/native-build-*.py", "scripts/build-ycore*.sh", "scripts/fetch-ycore-source.py",
                              "scripts/package-ycore-native-aar.py", "scripts/install-ycore-native.sh",
-                             "scripts/verify-ycore-native.sh", "scripts/verify-yfuse-mpv-dolby-aar.sh",
-                             "scripts/engine-checksums.sha256", "scripts/yfuse-mpv-sources.txt",
+                             "scripts/verify-ycore-native.sh",
+                             "scripts/ycore-dependencies.json",
                              "scripts/embed-mini-debuginfo.sh", "scripts/test-ycore*", "scripts/native-test-build.sh",
                              "scripts/native/**", "NOTICE", "LICENSE", "docs/third-party-licenses/**",
                              "scripts/tests/test_source_playback_workflow.py"):

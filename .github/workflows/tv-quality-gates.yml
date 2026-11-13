@@ -27,13 +27,11 @@ on:
       - scripts/ycore-source-receipt.py
       - scripts/native-build-*.py
       - scripts/build-ycore*.sh
-      - scripts/build-yfuse-mpv*.sh
       - scripts/package-ycore-native-aar.py
       - scripts/install-ycore-native.sh
       - scripts/verify-ycore-native.sh
-      - scripts/verify-yfuse-mpv-dolby-aar.sh
-      - scripts/engine-checksums.sha256
-      - scripts/yfuse-mpv-sources.txt
+      - scripts/ycore-dependencies.json
+      - scripts/fetch-ycore-source.py
       - scripts/embed-mini-debuginfo.sh
       - scripts/test-ycore*
       - scripts/native-test-build.sh
@@ -65,13 +63,11 @@ on:
       - scripts/ycore-source-receipt.py
       - scripts/native-build-*.py
       - scripts/build-ycore*.sh
-      - scripts/build-yfuse-mpv*.sh
       - scripts/package-ycore-native-aar.py
       - scripts/install-ycore-native.sh
       - scripts/verify-ycore-native.sh
-      - scripts/verify-yfuse-mpv-dolby-aar.sh
-      - scripts/engine-checksums.sha256
-      - scripts/yfuse-mpv-sources.txt
+      - scripts/ycore-dependencies.json
+      - scripts/fetch-ycore-source.py
       - scripts/embed-mini-debuginfo.sh
       - scripts/test-ycore*
       - scripts/native-test-build.sh

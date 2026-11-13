@@ -3,9 +3,6 @@ name: Build YCore native runtime
 on:
   workflow_dispatch:
 
-# Historical manual toolchain recovery only. Standard Android/TV builds consume the
-# fixed standalone YCore input and never compile or package this MPV carrier.
-
 permissions:
   contents: read
   statuses: write
@@ -56,25 +53,11 @@ jobs:
           bash scripts/test-ycore-demux-interrupt.sh
           bash scripts/test-ycore-gpu-capability.sh
           bash scripts/test-ycore-overlay-plane.sh
-          cp scripts/build-yfuse-mpv-bluray.sh "$RUNNER_TEMP/generated-dolby-builder.sh"
-          python3 scripts/native/patch_yfuse_mpv_dolby_build.py "$RUNNER_TEMP/generated-dolby-builder.sh"
-          bash -n "$RUNNER_TEMP/generated-dolby-builder.sh"
-          grep -F 'DOLBY_VISION_RPU = true' "$RUNNER_TEMP/generated-dolby-builder.sh"
-          grep -F 'DOLBY_VISION_FEL = true' "$RUNNER_TEMP/generated-dolby-builder.sh"
-          grep -F 'dolbyVisionRuntimeEvidence' "$RUNNER_TEMP/generated-dolby-builder.sh"
-          grep -F 'dolby-renderer=gpu-next' "$RUNNER_TEMP/generated-dolby-builder.sh"
-
       - name: Build pinned YCore native runtime
         shell: bash
         run: |
           set -euo pipefail
           bash scripts/build-ycore-native.sh --arch arm64
-
-      - name: Verify compatibility carrier
-        shell: bash
-        run: |
-          set -euo pipefail
-          bash scripts/verify-yfuse-mpv-dolby-aar.sh
 
       - name: Verify standalone YCore release gates
         shell: bash
@@ -93,23 +76,9 @@ jobs:
             composeApp/libs/ycore-native.aar.sha256
           install -m 0644 .native-build/artifacts/NATIVE-SOURCES.txt \
             composeApp/libs/ycore-native.sources.txt
-          install -m 0644 .native-build/artifacts/libmpv-yfuse-bluray.aar \
-            composeApp/libs/libmpv-release.aar
-          install -m 0644 .native-build/artifacts/libmpv-yfuse-bluray.aar.sha256 \
-            composeApp/libs/libmpv-release.aar.sha256
-          install -m 0644 .native-build/artifacts/NATIVE-SOURCES.txt \
-            composeApp/libs/libmpv-release.sources.txt
-          generated_mpv_checksum="$(
-            awk '{ print $1 }' .native-build/artifacts/libmpv-yfuse-bluray.aar.sha256
-          )"
-          [[ "$generated_mpv_checksum" =~ ^[0-9a-f]{64}$ ]]
-          sed -Ei \
-            "s|^[0-9a-f]{64}  libmpv-dolby-release\\.aar$|$generated_mpv_checksum  libmpv-dolby-release.aar|" \
-            scripts/engine-checksums.sha256
-          grep -Fq "$generated_mpv_checksum  libmpv-dolby-release.aar" \
-            scripts/engine-checksums.sha256
           ./gradlew --no-daemon --max-workers=2 \
             :composeApp:assembleDebug :composeApp:assembleDebugAndroidTest \
+            -PyfuseIncludeMdk=false \
             -PyfuseNativeOnlyRuntime=true \
             -PyfuseApplicationId=com.yfuse.validation
           app_apk=composeApp/build/outputs/apk/debug/composeApp-debug.apk
@@ -133,7 +102,6 @@ jobs:
             cat .native-build/artifacts/NATIVE-SOURCES.txt
             echo 'architectures=arm64'
             cat .native-build/artifacts/ycore-native.aar.sha256
-            cat .native-build/artifacts/libmpv-yfuse-bluray.aar.sha256
             cat .native-build/artifacts/device-tests/SHA256SUMS
           } > .native-build/artifacts/BUILD-MANIFEST.txt
 
@@ -159,17 +127,6 @@ jobs:
           path: .native-build/artifacts/device-tests/
           if-no-files-found: error
           retention-days: 30
-
-      - name: Upload compatibility carrier
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: ycore-build-carrier-arm64
-          path: |
-            .native-build/artifacts/libmpv-yfuse-bluray.aar
-            .native-build/artifacts/libmpv-yfuse-bluray.aar.sha256
-            .native-build/artifacts/NATIVE-SOURCES.txt
-          if-no-files-found: error
-          retention-days: 7
 
       - name: Publish native build status
         if: always()

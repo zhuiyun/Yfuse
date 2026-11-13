@@ -14,6 +14,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 
 /** Opt-in, anonymous, bounded and at-least-once delivery of bucketed playback quality reports. */
 class PlaybackQoeReporter(
@@ -82,7 +83,12 @@ class PlaybackQoeReporter(
     private fun readOutbox(): List<AnonymousPlaybackQoeReport> =
         settings
             .getStringOrNull(PLAYBACK_QOE_OUTBOX_KEY)
-            ?.let { raw -> runCatching { json.decodeFromString(serializer, raw) }.getOrNull() }
+            ?.let { raw ->
+                val entries = runCatching { json.parseToJsonElement(raw) as? JsonArray }.getOrNull()
+                entries?.mapNotNull { entry ->
+                    runCatching { json.decodeFromJsonElement(AnonymousPlaybackQoeReport.serializer(), entry) }.getOrNull()
+                }
+            }
             .orEmpty()
             .filter(QoeProtocol::isValid)
             .takeLast(MAX_QOE_OUTBOX_REPORTS)

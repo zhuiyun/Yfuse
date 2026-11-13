@@ -121,6 +121,7 @@ internal class AndroidNativeDirectSession(
     private val rejectedPassthroughTracks = mutableSetOf<Int>()
     private var drmSession: AndroidYCoreDrmSession? = null
     private var drmBinding: AndroidYCoreDrmBinding? = null
+    private var pendingUnpreparedSeekUs: Long? = null
     private var prepared = false
     private var videoConfigured = false
 
@@ -266,7 +267,9 @@ internal class AndroidNativeDirectSession(
             Command.Prepare -> prepareCurrent(mutableState.value.positionMs * MICROS_PER_MILLISECOND)
             Command.Play -> startPlayback()
             Command.Pause -> pausePlayback()
-            is Command.Seek -> seekTo(command.positionUs)
+            is Command.Seek -> {
+                if (prepared) seekTo(command.positionUs) else pendingUnpreparedSeekUs = command.positionUs
+            }
             is Command.SetSpeed -> updateSpeed(command.speed)
             is Command.SetAudioDelay -> updateAudioDelay(command.delayMs)
             is Command.SetAudioEffect -> updateAudioEffect(command.effect)
@@ -288,6 +291,7 @@ internal class AndroidNativeDirectSession(
                 }
             }
             is Command.SelectItem -> {
+                pendingUnpreparedSeekUs = null
                 currentIndex = command.index
                 prepareCurrent(0L)
             }
@@ -389,7 +393,9 @@ internal class AndroidNativeDirectSession(
         }
     }
 
-    private fun prepareCurrent(positionUs: Long) {
+    private fun prepareCurrent(startPositionUs: Long) {
+        val positionUs = pendingUnpreparedSeekUs ?: startPositionUs
+        pendingUnpreparedSeekUs = null
         // Only the item whose decode-side failure kept the source may reuse it; anything else
         // (another item, a source failure, a later prepare) opens the source afresh.
         val reuseSource = retainedSourceIndex == currentIndex && !demux.readsAborted

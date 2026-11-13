@@ -148,7 +148,6 @@ android {
         buildConfigField("String", "BUILD_REVISION", "\"$diagnosticBuildRevision\"")
         buildConfigField("String", "TMDB_TOKEN", "\"$tmdbToken\"")
         buildConfigField("String", "UPDATE_MANIFEST_PUBLIC_KEY", "\"$updateManifestPublicKey\"")
-        buildConfigField("boolean", "YFUSE_MDK_INCLUDED", "false")
         buildConfigField("boolean", "YFUSE_NATIVE_ONLY_RUNTIME", "true")
         buildConfigField("boolean", "YFUSE_YCORE_GPU_INCLUDED", fullNativeRuntime.toString())
         buildConfigField(

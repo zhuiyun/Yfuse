@@ -54,5 +54,3 @@
 # the YCore system-native path before any of these optional types are loaded.
 -dontwarn androidx.camera.**
 -dontwarn com.google.zxing.**
--dontwarn com.mediadevkit.sdk.**
--dontwarn dev.jdtech.mpv.**

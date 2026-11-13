@@ -4,7 +4,6 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORKSPACE="$ROOT/.native-build"
 ARTIFACTS="$WORKSPACE/artifacts"
-AAR="$ARTIFACTS/libmpv-yfuse-bluray.aar"
 PURE_AAR="$ARTIFACTS/ycore-native.aar"
 SOURCES_MANIFEST="$ARTIFACTS/NATIVE-SOURCES.txt"
 DEMUX_SOURCE="$ROOT/scripts/native/ycore_demux_jni.cpp"
@@ -32,22 +31,8 @@ manifest_value() {
   awk -F= -v key="$key" '$1 == key { print substr($0, index($0, "=") + 1); exit }' "$SOURCES_MANIFEST"
 }
 
-# build-ycore-native.sh builds libmpv first via build-yfuse-mpv-dolby.sh. That script keeps its
-# pinned checkout under .native-build/yfuse-mpv/source. Reuse the exact same FFmpeg prefix and NDK
-# tree so the demux bridge is compiled against the libraries that are packaged into the AAR.
-# Keep the legacy .native-build/upstream fallback for older/local workspaces and allow an explicit
-# override for reproducible debugging.
-if [[ -n "${YCORE_UPSTREAM_ROOT:-}" ]]; then
-  UPSTREAM="$YCORE_UPSTREAM_ROOT"
-elif [[ -d "$WORKSPACE/yfuse-mpv/source/buildscripts/prefix" ]]; then
-  UPSTREAM="$WORKSPACE/yfuse-mpv/source"
-elif [[ -d "$WORKSPACE/upstream/buildscripts/prefix" ]]; then
-  UPSTREAM="$WORKSPACE/upstream"
-else
-  fail "missing upstream FFmpeg prefix tree"
-fi
+UPSTREAM="${YCORE_UPSTREAM_ROOT:-$WORKSPACE/ycore-source}"
 
-[[ -f "$AAR" ]] || fail "missing native AAR: $AAR"
 [[ -f "$SOURCES_MANIFEST" ]] || fail "missing native provenance: $SOURCES_MANIFEST"
 [[ -f "$DEMUX_SOURCE" ]] || fail "missing JNI source: $DEMUX_SOURCE"
 [[ -f "$VULKAN_SOURCE" ]] || fail "missing Vulkan JNI source: $VULKAN_SOURCE"
@@ -69,12 +54,7 @@ TOOLCHAIN_ROOT=("$UPSTREAM"/buildscripts/sdk/android-sdk-linux/ndk/"$NDK_VERSION
 [[ ${#TOOLCHAIN_ROOT[@]} -eq 1 && -d "${TOOLCHAIN_ROOT[0]}" ]] || fail "cannot resolve NDK toolchain"
 TOOLCHAIN="${TOOLCHAIN_ROOT[0]}"
 
-mapfile -t ABIS < <(
-  unzip -Z1 "$AAR" |
-    sed -n 's#^jni/\([^/]*\)/libavformat\.so$#\1#p' |
-    sort -u
-)
-[[ ${#ABIS[@]} -gt 0 ]] || fail "AAR contains no FFmpeg libavformat.so"
+ABIS=(arm64-v8a)
 
 STAGE="$(mktemp -d "$WORKSPACE/ycore-demux.XXXXXX")"
 trap 'rm -rf "$STAGE"' EXIT
@@ -228,41 +208,22 @@ with zipfile.ZipFile(os.environ["YCORE_SYMBOLS_ZIP"], "w", zipfile.ZIP_DEFLATED)
 print("[ycore-demux] symbols:", *lines, sep="\n  ")
 PY
 
-export YCORE_AAR="$AAR"
-export YCORE_STAGE="$STAGE/libs"
-python3 - <<'PY'
-import os
-import pathlib
-import shutil
-import tempfile
+# Assemble the exact JNI and FFmpeg inputs built above. The packager verifies the ELF closure.
+AAR="$STAGE/compiled-libraries.zip"
+python3 - "$STAGE/libs/arm64-v8a" "$UPSTREAM/buildscripts/prefix/arm64-v8a/lib" "$AAR" <<'PYTHON'
+import sys
 import zipfile
+from pathlib import Path
 
-source = pathlib.Path(os.environ["YCORE_AAR"])
-stage = pathlib.Path(os.environ["YCORE_STAGE"])
-fd, temp_name = tempfile.mkstemp(prefix=source.name + ".", suffix=".tmp", dir=source.parent)
-os.close(fd)
-temp = pathlib.Path(temp_name)
-try:
-    replacements = {
-        f"jni/{path.parent.name}/{path.name}": path
-        for path in stage.glob("*/libycore_*.so")
-    }
-    with zipfile.ZipFile(source, "r") as old, zipfile.ZipFile(temp, "w") as new:
-        for info in old.infolist():
-            if info.filename in replacements:
-                continue
-            new.writestr(info, old.read(info.filename))
-        for archive_name, path in sorted(replacements.items()):
-            info = zipfile.ZipInfo(archive_name)
-            info.compress_type = zipfile.ZIP_DEFLATED
-            info.external_attr = 0o755 << 16
-            new.writestr(info, path.read_bytes())
-    shutil.move(temp, source)
-finally:
-    temp.unlink(missing_ok=True)
-PY
+jni, prefix, archive = map(Path, sys.argv[1:])
+with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as out:
+    for library in sorted(jni.glob("libycore_*.so")):
+        out.write(library, "jni/arm64-v8a/" + library.name)
+    for name in ("avcodec", "avformat", "avutil", "swscale", "swresample", "c++_shared"):
+        library = "lib" + name + ".so"
+        out.write(prefix / library, "jni/arm64-v8a/" + library)
+PYTHON
 
-sha256sum "$AAR" | awk -v name="$(basename "$AAR")" '{print $1 "  " name}' > "$AAR.sha256"
 # The license FFmpeg was configured under (avutil_license(): LGPL unless --enable-gpl, version 3
 # with --enable-version3) decides what distributing this runtime obliges. Recorded, not assumed.
 FFMPEG_LICENSE="$(
@@ -356,6 +317,5 @@ python3 "$PACKAGER" \
   "$ARTIFACTS/ycore-gpu.aar" \
   "$SOURCES_MANIFEST"
 
-echo "[ycore-demux] injected libycore_demux.so into $AAR"
 echo "[ycore-demux] packaged standalone YCore runtime into $PURE_AAR"
 echo "[ycore-demux] packaged full-app YCore GPU companion into $ARTIFACTS/ycore-gpu.aar"

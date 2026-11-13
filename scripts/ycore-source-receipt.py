@@ -22,19 +22,19 @@ LIBRARIES = {
 }
 SOURCE_PATHS = (
     ".github/workflows/build-ycore-source.yml", "scripts/native",
-    "scripts/build-ycore*.sh", "scripts/build-yfuse-mpv*.sh",
-    "scripts/native-build-*.py", "scripts/ycore-source-receipt.py",
+    "scripts/build-ycore*.sh", "scripts/fetch-ycore-source.py",
+    "scripts/ycore-source-receipt.py",
     "scripts/package-ycore-native-aar.py", "scripts/embed-mini-debuginfo.sh",
-    "scripts/verify-ycore-native.sh", "scripts/yfuse-mpv-sources.txt",
+    "scripts/verify-ycore-native.sh", "scripts/ycore-dependencies.json",
     "scripts/test-ycore*", "scripts/native-test-build.sh", "NOTICE", "LICENSE",
     "docs/third-party-licenses",
 )
 REQUIRED_SOURCES = {
     ".github/workflows/build-ycore-source.yml", "scripts/build-ycore-native.sh",
-    "scripts/build-ycore-demux.sh", "scripts/build-yfuse-mpv-bluray.sh",
-    "scripts/build-yfuse-mpv-dolby.sh", "scripts/package-ycore-native-aar.py",
+    "scripts/build-ycore-demux.sh", "scripts/build-ycore-dependencies.sh",
+    "scripts/fetch-ycore-source.py", "scripts/package-ycore-native-aar.py",
     "scripts/native/ycore_demux_jni.cpp", "scripts/native/ycore_vulkan_jni.cpp",
-    "scripts/native/ycore_vulkan_renderer.cpp", "scripts/native-build-download.py",
+    "scripts/native/ycore_vulkan_renderer.cpp", "scripts/ycore-dependencies.json",
     "scripts/ycore-source-receipt.py", "scripts/verify-ycore-native.sh", "NOTICE",
 }
 LICENSE_NAME = re.compile(r"^(copying|copyright|licen[cs]e|notice)([._-].*)?$", re.I)
@@ -99,12 +99,9 @@ def artifact_identity(aar):
 def dependency_evidence(upstream):
     """Record resolved commits and patched tracked-source hashes, not guessed pins."""
     require(upstream.is_dir(), "Missing native dependency workspace")
-    roots = [("libmpv-android-build-tool", upstream)]
+    lock = json.loads((ROOT / "scripts/ycore-dependencies.json").read_text())
     deps = upstream / "buildscripts/deps"
-    require(deps.is_dir(), "Missing resolved native dependencies")
-    roots.extend((path.name, path) for path in sorted(deps.iterdir())
-                 if path.is_dir() and (path / ".git").exists())
-    roots.append(("libudfread", deps / "libbluray/contrib/libudfread"))
+    roots = [(name, deps / name) for name in lock["repositories"]]
     evidence = {}
     for name, path in roots:
         commit = git(path, "rev-parse", "HEAD")
@@ -117,15 +114,8 @@ def dependency_evidence(upstream):
                 hashes[filename] = sha256(source.read_bytes())
         evidence[name] = {"commit": commit, "trackedSourceSha256": sha256(
             json.dumps(hashes, sort_keys=True, separators=(",", ":")).encode())}
-    for name, expected in {
-        "libmpv-android-build-tool": "fcf6745703dc1265bca88f12fee8fc355ddf251e",
-        "ffmpeg": "b79d4c4c0a160fc46988e98505af6039a53ad53e",
-        "mpv": "b955aa28f3dc93dc6b21485a0d5b7feb8e6dc10f",
-        "libplacebo": "22ee762e8e0890fc54068beb670310f0edce7263",
-        "libbluray": "7d94f2660af5bfc16015291a03539329135c18f1",
-        "libudfread": "139a2194525f2745b98a98e4d8fa627d07440176",
-    }.items():
-        require(evidence.get(name, {}).get("commit") == expected, f"Resolved {name} commit differs from source pin")
+    for name, source in lock["repositories"].items():
+        require(evidence[name]["commit"] == source["commit"], f"Resolved {name} differs from source pin")
     return evidence
 
 
@@ -213,7 +203,7 @@ def create_receipt(root, directory, source_commit, upstream, download_receipts):
         "resolvedDependencies": dependency_evidence(upstream),
         "downloadedInputs": downloads,
         "licenseFiles": collect_licenses(root, upstream, directory / "licenses"),
-        "sourceLockScope": "Core commits and gas/Lua content are pinned. Remaining upstream version tags are resolved and recorded, not claimed immutable or bit-reproducible.",
+        "sourceLockScope": "Git commits and release archive SHA-256 values are pinned in scripts/ycore-dependencies.json.",
         "toolchain": toolchain_evidence(upstream),
     }
     receipt = directory / "source-build.json"

@@ -23579,8 +23579,6 @@ PLcom/yfuse/core/personal/PersonalLibraryState;->getActiveProfile()Lcom/yfuse/co
 PLcom/yfuse/core/personal/PersonalLibraryState;->getProfiles()Ljava/util/List;
 PLcom/yfuse/core/personal/PersonalProfile;->getName()Ljava/lang/String;
 PLcom/yfuse/core/personal/PersonalScopedSettings;->putLong(Ljava/lang/String;J)V
-PLcom/yfuse/core/platform/AppBuildConfig;->getYFUSE_MDK_INCLUDED()Z
-PLcom/yfuse/core/platform/AppBuildValues;->getYFUSE_MDK_INCLUDED()Z
 PLcom/yfuse/core/security/CredentialPersistingSettings;->putLong(Ljava/lang/String;J)V
 PLcom/yfuse/core/security/ServerSessionRecovery$awaitReady$1;-><init>(Lcom/yfuse/core/security/ServerSessionRecovery;Lkotlin/coroutines/Continuation;)V
 PLcom/yfuse/core/security/ServerSessionRecovery$awaitReady$2;-><init>(Lkotlin/coroutines/Continuation;)V
@@ -40850,8 +40848,7 @@ SPLcom/yfuse/core/platform/AppBuildConfig;->getVERSION_CODE()I
 SPLcom/yfuse/core/platform/AppBuildConfig;->getVERSION_NAME()Ljava/lang/String;
 SPLcom/yfuse/core/platform/AppBuildConfig;->getValues()Lcom/yfuse/core/platform/AppBuildValues;
 SPLcom/yfuse/core/platform/AppBuildConfig;->getYFUSE_CAST_RECEIVER_APPLICATION_ID()Ljava/lang/String;
-SPLcom/yfuse/core/platform/AppBuildConfig;->getYFUSE_MDK_INCLUDED()Z
-SPLcom/yfuse/core/platform/AppBuildConfig;->install(Lcom/yfuse/core/platform/AppBuildValues;)V
+SSPLcom/yfuse/core/platform/AppBuildConfig;->install(Lcom/yfuse/core/platform/AppBuildValues;)V
 SPLcom/yfuse/core/platform/AppBuildValues;-><clinit>()V
 SPLcom/yfuse/core/platform/AppBuildValues;-><init>(ZLjava/lang/String;Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;ZZZLjava/lang/String;Ljava/lang/String;)V
 SPLcom/yfuse/core/platform/AppBuildValues;->getBUILD_REVISION()Ljava/lang/String;
@@ -40861,8 +40858,7 @@ SPLcom/yfuse/core/platform/AppBuildValues;->getUPDATE_MANIFEST_PUBLIC_KEY()Ljava
 SPLcom/yfuse/core/platform/AppBuildValues;->getVERSION_CODE()I
 SPLcom/yfuse/core/platform/AppBuildValues;->getVERSION_NAME()Ljava/lang/String;
 SPLcom/yfuse/core/platform/AppBuildValues;->getYFUSE_CAST_RECEIVER_APPLICATION_ID()Ljava/lang/String;
-SPLcom/yfuse/core/platform/AppBuildValues;->getYFUSE_MDK_INCLUDED()Z
-SPLcom/yfuse/core/playback/AndroidPlaybackDeviceCapabilitiesProbe;-><init>(Landroid/content/Context;)V
+SSPLcom/yfuse/core/playback/AndroidPlaybackDeviceCapabilitiesProbe;-><init>(Landroid/content/Context;)V
 SPLcom/yfuse/core/playback/AndroidPlaybackDeviceCapabilitiesProbe;->displayHdrFormats()Ljava/util/Set;
 SPLcom/yfuse/core/playback/AndroidPlaybackDeviceCapabilitiesProvider$audioDeviceCallback$1;-><init>(Lcom/yfuse/core/playback/AndroidPlaybackDeviceCapabilitiesProvider;)V
 SPLcom/yfuse/core/playback/AndroidPlaybackDeviceCapabilitiesProvider$audioDeviceCallback$1;->onAudioDevicesAdded([Landroid/media/AudioDeviceInfo;)V

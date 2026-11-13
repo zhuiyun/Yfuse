@@ -39,7 +39,7 @@ class QoeProtocolTest {
     private fun report() =
         AnonymousPlaybackQoeReport(
             appVersion = "1.2.3",
-            engine = QoeEngine.Exo,
+            engine = QoeEngine.YCore,
             platformApi = QoePlatformApiBucket.Api35Plus,
             deviceFamily = QoeDeviceFamily.GoogleTensor,
             videoCodec = QoeCodecFamily.Hevc,
