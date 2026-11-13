@@ -147,6 +147,7 @@ class SoftFeedbackInstrumentedTest {
         val committed = AtomicReference(0f)
         val commits = AtomicInteger()
         val cancels = AtomicInteger()
+        val presses = AtomicInteger()
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 currentActivity = activity
@@ -164,6 +165,7 @@ class SoftFeedbackInstrumentedTest {
                                 progressMarkers = emptyList(),
                                 accent = { Color(0xFF90B6ED) },
                                 onScrubTo = preview::set,
+                                onPress = { presses.incrementAndGet() },
                                 onCommit = {
                                     committed.set(it)
                                     commits.incrementAndGet()
@@ -186,6 +188,16 @@ class SoftFeedbackInstrumentedTest {
                 scenario.onActivity { reduced = reduceMotion }
                 frame()
                 val before = commits.get()
+                val pressCount = presses.get()
+                val cancelled = cancels.get()
+                val held = SystemClock.uptimeMillis()
+                touch(held, MotionEvent.ACTION_DOWN, track, 0.25f)
+                frame()
+                assertEquals(pressCount + 1, presses.get())
+                touch(held, MotionEvent.ACTION_CANCEL, track, 0.25f)
+                frame()
+                assertEquals(cancelled + 1, cancels.get())
+                assertEquals(before, commits.get())
                 val time = SystemClock.uptimeMillis()
                 touch(time, MotionEvent.ACTION_DOWN, track, 0.25f)
                 touch(time, MotionEvent.ACTION_MOVE, track, 0.6f)
@@ -205,7 +217,7 @@ class SoftFeedbackInstrumentedTest {
                 assertEquals(0.75f, committed.get(), 0.015f)
                 assertEquals(track, bounds.get())
             }
-            assertEquals(2, cancels.get())
+            assertEquals(4, cancels.get())
             capture("seek-reduced.png")
         }
     }

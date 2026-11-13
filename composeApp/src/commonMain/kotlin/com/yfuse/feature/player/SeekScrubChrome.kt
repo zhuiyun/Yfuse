@@ -76,6 +76,7 @@ internal val SeekPreviewMaxLift: Dp = 160.dp
  * cancels it, as before.
  */
 internal suspend fun PointerInputScope.detectSeekScrubGestures(
+    onPress: () -> Unit,
     onTap: (Offset) -> Unit,
     onDragStart: (down: Offset, start: Offset) -> Unit,
     onDragEnd: () -> Unit,
@@ -88,6 +89,7 @@ internal suspend fun PointerInputScope.detectSeekScrubGestures(
         var dragging = false
         var completed = false
         try {
+            onPress()
             while (true) {
                 val event = awaitPointerEvent()
                 val change = event.changes.singleOrNull() ?: break
@@ -114,7 +116,7 @@ internal suspend fun PointerInputScope.detectSeekScrubGestures(
                 if (dragging) change.consume()
             }
         } finally {
-            if (dragging && !completed) onDragCancel()
+            if (!completed) onDragCancel()
         }
     }
 }

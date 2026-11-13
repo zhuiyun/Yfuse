@@ -690,6 +690,7 @@ private fun RefinedBottomBarContent(
                     durationMs = durationMs,
                     progressMarkers = progressMarkers,
                     accent = progressAccent,
+                    onPress = onScrub,
                     enabled = !seekLocked && durationMs > 0L,
                     showTimeBubble = trickplay == null,
                     trickplay = trickplay,
@@ -1145,6 +1146,7 @@ internal fun StandardSeekBar(
     onCommit: (Float) -> Unit,
     onCancel: () -> Unit,
     modifier: Modifier = Modifier,
+    onPress: () -> Unit = {},
     enabled: Boolean = true,
     /** Without a trickplay preview, the scrubbed time rides above the thumb instead. */
     showTimeBubble: Boolean = false,
@@ -1219,6 +1221,7 @@ internal fun StandardSeekBar(
     val latestFrames by rememberUpdatedState(filmstripFrames)
     val latestScrubUi by rememberUpdatedState(scrubUi)
     val latestOnScrubTo by rememberUpdatedState(onScrubTo)
+    val latestOnPress by rememberUpdatedState(onPress)
     val latestOnCommit by rememberUpdatedState(onCommit)
     val latestOnCancel by rememberUpdatedState(onCancel)
     val latestPositionMs by rememberUpdatedState(positionMs)
@@ -1352,6 +1355,7 @@ internal fun StandardSeekBar(
                 base
                     .pointerInput(enabled) {
                         detectSeekScrubGestures(
+                            onPress = { latestOnPress() },
                             onTap = { offset ->
                                 val width = size.width.toFloat().coerceAtLeast(1f)
                                 val target = magneticTarget((offset.x / width).coerceIn(0f, 1f))

@@ -721,7 +721,8 @@ internal fun PlayerControls(
             ) ?: AUTO_HIDE_MS
         if (timeout == Long.MAX_VALUE) return@LaunchedEffect
         delay(timeout)
-        chrome.visible = false
+        // A down may have just arrived before the next composition cancels this timer.
+        if (!gestureState.scrubbing && gestureState.previewMs == null) chrome.visible = false
     }
     // Watched from the coroutine rather than keyed: a drag rewrites the HUD on every move, and a key
     // read here would recompose this whole tree once a frame for as long as the finger moved. Each
