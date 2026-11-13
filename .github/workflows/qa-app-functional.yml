@@ -1,64 +1,77 @@
-name: Repeat animated search return and release-only touch tests on Android 15
+name: Cloud Emby playback resilience
 on:
   push:
-    branches:
-      - qa/app-functional-20261112
+    branches: [codex/cloud-playback-resilience-20261113]
+    paths:
+      - '.github/workflows/qa-app-functional.yml'
+      - 'qa-functional/resilience.*'
 permissions:
   contents: read
   actions: read
 jobs:
-  compile:
+  playback:
+    name: Playback and recovery on API ${{ matrix.api }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {api: 35, image: '35', seed: 131135}
+          - {api: 37, image: '37.0', seed: 131137}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with: {persist-credentials: false}
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-          ref: b5f81bb6b6e380f7f01fd8ec293a728e744a0cce
-          path: app
-      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
-        with: {distribution: temurin, java-version: '17', cache: gradle}
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
-        with:
-          artifact-ids: '13964017958'
-          run-id: '43260409499'
-          github-token: ${{ github.token }}
-          merge-multiple: true
-          path: qa-native
-      - name: Build the current source and device tests
-        working-directory: app
+      - name: Verify preview belongs to the tested PR tree
+        env:
+          API_TOKEN: ${{ github.token }}
         run: |
-          export YCORE_NATIVE_AAR_PATH="$GITHUB_WORKSPACE/qa-native/ycore-native.aar"
-          export YCORE_SOURCE_RECEIPT="$GITHUB_WORKSPACE/qa-native/source-build.json"
-          export YCORE_SOURCE_COMMIT=b5f81bb6b6e380f7f01fd8ec293a728e744a0cce
-          export SOURCE_COMMIT="$YCORE_SOURCE_COMMIT"
-          export YCORE_SOURCE_AAR_SHA256=$(sha256sum "$YCORE_NATIVE_AAR_PATH" | cut -d' ' -f1)
-          export YCORE_SOURCE_PROVENANCE_SHA256=$(sha256sum "$GITHUB_WORKSPACE/qa-native/NATIVE-SOURCES.txt" | cut -d' ' -f1)
-          python3 scripts/prepare-playback-inputs.py
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0"
-          git fetch --no-tags --depth=1 origin 2e095fa741a080e340183ec8fc327005756cc8da
-          files=$(git diff --name-only HEAD FETCH_HEAD)
-          test -z "$(echo "$files" | grep -vE '^(composeApp/src/androidMain/kotlin/com/yfuse/(feature/player/PlayerRootRecovery.kt|core2/android/AndroidAdaptiveCore2YPlayer.kt)|senplayerBridge/src/main/java/com/yfuse/senplayer/SenPlayerSession.java|composeApp/src/androidInstrumentedTest/kotlin/com/yfuse/feature/personal/PersonalSearchNavigationInstrumentedTest.kt)$' || true)"
-          git checkout --detach FETCH_HEAD
-          ./gradlew :composeApp:assembleDebug :composeApp:assembleDebugAndroidTest -PyfuseApplicationId=com.yfuse.validation --no-daemon
+          set -euo pipefail
+          api="https://api.github.com/repos/$GITHUB_REPOSITORY"
+          get() { curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/$1"; }
+          head=2e095fa741a080e340183ec8fc327005756cc8da
+          merge=3f867b11d302d1f0f7d1e548716ea47623effd63
+          get "git/commits/$merge" > "$RUNNER_TEMP/merge.json"
+          test "$(get "git/commits/$head" | jq -r '.tree.sha')" = "$(jq -r '.tree.sha' "$RUNNER_TEMP/merge.json")"
+          jq -e --arg h "$head" 'any(.parents[]; .sha == $h)' "$RUNNER_TEMP/merge.json" >/dev/null
+          get "actions/artifacts/13973342804/zip" > "$RUNNER_TEMP/preview.zip"
+          echo "9676ce59940c483c1c356b25b6cc85ff40cf67bd3cb36e465447bc6d0cee0d6f  $RUNNER_TEMP/preview.zip" | sha256sum -c -
+          mkdir preview results
+          unzip -q "$RUNNER_TEMP/preview.zip" -d preview
+          test -f preview/composeApp-release.apk
+          sha256sum preview/composeApp-release.apk > results/apk.sha256
+      - name: Set up KVM and two timecoded films on a disposable Emby server
+        run: |
+          set -euo pipefail
+          test -c /dev/kvm
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg python3-pil
+          /usr/bin/python3 qa-scrub/fixture.py qa-media
+          curl -fsSL --retry 2 https://github.com/MediaBrowser/Emby.Releases/releases/download/4.10.2.0/emby-server-deb_4.10.2.0_amd64.deb -o "$RUNNER_TEMP/server.deb"
+          echo "80c8666fc6f6143558c235c57932189a3f0b3f899b44519fc4621dd7dea16e32  $RUNNER_TEMP/server.deb" | sha256sum -c -
+          dpkg-deb -x "$RUNNER_TEMP/server.deb" qa-emby-bin
+      - name: Use current SDK manager on Android 17
+        if: matrix.api == 37
+        run: sudo mv "$ANDROID_HOME/cmdline-tools" "$RUNNER_TEMP/old-cmdline-tools"
+      - name: Run the release preview on the emulator
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
-          api-level: 35
+          api-level: ${{ matrix.image }}
           target: google_apis
           arch: x86_64
           profile: pixel_2
           ram-size: 4096M
-          disable-animations: false
+          emulator-boot-timeout: 600
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -accel on
-          script: bash qa-functional/repeat-navigation.sh
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+          script: bash qa-functional/resilience.sh ${{ matrix.api }} ${{ matrix.seed }}
+      - name: Retain measured frames and case results
         if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: return-navigation-and-drag-repetitions
-          path: navigation-evidence
+          name: resilience-api${{ matrix.api }}-attempt-${{ github.run_attempt }}
+          path: results/
+          retention-days: 10
