@@ -42,7 +42,12 @@ jobs:
           export YCORE_SOURCE_COMMIT="$native_sha" SOURCE_COMMIT="$native_sha"
           export YCORE_SOURCE_AAR_SHA256=$(sha256sum "$YCORE_NATIVE_AAR_PATH" | cut -d' ' -f1)
           export YCORE_SOURCE_PROVENANCE_SHA256=$(sha256sum "$RUNNER_TEMP/native-in/NATIVE-SOURCES.txt" | cut -d' ' -f1)
-          python3 scripts/prepare-playback-inputs.py
+          input_tree="$RUNNER_TEMP/verified-native-source"
+          git worktree add --detach "$input_tree" "$native_sha"
+          (cd "$input_tree" && python3 scripts/prepare-playback-inputs.py)
+          mkdir -p composeApp/libs
+          cp "$input_tree"/composeApp/libs/ycore-native.{aar,aar.sha256,sources.txt} composeApp/libs/
+          cp -a "$input_tree"/senplayerBridge/src/main/assets/senplayer/. senplayerBridge/src/main/assets/senplayer/
           (cd composeApp/libs && sha256sum -c ycore-native.aar.sha256)
           test "$(git rev-parse HEAD)" = "$app_sha"
           git diff --exit-code -- .
