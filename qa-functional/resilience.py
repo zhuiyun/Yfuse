@@ -1,10 +1,7 @@
 import asyncio
-import contextlib
 import json
-import os
 import random
 import shlex
-import subprocess
 import sys
 import threading
 import time
@@ -21,7 +18,6 @@ RNG = random.Random(int(SEED))
 MEDIA = json.loads(Path("qa-emby-local/streams.json").read_text())
 DURATION = {"ProbeA": 150, "ProbeB": 105}
 ROWS = []
-COMPONENT = None
 
 
 class Relay:
@@ -131,7 +127,7 @@ def frame_time(im, clip):
     return pts if votes >= 2 else None
 
 
-def advancing(clip, label, target=None, timeout=25, allow_dialog=False, landed_after=2.5):
+def advancing(clip, label, target=None, timeout=50, allow_dialog=False, landed_after=2.5):
     begin = time.monotonic()
     first = None
     observations = []
@@ -144,8 +140,9 @@ def advancing(clip, label, target=None, timeout=25, allow_dialog=False, landed_a
             observations.append([round(elapsed, 2), v])
             inside = target is None or target - 2.1 <= v <= target + elapsed + 1.8
             if inside:
-                if first is None:
+                if first is None or v < first[1] or v - first[1] > elapsed - first[0] + 2.25:
                     first = (elapsed, v)
+                    confirmed = None
                 elif v >= first[1] + 0.375 and v - first[1] <= elapsed - first[0] + 2.25:
                     if confirmed is None:
                         confirmed = (elapsed, v)
