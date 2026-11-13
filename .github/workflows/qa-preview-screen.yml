@@ -21,9 +21,9 @@ jobs:
           mkdir preview results
           api="https://api.github.com/repos/$GITHUB_REPOSITORY"
           for n in $(seq 1 175); do
-            artifact=$(curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/43365721741/artifacts?per_page=50" | jq -r '.artifacts[] | select(.name=="candidate-test-input") | .id' | head -1)
+            artifact=$(curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/43366383050/artifacts?per_page=50" | jq -r '.artifacts[] | select(.name=="candidate-test-input") | .id' | head -1)
             if [[ -n "$artifact" ]]; then break; fi
-            status=$(curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/43365721741" | jq -r .status)
+            status=$(curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/43366383050" | jq -r .status)
             [[ "$status" != completed ]] || { echo "The exact candidate build did not produce an APK"; exit 1; }
             sleep 8
           done
