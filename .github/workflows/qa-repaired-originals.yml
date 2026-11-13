@@ -1,4 +1,4 @@
-name: Retest repaired YCore and SCore on full Android app
+name: Verify playback controls on repaired YCore and SCore
 on:
   push:
     branches: [codex/cloud-playback-resilience-20261113]
