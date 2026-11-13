@@ -681,7 +681,23 @@ internal class AndroidYCoreHttpProxy(
             if (existing != null) return@withContext existing.target(globalPositionMs)
             if (!route.hlsManifest && !route.dashManifest) return@withContext null
             val maximumBytes = if (route.dashManifest) MAX_DASH_MANIFEST_BYTES else MAX_HLS_MANIFEST_BYTES
-            val text = loadBoundedCancellable(route.upstreamUri, maximumBytes, route).decodeToString()
+            val text =
+                try {
+                    loadBoundedCancellable(route.upstreamUri, maximumBytes, route, inspectRoot = true).decodeToString()
+                } catch (media: ProgressiveManifestResponse) {
+                    // The Emby entry advertised a playlist but its redirect returned a media file.
+                    // Serve the same authenticated route as a seekable file, including subsequent opens.
+                    val id = URI(rootUri).path.removePrefix("/$YCORE_HTTP_ROUTE_PREFIX/").substringBefore('/')
+                    synchronized(routesLock) {
+                        check(!closed.get()) { "Playback proxy is closed" }
+                        if (routes[id] == route) {
+                            val file = route.copy(hlsManifest = false, dashManifest = false)
+                            routes[id] = file
+                            routeIds.remove(route)
+                        }
+                    }
+                    return@withContext null
+                }
             val created =
                 if (route.dashManifest) {
                     val manifest = parseYDashManifest(text, route.upstreamUri)
@@ -1956,6 +1972,7 @@ internal class AndroidYCoreHttpProxy(
         upstreamUri: String,
         maximumBytes: Int,
         route: Route,
+        inspectRoot: Boolean = false,
     ): ByteArray =
         suspendCancellableCoroutine { continuation ->
             val budget = YManifestDiscoveryBudget { !closed.get() }
@@ -1965,7 +1982,7 @@ internal class AndroidYCoreHttpProxy(
                 try {
                     workers.submit {
                         try {
-                            continuation.resume(loadBounded(upstreamUri, maximumBytes, route, budget))
+                            continuation.resume(loadBounded(upstreamUri, maximumBytes, route, budget, inspectRoot))
                         } catch (error: Throwable) {
                             continuation.resumeWithException(error)
                         } finally {
@@ -1989,6 +2006,7 @@ internal class AndroidYCoreHttpProxy(
         maximumBytes: Int,
         route: Route,
         discoveryBudget: YManifestDiscoveryBudget? = null,
+        inspectRoot: Boolean = false,
     ): ByteArray {
         require(
             upstreamUri == route.upstreamUri ||
@@ -2011,9 +2029,21 @@ internal class AndroidYCoreHttpProxy(
                         ),
                     )
                 if (response.statusCode !in 200..299) throw YUpstreamHttpException(response.statusCode)
-                response.contentLength?.let { require(it <= maximumBytes) { "Manifest exceeds the byte limit" } }
                 val output = ByteArrayOutputStream()
                 val buffer = ByteArray(NETWORK_BUFFER_BYTES)
+                if (inspectRoot) {
+                    // Include a second MPEG-TS sync byte (also handles 192/204-byte packets).
+                    var count = 0
+                    while (count < 205) {
+                        discoveryBudget?.checkActive()
+                        val read = transport.read(buffer, count, 205 - count)
+                        if (read < 0) break
+                        count += read
+                    }
+                    if (hasProgressiveMediaSignature(buffer, count)) throw ProgressiveManifestResponse()
+                    output.write(buffer, 0, count)
+                }
+                response.contentLength?.let { require(it <= maximumBytes) { "Manifest exceeds the byte limit" } }
                 while (true) {
                     discoveryBudget?.checkActive()
                     val count = transport.read(buffer, 0, buffer.size)
@@ -2359,6 +2389,21 @@ private const val LOOPBACK_HOST = "127.0.0.1"
 private const val LOOPBACK_BACKLOG = 8
 internal const val YCORE_HTTP_ROUTE_PREFIX = "ycore-resource"
 private const val NETWORK_BUFFER_BYTES = 64 * 1024
+private class ProgressiveManifestResponse : Exception()
+
+private fun hasProgressiveMediaSignature(bytes: ByteArray, size: Int): Boolean {
+    fun byte(index: Int) = bytes[index].toInt() and 0xff
+    if (size < 8) return false
+    if (byte(0) == 0x1a && byte(1) == 0x45 && byte(2) == 0xdf && byte(3) == 0xa3) return true
+    if (byte(0) == 0x47 && listOf(188, 204).any { size > it && byte(it) == 0x47 }) return true
+    if (size > 196 && byte(4) == 0x47 && byte(196) == 0x47) return true
+    // ISO base media and QuickTime. Accept only valid initial atom sizes.
+    val atomSize = (byte(0).toLong() shl 24) or (byte(1).toLong() shl 16) or
+        (byte(2).toLong() shl 8) or byte(3).toLong()
+    return (atomSize == 0L || atomSize == 1L || atomSize >= 8L) &&
+        bytes.decodeToString(4, 8) in setOf("ftyp", "moov", "mdat", "wide", "free", "styp", "moof")
+}
+
 private const val MAX_HLS_MANIFEST_BYTES = 4 * 1024 * 1024
 private const val MAX_DASH_MANIFEST_BYTES = 8 * 1024 * 1024
 

@@ -31,6 +31,19 @@ import kotlin.test.assertTrue
 /** Real loopback requests with deterministic fake upstream bytes; these tests do not assert decoder output. */
 class AndroidAdaptiveProxyTransitionTest {
     @Test
+    fun mislabeledMovieKeepsItsBytesAndSkipsManifestParsingOnReopen() {
+        val movie = "\u0000\u0000\u0000\u0018ftypisom" + "x".repeat(4 * 1024 * 1024)
+        val upstream = FixtureUpstream(mapOf("/master.m3u8" to movie))
+        withProxy(upstream) { proxy ->
+            val root = proxy.localUrl("https://media.example.test/master.m3u8", cacheable = false, cacheIdentity = null)
+            assertNull(runBlocking { proxy.resolvePlaybackTarget(root, 0L) })
+            assertNull(runBlocking { proxy.resolvePlaybackTarget(root, 8_000L) })
+            assertEquals(1, upstream.requests.size)
+            assertTrue(movie.encodeToByteArray().contentEquals(readUrl(root)))
+        }
+    }
+
+    @Test
     fun slow_alternate_does_not_delay_selected_playlist_and_different_init_requires_a_new_target() {
         val upstream = FixtureUpstream(hlsResources(), blockedPath = "/low.m3u8")
         withProxy(upstream) { proxy ->

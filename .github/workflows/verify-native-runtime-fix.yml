@@ -1,0 +1,58 @@
+name: Build and test YCore playback routing repair
+on:
+  push:
+    branches: [fix/ycore-progressive-emby-20261114]
+    paths: ['composeApp/**', '.github/workflows/verify-native-runtime-fix.yml']
+permissions: {contents: read, actions: read}
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 95
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
+        with: {distribution: temurin, java-version: '17', cache: gradle}
+      - name: Verify native inputs and build the release candidate
+        env: {API_TOKEN: "${{ github.token }}"}
+        run: |
+          set -euo pipefail
+          api="https://api.github.com/repos/$GITHUB_REPOSITORY"
+          app_sha=$(git rev-parse HEAD)
+          native_sha=0fc3e4c488ff4af984269b981f0a09aaef6c717c
+          git diff --exit-code "$native_sha" "$app_sha" -- ycore-native scripts/native scripts/native-build-download.py scripts/ycore-source-receipt.py
+          producer=43434181604
+          name="ycore-source-$native_sha-$producer-1"
+          artifact=""
+          for i in $(seq 1 135); do
+            artifact=$(curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/$producer/artifacts" | jq -r --arg n "$name" '.artifacts[] | select(.name==$n and .expired==false) | .id' | head -1)
+            if [[ "$artifact" =~ ^[0-9]+$ ]]; then break; fi
+            sleep 12
+          done
+          test -n "$artifact"
+          curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/artifacts/$artifact" | jq -e --arg n "ycore-source-$native_sha-43434181604-1" '.name==$n and .expired==false and .workflow_run.id==43434181604' >/dev/null
+          curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/artifacts/$artifact/zip" -o "$RUNNER_TEMP/native.zip"
+          mkdir "$RUNNER_TEMP/native-in"
+          unzip -q "$RUNNER_TEMP/native.zip" -d "$RUNNER_TEMP/native-in"
+          export YCORE_NATIVE_AAR_PATH="$RUNNER_TEMP/native-in/ycore-native.aar"
+          export YCORE_SOURCE_RECEIPT="$RUNNER_TEMP/native-in/source-build.json"
+          export YCORE_SOURCE_COMMIT="$native_sha" SOURCE_COMMIT="$native_sha"
+          export YCORE_SOURCE_AAR_SHA256=$(sha256sum "$YCORE_NATIVE_AAR_PATH" | cut -d' ' -f1)
+          export YCORE_SOURCE_PROVENANCE_SHA256=$(sha256sum "$RUNNER_TEMP/native-in/NATIVE-SOURCES.txt" | cut -d' ' -f1)
+          python3 scripts/prepare-playback-inputs.py
+          (cd composeApp/libs && sha256sum -c ycore-native.aar.sha256)
+          test "$(git rev-parse HEAD)" = "$app_sha"
+          git diff --exit-code -- .
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-37.0'
+          ./gradlew :phoneShared:testAndroidHostTest --tests 'com.yfuse.core2.android.AndroidAdaptiveProxyTransitionTest' :composeApp:assembleRelease -PyfuseIncludeMdk=false -PyfusePlaybackProfile=ycore-senplayer -PyfuseNativeOnlyRuntime=true -PallowDebugSigning=true '-Dorg.gradle.jvmargs=-Xmx6g -Dfile.encoding=UTF-8' --no-daemon
+          mkdir preview
+          cp composeApp/build/outputs/apk/release/composeApp-release.apk preview/
+          cp composeApp/build/outputs/mapping/release/mapping.txt preview/
+          printf 'app=%s\nnative_built_from=%s\nsource_artifact=%s\n' "$app_sha" "$native_sha" "$artifact" > preview/provenance.txt
+          (cd preview && sha256sum composeApp-release.apk > apk.sha256)
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: repaired-full-app, path: preview, retention-days: 7}

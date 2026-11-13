@@ -1264,7 +1264,7 @@ internal fun yCoreEnhancedFailureMessage(failure: YPlaybackException?): String =
             } else {
                 "YCore 2.0 无法解析当前片源容器"
             }
-        YPlaybackFailureCategory.Decoder -> "YCore 2.0 无法启动当前视频解码器"
+        YPlaybackFailureCategory.Decoder -> yCoreDecoderFailureMessage(failure)
         YPlaybackFailureCategory.Renderer -> "YCore 2.0 无法建立视频输出"
         YPlaybackFailureCategory.AudioSink -> "YCore 2.0 无法建立音频输出"
         YPlaybackFailureCategory.Unknown,

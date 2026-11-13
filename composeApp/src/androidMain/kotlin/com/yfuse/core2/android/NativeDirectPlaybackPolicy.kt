@@ -58,6 +58,17 @@ internal fun validateNativeDirectDolbyIdentity(
     )
 }
 
+internal fun yCoreDecoderFailureMessage(failure: YPlaybackException): String {
+    val unavailable = generateSequence<Throwable>(failure) { it.cause }.take(16)
+        .filterIsInstance<YVideoDecoderConfigurationException>()
+        .any { it.mime == "video/dolby-vision" && it.failures.isEmpty() }
+    return if (unavailable) {
+        "设备未提供杜比视界解码器，可在播放方式中选择 SCore"
+    } else {
+        "YCore 2.0 无法启动当前视频解码器"
+    }
+}
+
 internal fun yCoreNativeDirectFailureMessage(failure: YPlaybackException?): String =
     when (failure?.category) {
         YPlaybackFailureCategory.Authorization -> "YCore 2.0 片源授权已失效，请刷新播放地址后重试"
@@ -70,7 +81,7 @@ internal fun yCoreNativeDirectFailureMessage(failure: YPlaybackException?): Stri
                 failure.isHiddenServerAudioTrackFailure() -> YCORE_HIDDEN_AUDIO_TRACK_MESSAGE
                 else -> "YCore 2.0 原生解封装无法识别当前片源"
             }
-        YPlaybackFailureCategory.Decoder -> "YCore 2.0 无法启动当前视频解码器"
+        YPlaybackFailureCategory.Decoder -> yCoreDecoderFailureMessage(failure)
         YPlaybackFailureCategory.Renderer -> "YCore 2.0 无法建立视频输出"
         YPlaybackFailureCategory.AudioSink -> "YCore 2.0 无法建立音频输出"
         YPlaybackFailureCategory.Unknown,
