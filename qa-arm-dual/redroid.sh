@@ -34,6 +34,19 @@ test "$boot" = 1
 abi=$("$ADB" -s 127.0.0.1:15555 shell getprop ro.product.cpu.abilist64 | tr -d '\r')
 echo "Android boot completed, Android ABI $abi"
 test "${abi%%,*}" = arm64-v8a
+# adbd restarts as root. Its old TCP transport may still briefly report 'device'.
+"$ADB" -s 127.0.0.1:15555 root >/dev/null 2>&1 || true
+root_ready=false
+for attempt in $(seq 1 45); do
+  "$ADB" connect 127.0.0.1:15555 >/dev/null 2>&1 || true
+  uid=$("$ADB" -s 127.0.0.1:15555 shell id -u 2>/dev/null | tr -d '\r' || true)
+  if [[ "$uid" == 0 ]]; then
+    root_ready=true
+    break
+  fi
+  sleep 2
+done
+test "$root_ready" = true
 mkdir -p "$RUNNER_TEMP/qa-arm-tools"
 ln -sf "$ADB" "$RUNNER_TEMP/qa-arm-tools/adb"
 echo "$RUNNER_TEMP/qa-arm-tools" >> "$GITHUB_PATH"
