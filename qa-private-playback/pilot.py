@@ -23,6 +23,10 @@ from features import find, coords
 class MediaRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         parts = urllib.parse.urlsplit(newurl)
+        host = parts.hostname or ''
+        if (parts.scheme != 'https' or parts.username or parts.password or parts.port not in (443, None)
+                or not (host == 'vip-download-cdn.123295.com' or host.endswith('.pd1.cjjd19.com'))):
+            return None
         path = urllib.parse.quote(parts.path, safe="/%:@!$&()*+,;=-._~")
         query = urllib.parse.quote(parts.query, safe="&=/:;@!$()*+,-._~%?")
         target = urllib.parse.urlunsplit((parts.scheme, parts.netloc, path, query, ''))
@@ -71,20 +75,21 @@ def one(core, label, media):
     adb('shell','am','force-stop','com.yfuse')
     before = time.time()
     launch(media)
+    measure.measured(prefix+'-open',requested=True)
     opened = measure.decode_playback(prefix,None,media['seconds'])
     proof = engine.engine_evidence(core,before)
     if not proof['active']: raise AssertionError('engine not verified')
     measure.measured(prefix+'-load',seconds=round(time.time()-before,2),verified=True,**opened)
-    for frac in (.67,.22):
+    for ordinal,frac in enumerate(media['targets'],1):
         bounds,_ = measure.reveal()
         left,top,right,bottom = bounds
         y = (top+bottom)//2
         target = round(left+(right-left)*frac)
         origin = round(left+(right-left)*(.80 if frac<.5 else .15))
         adb('shell','input','swipe',origin,y,target,y,320)
-        measure.measured(prefix+'-drag',issued=True,fraction=frac)
+        measure.measured(prefix+'-drag',issued=True,ordinal=ordinal,fraction=frac)
         response = measure.decode_playback(prefix,round(media['seconds']*frac),media['seconds'])
-        measure.measured(prefix+'-landing',verified=True,**response)
+        measure.measured(prefix+'-landing',verified=True,ordinal=ordinal,**response)
     _,tree=measure.reveal()
     old=measure.media_clock(tree)
     if old is None:raise AssertionError('position unavailable')
@@ -110,19 +115,20 @@ def main():
             measure.measured(label+'-admission',kind=media['type'],container=media['container'],size=media['size'],ranges=ranges)
             if all(r['valid'] for r in ranges): ready.append((label,media))
     failures=0
-    if not ready:
-        # Check a real Android network request as well when runner admission is denied.
-        for label,media in list(items.items())[:2]:
-            response=measure.android_network(media['location'])
-            measure.measured(label+'-android-admission',status=response.get('status'),length=response.get('bytes',0))
-        raise SystemExit('No source passed all three original-file ranges')
+    # Exercise each player's normal URL entry even when the host-side Range probe fails.
+    # Keep these opens and their failures separate from successful playback and gestures.
     for core in ('YCore','SenPlayer'):
         engine.configure(core)
-        for label,media in ready:
-            try:one(core,label,media)
+        for label,media in items.items():
+            baseline=len(measure.app_events())
+            try:
+                one(core,label,media)
             except Exception as failure:
                 failures+=1
-                measure.measured(core+'-'+label+'-failed',error=type(failure).__name__)
+                events=measure.app_events()[baseline:]
+                measure.measured(core+'-'+label+'-failed',error=type(failure).__name__,
+                                 hints=sorted({hint for event in events for hint in event['hints']}),
+                                 events=[event['event'] for event in events[-16:]])
     if failures or len(ready)!=len(items): raise SystemExit('Playback or source checks incomplete')
 
 if __name__ == '__main__': main()
