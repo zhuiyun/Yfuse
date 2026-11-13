@@ -25,7 +25,7 @@ def tv_find(keys,attempts=8):
 try:
     F.pkg='com.yfuse'
     if kind=='phone':
-        F.launch();F.root('我的');click(['高级播放设置','高级播放'],7)
+        F.launch();F.root('我的');click(['播放设置','播放与字幕'],7);time.sleep(.6);capture('phone-playback-settings');click(['高级播放设置','高级播放'],10)
         F.wait('内核与解码',15);click(['播放内核'],4)
         _,words=capture('phone-settings-engine-picker')
         verify(words,['自动选择','YCore'])

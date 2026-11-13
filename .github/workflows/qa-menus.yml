@@ -8,7 +8,7 @@ jobs:
   menu:
     strategy:
       fail-fast: false
-      matrix: {form: [tv]}
+      matrix: {form: [phone]}
     runs-on: ubuntu-24.04
     timeout-minutes: 27
     steps:
