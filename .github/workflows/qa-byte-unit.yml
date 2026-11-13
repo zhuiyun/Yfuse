@@ -1,0 +1,54 @@
+name: Confirm both host cache tests and the candidate APK engine inventory
+on:
+  push:
+    branches: [codex/cloud-playback-resilience-20261113]
+    paths:
+      - '.github/workflows/qa-byte-unit.yml'
+      - 'qa-byte-unit/**'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 224c838b53dff9f323f830ae64bfbc310288dd20
+          persist-credentials: false
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
+        with: {distribution: temurin, java-version: '17', cache: gradle}
+      - name: Verify native inputs and build the release candidate
+        env: {API_TOKEN: "${{ github.token }}"}
+        run: |
+          set -euo pipefail
+          api="https://api.github.com/repos/$GITHUB_REPOSITORY"
+          while :; do
+            artifact=$(curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/43362570869/artifacts?per_page=100" | jq -r '.artifacts[] | select(.name|startswith("ycore-source-224c838b53dff9f323f830ae64bfbc310288dd20-")) | select(.expired==false) | .id' | head -1)
+            if [[ -n "$artifact" ]]; then break; fi
+            state=$(curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/43362570869" | jq -r .status)
+            test "$state" != completed || { echo "Pinned native artifact unavailable"; exit 1; }
+            sleep 10
+          done
+          curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/artifacts/$artifact/zip" > "$RUNNER_TEMP/native.zip"
+          mkdir -p qa-native
+          unzip -qo "$RUNNER_TEMP/native.zip" -d qa-native
+          native=$(git rev-parse HEAD)
+          export YCORE_NATIVE_AAR_PATH="$GITHUB_WORKSPACE/qa-native/ycore-native.aar"
+          export YCORE_SOURCE_RECEIPT="$GITHUB_WORKSPACE/qa-native/source-build.json"
+          export YCORE_SOURCE_COMMIT="$native" SOURCE_COMMIT="$native"
+          export YCORE_SOURCE_AAR_SHA256=$(sha256sum "$YCORE_NATIVE_AAR_PATH" | cut -d' ' -f1)
+          export YCORE_SOURCE_PROVENANCE_SHA256=$(sha256sum "$GITHUB_WORKSPACE/qa-native/NATIVE-SOURCES.txt" | cut -d' ' -f1)
+          python3 scripts/prepare-playback-inputs.py
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-37.0'
+          ./gradlew :phoneShared:testAndroidHostTest --tests 'com.yfuse.core2.android.ScrubByteWindowTest' :composeApp:assembleRelease -PyfuseIncludeMdk=false -PyfusePlaybackProfile=ycore-senplayer -PyfuseNativeOnlyRuntime=true -PallowDebugSigning=true '-Dorg.gradle.jvmargs=-Xmx6g -Dfile.encoding=UTF-8' --no-daemon
+          mkdir evidence
+          xml=$(find phoneShared/build/test-results -name '*ScrubByteWindowTest*.xml' | head -1)
+          test -s "$xml"
+          python3 -c 'import sys,xml.etree.ElementTree as ET;t=ET.parse(sys.argv[1]).getroot(); assert int(t.get("tests"))>=2 and int(t.get("failures"))==0 and int(t.get("errors"))==0' "$xml"
+          cp "$xml" evidence/
+          python3 scripts/verify-playback-package.py composeApp/build/outputs/apk/release/composeApp-release.apk --mapping composeApp/build/outputs/mapping/release/mapping.txt --ycore qa-native/ycore-native.aar | tee evidence/verified-runtime.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: verified-ycore-senplayer-and-cache, path: evidence, retention-days: 10}
