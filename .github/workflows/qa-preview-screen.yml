@@ -10,7 +10,7 @@ jobs:
       fail-fast: false
       matrix: {api: [35, 36]}
     runs-on: ubuntu-24.04
-    timeout-minutes: 27
+    timeout-minutes: 65
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with: {persist-credentials: false}
@@ -19,10 +19,19 @@ jobs:
         run: |
           set -euo pipefail
           mkdir preview results
-          curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/14008809511/zip" -o "$RUNNER_TEMP/input.zip"
+          api="https://api.github.com/repos/$GITHUB_REPOSITORY"
+          for n in $(seq 1 175); do
+            artifact=$(curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/43365721741/artifacts?per_page=50" | jq -r '.artifacts[] | select(.name=="candidate-test-input") | .id' | head -1)
+            if [[ -n "$artifact" ]]; then break; fi
+            status=$(curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/43365721741" | jq -r .status)
+            [[ "$status" != completed ]] || { echo "The exact candidate build did not produce an APK"; exit 1; }
+            sleep 8
+          done
+          test -n "$artifact"
+          curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/artifacts/$artifact/zip" -o "$RUNNER_TEMP/input.zip"
           unzip -q "$RUNNER_TEMP/input.zip" -d preview
           (cd preview && sha256sum -c apk.sha256)
-          grep -F 224c838b53dff9f323f830ae64bfbc310288dd20 preview/source.txt
+          grep -F 79c0ae559f7deeebe756e49dc0e9d2f44437e258 preview/source.txt
       - name: Prepare the emulator
         run: |
           set -euo pipefail

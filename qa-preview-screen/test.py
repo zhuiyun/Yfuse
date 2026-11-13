@@ -57,7 +57,7 @@ def motion(a,x):
 def thumbTimes(im):
     # Search only for miniature synthetic video markers. The full-screen video's bit spacing is far larger.
     arr=np.asarray(im.convert('L')).astype(np.int16);ans={}
-    for gap in np.arange(4,18.1,.25):
+    for gap in np.arange(7.75,10.75,.25):
         delta=np.rint(np.arange(18)*gap).astype(int)
         n=arr.shape[1]-delta[-1]
         if n<=0:continue
@@ -91,14 +91,14 @@ pause=find(tr,['暂停','Pause'])
 if pause is not None:tap(*coords(pause));time.sleep(.4)
 r,tr=show();x0,y0,x1,y1=r;y=(y0+y1)//2
 ts=marker(screen()) or 4
-hot=int(ts)+3;cold=143;payload={'rail':r,'startPTS':ts,'hot':hot,'cold':cold,'baseCodes':thumbTimes(baseline),'phases':[]}
+hot=int(ts)+6;cold=143;payload={'rail':r,'startPTS':ts,'hot':hot,'cold':cold,'baseCodes':thumbTimes(baseline),'phases':[]}
 def record(label,ok,observed):
     payload['phases'].append({'case':label,'ok':bool(ok),'codes':observed,'http':dict(stats)})
     (out/'thumbnail-held.json').write_text(json.dumps(payload));print('THUMB',label,ok,observed,flush=True)
 before=dict(stats)
 try:
-    motion('DOWN',px(max(1,hot-4)))
-    for z in range(1,7):motion('MOVE',px(hot-4+z*4/6))
+    motion('DOWN',px(max(1,hot-6)))
+    for z in range(1,7):motion('MOVE',px(hot-6+z*6/6))
     time.sleep(.75)
     ok,v=waitImage('held-hot',hot);record('held-buffered',ok,v)
     motion('MOVE',px(cold));time.sleep(.65)
