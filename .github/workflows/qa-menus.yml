@@ -1,0 +1,49 @@
+name: Inspect actual phone and TV engine menus
+on:
+  push:
+    branches: [codex/cloud-playback-resilience-20261113]
+    paths: ['qa-menus/**', '.github/workflows/qa-menus.yml']
+permissions: {contents: read, actions: read}
+jobs:
+  menu:
+    strategy:
+      fail-fast: false
+      matrix: {form: [phone, tv]}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 27
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - name: Fetch known APK from the measured build
+        env: {API_TOKEN: "${{ github.token }}", FORM: "${{ matrix.form }}"}
+        run: |
+          set -euo pipefail
+          api="https://api.github.com/repos/$GITHUB_REPOSITORY"
+          if [[ "$FORM" == "phone" ]]; then id=13973342804; else id=14007831907; fi
+          curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/artifacts/$id/zip" > "$RUNNER_TEMP/apks.zip"
+          if [[ "$FORM" == "phone" ]]; then echo "9676ce59940c483c1c356b25b6cc85ff40cf67bd3cb36e465447bc6d0cee0d6f  $RUNNER_TEMP/apks.zip" | sha256sum -c -; fi
+          unzip -q "$RUNNER_TEMP/apks.zip" -d "$RUNNER_TEMP/from-build"
+          mkdir -p menu-results
+          find "$RUNNER_TEMP/from-build" -name '*.apk' | sort | head -1 > "$RUNNER_TEMP/install-apk"
+          sha256sum "$(cat "$RUNNER_TEMP/install-apk")" | cut -d' ' -f1 > menu-results/apk.sha256
+      - name: Prepare the emulator
+        run: |
+          set -euo pipefail
+          test -c /dev/kvm
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg python3-pil
+      - uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: ${{ matrix.form == 'tv' && '34' || '35' }}
+          target: ${{ matrix.form == 'tv' && 'android-tv' || 'google_apis' }}
+          arch: x86_64
+          profile: ${{ matrix.form == 'tv' && 'tv_1080p' || 'pixel_2' }}
+          ram-size: 4096M
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -accel on
+          script: bash qa-menus/run.sh ${{ matrix.form }}
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: 'menu-${{ matrix.form }}', path: menu-results, retention-days: 7}
