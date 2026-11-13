@@ -1,0 +1,59 @@
+name: Recover the interrupted ARM64 YCore cloud shard
+on:
+  push:
+    branches: [codex/cloud-playback-resilience-20261113]
+    paths: ['.github/workflows/qa-arm-recover-ycore.yml']
+permissions: {contents: read, actions: read}
+jobs:
+  driver:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - name: Build the screenshot and touch instrumentation
+        run: |
+          set -euo pipefail
+          mkdir qa-driver
+          cp qa-arm-matrix/Driver.java qa-volume/input-driver.java
+          sed 's|adb install -r driver.apk|cp driver.apk "$GITHUB_WORKSPACE/qa-driver/driver.apk"|' qa-volume/build-driver.sh > "$RUNNER_TEMP/build-qa.sh"
+          bash "$RUNNER_TEMP/build-qa.sh"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: arm-input-driver, path: qa-driver/, retention-days: 5}
+  test:
+    needs: driver
+    name: Native ${{ matrix.engine }} movies and episodes ${{ matrix.shard }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 195
+    strategy:
+      fail-fast: false
+      max-parallel: 24
+      matrix:
+        shard: [0]
+        engine: [YCore]
+    env:
+      QA_ENGINE: ${{ matrix.engine }}
+      QA_SHARD: ${{ matrix.shard }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: arm-input-driver, path: qa-driver}
+      - name: Prepare exact APK, original-work excerpts and source metadata
+        env: {READ_ARTIFACT: "${{ github.token }}"}
+        run: |
+          set -euo pipefail
+          mkdir -p preview results
+          curl -fsSL --retry 2 -H "Authorization: Bearer $READ_ARTIFACT" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/14017387211/zip" -o "$RUNNER_TEMP/preview.zip"
+          unzip -q "$RUNNER_TEMP/preview.zip" -d preview
+          echo 'b31fe854c9c7b7b765241429055cbc9278a68482d57e50167c5f8699703ce730  preview/composeApp-release.apk' | sha256sum -c
+          cp preview/provenance.txt preview/apk.sha256 results/
+          sudo apt-get -qq update && sudo apt-get install -y ffmpeg python3-pil
+          /usr/bin/python3 qa-title-seek-check/prepare.py "$QA_SHARD" 16
+      - name: Boot Android 12 with a native ARM64 process
+        run: bash qa-arm-dual/redroid.sh
+      - name: Prove the selected engine, movie and episode output and each touch landing
+        run: PYTHONPATH="$GITHUB_WORKSPACE/qa-arm-matrix" bash qa-arm-retry/run.sh
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: 'recovered-${{ matrix.engine }}-${{ matrix.shard }}', path: results/, retention-days: 10}
