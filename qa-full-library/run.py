@@ -194,6 +194,30 @@ def route(core, media):
     return prefix
 
 
+def widget_route(core,media,account):
+    prefix=core+'-'+media['label']
+    ui.shell('am','force-stop',ui.pkg)
+    ui.adb('shell','am','start','-W','-n','com.yfuse/com.yfuse.MainActivity',t=80)
+    tab=wait_node(lambda t:ui.dock(t,'服务器'),42)
+    ui.tap(tab)
+    server=wait_node(lambda t:matching(t,[server_name],True),22)
+    ui.tap(server)
+    time.sleep(.8)
+    ident=account['baseUrl']+'#'+account['userId']
+    if not re.fullmatch(r'[a-zA-Z0-9:/#.\-]+',ident) or not str(media['id']).isdigit():
+        raise RuntimeError('invalid target')
+    ui.adb('shell','am','start','-W','-n','com.yfuse/com.yfuse.MainActivity','--es','widget_action','resume','--es','widget_server',ident,'--es','widget_item',media['id'],'--el','widget_position','0',t=65)
+    measure.measured(prefix+'-native-widget',fullApp=True,issued=True)
+    until=time.monotonic()+45
+    while time.monotonic()<until:
+        if active_player() or 'PlayerActivity' in component():
+            capture(prefix+'-player')
+            measure.measured(prefix+'-open',internalPlayer=True)
+            return
+        time.sleep(.7)
+    raise RuntimeError('internal player not opened')
+
+
 def controls(prefix, media):
     for ordinal,fraction in enumerate(media['targets'],1):
         (left,top,right,bottom),_=measure.reveal()
@@ -229,7 +253,12 @@ def main():
                 prefix=core+'-'+media['label']
                 try:
                     start=time.time()
-                    route(core,media)
+                    if payload.get('entry')=='widget':
+                        widget_route(core,media,payload['account'])
+                    else:
+                        route(core,media)
+                    time.sleep(2)
+                    capture(prefix+'-screen')
                     proof=measure.decode_playback(prefix,None,media['seconds'])
                     if not pilot.engine.engine_evidence(core,start)['active']:raise RuntimeError('unconfirmed engine')
                     measure.measured(prefix+'-load',verified=True,**proof)
