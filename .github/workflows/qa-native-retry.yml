@@ -68,6 +68,7 @@ jobs:
           # No dependency cache on the first source pipeline: never restore an
           # unverified native output or mistake a stale JNI library for this commit.
           git config --global url."https://github.com/videolan/dav1d.git".insteadOf "https://code.videolan.org/videolan/dav1d.git"
+          git config --global url."https://github.com/haasn/libplacebo.git".insteadOf "https://code.videolan.org/videolan/libplacebo.git"
           /usr/bin/time -v bash scripts/build-ycore-native.sh --arch arm64
 
       - name: Verify and stage only the standalone YCore artifact
