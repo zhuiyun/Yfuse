@@ -20,10 +20,17 @@ jobs:
           set -euo pipefail
           mkdir preview results
           api="https://api.github.com/repos/$GITHUB_REPOSITORY"
+          parent=""
+          for n in $(seq 1 60); do
+            parent=$(curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs?head_sha=$GITHUB_SHA&per_page=20" | jq -r '.workflow_runs[] | select(.name=="Buffered scrub preview - actual Android decode and cache holes") | .id' | head -1)
+            [[ -z "$parent" ]] || break
+            sleep 4
+          done
+          test -n "$parent"
           for n in $(seq 1 175); do
-            artifact=$(curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/43366383050/artifacts?per_page=50" | jq -r '.artifacts[] | select(.name=="candidate-test-input") | .id' | head -1)
+            artifact=$(curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/$parent/artifacts?per_page=50" | jq -r '.artifacts[] | select(.name=="candidate-test-input") | .id' | head -1)
             if [[ -n "$artifact" ]]; then break; fi
-            status=$(curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/43366383050" | jq -r .status)
+            status=$(curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/$parent" | jq -r .status)
             [[ "$status" != completed ]] || { echo "The exact candidate build did not produce an APK"; exit 1; }
             sleep 8
           done
