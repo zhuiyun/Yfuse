@@ -1,70 +1,105 @@
-name: Verify real movie frames and the Android player position
+name: Validate HLS segment recovery on Android 15 and 17
 on:
   push:
     branches: [codex/cloud-playback-resilience-20261113]
     paths:
       - '.github/workflows/qa-app-functional.yml'
-      - 'qa-functional/input-driver.java'
-      - 'qa-functional/private-resilience.*'
+      - 'qa-functional/resilience.*'
 permissions:
   contents: read
   actions: read
 jobs:
-  private_source:
-    name: Two real films in the release preview
+  build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 27
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with: {persist-credentials: false}
-      - name: Prepare one-use decryption key and emulator
+        with:
+          ref: 6db79e3250515e3dfb6236d0342ecbe096590c08
+          persist-credentials: false
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
+        with: {distribution: temurin, java-version: '17', cache: gradle}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          artifact-ids: '13971049437'
+          run-id: '43278690413'
+          github-token: ${{ github.token }}
+          merge-multiple: true
+          path: qa-native
+      - name: Verify native inputs and build the release candidate
         run: |
           set -euo pipefail
-          umask 077
-          mkdir -p private-key private-results preview
-          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out "$RUNNER_TEMP/qa-private.pem" 2>/dev/null
-          openssl pkey -in "$RUNNER_TEMP/qa-private.pem" -pubout -out private-key/public.pem
+          native=3f867b11d302d1f0f7d1e548716ea47623effd63
+          git fetch --no-tags --depth=1 origin "$native"
+          test "$(git diff --name-only "$native" HEAD)" = composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidYCoreHttpProxy.kt
+          export YCORE_NATIVE_AAR_PATH="$GITHUB_WORKSPACE/qa-native/ycore-native.aar"
+          export YCORE_SOURCE_RECEIPT="$GITHUB_WORKSPACE/qa-native/source-build.json"
+          export YCORE_SOURCE_COMMIT="$native" SOURCE_COMMIT="$native"
+          export YCORE_SOURCE_AAR_SHA256=$(sha256sum "$YCORE_NATIVE_AAR_PATH" | cut -d' ' -f1)
+          export YCORE_SOURCE_PROVENANCE_SHA256=$(sha256sum "$GITHUB_WORKSPACE/qa-native/NATIVE-SOURCES.txt" | cut -d' ' -f1)
+          python3 scripts/prepare-playback-inputs.py
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-37.0'
+          ./gradlew :composeApp:assembleRelease -PyfuseIncludeMdk=false -PyfusePlaybackProfile=ycore-senplayer -PyfuseNativeOnlyRuntime=true -PallowDebugSigning=true '-Dorg.gradle.jvmargs=-Xmx6g -Dfile.encoding=UTF-8' --no-daemon
+          mkdir preview
+          cp composeApp/build/outputs/apk/release/composeApp-release.apk preview/
+          printf '%s\n' "$GITHUB_SHA 6db79e3250515e3dfb6236d0342ecbe096590c08" > preview/source.txt
+          (cd preview && sha256sum composeApp-release.apk > apk.sha256)
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: candidate-test-input, path: preview, retention-days: 2}
+  playback:
+    needs: build
+    name: Playback and recovery on API ${{ matrix.api }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {api: 35, image: '35', seed: 131135}
+          - {api: 37, image: '37.0', seed: 131137}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with: {name: candidate-test-input, path: preview}
+      - name: Verify the measured APK came from this build
+        run: |
+          (cd preview && sha256sum -c apk.sha256)
+          mkdir -p results
+          cp preview/apk.sha256 preview/source.txt results/
+      - name: Set up KVM and two timecoded films on a disposable Emby server
+        run: |
+          set -euo pipefail
           test -c /dev/kvm
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
           sudo apt-get update -qq
-          sudo apt-get install -y python3-pil python3-cryptography
-      - name: Publish only the public half of this runner's key
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+          sudo apt-get install -y ffmpeg python3-pil
+          /usr/bin/python3 qa-scrub/fixture.py qa-media
+          curl -fsSL --retry 2 https://github.com/MediaBrowser/Emby.Releases/releases/download/4.10.2.0/emby-server-deb_4.10.2.0_amd64.deb -o "$RUNNER_TEMP/server.deb"
+          echo "80c8666fc6f6143558c235c57932189a3f0b3f899b44519fc4621dd7dea16e32  $RUNNER_TEMP/server.deb" | sha256sum -c -
+          dpkg-deb -x "$RUNNER_TEMP/server.deb" qa-emby-bin
+      - name: Use current SDK manager on Android 17
+        if: matrix.api == 37
+        run: sudo mv "$ANDROID_HOME/cmdline-tools" "$RUNNER_TEMP/old-cmdline-tools"
+      - name: Run the release preview on the emulator
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
-          name: public-key-${{ github.run_id }}-${{ github.run_attempt }}
-          path: private-key/public.pem
-          retention-days: 1
-      - name: Verify the same preview and wait for its encrypted film locations
-        env: {API_TOKEN: "${{ github.token }}"}
-        run: |
-          set -euo pipefail
-          api="https://api.github.com/repos/$GITHUB_REPOSITORY"
-          curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/artifacts/13973342804/zip" > "$RUNNER_TEMP/preview.zip"
-          echo "9676ce59940c483c1c356b25b6cc85ff40cf67bd3cb36e465447bc6d0cee0d6f  $RUNNER_TEMP/preview.zip" | sha256sum -c -
-          unzip -q "$RUNNER_TEMP/preview.zip" -d preview
-          for i in $(seq 1 145); do
-            http=$(curl -sSL -o "$RUNNER_TEMP/envelope.json" -w '%{http_code}' -H "Authorization: Bearer $API_TOKEN" -H 'Accept: application/vnd.github.raw+json' "$api/contents/qa-input/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.json?ref=codex%2Fcloud-playback-resilience-20261113")
-            if [[ "$http" = 200 ]]; then break; fi
-            sleep 4
-          done
-          test "$http" = 200
-          chmod 600 "$RUNNER_TEMP/envelope.json"
-      - uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
-        with:
-          api-level: '35'
+          api-level: ${{ matrix.image }}
           target: google_apis
           arch: x86_64
           profile: pixel_2
           ram-size: 4096M
           emulator-boot-timeout: 600
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -accel on
-          script: bash qa-functional/private-resilience.sh
-      - name: Retain numeric playback measurements
+          script: bash qa-functional/resilience.sh ${{ matrix.api }} ${{ matrix.seed }}
+      - name: Retain measured frames and case results
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: private-numeric-${{ github.run_id }}-${{ github.run_attempt }}
-          path: private-results
-          retention-days: 7
+          name: resilience-api${{ matrix.api }}-attempt-${{ github.run_attempt }}
+          path: results/
+          retention-days: 10
