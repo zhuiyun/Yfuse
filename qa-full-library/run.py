@@ -23,7 +23,7 @@ def provision(core, account=None):
     ui.shell('am','force-stop',ui.pkg)
     uid = ui.shell('stat','-c','%u','/data/user/0/com.yfuse').strip()
     assert uid.isdecimal()
-    old = ui.shell('cat', prefs)
+    old = ui.shell(f'if test -f {prefs}; then cat {prefs}; fi')
     root = ET.fromstring(old) if '<map' in old else ET.Element('map')
     def put(name, value, boolean=False):
         node = root.find(f"./*[@name='{name}']")
@@ -80,13 +80,13 @@ def route(core, media):
     ui.adb('shell','am','start','-W','-n','com.yfuse/com.yfuse.MainActivity',t=80)
     source=wait_node(lambda t:ui.dock(t,'服务器'),42)
     ui.tap(source)
-    wait_node(lambda t:matching(t,[server_name],True),22)
+    server_card=wait_node(lambda t:matching(t,[server_name],True),22)
     registry=ET.fromstring(ui.shell('cat',prefs))
     native=json.loads(registry.find("./string[@name='servers.data']").text)
     if native.get('v') != 2 or not any(s.get('n')==server_name for s in native.get('s',[])):
         raise RuntimeError('session migration')
     stage('server',restored=True,progressSyncOff=registry.find("./boolean[@name='sync.progress']").get('value')=='false')
-    ui.tap(wait_node(lambda t:ui.dock(t,'媒体库')))
+    ui.tap(server_card)
     def search_link(t):
         dock=ui.dock(t,'搜索')
         return dock if dock is not None else matching(t,['搜索','搜索媒体'],True)
