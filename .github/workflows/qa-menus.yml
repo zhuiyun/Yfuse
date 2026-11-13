@@ -8,7 +8,7 @@ jobs:
   menu:
     strategy:
       fail-fast: false
-      matrix: {form: [phone, tv]}
+      matrix: {form: [tv]}
     runs-on: ubuntu-24.04
     timeout-minutes: 27
     steps:
@@ -37,7 +37,7 @@ jobs:
           sudo apt-get install -y ffmpeg python3-pil
       - uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
-          api-level: ${{ matrix.form == 'tv' && '34' || '35' }}
+          api-level: ${{ matrix.form == 'tv' && '36' || '35' }}
           target: ${{ matrix.form == 'tv' && 'android-tv' || 'google_apis' }}
           arch: x86_64
           profile: ${{ matrix.form == 'tv' && 'tv_1080p' || 'pixel_2' }}
