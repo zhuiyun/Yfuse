@@ -23,6 +23,8 @@ payload = measure.load_envelope()
 run.screenshot_key = base64.b64decode(payload['screenKey'])
 ui.snapshot = resilient_snapshot
 stage = 'begin'
+capture_pid = None
+capture_path = Path(os.environ['RUNNER_TEMP']) / 'yfuse-own-login.pcap'
 
 
 def field(label, value):
@@ -54,11 +56,54 @@ def saved_account():
     entry = settings.find("./string[@name='servers.data']")
     if entry is None:
         return None
-    servers = json.loads(entry.text).get('servers', [])
-    for server in servers:
-        url = urlsplit(server.get('baseUrl', ''))
-        if (url.scheme, url.netloc) == ('http', '47.112.219.60:19001') and server.get('accessToken'):
-            return {k: server[k] for k in ('baseUrl', 'userName', 'userId', 'accessToken')}
+    data = json.loads(entry.text)
+    assert data.get('v') == 2, 'unexpected native registry version'
+    for server in data.get('s', []):
+        url = urlsplit(server.get('b', ''))
+        if (url.scheme, url.netloc) == ('http', '47.112.219.60:19001') and server.get('r'):
+            return {k: server[v] for k, v in [('baseUrl', 'b'), ('userName', 'a'), ('userId', 'u')]}
+
+
+def start_login_capture():
+    # Capture only this disposable app's authorized HTTP origin, never unrelated traffic.
+    # The response token stays on this runner for audit/logout and is never persisted publicly.
+    import shlex
+    command = 'umask 077; tcpdump -i any -U -s 0 -w ' + shlex.quote(str(capture_path)) + " 'host 47.112.219.60 and tcp port 19001' >/dev/null 2>&1 & echo $!"
+    pid = subprocess.check_output(['sudo', 'bash', '-c', command], text=True).strip()
+    assert pid.isdecimal()
+    time.sleep(.5)
+    subprocess.run(['sudo', 'kill', '-0', pid], check=True, capture_output=True)
+    return pid
+
+
+def stop_login_capture():
+    global capture_pid
+    if capture_pid:
+        subprocess.run(['sudo', 'kill', '-INT', capture_pid], capture_output=True)
+        capture_pid = None
+        time.sleep(.5)
+
+
+def native_response_account(metadata=None):
+    stop_login_capture()
+    if not capture_path.exists():
+        return None
+    result = subprocess.run(['sudo', 'tshark', '-r', str(capture_path), '-d', 'tcp.port==19001,http',
+                             '-Y', 'http.response.code == 200', '-T', 'fields', '-e', 'http.file_data'],
+                            capture_output=True, text=True, timeout=20, check=True)
+    for line in result.stdout.splitlines():
+        try:
+            value = json.loads(bytes.fromhex(line.replace(':', '')))
+            if not isinstance(value, dict) or not value.get('AccessToken') or not value.get('User', {}).get('Id'):
+                continue
+            if metadata and value['User']['Id'] != metadata['userId']:
+                continue
+            return dict(metadata or {'baseUrl': 'http://47.112.219.60:19001/emby',
+                                     'userId': value['User']['Id'], 'userName': value['User'].get('Name', '')},
+                        accessToken=value['AccessToken'])
+        except (ValueError, UnicodeError, AttributeError):
+            continue
+    return None
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -98,6 +143,7 @@ try:
     field('密码', payload['credentials']['password'])
     payload.pop('credentials')
     stage = 'native-authentication'
+    capture_pid = start_login_capture()
     button = run.wait_node(lambda t: ui.find(t, ['连接到服务器']), 15)
     run.press_node(button)
     until = time.monotonic() + 75
@@ -108,7 +154,14 @@ try:
         time.sleep(1)
     if not account:
         raise RuntimeError('native login unverified')
+    metadata = account
+    account = native_response_account(metadata)
+    if not account:
+        raise RuntimeError('native response unavailable for session cleanup')
     measure.measured('native-app-login', verified=True, savedTokenGeneratedByApp=True, progressSync=False)
+    # Keep the app's encrypted registry and its device identity throughout both cores.
+    original_provision = run.provision
+    run.provision = lambda core, account=None: original_provision(core)
     payload['account'] = account
     measure.load_envelope = lambda: payload
     run.controls = retest_transport.controls_with_startup_operations
@@ -120,11 +173,11 @@ except Exception as error:
     run.capture('native-login-flow-failed')
     raise SystemExit(1)
 finally:
-    if account is None:
+    if account is None or 'accessToken' not in account:
         try:
-            account = saved_account()
+            account = native_response_account(saved_account())
         except Exception:
-            pass
+            account = None
     try:
         if account:
             try:
@@ -132,6 +185,8 @@ finally:
             finally:
                 logout(account)
     finally:
+        stop_login_capture()
+        subprocess.run(['sudo', 'rm', '-f', str(capture_path)], capture_output=True)
         Path('private-results/observer-timeouts.json').write_text(json.dumps(instrument_timeouts))
         ui.shell('am', 'force-stop', ui.pkg)
         ui.shell('pm', 'clear', ui.pkg)

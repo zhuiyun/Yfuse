@@ -1,4 +1,4 @@
-name: Authenticate inside full YfuseApp and retest original media with labeled fields
+name: Retest native app sessions and encrypted registry with shared transport repair
 on:
   push:
     branches: [codex/cloud-playback-resilience-20261113]
@@ -13,12 +13,8 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
-      actions: write
+      actions: read
     steps:
-      - name: Stop superseded login observer before issuing credentials
-        env: {API_TOKEN: "${{ github.token }}"}
-        run: |
-          curl -sS -o /dev/null -X POST -H "Authorization: Bearer $API_TOKEN" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/43590299700/cancel"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with: {persist-credentials: false}
       - name: Build network and gesture recorder
@@ -51,7 +47,7 @@ jobs:
           openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out "$RUNNER_TEMP/qa-private.pem" 2>/dev/null
           openssl pkey -in "$RUNNER_TEMP/qa-private.pem" -pubout -out private-key/public.pem
           sudo apt-get update -qq
-          sudo apt-get install -y python3-pil python3-cryptography ffmpeg
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y python3-pil python3-cryptography ffmpeg tcpdump tshark
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with: {name: private-input-driver, path: driver}
       - name: Boot native ARM64 emulator before issuing short-lived media locations
@@ -67,8 +63,8 @@ jobs:
         run: |
           set -euo pipefail
           api="https://api.github.com/repos/$GITHUB_REPOSITORY"
-          build=43577563767
-          expected=cf93c96c8b917e6acf5ea207beaced6578fd0c09
+          build=43591393564
+          expected=6b3291e85221f29d8579ac48290781ebdc5311af
           for i in $(seq 1 220); do
             state=$(curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/$build")
             test "$(jq -r '.head_sha' <<<"$state")" = "$expected"

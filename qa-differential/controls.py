@@ -98,7 +98,7 @@ def main():
     pilot.engine.guard()
     subprocess.run(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i',
                     'testsrc2=size=640x360:rate=24', '-f', 'lavfi', '-i', 'sine=frequency=880:sample_rate=48000',
-                    '-t', '180', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28', '-g', '48',
+                    '-t', '600', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28', '-g', '48',
                     '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '96k', '-movflags', '+faststart',
                     str(root / 'control.mp4')], check=True)
     subprocess.run(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-i', str(root / 'control.mp4'),
@@ -115,7 +115,7 @@ def main():
             for name in ('control.mp4', 'control.mkv', 'disguised.m3u8'):
                 label = name.replace('.', '-')
                 media = {'location': 'http://127.0.0.1:18764/' + name, 'container': name.rsplit('.', 1)[-1],
-                         'seconds': 180, 'targets': [.15, .70, .35, .80]}
+                         'seconds': 600, 'targets': [.15, .80, .35, .45]}
                 start = time.time()
                 try:
                     pilot.one(core, label, media)
