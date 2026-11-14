@@ -78,6 +78,8 @@ internal class SenPlayerVideoEngine(
     private val surfaceEpoch = AtomicLong()
     private var pauseAtEnd = false
     private val endGate = SenPlayerEndGate()
+    private var remoteEndRecovery = SenPlayerRemoteEndRecovery()
+    private var remoteFileDurationMs = 0L
     private val videoGate = SenPlayerVideoReadinessGate()
     private val surfaceProbe = SenPlayerSurfaceProbe()
     private val outputGeneration = AtomicLong()
@@ -305,10 +307,11 @@ internal class SenPlayerVideoEngine(
         }
     }
 
-    private fun loadCurrent() {
+    private fun loadCurrent(recoveringEarlyEnd: Boolean = false) {
         if (released.get()) return
         val item = queue.getOrNull(state.value.currentIndex) ?: error("Empty SenPlayer queue")
         loadPending = true
+        if (!recoveringEarlyEnd) remoteEndRecovery = SenPlayerRemoteEndRecovery()
         endGate.reset()
         outputWatchdog = SenPlayerOutputWatchdog()
         rebuffers = SenPlayerRebufferTracker()
@@ -324,6 +327,9 @@ internal class SenPlayerVideoEngine(
         resetVideoEvidence(0L, reason = "source_loading")
         subtitles.clear()
         val upstream = item.senPlayerPlaybackUrl()
+        remoteFileDurationMs = item.durationMsHint.takeIf {
+            !item.startsWithServerTranscode() && (upstream.startsWith("https://", true) || upstream.startsWith("http://", true))
+        } ?: 0L
         require(item.transportCredentials == null) { "SenPlayer file transport credentials require YCore" }
         if (session?.isUsable() == false) closeSession()
         val current = session
@@ -436,6 +442,27 @@ internal class SenPlayerVideoEngine(
             }
         }
         recordOutputSample(sample, token, surfaceReady, rendered, pixels, now, outputAction)
+        val knownFileDuration = minOf(remoteFileDurationMs, sample.durationMs.takeIf { it > 0 } ?: remoteFileDurationMs)
+        if (requested && ended &&
+            com.yfuse.core2.api.isPrematurePlaybackEnd(sample.positionMs, knownFileDuration)
+        ) {
+            val resumeAt = remoteEndRecovery.recoveryPosition(sample.positionMs, knownFileDuration)
+            if (resumeAt != null) {
+                pendingSeekMs = null
+                mutableState.update { it.copy(positionMs = resumeAt, ended = false) }
+                loadCurrent(recoveringEarlyEnd = true)
+                return
+            }
+            if (remoteEndRecovery.attempted) {
+                mutableState.update {
+                    it.forSenPlayerFailure("片源提前中断，未能恢复读取视频数据", PlaybackFailureKind.Network)
+                }
+                current.pauseForFailure()
+                current.cancelPendingRead()
+                return
+            }
+        }
+        if (!ended && sample.phase == "playing") remoteEndRecovery.observePosition(sample.positionMs)
         if (outputAction == SenPlayerOutputAction.Rebind && view != null && surfaceReady) {
             recoverVideoSurface(current, sample, view, epoch)
             return
@@ -795,6 +822,7 @@ internal class SenPlayerVideoEngine(
     override fun seekTo(positionMs: Long) {
         submit {
             val position = senPlayerSeekPosition(positionMs, state.value.durationMs)
+            remoteEndRecovery.onSeek(position)
             val wasEnded = state.value.ended
             val current = session?.takeIf { state.value.error == null && !loadPending && state.value.durationMs > 0 }
             mutableState.update { it.copy(positionMs = position, ended = false) }

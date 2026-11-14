@@ -138,6 +138,30 @@ internal fun senPlayerCacheState(
         durationMs = if (available) cacheDurationMs.coerceAtLeast(0) else 0,
     )
 
+/** A seek can be followed by EOF at the old position if the remote byte range was truncated. */
+internal class SenPlayerRemoteEndRecovery {
+    var attempted = false
+        private set
+    private var seekTargetMs: Long? = null
+
+    fun onSeek(targetMs: Long) {
+        seekTargetMs = targetMs
+        attempted = false
+    }
+
+    fun observePosition(positionMs: Long) {
+        val target = seekTargetMs ?: return
+        if (kotlin.math.abs(target - positionMs) <= 2_000L) seekTargetMs = null
+    }
+
+    fun recoveryPosition(positionMs: Long, durationMs: Long): Long? {
+        val resumeMs = seekTargetMs ?: positionMs
+        if (attempted || !com.yfuse.core2.api.isPrematurePlaybackEnd(positionMs, durationMs)) return null
+        attempted = true
+        return resumeMs.coerceIn(0L, durationMs)
+    }
+}
+
 /** Natural EOF is consumed once; pausing at the boundary must never start the next source. */
 internal class SenPlayerEndGate {
     private var consumed = false

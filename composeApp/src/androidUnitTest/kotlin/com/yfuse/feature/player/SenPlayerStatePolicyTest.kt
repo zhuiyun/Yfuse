@@ -17,6 +17,21 @@ import kotlin.test.assertTrue
 
 class SenPlayerStatePolicyTest {
     @Test
+    fun truncated_remote_seek_reopens_once_at_the_requested_movie_position() {
+        val recovery = SenPlayerRemoteEndRecovery()
+        recovery.onSeek(159_000)
+        recovery.observePosition(8_633)
+        assertEquals(159_000L, recovery.recoveryPosition(8_633, 7_949_000))
+        assertEquals(null, recovery.recoveryPosition(8_633, 7_949_000))
+        recovery.onSeek(4_000_000)
+        recovery.observePosition(4_000_035)
+        assertEquals(4_005_000L, recovery.recoveryPosition(4_005_000, 7_949_000))
+        recovery.onSeek(7_948_000)
+        assertEquals(7_948_000L, recovery.recoveryPosition(8_633, 7_949_000))
+        assertEquals(null, SenPlayerRemoteEndRecovery().recoveryPosition(7_948_000, 7_949_000))
+    }
+
+    @Test
     fun next_source_and_failure_keep_controls_but_clear_previous_picture_acknowledgements() {
         val applied =
             SenPlayerPictureState(
