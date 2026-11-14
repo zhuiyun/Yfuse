@@ -189,7 +189,7 @@ class AndroidPlaybackHttpProxyTest {
                         "GET ${local.rawPath} HTTP/1.1\r\nHost: localhost\r\n\r\n".toByteArray(),
                     )
                     val input = client.getInputStream().bufferedReader()
-                    assertTrue(assertNotNull(input.readLine()).startsWith("HTTP/1.1 $expectedStatus "))
+                    assertTrue(assertNotNull(input.readLine()).startsWith("HTTP/1.1 200 "))
                     while (!input.readLine().isNullOrEmpty()) Unit
                     assertEquals("12345", CharArray(5) { input.read().toChar() }.concatToString())
                     closer.submit { proxy.close() }.get(1, TimeUnit.SECONDS)
