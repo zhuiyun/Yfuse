@@ -8,8 +8,6 @@ import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.ContentMetadata
-import com.yfuse.core2.android.BufferedScrubMedia
-import com.yfuse.core2.network.YTransportCredentials
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.playback.PLAYBACK_PROXY_HEADER_TIMEOUT_MS
 import com.yfuse.core.playback.PlaybackProxyAdmission
@@ -24,6 +22,8 @@ import com.yfuse.core.playback.WidgetPlaybackRequest
 import com.yfuse.core.playback.secureMediaCacheKeyForUrl
 import com.yfuse.core.playback.shouldProxyPlaybackNetworkUrl
 import com.yfuse.core.playback.writeResponseBodyWithWatchdog
+import com.yfuse.core2.android.BufferedScrubMedia
+import com.yfuse.core2.network.YTransportCredentials
 import okhttp3.Request
 import okhttp3.Response
 import java.io.Closeable
@@ -98,6 +98,7 @@ internal class AndroidPlaybackHttpProxy(
             null
         }
     private val closed = AtomicBoolean(false)
+
     @Volatile private var previewCache: ProxyPreviewCache? = null
     private val requests =
         PlaybackProxyRequests {
@@ -135,23 +136,37 @@ internal class AndroidPlaybackHttpProxy(
         val routeId =
             routes.registerRoot(PlaybackProxyRoute(upstreamUrl, cacheable && widgetRequest == null, widgetRequest))
                 ?: return upstreamUrl
-        previewCache = if (cacheable && widgetRequest == null && cacheHandle != null) {
-            ProxyPreviewCache(upstreamUrl).also { BufferedScrubMedia.register(it) }
-        } else null
+        previewCache =
+            if (cacheable && widgetRequest == null && cacheHandle != null) {
+                ProxyPreviewCache(upstreamUrl).also { BufferedScrubMedia.register(it) }
+            } else {
+                null
+            }
         return routeUrl(routeId)
     }
 
     /** Independent cursor over completed playback cache spans. A hole cannot start an upstream request. */
-    private inner class ProxyPreviewCache(private val upstream: String) : BufferedScrubMedia.CachedSource {
+    private inner class ProxyPreviewCache(
+        private val upstream: String,
+    ) : BufferedScrubMedia.CachedSource {
         private val key = secureMediaCacheKeyForUrl(upstream)
 
-        override fun matches(uri: String, headers: Map<String, String>, credentials: YTransportCredentials?): Boolean =
+        override fun matches(
+            uri: String,
+            headers: Map<String, String>,
+            credentials: YTransportCredentials?,
+        ): Boolean =
             previewCache === this && !closed.get() && uri == upstream && headers.isEmpty() && credentials == null
 
         override fun cachedSize(): Long =
             if (closed.get() || previewCache !== this) -1L else cachedContentLength(upstream) ?: -1L
 
-        override fun cachedRead(position: Long, bytes: ByteArray, offset: Int, size: Int): Int {
+        override fun cachedRead(
+            position: Long,
+            bytes: ByteArray,
+            offset: Int,
+            size: Int,
+        ): Int {
             val length = cachedSize()
             if (length <= 0L) throw EOFException("Playback cache unavailable")
             if (size == 0) return 0
@@ -159,9 +174,23 @@ internal class AndroidPlaybackHttpProxy(
             val count = minOf(size.toLong(), length - position).toInt()
             val cache = cacheHandle?.cache ?: throw EOFException("Playback cache closed")
             if (!cache.isCached(key, position, count.toLong())) throw EOFException("Unbuffered preview")
-            val cursor = CacheDataSource.Factory().setCache(cache).setCacheWriteDataSinkFactory(null).createDataSource()
+            val cursor =
+                CacheDataSource
+                    .Factory()
+                    .setCache(cache)
+                    .setCacheWriteDataSinkFactory(null)
+                    .createDataSource()
             try {
-                cursor.open(DataSpec.Builder().setUri(upstream).setKey(key).setPosition(position).setLength(count.toLong()).build())
+                cursor.open(
+                    DataSpec
+                        .Builder()
+                        .setUri(
+                            upstream,
+                        ).setKey(key)
+                        .setPosition(position)
+                        .setLength(count.toLong())
+                        .build(),
+                )
                 var read = 0
                 while (read < count) {
                     val n = cursor.read(bytes, offset + read, count - read)
@@ -452,12 +481,34 @@ internal class AndroidPlaybackHttpProxy(
                     if (method == "GET") {
                         body?.let { source ->
                             socket.writeResponseBodyWithWatchdog { output ->
-                                val writer = BufferedScrubMedia.lookup(route.upstreamUrl, route.widgetRequest?.headers?.values.orEmpty(), null)
-                                val range = connection.header("Content-Range")?.let { Regex("bytes ([0-9]+)-[0-9]+/([0-9]+)", RegexOption.IGNORE_CASE).matchEntire(it) }
+                                val writer =
+                                    BufferedScrubMedia.lookup(
+                                        route.upstreamUrl,
+                                        route.widgetRequest
+                                            ?.headers
+                                            ?.values
+                                            .orEmpty(),
+                                        null,
+                                    )
+                                val range =
+                                    connection.header("Content-Range")?.let {
+                                        Regex("bytes ([0-9]+)-[0-9]+/([0-9]+)", RegexOption.IGNORE_CASE).matchEntire(it)
+                                    }
                                 val start = if (status == 200) 0L else range?.groupValues?.get(1)?.toLongOrNull()
-                                val total = if (status == 200) length else range?.groupValues?.get(2)?.toLongOrNull() ?: -1L
-                                if (writer == null || start == null || total <= 0L) source.copyTo(output, NETWORK_BUFFER_BYTES)
-                                else {
+                                val total =
+                                    if (status ==
+                                        200
+                                    ) {
+                                        length
+                                    } else {
+                                        range?.groupValues?.get(2)?.toLongOrNull() ?: -1L
+                                    }
+                                if (writer == null ||
+                                    start == null ||
+                                    total <= 0L
+                                ) {
+                                    source.copyTo(output, NETWORK_BUFFER_BYTES)
+                                } else {
                                     val chunk = ByteArray(NETWORK_BUFFER_BYTES)
                                     var position: Long = start
                                     while (true) {

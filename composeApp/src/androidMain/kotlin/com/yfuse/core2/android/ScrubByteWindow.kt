@@ -7,7 +7,9 @@ internal class ScrubByteWindow(
     private val maxPages: Int = 128,
     private val pageSize: Int = 64 * 1024,
 ) {
-    private class Page(size: Int) {
+    private class Page(
+        size: Int,
+    ) {
         val bytes = ByteArray(size)
         val valid = BitSet(size)
     }
@@ -17,7 +19,9 @@ internal class ScrubByteWindow(
     var epoch = 0L
         private set
 
-    init { require(maxPages >= 3 && pageSize > 0) }
+    init {
+        require(maxPages >= 3 && pageSize > 0)
+    }
 
     @Synchronized
     fun reset() {
@@ -30,10 +34,22 @@ internal class ScrubByteWindow(
     fun size(): Long = length
 
     @Synchronized
-    fun add(position: Long, bytes: ByteArray, offset: Int, count: Int, total: Long) {
-        if (total <= 0 || position < 0 || count <= 0 || position > total - count ||
-            offset < 0 || offset > bytes.size - count
-        ) return
+    fun add(
+        position: Long,
+        bytes: ByteArray,
+        offset: Int,
+        count: Int,
+        total: Long,
+    ) {
+        if (total <= 0 ||
+            position < 0 ||
+            count <= 0 ||
+            position > total - count ||
+            offset < 0 ||
+            offset > bytes.size - count
+        ) {
+            return
+        }
         if (length >= 0 && length != total) reset()
         length = total
         var current = position
@@ -61,7 +77,12 @@ internal class ScrubByteWindow(
 
     /** A hole is different from EOF. Never let a decoder treat missing bytes as a complete file. */
     @Synchronized
-    fun read(position: Long, out: ByteArray, offset: Int, count: Int): Int {
+    fun read(
+        position: Long,
+        out: ByteArray,
+        offset: Int,
+        count: Int,
+    ): Int {
         require(position >= 0 && count >= 0 && offset >= 0 && offset <= out.size - count)
         if (count == 0) return 0
         if (length <= 0) throw java.io.EOFException("No playback data")

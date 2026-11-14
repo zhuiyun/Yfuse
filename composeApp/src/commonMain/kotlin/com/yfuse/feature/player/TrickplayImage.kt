@@ -41,4 +41,7 @@ internal fun trickplayRegion(
 }
 
 @Composable
-internal expect fun bufferedScrubBitmap(frame: TrickplayFrame, positionMs: Long): androidx.compose.ui.graphics.ImageBitmap?
+internal expect fun bufferedScrubBitmap(
+    frame: TrickplayFrame,
+    positionMs: Long,
+): androidx.compose.ui.graphics.ImageBitmap?

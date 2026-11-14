@@ -32,8 +32,8 @@ import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.DragAxis
-import com.yfuse.core.designsystem.resolveDragAxis
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.resolveDragAxis
 import kotlin.math.roundToInt
 import com.yfuse.core.designsystem.ThemeText as Text
 
@@ -172,10 +172,15 @@ internal fun SeekFilmstrip(
             for (offset in -half..half) {
                 val index = selected + offset
                 val current = offset == 0
-                val image = if (current) focus else if (index in 0 until frames.count) {
-                    val time = frames.startMs(index)
-                    bufferedScrubBitmap(storyboard.frameAt(time), time)
-                } else null
+                val image =
+                    if (current) {
+                        focus
+                    } else if (index in 0 until frames.count) {
+                        val time = frames.startMs(index)
+                        bufferedScrubBitmap(storyboard.frameAt(time), time)
+                    } else {
+                        null
+                    }
                 val present = image != null
                 Column(
                     Modifier.graphicsLayer { alpha = if (current) 1f else FILMSTRIP_NEIGHBOUR_ALPHA },
@@ -194,8 +199,14 @@ internal fun SeekFilmstrip(
                                 },
                             ),
                     ) {
-                        if (image != null) androidx.compose.foundation.Image(image, null, Modifier.fillMaxSize(),
-                            contentScale = androidx.compose.ui.layout.ContentScale.Fit)
+                        if (image != null) {
+                            androidx.compose.foundation.Image(
+                                image,
+                                null,
+                                Modifier.fillMaxSize(),
+                                contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                            )
+                        }
                     }
                     Text(
                         if (present) formatTime(frames.startMs(index)) else "",

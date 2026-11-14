@@ -26,8 +26,16 @@ internal fun PictureScrubPreview(
     if (storyboard == null) return
     val position = positionMs() ?: return
     TrickplayPreview(
-        storyboard, position,
-        modifier = modifier.offset(y = -(trickplayPreviewHeight(storyboard, chapters.isNotEmpty()) / 2 + PictureScrubPreviewClearance)),
+        storyboard,
+        position,
+        modifier =
+            modifier.offset(
+                y =
+                    -(
+                        trickplayPreviewHeight(storyboard, chapters.isNotEmpty()) / 2 +
+                            PictureScrubPreviewClearance
+                    ),
+            ),
         chapter = fileChapterNameAt(chapters, position),
         chapterLine = chapters.isNotEmpty(),
     )

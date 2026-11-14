@@ -415,12 +415,25 @@ internal object FfmpegNativeBridge {
         if (status < 0) throwFfmpegFailure(status.toLong(), YPlaybackFailureStage.Seek)
     }
 
-    fun cachedPreview(input: android.media.MediaDataSource, timeUs: Long): ByteArray? =
+    fun cachedPreview(
+        input: android.media.MediaDataSource,
+        timeUs: Long,
+    ): ByteArray? =
         if (available) {
-            try { nativeCachedPreview(input, input.size, timeUs) } catch (_: UnsatisfiedLinkError) { null }
-        } else null
+            try {
+                nativeCachedPreview(input, input.size, timeUs)
+            } catch (_: UnsatisfiedLinkError) {
+                null
+            }
+        } else {
+            null
+        }
 
-    private external fun nativeCachedPreview(input: android.media.MediaDataSource, length: Long, timeUs: Long): ByteArray?
+    private external fun nativeCachedPreview(
+        input: android.media.MediaDataSource,
+        length: Long,
+        timeUs: Long,
+    ): ByteArray?
 
     private external fun nativeOpen(
         uri: String,

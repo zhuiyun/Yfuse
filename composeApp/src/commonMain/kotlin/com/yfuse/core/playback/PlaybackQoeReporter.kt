@@ -86,10 +86,14 @@ class PlaybackQoeReporter(
             ?.let { raw ->
                 val entries = runCatching { json.parseToJsonElement(raw) as? JsonArray }.getOrNull()
                 entries?.mapNotNull { entry ->
-                    runCatching { json.decodeFromJsonElement(AnonymousPlaybackQoeReport.serializer(), entry) }.getOrNull()
+                    runCatching {
+                        json.decodeFromJsonElement(
+                            AnonymousPlaybackQoeReport.serializer(),
+                            entry,
+                        )
+                    }.getOrNull()
                 }
-            }
-            .orEmpty()
+            }.orEmpty()
             .filter(QoeProtocol::isValid)
             .takeLast(MAX_QOE_OUTBOX_REPORTS)
 

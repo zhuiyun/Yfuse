@@ -727,8 +727,12 @@ internal fun TrickplayPreview(
                     .clip(trickplayFrameShape)
                     .background(Color.Black),
             ) {
-                androidx.compose.foundation.Image(image, "${formatTime(positionMs)} 预览", Modifier.fillMaxSize(),
-                    contentScale = androidx.compose.ui.layout.ContentScale.Fit)
+                androidx.compose.foundation.Image(
+                    image,
+                    "${formatTime(positionMs)} 预览",
+                    Modifier.fillMaxSize(),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                )
             }
             Text(
                 timeSuffix?.let { "${formatTime(positionMs)} · $it" } ?: formatTime(positionMs),
