@@ -119,8 +119,11 @@ internal class AndroidAdaptiveCore2YPlayer(
 ) : YPlayer,
     YNativeSubtitleStyleTarget,
     AndroidVideoOutputDetach,
+    AndroidVideoOutputRenewal,
     AndroidSerializedPlayerRelease {
     private val queueLock = Any()
+    private val videoOutputReplacement = AndroidVideoOutputReplacement<YVideoOutput>()
+    override val videoOutputGeneration = videoOutputReplacement.generation
 
     /**
      * Owned here rather than inside [runLoop] so a caller can wait for the last child decoder
@@ -261,12 +264,19 @@ internal class AndroidAdaptiveCore2YPlayer(
     override fun setVideoOutput(output: YVideoOutput?): Boolean {
         if (released) return false
         requestedVideoOutput = output
+        if (videoOutputReplacement.accept(output)) return true
         commands.trySend(Command.SetVideoOutput(output))
         return true
     }
 
     /** The detach travels the command loop to the child, which confirms once its codec let go. */
     override fun detachVideoOutput(detached: CompletableDeferred<Unit>) {
+        if (videoOutputReplacement.awaitingReplacement) {
+            // Renewal starts only after stopChild awaited every outgoing decoder's release.
+            requestedVideoOutput = null
+            detached.complete(Unit)
+            return
+        }
         confirmVideoDetachAfterWorkerRelease(worker, this, detached)
         if (released) return
         requestedVideoOutput = null
@@ -711,6 +721,7 @@ internal class AndroidAdaptiveCore2YPlayer(
 
         /** The output the active child was last given, so a queued duplicate is not re-applied. */
         var childVideoOutput: YVideoOutput? = null
+        var softwareOutputProducer: Boolean? = null
         var requestedPlay = request.autoPlay
         var speed = 1f
         var audioDelayMs = 0L
@@ -1478,6 +1489,12 @@ internal class AndroidAdaptiveCore2YPlayer(
 
         suspend fun attachChild(next: YPlayer) {
             stopChild()
+            try {
+                renewVideoOutputFor(next)
+            } catch (error: Throwable) {
+                next.release()
+                throw error
+            }
             val attachedTarget = adaptiveTarget
             val attachedProbeBudget = activeProbeBudget
             val attachedFeedbackGeneration = adaptiveFeedbackGeneration.incrementAndGet()
@@ -1524,6 +1541,18 @@ internal class AndroidAdaptiveCore2YPlayer(
                 next.seekTo(attachedTarget?.localPositionMs ?: pendingPositionMs)
             }
             if (requestedPlay) next.play()
+        }
+
+        private suspend fun renewVideoOutputFor(next: YPlayer) {
+            val software = (next as? AndroidNativeEnhancedYPlayer)?.usesSoftwareVideoOutput == true
+            val previous = output as? AndroidSurfaceVideoOutput
+            if (previous?.renewable == true && softwareOutputProducer?.let { it != software } == true) {
+                // A failed MediaCodec can leave its Surface queue unusable by a CPU producer.
+                // Retire that consumer too; a second Java Surface reference keeps the same queue.
+                output = videoOutputReplacement.awaitReplacement(previous)
+                childVideoOutput = null
+            }
+            softwareOutputProducer = software
         }
 
         /**

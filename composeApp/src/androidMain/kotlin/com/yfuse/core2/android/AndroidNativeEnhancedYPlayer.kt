@@ -28,6 +28,7 @@ import com.yfuse.core2.demux.shownVideoSize
 import com.yfuse.core2.network.DEFAULT_FORWARD_CACHE_TARGET_US
 import com.yfuse.core2.recovery.YPlaybackFailureReporter
 import com.yfuse.core2.render.YFrameRateSwitchMode
+import com.yfuse.core2.strategy.YDecodePath
 import com.yfuse.core2.strategy.YDemuxPath
 import com.yfuse.core2.strategy.YPlaybackPlan
 import com.yfuse.core2.strategy.YRenderPath
@@ -73,6 +74,9 @@ internal class AndroidNativeEnhancedYPlayer(
     AndroidSerializedPlayerRelease,
     AndroidVideoOutputDetach,
     YPlaybackFailureReporter {
+    internal val usesSoftwareVideoOutput: Boolean
+        get() = forceSoftwareDecode || (forcedPlan ?: initialDecision?.plan)?.decodePath == YDecodePath.Software
+
     @Volatile
     override var lastPlaybackFailure: Throwable? = null
         private set
