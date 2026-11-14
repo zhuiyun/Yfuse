@@ -19,6 +19,45 @@ import kotlin.test.assertTrue
 
 class AndroidPlaybackHttpProxyTest {
     @Test
+    fun rejected_old_routes_cannot_poison_the_next_movie_or_a_fresh_retry() {
+        MockWebServer().use { upstream ->
+            upstream.enqueue(MockResponse().setResponseCode(403).setBody("denied"))
+            upstream.enqueue(MockResponse().setBody("movie bytes"))
+            upstream.enqueue(MockResponse().setResponseCode(403).setBody("late denial"))
+            upstream.enqueue(MockResponse().setResponseCode(403).setBody("fresh denial"))
+            upstream.start()
+            AndroidPlaybackHttpProxy(context = null, userAgent = "proxy-test", videoCacheBytes = 0).use { proxy ->
+                val oldSource = upstream.url("/old").toString()
+                val oldRoute = proxy.localUrl(oldSource)
+                assertEquals("denied", readProxyBody(oldRoute, 403))
+                assertEquals(403, proxy.terminalHttpFailureStatus)
+                val current = proxy.localUrl(upstream.url("/next").toString())
+                assertNull(proxy.terminalHttpFailureStatus)
+                assertEquals("movie bytes", readProxyBody(current))
+                assertEquals("late denial", readProxyBody(oldRoute, 403))
+                assertNull(proxy.terminalHttpFailureStatus)
+                assertEquals("fresh denial", readProxyBody(proxy.localUrl(oldSource), 403))
+                assertEquals(403, proxy.terminalHttpFailureStatus)
+            }
+        }
+    }
+
+    @Test
+    fun hls_child_denial_belongs_to_the_active_movie() {
+        MockWebServer().use { upstream ->
+            upstream.enqueue(MockResponse().setBody("#EXTM3U\n#EXTINF:6,\nsegment.ts\n"))
+            upstream.enqueue(MockResponse().setResponseCode(403).setBody("denied"))
+            upstream.start()
+            AndroidPlaybackHttpProxy(context = null, userAgent = "proxy-test", videoCacheBytes = 0).use { proxy ->
+                val manifest = readProxyBody(proxy.localUrl(upstream.url("/movie.m3u8").toString()))
+                val segment = manifest.lineSequence().first { it.startsWith("http://127.0.0.1:") }
+                assertEquals("denied", readProxyBody(segment, 403))
+                assertEquals(403, proxy.terminalHttpFailureStatus)
+            }
+        }
+    }
+
+    @Test
     fun head_preserves_source_length_without_forwarding_a_body() {
         MockWebServer().use { upstream ->
             upstream.enqueue(MockResponse().setHeader("Content-Length", "12345"))
@@ -150,7 +189,7 @@ class AndroidPlaybackHttpProxyTest {
                         "GET ${local.rawPath} HTTP/1.1\r\nHost: localhost\r\n\r\n".toByteArray(),
                     )
                     val input = client.getInputStream().bufferedReader()
-                    assertTrue(assertNotNull(input.readLine()).contains("200"))
+                    assertTrue(assertNotNull(input.readLine()).startsWith("HTTP/1.1 $expectedStatus "))
                     while (!input.readLine().isNullOrEmpty()) Unit
                     assertEquals("12345", CharArray(5) { input.read().toChar() }.concatToString())
                     closer.submit { proxy.close() }.get(1, TimeUnit.SECONDS)
@@ -251,13 +290,16 @@ class AndroidPlaybackHttpProxyTest {
         )
     }
 
-    private fun readProxyBody(url: String): String {
+    private fun readProxyBody(
+        url: String,
+        expectedStatus: Int = 200,
+    ): String {
         val local = URI(url)
         return Socket(local.host, local.port).use { client ->
             client.soTimeout = 2_000
             client.getOutputStream().write("GET ${local.rawPath} HTTP/1.1\r\nHost: localhost\r\n\r\n".toByteArray())
             val input = client.getInputStream().bufferedReader()
-            assertTrue(assertNotNull(input.readLine()).contains("200"))
+            assertTrue(assertNotNull(input.readLine()).startsWith("HTTP/1.1 $expectedStatus "))
             while (!input.readLine().isNullOrEmpty()) Unit
             input.readText()
         }

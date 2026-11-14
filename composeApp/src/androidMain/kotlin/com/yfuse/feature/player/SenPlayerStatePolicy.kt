@@ -53,6 +53,27 @@ internal fun PlayerMediaItem.senPlayerPlaybackUrl(): String {
     return if (startsWithServerTranscode()) transcodeUrl else url
 }
 
+internal data class SenPlayerSourceFailure(
+    val kind: PlaybackFailureKind,
+    val message: String,
+)
+
+/** An upstream rejection is not evidence that the installed native engine is unavailable. */
+internal fun senPlayerSourceFailure(httpStatus: Int?): SenPlayerSourceFailure? =
+    when (httpStatus) {
+        401, 403 ->
+            SenPlayerSourceFailure(
+                PlaybackFailureKind.Authorization,
+                "片源拒绝访问（HTTP $httpStatus），请刷新播放地址或检查服务器。",
+            )
+        404, 410 ->
+            SenPlayerSourceFailure(
+                PlaybackFailureKind.Network,
+                "片源地址已失效（HTTP $httpStatus），请刷新播放地址。",
+            )
+        else -> null
+    }
+
 internal fun PlaybackState.forSenPlayerFailure(
     message: String,
     kind: PlaybackFailureKind,

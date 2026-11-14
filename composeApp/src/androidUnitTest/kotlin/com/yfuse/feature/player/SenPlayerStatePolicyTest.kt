@@ -17,6 +17,17 @@ import kotlin.test.assertTrue
 
 class SenPlayerStatePolicyTest {
     @Test
+    fun upstream_rejection_does_not_label_the_native_engine_unavailable() {
+        val failure = requireNotNull(senPlayerSourceFailure(403))
+        assertEquals(PlaybackFailureKind.Authorization, failure.kind)
+        assertTrue(failure.message.contains("HTTP 403"))
+        assertFalse(failure.message.contains("内核不可用"))
+        assertFalse(failure.kind.penalizesEngine)
+        assertEquals(PlaybackFailureKind.Network, senPlayerSourceFailure(410)?.kind)
+        assertNull(senPlayerSourceFailure(null))
+    }
+
+    @Test
     fun truncated_remote_seek_reopens_once_at_the_requested_movie_position() {
         val recovery = SenPlayerRemoteEndRecovery()
         recovery.onSeek(159_000)

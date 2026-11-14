@@ -57,6 +57,10 @@ internal class AndroidPlaybackHttpProxy(
     private val headerTimeoutMs: Long = PLAYBACK_PROXY_HEADER_TIMEOUT_MS,
 ) : Closeable {
     private val routes = PlaybackProxyRoutes()
+    private val sourceFailures = PlaybackProxyFailureState()
+
+    val terminalHttpFailureStatus: Int? get() = sourceFailures.terminalHttpStatus()
+
     private val cookieManager = CookieManager(null, CookiePolicy.ACCEPT_ALL)
     private val httpClient =
         PlaybackHttpDataSource.client
@@ -132,9 +136,12 @@ internal class AndroidPlaybackHttpProxy(
         cacheable: Boolean = false,
         widgetRequest: WidgetPlaybackRequest? = null,
     ): String {
+        val generation = sourceFailures.beginSource()
         if (!shouldProxyPlaybackNetworkUrl(upstreamUrl)) return upstreamUrl
         val routeId =
-            routes.registerRoot(PlaybackProxyRoute(upstreamUrl, cacheable && widgetRequest == null, widgetRequest))
+            routes.registerRoot(
+                PlaybackProxyRoute(upstreamUrl, cacheable && widgetRequest == null, widgetRequest, generation),
+            )
                 ?: return upstreamUrl
         previewCache =
             if (cacheable && widgetRequest == null && cacheHandle != null) {
@@ -406,6 +413,7 @@ internal class AndroidPlaybackHttpProxy(
             )
             socket.getOutputStream().flush()
         } catch (error: HttpDataSource.InvalidResponseCodeException) {
+            if (!request.isCancelled) sourceFailures.recordHttpStatus(route.sourceGeneration, error.responseCode)
             if (!request.isCancelled && !responseStarted) {
                 if (error.responseCode == 416) {
                     writeRangeNotSatisfiable(socket, knownLength)
@@ -456,6 +464,7 @@ internal class AndroidPlaybackHttpProxy(
             call.execute().use { connection ->
                 val status = connection.code
                 request.ensureOpen()
+                if (method == "GET") sourceFailures.recordHttpStatus(route.sourceGeneration, status)
                 val body = connection.body?.byteStream()
                 val manifest = method == "GET" && connection.isHlsManifest(route.upstreamUrl)
                 if (manifest) {

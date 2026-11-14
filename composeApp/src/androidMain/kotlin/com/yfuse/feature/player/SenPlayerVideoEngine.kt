@@ -154,16 +154,45 @@ internal class SenPlayerVideoEngine(
             generateSequence(error) {
                 it.cause
             }.take(8).filterIsInstance<SenPlayerSession.LicenseUnavailable>().firstOrNull()
+        val httpStatus = proxy?.terminalHttpFailureStatus
+        val sourceFailure = senPlayerSourceFailure(httpStatus)
+        val failureKind =
+            if (license !=
+                null
+            ) {
+                PlaybackFailureKind.Authorization
+            } else {
+                sourceFailure?.kind ?: PlaybackFailureKind.Unknown
+            }
+        AppLog.warning(
+            category = "player.senplayer",
+            event = "senplayer_playback_failed",
+            message = "SenPlayer playback stopped",
+            throwable = error,
+            attributes =
+                mapOf(
+                    "failureKind" to failureKind.name,
+                    "httpStatus" to httpStatus?.toString().orEmpty(),
+                    "exceptionType" to error.javaClass.simpleName,
+                    "nativeErrorCode" to
+                        error.message
+                            ?.takeIf { it.matches(Regex("native_-?[0-9]+")) }
+                            ?.removePrefix("native_")
+                            .orEmpty(),
+                ),
+        )
         mutableState.update {
             if (released.get()) return@update it
             it.forSenPlayerFailure(
                 message =
                     if (license != null) {
                         "$SEN_PLAYER_DISPLAY_NAME 许可未通过（${license.status}）。需要原许可服务允许当前 Yfuse 版本；请手动选择其他内核。"
+                    } else if (sourceFailure != null) {
+                        sourceFailure.message
                     } else {
-                        "$SEN_PLAYER_DISPLAY_NAME 实验内核不可用（${error.javaClass.simpleName}），请手动选择其他内核。"
+                        "$SEN_PLAYER_DISPLAY_NAME 播放失败（${error.javaClass.simpleName}），请重试或查看原因。"
                     },
-                kind = if (license != null) PlaybackFailureKind.Authorization else PlaybackFailureKind.Unknown,
+                kind = failureKind,
             )
         }
         session?.pauseForFailure()
