@@ -8,6 +8,7 @@ import subprocess
 import sys
 import threading
 import time
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 sys.path.insert(0, 'qa-full-library')
@@ -142,7 +143,9 @@ def main():
     measure.reveal = fixture_controls
     failures = 0
     try:
-        for core in ('YCore', 'SenPlayer'):
+        requested_core = os.environ.get('QA_RECOVERY_CORE')
+        assert requested_core in (None, 'YCore', 'SenPlayer')
+        for core in ((requested_core,) if requested_core else ('YCore', 'SenPlayer')):
             run.provision(core)
             recovery_only = '--recovery-only' in sys.argv
             names = ('control.mp4',) if recovery_only else ('control.mp4', 'control.mkv', 'disguised.m3u8')
@@ -167,7 +170,12 @@ def main():
                     recovery_control(core)
                 except Exception as error:
                     failures += 1
-                    measure.measured(core + '-source-recovery-failed', error=type(error).__name__, fixture=True)
+                    measure.measured(core + '-source-recovery-failed', error=type(error).__name__,
+                                     reason=str(error) if isinstance(error, AssertionError) else 'unverified',
+                                     diagnostic=measure.app_events()[-24:], fixture=True)
+                    pixels = ui.adb('exec-out', 'screencap', '-p', output=True)
+                    (out / (core + '-source-recovery-failed.png')).write_bytes(pixels)
+                    (out / (core + '-source-recovery-failed.xml')).write_text(ET.tostring(ui.snapshot(), encoding='unicode'))
 
     finally:
         server.shutdown()

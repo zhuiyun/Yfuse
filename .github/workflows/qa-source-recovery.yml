@@ -1,4 +1,4 @@
-name: Recover from rejected sources without restarting the full app
+name: Diagnose YCore source-switch rejection without restarting the app
 on:
   push:
     branches: [codex/cloud-playback-resilience-20261113]
@@ -34,6 +34,7 @@ jobs:
       matrix: {shard: [0]}
     env:
       QA_SHARD: ${{ matrix.shard }}
+      QA_RECOVERY_CORE: YCore
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 90
     steps:
