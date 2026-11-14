@@ -6,6 +6,8 @@ import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import android.graphics.RectF
+import android.os.Build
+import android.os.Parcel
 import android.os.Process
 import android.view.Surface
 import com.yfuse.core2.demux.YVideoGeometry
@@ -64,7 +66,11 @@ internal class AndroidSoftwareVideoRenderNode {
         require(surface.isValid) { "Software video output Surface is invalid" }
         flush()
         terminalFailure.get()?.let { throw IllegalStateException("Software render lane did not drain", it) }
-        this.surface = surface
+        val replacement = surface.copyForSoftwareRendering()
+        val previous = this.surface
+        this.surface = replacement
+        // Retire before any new frame can connect a second producer to the same buffer queue.
+        if (previous != null) owner().execute(previous::release)
         failure.set(null)
     }
 
@@ -176,13 +182,21 @@ internal class AndroidSoftwareVideoRenderNode {
 
     fun release() {
         flush()
+        val retainedSurface = surface
         surface = null
         val active = synchronized(lifecycleLock) { executor.also { executor = null } }
         val retainedMemory = memory
         memory = null
         // clear retires busy leases, but recycles them only when their Canvas call has returned.
         frames.clear()
-        if (active != null) active.execute { retainedMemory?.close() } else retainedMemory?.close()
+        val dispose: () -> Unit = {
+            try {
+                retainedSurface?.release()
+            } finally {
+                retainedMemory?.close()
+            }
+        }
+        if (active != null) active.execute(dispose) else dispose()
         active?.shutdown()
         renderGeneration.incrementAndGet()
         renderedFrames.set(0)
@@ -216,12 +230,12 @@ internal class AndroidSoftwareVideoRenderNode {
         require(output.isValid)
         val width = target.width
         val height = target.height
-        // Keep software output off HWUI's process-wide RenderThread. A hardware Canvas leaves
-        // an HWUI context on the holder's Surface even after this lane drains. On source switches,
-        // SurfaceView.release then waits on that context from the main thread; a queued swapchain
-        // allocation can wait for the very Surface being detached and deadlock Activity recreation.
-        // The bounded software lane owns the CPU drawing work; MediaCodec/GPU routes are separate.
-        val canvas = output.lockCanvas(null)
+        val canvas =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                runCatching(output::lockHardwareCanvas).getOrElse { output.lockCanvas(null) }
+            } else {
+                output.lockCanvas(null)
+            }
         try {
             if (generation != renderGeneration.get()) return
             require(canvas.width > 0 && canvas.height > 0) { "Software video output has no drawable area" }
@@ -242,6 +256,28 @@ internal class AndroidSoftwareVideoRenderNode {
         } finally {
             output.unlockCanvasAndPost(canvas)
         }
+    }
+}
+
+/**
+ * HWUI must belong to the render lane, never to SurfaceView's Java Surface. Otherwise the main
+ * thread destroys HWUI before it can abandon the old consumer, while RenderThread may be waiting
+ * for a buffer from that consumer. A parcel round trip creates an independent Surface reference;
+ * retiring it on the render lane lets SurfaceView release its own reference without this cycle.
+ */
+private fun Surface.copyForSoftwareRendering(): Surface {
+    val parcel = Parcel.obtain()
+    return try {
+        writeToParcel(parcel, 0)
+        parcel.setDataPosition(0)
+        Surface.CREATOR.createFromParcel(parcel).also {
+            if (!it.isValid) {
+                it.release()
+                error("Software video output Surface reference is invalid")
+            }
+        }
+    } finally {
+        parcel.recycle()
     }
 }
 
