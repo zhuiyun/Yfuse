@@ -1425,6 +1425,14 @@ internal class AndroidAdaptiveCore2YPlayer(
                 return createForcedEnhancedChild(item, singleRequest)
             }
 
+            if (forceSoftwareFallback) {
+                val previous = lastRouteDecision?.takeIf { it.first == item }?.second
+                if (previous != null) {
+                    videoHandoff.close()
+                    routeEvaluator.closePreparedExtractor()
+                    return createInternalSoftwareRoute(item, singleRequest, previous)
+                }
+            }
             val warmedRoute = adoptPreloadedRoute(item, positionMs, target, tunnelAllowed)
             // A route this device already rendered for exactly this media skips the probes and
             // starts at planning; the device-side gates below still run on it.
@@ -1547,6 +1555,7 @@ internal class AndroidAdaptiveCore2YPlayer(
 
             /** What the latest failure of this child tells the recovery decision. */
             var attemptDeterministic = false
+            var platformDecoderOutputRejected = false
             var attemptRanOutOfTime = false
             val networkRecoveryWindow = AndroidNetworkRecoveryWindow()
             val learningStartPositionMs = next.currentPositionMs() + (attachedTarget?.presentationOffsetMs ?: 0L)
@@ -1911,6 +1920,9 @@ internal class AndroidAdaptiveCore2YPlayer(
                     val reportedFailure =
                         if (prematureEnd) null else (next as? YPlaybackFailureReporter)?.lastPlaybackFailure
                     attemptDeterministic = (reportedFailure as? YPlaybackException)?.deterministic == true
+                    platformDecoderOutputRejected =
+                        generateSequence(reportedFailure) { it.cause }.take(16)
+                            .any { it is VideoCodecOutputStateException }
                     attemptRanOutOfTime =
                         yCoreAttemptRanOutOfTime(
                             reported = reportedFailure,
@@ -1982,6 +1994,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                                 protectedContent = failedItem.drmConfiguration != null,
                                 softwareFallbackAttempted = childSoftwareFallbackAttempted,
                                 deterministic = attemptDeterministic,
+                                platformDecoderOutputRejected = platformDecoderOutputRejected,
                                 softwareFallbackAvailable =
                                     yCoreSoftwareRecoveryAvailable(
                                         protectedContent = failedItem.drmConfiguration != null,

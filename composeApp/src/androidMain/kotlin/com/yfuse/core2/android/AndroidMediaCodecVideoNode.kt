@@ -17,6 +17,10 @@ import kotlinx.coroutines.CancellationException
 import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicLong
 
+/** Android rejected output after this codec had already started. */
+internal class VideoCodecOutputStateException(cause: IllegalStateException) :
+    IllegalStateException("Started video decoder rejected output", cause)
+
 /** Result of a non-blocking compressed-sample enqueue. */
 internal enum class YCodecQueueResult {
     Queued,
@@ -536,7 +540,13 @@ internal class AndroidMediaCodecVideoNode(
             }
         }
         val info = MediaCodec.BufferInfo()
-        return when (val outputIndex = decoder.dequeueOutputBuffer(info, 0L)) {
+        val outputIndex = try {
+            decoder.dequeueOutputBuffer(info, 0L)
+        } catch (failure: IllegalStateException) {
+            if (failure is MediaCodec.CodecException && (failure.isTransient || failure.isRecoverable)) throw failure
+            throw VideoCodecOutputStateException(failure)
+        }
+        return when (outputIndex) {
             MediaCodec.INFO_TRY_AGAIN_LATER -> YCodecOutputResult.TryAgain
             MediaCodec.INFO_OUTPUT_FORMAT_CHANGED ->
                 YCodecOutputResult.FormatChanged(decoder.outputFormat)

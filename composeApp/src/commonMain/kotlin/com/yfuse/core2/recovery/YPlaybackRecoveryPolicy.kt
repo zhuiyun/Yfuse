@@ -30,6 +30,7 @@ data class YPlaybackRecoveryContext(
      * without a compatibility executor an enhanced failure there has nowhere left to go.
      */
     val softwareFallbackAvailable: Boolean = true,
+    val platformDecoderOutputRejected: Boolean = false,
 ) {
     init {
         require(sameRouteAttempts >= 0)
@@ -62,6 +63,15 @@ object YPlaybackRecoveryPolicy {
             }
         }
         if (category == YPlaybackFailureCategory.Network) return YPlaybackRecoveryAction.Stop
+        // A fresh decoder may recover from a broken instance. If it rejects output again, changing
+        // demuxers while keeping the same platform decoder repeats the failure on the same movie.
+        if (
+            context.platformDecoderOutputRejected && context.sameRouteAttempts >= MAX_SAME_ROUTE_ATTEMPTS &&
+            context.route == YPlaybackRoute.NativeDirect && category == YPlaybackFailureCategory.Decoder &&
+            context.softwareFallbackAvailable && !context.protectedContent
+        ) {
+            return YPlaybackRecoveryAction.FallbackToSoftware
+        }
         if (
             !context.deterministic &&
             category in SAME_ROUTE_RECOVERABLE_FAILURES &&

@@ -21,6 +21,19 @@ class YPlaybackRecoveryPolicyTest {
     }
 
     @Test
+    fun `repeated direct output failure switches decoder when software can carry the video`() {
+        val failed = context(YPlaybackRoute.NativeDirect, YPlaybackFailureCategory.Decoder, attempts = 0)
+            .copy(platformDecoderOutputRejected = true)
+        assertEquals(YPlaybackRecoveryAction.RetrySameRoute, YPlaybackRecoveryPolicy.decide(failed))
+        val repeated = failed.copy(sameRouteAttempts = 1)
+        assertEquals(YPlaybackRecoveryAction.FallbackToSoftware, YPlaybackRecoveryPolicy.decide(repeated))
+        assertEquals(YPlaybackRecoveryAction.FallbackToEnhanced,
+            YPlaybackRecoveryPolicy.decide(repeated.copy(softwareFallbackAvailable = false)))
+        assertEquals(YPlaybackRecoveryAction.Stop,
+            YPlaybackRecoveryPolicy.decide(repeated.copy(protectedContent = true)))
+    }
+
+    @Test
     fun `enhanced hardware failure advances to YCore software decode`() {
         assertEquals(
             YPlaybackRecoveryAction.FallbackToSoftware,
