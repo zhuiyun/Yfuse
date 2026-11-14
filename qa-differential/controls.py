@@ -24,6 +24,9 @@ class RangeServer(http.server.BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
+    def do_HEAD(self):
+        self.do_GET()
+
     def do_GET(self):
         name = self.path.split('?')[0].rsplit('/', 1)[-1]
         name = 'control.mkv' if name == 'disguised.m3u8' else name
@@ -49,6 +52,8 @@ class RangeServer(http.server.BaseHTTPRequestHandler):
         if match:
             self.send_header('Content-Range', f'bytes {start}-{end}/{size}')
         self.end_headers()
+        if self.command == 'HEAD':
+            return
         try:
             with path.open('rb') as f:
                 f.seek(start)
@@ -79,6 +84,16 @@ def resilient_snapshot():
                 raise
 
 
+def fixture_controls():
+    tree = ui.snapshot()
+    if ui.find(tree, ['打开本机或局域网中的视频？']) is not None:
+        button = ui.find(tree, ['打开'])
+        if button is None:
+            raise AssertionError('fixture confirmation missing')
+        ui.tap(button)
+    return run.playback_controls()
+
+
 def main():
     pilot.engine.guard()
     subprocess.run(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i',
@@ -92,7 +107,7 @@ def main():
     threading.Thread(target=server.serve_forever, daemon=True).start()
     ui.adb('reverse', 'tcp:18764', 'tcp:18764')
     ui.snapshot = resilient_snapshot
-    measure.reveal = run.playback_controls
+    measure.reveal = fixture_controls
     failures = 0
     try:
         for core in ('YCore', 'SenPlayer'):
