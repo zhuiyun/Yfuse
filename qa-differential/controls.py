@@ -98,6 +98,35 @@ def fixture_controls():
     return run.playback_controls()
 
 
+
+def fixture_failure_details(core, label):
+    # This runner has only generated localhost media and no Emby login or signed URLs.
+    raw = ui.shell('cat /data/user/0/com.yfuse/no_backup/diagnostics/diagnostic-*.jsonl')
+    details = []
+    for line in raw.splitlines():
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if row.get('event') not in ('native_enhanced_failed', 'video_output_detach_unconfirmed'):
+            continue
+        item = {key: row.get(key) for key in ('timestamp', 'event', 'exception', 'attributes')}
+        def scrub(value):
+            if isinstance(value, dict):
+                return {key: scrub(data) for key, data in value.items()}
+            if isinstance(value, list):
+                return [scrub(data) for data in value]
+            if isinstance(value, str):
+                return re.sub(r'https?://[^\s"<>]+', '<fixture-url>', value)
+            return value
+        details.append(scrub(item))
+    (out / (core + '-' + label + '-renderer-failures.json')).write_text(json.dumps(details, indent=2))
+    system = subprocess.run(['adb', 'logcat', '-d', '-v', 'threadtime',
+                             'Surface:W', 'SurfaceView:W', 'BufferQueueProducer:W',
+                             'AndroidRuntime:E', '*:S'], capture_output=True, text=True, timeout=25)
+    (out / (core + '-' + label + '-surface.txt')).write_text(system.stdout)
+
+
 def recovery_control(core, ordinal):
     """A failed source must not poison the next movie in the same app process."""
     prefix = core + '-source-recovery-' + str(ordinal)
@@ -149,10 +178,12 @@ def main():
             run.provision(core)
             recovery_only = '--recovery-only' in sys.argv
             names = ('control.mp4',) if recovery_only else ('control.mp4', 'control.mkv', 'disguised.m3u8')
-            for name in names:
-                label = name.replace('.', '-')
+            if os.environ.get('QA_OUTPUT_REPRO') == 'true':
+                names = names * 2
+            for case_index, name in enumerate(names):
+                label = name.replace('.', '-') + (('-' + str(case_index + 1)) if os.environ.get('QA_OUTPUT_REPRO') == 'true' else '')
                 media = {'location': 'http://127.0.0.1:18764/' + name, 'container': name.rsplit('.', 1)[-1],
-                         'seconds': 600, 'targets': [] if recovery_only else [.15, .80, .35, .45]}
+                         'seconds': 600, 'targets': [] if recovery_only or os.environ.get('QA_OUTPUT_REPRO') == 'true' else [.15, .80, .35, .45]}
                 start = time.time()
                 try:
                     pilot.one(core, label, media)
@@ -160,6 +191,10 @@ def main():
                 except Exception as error:
                     failures += 1
                     result = 'failed'
+                    try:
+                        fixture_failure_details(core, label)
+                    except Exception as capture_error:
+                        measure.measured(core + '-diagnostic-capture', error=type(capture_error).__name__)
                     measure.measured(core + '-' + label + '-failed', error=type(error).__name__,
                                      diagnostic=measure.app_events()[-18:], fixture=True)
                 pixels = ui.adb('exec-out', 'screencap', '-p', output=True)
