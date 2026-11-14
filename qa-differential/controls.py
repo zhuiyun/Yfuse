@@ -29,6 +29,9 @@ class RangeServer(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         name = self.path.split('?')[0].rsplit('/', 1)[-1]
+        if name == 'denied.mp4':
+            self.send_error(403)
+            return
         name = 'control.mkv' if name == 'disguised.m3u8' else name
         if name not in ('control.mp4', 'control.mkv'):
             self.send_error(404)
@@ -94,6 +97,35 @@ def fixture_controls():
     return run.playback_controls()
 
 
+def recovery_control(core):
+    """A failed source must not poison the next movie in the same app process."""
+    prefix = core + '-source-recovery'
+    pid = ui.shell('pidof', ui.pkg).strip()
+    assert pid
+    pilot.launch({'location': 'http://127.0.0.1:18764/denied.mp4', 'container': 'mp4'})
+    until = time.monotonic() + 45
+    while time.monotonic() < until:
+        tree = ui.snapshot()
+        if ui.find(tree, ['打开本机或局域网中的视频？']) is not None:
+            ui.tap(ui.find(tree, ['打开']))
+        if ui.find(tree, ['播放遇到问题']) is not None:
+            break
+        time.sleep(.5)
+    else:
+        raise AssertionError('intentional source failure not shown')
+    measure.measured(prefix + '-rejection', verified=True, expectedHTTP=403, fixture=True)
+    ui.shell('input', 'keyevent', 'KEYCODE_BACK')
+    media = {'location': 'http://127.0.0.1:18764/control.mp4', 'container': 'mp4', 'seconds': 600}
+    before = time.time()
+    pilot.launch(media)
+    proof = measure.decode_playback(prefix, None, media['seconds'])
+    assert ui.shell('pidof', ui.pkg).strip() == pid, 'app process restarted during recovery'
+    assert pilot.engine.engine_evidence(core, before)['active'], 'recovery engine not verified'
+    measure.measured(prefix + '-load', verified=True, sameProcess=True, fixture=True, **proof)
+    proof = pilot.pause_resume(prefix, media)
+    measure.measured(prefix + '-resume', verified=True, fixture=True, **proof)
+
+
 def main():
     pilot.engine.guard()
     subprocess.run(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i',
@@ -112,10 +144,12 @@ def main():
     try:
         for core in ('YCore', 'SenPlayer'):
             run.provision(core)
-            for name in ('control.mp4', 'control.mkv', 'disguised.m3u8'):
+            recovery_only = '--recovery-only' in sys.argv
+            names = ('control.mp4',) if recovery_only else ('control.mp4', 'control.mkv', 'disguised.m3u8')
+            for name in names:
                 label = name.replace('.', '-')
                 media = {'location': 'http://127.0.0.1:18764/' + name, 'container': name.rsplit('.', 1)[-1],
-                         'seconds': 600, 'targets': [.15, .80, .35, .45]}
+                         'seconds': 600, 'targets': [] if recovery_only else [.15, .80, .35, .45]}
                 start = time.time()
                 try:
                     pilot.one(core, label, media)
@@ -128,6 +162,13 @@ def main():
                 pixels = ui.adb('exec-out', 'screencap', '-p', output=True)
                 (out / (core + '-' + label + '-' + result + '.png')).write_bytes(pixels)
                 measure.measured(core + '-' + label + '-duration', seconds=round(time.time() - start, 2), fixture=True)
+            if recovery_only:
+                try:
+                    recovery_control(core)
+                except Exception as error:
+                    failures += 1
+                    measure.measured(core + '-source-recovery-failed', error=type(error).__name__, fixture=True)
+
     finally:
         server.shutdown()
         (out / 'observer-timeouts.json').write_text(json.dumps(instrument_timeouts))

@@ -1,0 +1,102 @@
+name: Recover from rejected sources without restarting the full app
+on:
+  push:
+    branches: [codex/cloud-playback-resilience-20261113]
+    paths:
+      - '.github/workflows/qa-source-recovery.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  driver:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - name: Build network and gesture recorder
+        run: |
+          mkdir qa-private-driver
+          python3 qa-full-library/build_input.py
+          sed 's|adb install -r driver.apk|cp driver.apk "$GITHUB_WORKSPACE/qa-private-driver/driver.apk"|' qa-source-trace/build-driver.sh > "$RUNNER_TEMP/driver.sh"
+          bash "$RUNNER_TEMP/driver.sh"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: private-input-driver, path: qa-private-driver/, retention-days: 5}
+  private_source:
+    needs: driver
+    name: Same-process playback failure recovery
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix: {shard: [0]}
+    env:
+      QA_SHARD: ${{ matrix.shard }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - name: Prepare one-use decryption key and emulator
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p private-key private-results preview
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out "$RUNNER_TEMP/qa-private.pem" 2>/dev/null
+          openssl pkey -in "$RUNNER_TEMP/qa-private.pem" -pubout -out private-key/public.pem
+          sudo apt-get update -qq
+          sudo apt-get install -y python3-pil python3-cryptography ffmpeg
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: private-input-driver, path: driver}
+      - name: Boot native ARM64 emulator before issuing short-lived media locations
+        run: bash qa-arm-dual/redroid.sh
+      - name: Verify the exact repaired full APK
+        env: {API_TOKEN: "${{ github.token }}"}
+        run: |
+          set -euo pipefail
+          api="https://api.github.com/repos/$GITHUB_REPOSITORY"
+          build=43591393564
+          expected=6b3291e85221f29d8579ac48290781ebdc5311af
+          for i in $(seq 1 220); do
+            state=$(curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/$build")
+            test "$(jq -r '.head_sha' <<<"$state")" = "$expected"
+            if [[ "$(jq -r '.status' <<<"$state")" = completed ]]; then
+              test "$(jq -r '.conclusion' <<<"$state")" = success
+              break
+            fi
+            sleep 10
+          done
+          artifact=$(curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/$build/artifacts" | jq -er '.artifacts[] | select(.name=="repaired-full-app" and .expired==false) | .id')
+          curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/artifacts/$artifact/zip" > "$RUNNER_TEMP/preview.zip"
+          unzip -q "$RUNNER_TEMP/preview.zip" -d preview
+          (cd preview && sha256sum -c apk.sha256)
+          grep -Fx "app=$expected" preview/provenance.txt
+      - name: Open media from the full app library and measure playback
+        run: |
+          test "$GITHUB_ACTIONS" = true
+          (cd preview && sha256sum -c apk.sha256)
+          adb root || true
+          adb wait-for-device
+          adb install -r -g preview/composeApp-release.apk
+          adb install -r driver/driver.apk
+          adb shell wm size 720x1280
+          adb shell wm density 260
+          adb shell settings put secure immersive_mode_confirmations confirmed
+          adb shell settings put secure accessibility_interactive_ui_timeout_ms 60000
+          adb shell wm dismiss-keyguard
+          touch /tmp/yfuse-tree-active
+          /usr/bin/python3 qa-differential/controls.py --recovery-only
+      - name: Clear disposable Android session
+        if: always()
+        run: |
+          if command -v adb >/dev/null; then timeout 15 adb shell pm clear com.yfuse || true; fi
+          rm -f "$RUNNER_TEMP/qa-private.pem" "$RUNNER_TEMP/envelope.json"
+      - name: Retain numeric playback measurements
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: source-recovery-results
+          path: private-results
+          retention-days: 7
