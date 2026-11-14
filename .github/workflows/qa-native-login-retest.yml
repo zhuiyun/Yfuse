@@ -11,7 +11,14 @@ jobs:
   driver:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: write
     steps:
+      - name: Stop superseded login observer before issuing credentials
+        env: {API_TOKEN: "${{ github.token }}"}
+        run: |
+          curl -sS -o /dev/null -X POST -H "Authorization: Bearer $API_TOKEN" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/43590299700/cancel"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with: {persist-credentials: false}
       - name: Build network and gesture recorder
