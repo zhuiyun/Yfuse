@@ -44,7 +44,10 @@ internal class AndroidSoftwareVideoRenderNode {
         BoundedFrameLeasePool<Pair<Int, Int>, Bitmap>(
             MAX_IN_FLIGHT_SOFTWARE_FRAMES,
             { (width, height) -> Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888) },
-            Bitmap::recycle,
+            // Hardware Canvas records bitmap references. Returning from unlockCanvasAndPost
+            // does not establish that the GPU has stopped reading them. Drop our pool reference
+            // on retirement; Android/Skia must release the pixels after the last drawing owner.
+            {},
         )
 
     @Volatile
@@ -187,7 +190,7 @@ internal class AndroidSoftwareVideoRenderNode {
         val active = synchronized(lifecycleLock) { executor.also { executor = null } }
         val retainedMemory = memory
         memory = null
-        // clear retires busy leases, but recycles them only when their Canvas call has returned.
+        // Retire pool references; a submitted hardware display list may still retain the pixels.
         frames.clear()
         val dispose: () -> Unit = {
             try {
