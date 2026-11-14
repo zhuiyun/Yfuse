@@ -1,4 +1,4 @@
-name: Retest original Emby media through native login with render-owned Surfaces
+name: Verify eight Emby originals with owned CPU Surface full app
 on:
   push:
     branches: [codex/cloud-playback-resilience-20261113]
@@ -63,8 +63,8 @@ jobs:
         run: |
           set -euo pipefail
           api="https://api.github.com/repos/$GITHUB_REPOSITORY"
-          build=43597000215
-          expected=f3493b67e3c618fa5bc709af81297ac665f62990
+          build=43602610635
+          expected=f92accbe4a33e63961b6caa30fe4e3b8352eea1e
           for i in $(seq 1 220); do
             state=$(curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/$build")
             test "$(jq -r '.head_sha' <<<"$state")" = "$expected"
