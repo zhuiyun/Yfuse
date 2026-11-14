@@ -1,4 +1,4 @@
-name: Verify repeated same-process recovery after YCore Surface repair
+name: Verify repeated source recovery with render-owned Surfaces
 on:
   push:
     branches: [codex/cloud-playback-resilience-20261113]
@@ -57,8 +57,8 @@ jobs:
         run: |
           set -euo pipefail
           api="https://api.github.com/repos/$GITHUB_REPOSITORY"
-          build=43594625189
-          expected=ea8c75119647f2b63f09444325ea3e6c8bee689d
+          build=43597000215
+          expected=f3493b67e3c618fa5bc709af81297ac665f62990
           for i in $(seq 1 220); do
             state=$(curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/$build")
             test "$(jq -r '.head_sha' <<<"$state")" = "$expected"
