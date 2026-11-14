@@ -721,10 +721,19 @@ private fun InputStream.readBounded(limit: Int): ByteArray {
 }
 
 private fun Response.isHlsManifest(originalUrl: String): Boolean {
+    if (!isSuccessful) return false
+    // A seek can land on arbitrary media bytes, including an embedded playlist signature.
+    if (header("Content-Range")?.let { !it.startsWith("bytes 0-", ignoreCase = true) } == true) return false
     val contentType = header("Content-Type").orEmpty().lowercase()
     val path = request.url.encodedPath.lowercase()
     val originalPath = runCatching { URI(originalUrl).path }.getOrNull().orEmpty().lowercase()
-    return "mpegurl" in contentType || path.endsWith(".m3u8") || originalPath.endsWith(".m3u8")
+    if ("mpegurl" !in contentType && !path.endsWith(".m3u8") && !originalPath.endsWith(".m3u8")) return false
+    // Emby and signed redirects can return a seekable MKV/MP4 behind a playlist URL.
+    // peekBody retains these bytes in OkHttp's source, so passthrough loses no prefix.
+    return peekBody(HLS_SIGNATURE_PROBE_BYTES)
+        .string()
+        .trimStart('\uFEFF', ' ', '\r', '\n', '\t')
+        .startsWith("#EXTM3U")
 }
 
 private const val LOOPBACK_HOST = "127.0.0.1"
@@ -735,6 +744,7 @@ private const val UPSTREAM_READ_TIMEOUT_MS = 30_000
 private const val UNKNOWN_LENGTH = -1L
 private const val NETWORK_BUFFER_BYTES = 64 * 1024
 private const val MAX_HLS_MANIFEST_BYTES = 4 * 1024 * 1024
+private const val HLS_SIGNATURE_PROBE_BYTES = 256L
 private val HTTP_BYTE_RANGE = Regex("^bytes=(\\d+)-(\\d*)$", RegexOption.IGNORE_CASE)
 private val CONTENT_RANGE_TOTAL = Regex("^bytes \\d+-\\d+/(\\d+|\\*)$", RegexOption.IGNORE_CASE)
 private val FORWARDED_REQUEST_HEADERS =
