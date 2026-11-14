@@ -5,10 +5,15 @@ import android.app.AlertDialog
 import android.content.ClipData
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.StateListDrawable
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Process
 import android.provider.OpenableColumns
+import android.widget.Button
 import android.widget.Toast
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.logging.AppLog
@@ -172,11 +177,43 @@ class ExternalPlaybackActivity : Activity() {
                 .setNegativeButton("取消") { _, _ -> answer.complete(false) }
                 .setOnCancelListener { answer.complete(false) }
                 .show()
+        if (Build.VERSION.SDK_INT in Build.VERSION_CODES.S..Build.VERSION_CODES.S_V2) {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).useStaticTouchFeedback()
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).useStaticTouchFeedback()
+        }
         return try {
             answer.await()
         } finally {
             dialog.dismiss()
         }
+    }
+
+    /** Android 12's patterned ripple can abort in SkSL; keep feedback without its runtime shader. */
+    private fun Button.useStaticTouchFeedback() {
+        val colors = context.obtainStyledAttributes(intArrayOf(android.R.attr.colorControlHighlight))
+        val highlight =
+            try {
+                colors.getColor(0, 0x33FFFFFF)
+            } finally {
+                colors.recycle()
+            }
+        val left = paddingLeft
+        val top = paddingTop
+        val right = paddingRight
+        val bottom = paddingBottom
+        background =
+            StateListDrawable().apply {
+                addState(
+                    intArrayOf(android.R.attr.state_enabled, android.R.attr.state_pressed),
+                    ColorDrawable(highlight),
+                )
+                addState(
+                    intArrayOf(android.R.attr.state_enabled, android.R.attr.state_focused),
+                    ColorDrawable(highlight),
+                )
+                addState(intArrayOf(), ColorDrawable(Color.TRANSPARENT))
+            }
+        setPadding(left, top, right, bottom)
     }
 
     /**
