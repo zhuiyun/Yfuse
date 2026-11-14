@@ -6,7 +6,6 @@ import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import android.graphics.RectF
-import android.os.Build
 import android.os.Parcel
 import android.os.Process
 import android.view.Surface
@@ -44,10 +43,7 @@ internal class AndroidSoftwareVideoRenderNode {
         BoundedFrameLeasePool<Pair<Int, Int>, Bitmap>(
             MAX_IN_FLIGHT_SOFTWARE_FRAMES,
             { (width, height) -> Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888) },
-            // Hardware Canvas records bitmap references. Returning from unlockCanvasAndPost
-            // does not establish that the GPU has stopped reading them. Drop our pool reference
-            // on retirement; Android/Skia must release the pixels after the last drawing owner.
-            {},
+            Bitmap::recycle,
         )
 
     @Volatile
@@ -190,7 +186,7 @@ internal class AndroidSoftwareVideoRenderNode {
         val active = synchronized(lifecycleLock) { executor.also { executor = null } }
         val retainedMemory = memory
         memory = null
-        // Retire pool references; a submitted hardware display list may still retain the pixels.
+        // CPU Canvas consumes pixels synchronously. Active leases retire after posting finishes.
         frames.clear()
         val dispose: () -> Unit = {
             try {
@@ -233,12 +229,9 @@ internal class AndroidSoftwareVideoRenderNode {
         require(output.isValid)
         val width = target.width
         val height = target.height
-        val canvas =
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                runCatching(output::lockHardwareCanvas).getOrElse { output.lockCanvas(null) }
-            } else {
-                output.lockCanvas(null)
-            }
+        // Keep software presentation independent of HWUI's asynchronous rendering context.
+        // The owned Surface keeps this CPU connection separate from SurfaceView replacement.
+        val canvas = output.lockCanvas(null)
         try {
             if (generation != renderGeneration.get()) return
             require(canvas.width > 0 && canvas.height > 0) { "Software video output has no drawable area" }
@@ -263,10 +256,9 @@ internal class AndroidSoftwareVideoRenderNode {
 }
 
 /**
- * HWUI must belong to the render lane, never to SurfaceView's Java Surface. Otherwise the main
- * thread destroys HWUI before it can abandon the old consumer, while RenderThread may be waiting
- * for a buffer from that consumer. A parcel round trip creates an independent Surface reference;
- * retiring it on the render lane lets SurfaceView release its own reference without this cycle.
+ * Canvas locking state and the CPU producer connection belong to this render lane, not to
+ * SurfaceView's mutable Java Surface. A parcel round trip keeps an independent native reference;
+ * the UI can replace its Surface while pending draws retain their original output until retired.
  */
 private fun Surface.copyForSoftwareRendering(): Surface {
     val parcel = Parcel.obtain()
