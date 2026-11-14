@@ -1,4 +1,4 @@
-name: Trace YCore main-thread ANR while replacing an active source
+name: Verify repeated same-process recovery after YCore Surface repair
 on:
   push:
     branches: [codex/cloud-playback-resilience-20261113]
@@ -34,7 +34,6 @@ jobs:
       matrix: {shard: [0]}
     env:
       QA_SHARD: ${{ matrix.shard }}
-      QA_RECOVERY_CORE: YCore
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 90
     steps:
@@ -58,8 +57,8 @@ jobs:
         run: |
           set -euo pipefail
           api="https://api.github.com/repos/$GITHUB_REPOSITORY"
-          build=43591393564
-          expected=6b3291e85221f29d8579ac48290781ebdc5311af
+          build=43594625189
+          expected=ea8c75119647f2b63f09444325ea3e6c8bee689d
           for i in $(seq 1 220); do
             state=$(curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/$build")
             test "$(jq -r '.head_sha' <<<"$state")" = "$expected"

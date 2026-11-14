@@ -98,9 +98,9 @@ def fixture_controls():
     return run.playback_controls()
 
 
-def recovery_control(core):
+def recovery_control(core, ordinal):
     """A failed source must not poison the next movie in the same app process."""
-    prefix = core + '-source-recovery'
+    prefix = core + '-source-recovery-' + str(ordinal)
     pid = ui.shell('pidof', ui.pkg).strip()
     assert pid
     pilot.launch({'location': 'http://127.0.0.1:18764/denied.mp4', 'container': 'mp4'})
@@ -167,7 +167,8 @@ def main():
                 measure.measured(core + '-' + label + '-duration', seconds=round(time.time() - start, 2), fixture=True)
             if recovery_only:
                 try:
-                    recovery_control(core)
+                    for ordinal in range(1, 6):
+                        recovery_control(core, ordinal)
                 except Exception as error:
                     failures += 1
                     measure.measured(core + '-source-recovery-failed', error=type(error).__name__,
