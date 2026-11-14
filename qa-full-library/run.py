@@ -292,16 +292,23 @@ def controls(prefix, media):
         measure.measured(prefix+'-drag',issued=True,ordinal=ordinal)
         proof=measure.decode_playback(prefix,round(media['seconds']*fraction),media['seconds'])
         measure.measured(prefix+'-landing',ordinal=ordinal,verified=True,**proof)
-    _,tree=measure.reveal()
-    old=measure.media_clock(tree)
-    if old is None: raise RuntimeError('position unavailable')
-    im=pilot.screen()
-    x,y=round(im.width*.82),round(im.height*.38)
-    ui.shell(f'input tap {x} {y}; sleep .09; input tap {x} {y}')
-    forward=measure.decode_playback(prefix,old+10,media['seconds'])
-    if forward['laterPos']-old < forward['secToConfirm']+4:raise RuntimeError('fast forward')
-    measure.measured(prefix+'-fast-forward',verified=True,**forward)
+    fast_forward(prefix, media)
     measure.measured(prefix+'-resume',verified=True,**pilot.pause_resume(prefix,media))
+
+
+def fast_forward(prefix, media):
+    _, tree = measure.reveal()
+    old = measure.media_clock(tree)
+    if old is None:
+        raise RuntimeError('position unavailable')
+    im = pilot.screen()
+    x, y = round(im.width * .82), round(im.height * .38)
+    ui.shell(f'input tap {x} {y}; sleep .09; input tap {x} {y}')
+    measure.measured(prefix+'-fast-forward-input', issued=True, before=old)
+    proof = measure.decode_playback(prefix, old + 10, media['seconds'])
+    if proof['firstPos'] - old < proof['secToFirst'] + 4:
+        raise RuntimeError('fast forward')
+    measure.measured(prefix+'-fast-forward', verified=True, **proof)
 
 
 def main():
@@ -336,7 +343,11 @@ def main():
                         if not any(name in legend for name in expected):raise RuntimeError('unconfirmed engine')
                     capture(prefix+'-playing')
                     measure.measured(prefix+'-load',verified=True,**proof)
-                    if not payload.get('startupAudit'):
+                    if payload.get('singleControl') == 'resume':
+                        measure.measured(prefix+'-resume', verified=True, **pilot.pause_resume(prefix, media))
+                    elif payload.get('singleControl') == 'fast-forward':
+                        fast_forward(prefix, media)
+                    elif not payload.get('startupAudit'):
                         controls(prefix,media)
                 except Exception as error:
                     failures+=1
