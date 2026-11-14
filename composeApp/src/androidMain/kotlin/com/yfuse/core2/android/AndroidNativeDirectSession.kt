@@ -436,15 +436,7 @@ internal class AndroidNativeDirectSession(
             }
         }
         abortIfReleased()
-        externalSubtitleSession.reset(item)
-        externalSubtitles = externalSubtitleSession.tracks
-        selectedExternalSubtitleId = externalSubtitleSession.defaultId
-        if (item.initialTrackSelection?.subtitlesDisabled == true) selectedExternalSubtitleId = null
-        val initialSubtitle = subtitleTracks().matchingPreference(item.initialTrackSelection?.subtitle)
-        if (initialSubtitle != null && item.initialTrackSelection?.subtitlesDisabled != true) {
-            subtitleTrackIndex = initialSubtitle.id.removePrefix(SUBTITLE_TRACK_PREFIX).toIntOrNull()
-            selectedExternalSubtitleId = initialSubtitle.id.takeIf { subtitleTrackIndex == null }
-        }
+        prepareInitialSubtitles(item)
         prepareInitialTracks(item)
         val sourceBitRateBitsPerSecond =
             maxOf(
@@ -530,6 +522,18 @@ internal class AndroidNativeDirectSession(
         }
         demux.startReadAhead()
         if (requestedPlay) startPlayback()
+    }
+
+    private fun prepareInitialSubtitles(item: YMediaItem) {
+        externalSubtitleSession.reset(item)
+        externalSubtitles = externalSubtitleSession.tracks
+        selectedExternalSubtitleId = externalSubtitleSession.defaultId
+        if (item.initialTrackSelection?.subtitlesDisabled == true) selectedExternalSubtitleId = null
+        val initialSubtitle = subtitleTracks().matchingPreference(item.initialTrackSelection?.subtitle)
+        if (initialSubtitle != null && item.initialTrackSelection?.subtitlesDisabled != true) {
+            subtitleTrackIndex = initialSubtitle.id.removePrefix(SUBTITLE_TRACK_PREFIX).toIntOrNull()
+            selectedExternalSubtitleId = initialSubtitle.id.takeIf { subtitleTrackIndex == null }
+        }
     }
 
     /** Selects initial tracks and their formats before opening codecs or starting read-ahead. */

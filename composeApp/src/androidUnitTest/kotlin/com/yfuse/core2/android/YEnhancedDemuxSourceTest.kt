@@ -55,11 +55,31 @@ class YEnhancedDemuxSourceTest {
     }
 
     @Test
-    fun loopbackAndFileSourcesAreNotWrappedAgain() {
-        listOf("http://127.0.0.1:12345/media/opaque", "file:///video.mkv").forEach { uri ->
+    fun ownedProxyAndFileSourcesAreNotWrappedAgain() {
+        listOf(
+            "http://127.0.0.1:12345/$YCORE_HTTP_ROUTE_PREFIX/opaque/resource.mkv",
+            "http://localhost:12345/$YCORE_HTTP_ROUTE_PREFIX/opaque/resource.mkv",
+            "http://[::1]:12345/$YCORE_HTTP_ROUTE_PREFIX/opaque/resource.mkv",
+            "file:///video.mkv",
+        ).forEach { uri ->
             val source = enhancedDemuxSource(item.copy(uri = uri), localize = { error("Unexpected proxy") })
             assertEquals(uri, source.uri)
             assertEquals(item.headers, source.headers)
+        }
+    }
+
+    @Test
+    fun localMediaServersStillUseTheOwnedTransport() {
+        listOf("http://127.0.0.1:8096/Videos/1/stream", "http://localhost:8096/media/opaque").forEach { uri ->
+            val upstream = item.copy(uri = uri)
+            val local = "http://127.0.0.1:12345/$YCORE_HTTP_ROUTE_PREFIX/opaque/resource.mkv"
+            val source = enhancedDemuxSource(upstream) { requested ->
+                assertSame(upstream, requested)
+                local
+            }
+            assertEquals(local, source.uri)
+            assertTrue(source.headers.isEmpty())
+            assertNull(source.transportCredentials)
         }
     }
 
