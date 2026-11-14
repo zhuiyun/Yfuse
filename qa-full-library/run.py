@@ -258,6 +258,30 @@ def widget_route(core,media,account):
     raise RuntimeError('internal player not opened')
 
 
+def playback_controls():
+    # The player presents its own failure details. Tapping around this overlay can hide
+    # the cause or accidentally pause playback; return the real player result immediately.
+    toggled = False
+    for _ in range(5):
+        tree = ui.snapshot()
+        if matching(tree, ['播放遇到问题', '播放状态']) is not None:
+            raise RuntimeError('player error screen')
+        tutorial = matching(tree, ['知道了', 'Got it'])
+        if tutorial is not None:
+            press_node(tutorial, tree)
+            continue
+        bounds = measure.rail(tree)
+        if bounds:
+            return bounds, tree
+        if not toggled:
+            im = pilot.screen()
+            # A single tap on the left side reveals the chrome, outside the central play button.
+            pilot.tap(im.width * .28, im.height * .39)
+            toggled = True
+        time.sleep(.45)
+    raise AssertionError('no progress control')
+
+
 def controls(prefix, media):
     for ordinal,fraction in enumerate(media['targets'],1):
         (left,top,right,bottom),_=measure.reveal()
@@ -285,6 +309,7 @@ def main():
     payload=measure.load_envelope()
     screenshot_key=base64.b64decode(payload['screenKey'])
     pilot.engine.guard()
+    measure.reveal = playback_controls
     failures=0
     try:
         cores=['YCore'] if payload.get('startupAudit') else ['YCore','SenPlayer']

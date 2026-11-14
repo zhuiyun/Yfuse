@@ -60,8 +60,8 @@ jobs:
         run: |
           set -euo pipefail
           api="https://api.github.com/repos/$GITHUB_REPOSITORY"
-          build=43529479855
-          expected=23a1bf859ef71a238a250e886df37fffa578154f
+          build=43532721357
+          expected=2565beffb271ae2f2640c2b5c94dfbd0daf74a01
           for i in $(seq 1 220); do
             state=$(curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/$build")
             test "$(jq -r '.head_sha' <<<"$state")" = "$expected"

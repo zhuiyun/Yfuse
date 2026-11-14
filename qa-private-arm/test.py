@@ -92,7 +92,7 @@ def decode_playback(label,target,duration,max_wait=60):
     speech=[]
     laststatus=None
     history=[]
-    max_wait=42 if target is None else 32
+    max_wait=max_wait if target is None else min(max_wait, 40)
     while time.monotonic()-begin<max_wait:
         try:r,tree=reveal()
         except AssertionError:
