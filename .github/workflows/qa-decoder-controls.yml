@@ -1,4 +1,4 @@
-name: Verify dual-core playback after Android 12 dialog fix
+name: Verify dual-core playback with retained frame bitmaps
 on:
   push:
     branches: [codex/cloud-playback-resilience-20261113]
@@ -57,8 +57,8 @@ jobs:
         run: |
           set -euo pipefail
           api="https://api.github.com/repos/$GITHUB_REPOSITORY"
-          build=43599256915
-          expected=c2e9d15ed372cbe1dce5a35c0c318e378ad13e0d
+          build=43601302192
+          expected=2870d75c4b39406dd850c1bf722489b594003042
           for i in $(seq 1 220); do
             state=$(curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/$build")
             test "$(jq -r '.head_sha' <<<"$state")" = "$expected"
