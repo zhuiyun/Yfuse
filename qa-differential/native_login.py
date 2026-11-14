@@ -27,13 +27,16 @@ stage = 'begin'
 
 def field(label, value):
     p = '/data/local/tmp/yfuse-qa-login-field'
-    subprocess.run(['adb', 'shell', 'umask 077; cat > ' + p], input=value.encode(), capture_output=True, check=True)
+    subprocess.run(['adb', 'shell', 'umask 077; cat > ' + p + '; chown shell:shell ' + p], input=value.encode(), capture_output=True, check=True)
     try:
         for attempt in range(5):
             result = ui.adb('shell', 'am', 'instrument', '-w', '-e', 'mode', 'loginfield', '-e', 'label',
                             base64.b64encode(label.encode()).decode(), 'qa.yfuse.gesture/.Driver', t=25)
             if 'changed=true' in result:
                 return
+            if 'error=' in result:
+                measure.measured('login-field-driver-error', field=label, driverError=True)
+                raise RuntimeError('login observer rejected field input')
             width, height = ui.size()
             ui.shell('input', 'swipe', width // 2, height * 68 // 100, width // 2, height * 38 // 100, 350)
         raise RuntimeError('login field unavailable')
@@ -87,6 +90,8 @@ try:
     stage = 'enter-origin'
     field('地址', 'http://47.112.219.60:19001/emby')
     field('端口', '19001')
+    visible = ' '.join(n.get('text', '') for n in ui.nodes(ui.snapshot()))
+    assert '47.112.219.60' in visible and '19001' in visible
     field('显示名称', run.server_name)
     stage = 'enter-credentials'
     field('用户名', payload['credentials']['username'])
