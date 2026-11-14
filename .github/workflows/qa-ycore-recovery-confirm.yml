@@ -1,4 +1,4 @@
-name: Independently verify YCore recovery with an owned CPU Surface
+name: Independently verify YCore recovery after producer Surface renewal
 on:
   push:
     branches: [codex/cloud-playback-resilience-20261113]
@@ -58,8 +58,8 @@ jobs:
         run: |
           set -euo pipefail
           api="https://api.github.com/repos/$GITHUB_REPOSITORY"
-          build=43602610635
-          expected=f92accbe4a33e63961b6caa30fe4e3b8352eea1e
+          build=43605265241
+          expected=ab90504ab7595cf98f0f6e3cf172362a2624d011
           for i in $(seq 1 220); do
             state=$(curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/$build")
             test "$(jq -r '.head_sha' <<<"$state")" = "$expected"
