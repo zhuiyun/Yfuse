@@ -154,9 +154,17 @@ internal class SenPlayerRemoteEndRecovery {
         if (kotlin.math.abs(target - positionMs) <= 2_000L) seekTargetMs = null
     }
 
-    fun recoveryPosition(positionMs: Long, durationMs: Long): Long? {
+    fun recoveryPosition(
+        positionMs: Long,
+        durationMs: Long,
+    ): Long? {
         val resumeMs = seekTargetMs ?: positionMs
-        if (attempted || !com.yfuse.core2.api.isPrematurePlaybackEnd(positionMs, durationMs)) return null
+        if (attempted ||
+            !com.yfuse.core2.api
+                .isPrematurePlaybackEnd(positionMs, durationMs)
+        ) {
+            return null
+        }
         attempted = true
         return resumeMs.coerceIn(0L, durationMs)
     }

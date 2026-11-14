@@ -73,10 +73,11 @@ class YEnhancedDemuxSourceTest {
         listOf("http://127.0.0.1:8096/Videos/1/stream", "http://localhost:8096/media/opaque").forEach { uri ->
             val upstream = item.copy(uri = uri)
             val local = "http://127.0.0.1:12345/$YCORE_HTTP_ROUTE_PREFIX/opaque/resource.mkv"
-            val source = enhancedDemuxSource(upstream) { requested ->
-                assertSame(upstream, requested)
-                local
-            }
+            val source =
+                enhancedDemuxSource(upstream) { requested ->
+                    assertSame(upstream, requested)
+                    local
+                }
             assertEquals(local, source.uri)
             assertTrue(source.headers.isEmpty())
             assertNull(source.transportCredentials)

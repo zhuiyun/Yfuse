@@ -1762,8 +1762,10 @@ internal class AndroidYCoreHttpProxy(
             try {
                 return serveBinary(socket, route, method, range)
             } catch (failure: IOException) {
-                if (socket in responsesStarted || !failure.canRetryHlsSegment() ||
-                    closed.get() || generation != latestPlaybackFeedback()?.value?.generation ||
+                if (socket in responsesStarted ||
+                    !failure.canRetryHlsSegment() ||
+                    closed.get() ||
+                    generation != latestPlaybackFeedback()?.value?.generation ||
                     System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(delayMs) >= deadlineNs
                 ) {
                     throw failure
@@ -1931,7 +1933,16 @@ internal class AndroidYCoreHttpProxy(
                 acceptRanges = seekable,
             )
             if (method == "GET") {
-                val scrubWriter = if (route.drmProtected) null else BufferedScrubMedia.lookup(route.upstreamUri, route.upstreamHeaders, route.credentials)
+                val scrubWriter =
+                    if (route.drmProtected) {
+                        null
+                    } else {
+                        BufferedScrubMedia.lookup(
+                            route.upstreamUri,
+                            route.upstreamHeaders,
+                            route.credentials,
+                        )
+                    }
                 var networkReadDurationNs = 0L
                 var transferredBytes = 0L
                 val buffer = ByteArray(NETWORK_BUFFER_BYTES)
@@ -2389,17 +2400,22 @@ private const val LOOPBACK_HOST = "127.0.0.1"
 private const val LOOPBACK_BACKLOG = 8
 internal const val YCORE_HTTP_ROUTE_PREFIX = "ycore-resource"
 private const val NETWORK_BUFFER_BYTES = 64 * 1024
+
 private class ProgressiveManifestResponse : Exception()
 
-private fun hasProgressiveMediaSignature(bytes: ByteArray, size: Int): Boolean {
+private fun hasProgressiveMediaSignature(
+    bytes: ByteArray,
+    size: Int,
+): Boolean {
     fun byte(index: Int) = bytes[index].toInt() and 0xff
     if (size < 8) return false
     if (byte(0) == 0x1a && byte(1) == 0x45 && byte(2) == 0xdf && byte(3) == 0xa3) return true
     if (byte(0) == 0x47 && listOf(188, 204).any { size > it && byte(it) == 0x47 }) return true
     if (size > 196 && byte(4) == 0x47 && byte(196) == 0x47) return true
     // ISO base media and QuickTime. Accept only valid initial atom sizes.
-    val atomSize = (byte(0).toLong() shl 24) or (byte(1).toLong() shl 16) or
-        (byte(2).toLong() shl 8) or byte(3).toLong()
+    val atomSize =
+        (byte(0).toLong() shl 24) or (byte(1).toLong() shl 16) or
+            (byte(2).toLong() shl 8) or byte(3).toLong()
     return (atomSize == 0L || atomSize == 1L || atomSize >= 8L) &&
         bytes.decodeToString(4, 8) in setOf("ftyp", "moov", "mdat", "wide", "free", "styp", "moof")
 }
@@ -2487,8 +2503,10 @@ private fun IOException.canRetryHlsSegment(): Boolean {
     val status = mediaHttpStatus()
     if (status != null) return status in RETRYABLE_HLS_STATUS
     return generateSequence<Throwable>(this) { it.cause }.take(MAX_UPSTREAM_CAUSE_DEPTH).any {
-        it is java.net.SocketException || it is java.net.SocketTimeoutException ||
-            it is java.net.UnknownHostException || it is java.io.EOFException
+        it is java.net.SocketException ||
+            it is java.net.SocketTimeoutException ||
+            it is java.net.UnknownHostException ||
+            it is java.io.EOFException
     }
 }
 

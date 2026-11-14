@@ -59,9 +59,11 @@ internal fun validateNativeDirectDolbyIdentity(
 }
 
 internal fun yCoreDecoderFailureMessage(failure: YPlaybackException): String {
-    val unavailable = generateSequence<Throwable>(failure) { it.cause }.take(16)
-        .filterIsInstance<YVideoDecoderConfigurationException>()
-        .any { it.mime == "video/dolby-vision" && it.failures.isEmpty() }
+    val unavailable =
+        generateSequence<Throwable>(failure) { it.cause }
+            .take(16)
+            .filterIsInstance<YVideoDecoderConfigurationException>()
+            .any { it.mime == "video/dolby-vision" && it.failures.isEmpty() }
     return if (unavailable) {
         "设备未提供杜比视界解码器，可在播放方式中选择 SCore"
     } else {

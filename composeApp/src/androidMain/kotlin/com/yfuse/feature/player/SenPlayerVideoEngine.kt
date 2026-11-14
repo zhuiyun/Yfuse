@@ -328,7 +328,8 @@ internal class SenPlayerVideoEngine(
         subtitles.clear()
         val upstream = item.senPlayerPlaybackUrl()
         remoteFileDurationMs = item.durationMsHint.takeIf {
-            !item.startsWithServerTranscode() && (upstream.startsWith("https://", true) || upstream.startsWith("http://", true))
+            !item.startsWithServerTranscode() &&
+                (upstream.startsWith("https://", true) || upstream.startsWith("http://", true))
         } ?: 0L
         require(item.transportCredentials == null) { "SenPlayer file transport credentials require YCore" }
         if (session?.isUsable() == false) closeSession()
@@ -443,8 +444,10 @@ internal class SenPlayerVideoEngine(
         }
         recordOutputSample(sample, token, surfaceReady, rendered, pixels, now, outputAction)
         val knownFileDuration = minOf(remoteFileDurationMs, sample.durationMs.takeIf { it > 0 } ?: remoteFileDurationMs)
-        if (requested && ended &&
-            com.yfuse.core2.api.isPrematurePlaybackEnd(sample.positionMs, knownFileDuration)
+        if (requested &&
+            ended &&
+            com.yfuse.core2.api
+                .isPrematurePlaybackEnd(sample.positionMs, knownFileDuration)
         ) {
             val resumeAt = remoteEndRecovery.recoveryPosition(sample.positionMs, knownFileDuration)
             if (resumeAt != null) {

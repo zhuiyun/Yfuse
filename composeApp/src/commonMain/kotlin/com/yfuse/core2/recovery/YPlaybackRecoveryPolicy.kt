@@ -66,9 +66,12 @@ object YPlaybackRecoveryPolicy {
         // A fresh decoder may recover from a broken instance. If it rejects output again, changing
         // demuxers while keeping the same platform decoder repeats the failure on the same movie.
         if (
-            context.platformDecoderOutputRejected && context.sameRouteAttempts >= MAX_SAME_ROUTE_ATTEMPTS &&
-            context.route == YPlaybackRoute.NativeDirect && category == YPlaybackFailureCategory.Decoder &&
-            context.softwareFallbackAvailable && !context.protectedContent
+            context.platformDecoderOutputRejected &&
+            context.sameRouteAttempts >= MAX_SAME_ROUTE_ATTEMPTS &&
+            context.route == YPlaybackRoute.NativeDirect &&
+            category == YPlaybackFailureCategory.Decoder &&
+            context.softwareFallbackAvailable &&
+            !context.protectedContent
         ) {
             return YPlaybackRecoveryAction.FallbackToSoftware
         }

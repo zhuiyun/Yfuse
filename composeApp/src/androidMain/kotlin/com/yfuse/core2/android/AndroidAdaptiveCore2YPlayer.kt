@@ -1921,7 +1921,8 @@ internal class AndroidAdaptiveCore2YPlayer(
                         if (prematureEnd) null else (next as? YPlaybackFailureReporter)?.lastPlaybackFailure
                     attemptDeterministic = (reportedFailure as? YPlaybackException)?.deterministic == true
                     platformDecoderOutputRejected =
-                        generateSequence(reportedFailure) { it.cause }.take(16)
+                        generateSequence(reportedFailure) { it.cause }
+                            .take(16)
                             .any { it is VideoCodecOutputStateException }
                     attemptRanOutOfTime =
                         yCoreAttemptRanOutOfTime(
