@@ -1,4 +1,4 @@
-name: Diagnose YCore source-switch rejection without restarting the app
+name: Capture YCore exit evidence during a source switch
 on:
   push:
     branches: [codex/cloud-playback-resilience-20261113]

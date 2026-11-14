@@ -176,6 +176,14 @@ def main():
                     pixels = ui.adb('exec-out', 'screencap', '-p', output=True)
                     (out / (core + '-source-recovery-failed.png')).write_bytes(pixels)
                     (out / (core + '-source-recovery-failed.xml')).write_text(ET.tostring(ui.snapshot(), encoding='unicode'))
+                    for suffix, command in [
+                        ('process', ['shell', 'pidof', ui.pkg]),
+                        ('exit-info', ['shell', 'dumpsys', 'activity', 'exit-info', ui.pkg]),
+                        ('crash', ['logcat', '-d', '-b', 'crash', '-v', 'threadtime']),
+                    ]:
+                        evidence = subprocess.run(['adb'] + command, capture_output=True, text=True, timeout=25)
+                        (out / (core + '-source-recovery-' + suffix + '.txt')).write_text(evidence.stdout)
+
 
     finally:
         server.shutdown()
