@@ -6,7 +6,6 @@ import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import android.graphics.RectF
-import android.os.Build
 import android.os.Process
 import android.view.Surface
 import com.yfuse.core2.demux.YVideoGeometry
@@ -29,9 +28,8 @@ internal data class YSoftwareRenderSnapshot(
 internal class AndroidSoftwareVideoRenderNode {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
 
-    // Native libraries before software decoder API 3 write BGRA. Swapping the channels while
-    // drawing costs nothing on a hardware canvas, where a per-frame byte swap would cost a pass
-    // over every pixel.
+    // Native libraries before software decoder API 3 write BGRA. Apply the channel swap while
+    // drawing instead of allocating another pixel buffer or mutating the decoder's reusable data.
     private val redBlueSwappedPaint =
         Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
             colorFilter = ColorMatrixColorFilter(redBlueSwapMatrix())
@@ -218,12 +216,12 @@ internal class AndroidSoftwareVideoRenderNode {
         require(output.isValid)
         val width = target.width
         val height = target.height
-        val canvas =
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                runCatching(output::lockHardwareCanvas).getOrElse { output.lockCanvas(null) }
-            } else {
-                output.lockCanvas(null)
-            }
+        // Keep software output off HWUI's process-wide RenderThread. A hardware Canvas leaves
+        // an HWUI context on the holder's Surface even after this lane drains. On source switches,
+        // SurfaceView.release then waits on that context from the main thread; a queued swapchain
+        // allocation can wait for the very Surface being detached and deadlock Activity recreation.
+        // The bounded software lane owns the CPU drawing work; MediaCodec/GPU routes are separate.
+        val canvas = output.lockCanvas(null)
         try {
             if (generation != renderGeneration.get()) return
             require(canvas.width > 0 && canvas.height > 0) { "Software video output has no drawable area" }
