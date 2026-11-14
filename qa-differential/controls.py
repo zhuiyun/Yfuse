@@ -183,6 +183,17 @@ def main():
                     ]:
                         evidence = subprocess.run(['adb'] + command, capture_output=True, text=True, timeout=25)
                         (out / (core + '-source-recovery-' + suffix + '.txt')).write_text(evidence.stdout)
+                        if suffix == 'exit-info':
+                            for remote in re.findall(r'trace=(/data/system/procexitstore/[A-Za-z0-9_.:-]+)', evidence.stdout):
+                                trace = subprocess.run(['adb', 'exec-out', 'cat', remote], capture_output=True, timeout=25)
+                                if trace.returncode == 0:
+                                    (out / (core + '-' + remote.rsplit('/', 1)[-1])).write_bytes(trace.stdout)
+                    system = subprocess.run(['adb', 'logcat', '-d', '-v', 'threadtime',
+                                             'ActivityManager:I', 'ActivityTaskManager:I', 'WindowManager:W',
+                                             'AndroidRuntime:E', 'libc:F', 'DEBUG:F', '*:S'],
+                                            capture_output=True, text=True, timeout=25)
+                    (out / (core + '-source-recovery-system.txt')).write_text(system.stdout)
+
 
 
     finally:

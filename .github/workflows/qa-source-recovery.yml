@@ -1,4 +1,4 @@
-name: Capture YCore exit evidence during a source switch
+name: Trace YCore main-thread ANR while replacing an active source
 on:
   push:
     branches: [codex/cloud-playback-resilience-20261113]
