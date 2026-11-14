@@ -1,4 +1,4 @@
-name: Authenticate inside full YfuseApp then retest original Emby media
+name: Authenticate inside full YfuseApp and retest original media with labeled fields
 on:
   push:
     branches: [codex/cloud-playback-resilience-20261113]
