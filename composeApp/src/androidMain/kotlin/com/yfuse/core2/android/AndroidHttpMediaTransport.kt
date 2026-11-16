@@ -48,9 +48,7 @@ internal class AndroidHttpMediaTransport(
     private val exchangeLock = Any()
     private var exchangeGeneration = 0L
     private var activeCall: Call? = null
-    private var activeReads = 0
-    private var response: Response? = null
-    private var input: InputStream? = null
+    private var activeResponse: ResponseReadState? = null
     private val activeClient =
         client
             .newBuilder()
@@ -170,8 +168,7 @@ internal class AndroidHttpMediaTransport(
                     if (generation != exchangeGeneration) {
                         false
                     } else {
-                        response = finalResponse
-                        input = finalResponse.body?.byteStream()
+                        activeResponse = ResponseReadState(finalResponse)
                         true
                     }
                 }
@@ -226,18 +223,22 @@ internal class AndroidHttpMediaTransport(
         withContext(Dispatchers.IO) {
             require(offset >= 0 && length >= 0 && offset + length <= destination.size)
             if (length == 0) return@withContext 0
-            val (generation, stream) =
+            val (exchange, stream) =
                 synchronized(exchangeLock) {
-                    val stream = input ?: return@withContext -1
-                    activeReads++
-                    exchangeGeneration to stream
+                    val exchange = activeResponse ?: return@withContext -1
+                    val stream = exchange.input ?: return@withContext -1
+                    exchange.readers++
+                    exchange to stream
                 }
             try {
                 stream.read(destination, offset, length)
             } finally {
-                synchronized(exchangeLock) {
-                    if (generation == exchangeGeneration) activeReads--
-                }
+                val finishedResponse =
+                    synchronized(exchangeLock) {
+                        exchange.readers--
+                        exchange.response.takeIf { exchange.detached && exchange.readers == 0 }
+                    }
+                runCatching { finishedResponse?.close() }
             }
         }
 
@@ -250,18 +251,28 @@ internal class AndroidHttpMediaTransport(
         val previous: Pair<Call?, Response?>
         synchronized(exchangeLock) {
             generation = ++exchangeGeneration
-            val blockingCall = activeCall.takeIf { response == null || activeReads > 0 }
-            previous = blockingCall to response
+            val exchange = activeResponse
+            val blockingCall = activeCall.takeIf { exchange == null || exchange.readers > 0 }
+            exchange?.detached = true
+            previous = blockingCall to exchange?.response?.takeIf { exchange.readers == 0 }
             activeCall = null
-            activeReads = 0
-            response = null
-            input = null
+            activeResponse = null
         }
-        // Cancel a blocked exchange first. A completed range closes normally so OkHttp can drain
-        // the chunk terminator and reuse its HTTP/1.1 connection for the next range.
+        // Call.cancel() can interrupt socket I/O from another thread. Response.close() also clears
+        // its Okio buffer and must wait until the last reader has left that buffer. Closing it
+        // concurrently can corrupt pooled segments used by unrelated requests, even URL parsing.
+        // An idle completed range still closes normally and preserves connection reuse.
         previous.first?.cancel()
         runCatching { previous.second?.close() }
         return generation
+    }
+
+    private class ResponseReadState(
+        val response: Response,
+    ) {
+        val input: InputStream? = response.body?.byteStream()
+        var readers = 0
+        var detached = false
     }
 
     private fun requireCurrentExchange(generation: Long) {
