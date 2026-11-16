@@ -2133,6 +2133,18 @@ internal class AndroidEnhancedPlaybackSession(
                         "endOfInput" to readAhead.endOfInput.toString(),
                         "atCapacity" to readAhead.atCapacity.toString(),
                         "generation" to readAhead.generation.toString(),
+                        "softwareVideo" to softwareVideoActive.toString(),
+                        "renderedFrames" to
+                            if (softwareVideoActive) {
+                                softwareVideoRenderer.snapshot().renderedFrameCount.toString()
+                            } else {
+                                "${gpuVideoOutput?.renderedFrameCount ?: videoOutputEpoch.renderedFrameCount}"
+                            },
+                        "droppedFrames" to droppedFrames.toString(),
+                        "lastVideoMs" to (lastVideoUs / 1_000L).toString(),
+                        "pendingVideoFrame" to
+                            (pendingSoftwareVideoOutput != null || pendingVideoOutput != null).toString(),
+                        "firstVideoFrameRendered" to firstVideoFrameRendered.toString(),
                     ),
             )
         }
