@@ -1,11 +1,11 @@
-name: Full UI regression after the HTTP ownership repair
+name: Full UI regression with transient transition polling fixed
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
     paths: ['.github/workflows/qa-integrated-ui-fixed.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: 580fcafbe5182413bcc7a3979b5348c0c97a83a0
+  QA_APP_SHA: 9f3445e9873917e0a3c6ba63e2d344deb8bbec1b
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 580fcafbe5182413bcc7a3979b5348c0c97a83a0
+          ref: 9f3445e9873917e0a3c6ba63e2d344deb8bbec1b
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
@@ -67,6 +67,7 @@ jobs:
         with: {name: ui-validation-input, path: preview, retention-days: 7}
   instrumented:
     env:
+      QA_MIN_TESTS: 99
       # API 37 goldfish codec rejects memfd transfers under the image's SELinux policy.
       # Only forced low-level fixture routes use the platform software codec; adaptive
       # production playback retains its default decoder selection and recovery.
