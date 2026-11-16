@@ -7,7 +7,14 @@ adb wait-for-device
 [[ "$(adb shell id)" == uid=0* ]]
 adb install -r -g preview/composeApp-release.apk
 adb install -r qa-driver/driver.apk
-adb reverse tcp:18382 tcp:18382
+if [[ "${QA_DIRECT_MEDIA:-false}" = true ]]; then
+  # Read the isolated bridge address; never expose the fixture listener on a public interface.
+  QA_MEDIA_HOST=$(docker inspect qa-android --format '{{.NetworkSettings.Networks.bridge.Gateway}}')
+  test -n "$QA_MEDIA_HOST"
+  export QA_MEDIA_HOST
+else
+  adb reverse tcp:18382 tcp:18382
+fi
 adb shell wm size 720x1280
 adb shell wm density 260
 adb shell settings put secure immersive_mode_confirmations confirmed

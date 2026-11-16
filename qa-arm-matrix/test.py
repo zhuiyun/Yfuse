@@ -1,4 +1,5 @@
 import os
+import ipaddress
 from engine import engine_evidence
 import base64,json,random,re,shlex,sys,time,subprocess,pathlib
 sys.path.insert(0,'qa-functional')
@@ -7,6 +8,9 @@ from features import find,coords,snapshot
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from threading import Thread
 root=pathlib.Path('qa-media');out=pathlib.Path('results');out.mkdir(exist_ok=True)
+media_host=os.environ.get('QA_MEDIA_HOST','127.0.0.1')
+if media_host!='127.0.0.1' and ipaddress.ip_address(media_host) not in ipaddress.ip_network('172.16.0.0/12'):
+    raise ValueError('The fixture listener must stay on loopback or the isolated Docker bridge')
 clips=json.loads((root/'fixtures.json').read_text()); allow={r['name'] for r in clips}
 class HTTP(BaseHTTPRequestHandler):
     def log_message(self,*args):pass
@@ -31,13 +35,13 @@ class HTTP(BaseHTTPRequestHandler):
                     while lo<=hi:
                         chunk=f.read(min(65536,hi-lo+1));self.wfile.write(chunk);lo+=len(chunk)
                 except (BrokenPipeError,ConnectionResetError):pass
-server=ThreadingHTTPServer(('127.0.0.1',18382),HTTP);server.daemon_threads=True;Thread(target=server.serve_forever,daemon=True).start()
+server=ThreadingHTTPServer((media_host,18382),HTTP);server.daemon_threads=True;Thread(target=server.serve_forever,daemon=True).start()
 shard=int(sys.argv[1])
 sessions=int(os.environ.get('QA_SESSIONS','5'))
 batches=int(os.environ.get('QA_BATCHES','2'))
 batch_count=int(os.environ.get('QA_BATCH_COUNT','16'))
 assert sessions>0 and batches>0 and batch_count>0
-rec=[];report={'shard':shard,'planned':len(clips)*sessions*batches*batch_count,'files':rec}
+rec=[];report={'shard':shard,'mediaPath':'adb-reverse' if media_host=='127.0.0.1' else 'docker-bridge','planned':len(clips)*sessions*batches*batch_count,'files':rec}
 
 def capture_open_failure(clip, session):
     # This lane only serves the allowlisted public fixtures, never private media locations.
@@ -50,6 +54,7 @@ def capture_open_failure(clip, session):
     # Capture a live blocked seek before the next session force-stops it. These are public
     # generated fixtures; private-source jobs never execute this recorder.
     pathlib.Path(str(prefix)+'-host-sockets.txt').write_text(subprocess.run(['ss','-ntp'],capture_output=True,text=True).stdout)
+    pathlib.Path(str(prefix)+'-android-sockets.txt').write_text(adb('shell','cat /proc/net/tcp /proc/net/tcp6',check=False))
     pid=adb('shell','pidof com.yfuse',check=False).strip()
     if pid.isdigit():
         try:
@@ -69,7 +74,7 @@ def save():
     (out/'volume.json').write_text(json.dumps(report))
 def open_media(clip):
     adb('shell','am','force-stop','com.yfuse')
-    url='http://127.0.0.1:18382/'+clip['name']
+    url='http://'+media_host+':18382/'+clip['name']
     cmd='am start -W -a android.intent.action.VIEW -n com.yfuse/com.yfuse.feature.player.ExternalPlaybackActivity -t '+clip['mime']+' -d '+url
     adb('shell',cmd);seen=None;started=time.monotonic()
     while time.monotonic()-started<50:

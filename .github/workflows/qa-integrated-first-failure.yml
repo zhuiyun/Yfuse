@@ -1,4 +1,4 @@
-name: Capture the first stalled public TS or MP4 seek before later touches
+name: Compare direct TCP and ADB media transport on the same failing seeks
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
@@ -26,17 +26,18 @@ jobs:
       max-parallel: 4
       matrix:
         include:
-          - {lane: 0, title: 45, seed: 12013863, batches: 2}
-          - {lane: 1, title: 45, seed: 12013863, batches: 2}
-          - {lane: 2, title: 72, seed: 12004071, batches: 1}
-          - {lane: 3, title: 72, seed: 12004071, batches: 1}
+          - {lane: 0, title: 45, seed: 12013863, batches: 2, direct: 'false'}
+          - {lane: 1, title: 45, seed: 12013863, batches: 2, direct: 'true'}
+          - {lane: 2, title: 72, seed: 12004071, batches: 1, direct: 'false'}
+          - {lane: 3, title: 72, seed: 12004071, batches: 1, direct: 'true'}
     name: Transport stress lane ${{ matrix.lane }}
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 65
+    timeout-minutes: 100
     env:
       QA_ENGINE: YCore
       QA_SHARD: '13'
-      QA_SESSIONS: '20'
+      QA_SESSIONS: '40'
+      QA_DIRECT_MEDIA: '${{ matrix.direct }}'
       QA_BATCHES: '${{ matrix.batches }}'
       QA_STOP_ON_FAILURE: 'true'
       QA_BATCH_COUNT: '16'
