@@ -1,0 +1,142 @@
+"""Cloud-only audio lifecycle activity; actual media-session positions and tagged locks."""
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import time
+import xml.etree.ElementTree as ET
+
+from capture import failure_diagnostics
+from media import MediaServer
+from power import adb, engine, playing
+from telemetry import Recorder
+
+
+def enable_audio():
+    # Fresh disposable app only; setup is not counted as a UI-switch test.
+    adb('shell', 'am', 'force-stop', 'com.yfuse')
+    target = '/data/user/0/com.yfuse/shared_prefs/yfuse.xml'
+    root = ET.fromstring(adb('shell', 'cat', target))
+    node = root.find("./*[@name='player.backgroundAudio']")
+    if node is None:
+        node = ET.SubElement(root, 'boolean', {'name': 'player.backgroundAudio'})
+    node.tag = 'boolean'
+    node.set('value', 'true')
+    uid = adb('shell', 'stat', '-c', '%u', '/data/user/0/com.yfuse').strip()
+    if not uid.isdecimal():
+        raise AssertionError('Disposable app UID unavailable')
+    local = Path('results/background-audio-setup.xml')
+    local.write_bytes(ET.tostring(root, encoding='utf-8', xml_declaration=True))
+    adb('push', str(local), '/data/local/tmp/qa-background-audio.xml')
+    adb('shell', 'cp', '/data/local/tmp/qa-background-audio.xml', target)
+    adb('shell', 'chown', uid + ':' + uid, target)
+    adb('shell', 'chmod', '660', target)
+    adb('shell', 'restorecon', target)
+    actual = ET.fromstring(adb('shell', 'cat', target))
+    if actual.find("./boolean[@name='player.backgroundAudio']").get('value') != 'true':
+        raise AssertionError('Audio preference not enabled')
+    local.unlink()
+    adb('shell', 'cmd', 'appops', 'set', 'com.yfuse', 'PICTURE_IN_PICTURE', 'deny')
+
+
+def session(out, label):
+    media = adb('shell', 'dumpsys', 'media_session')
+    power = adb('shell', 'dumpsys', 'power')
+    (out / (label + '-media-session.txt')).write_text(media, encoding='utf-8')
+    (out / (label + '-power.txt')).write_text(power, encoding='utf-8')
+    match = re.search(r'package=com\.yfuse\b(.*?)(?=Session #|\Z)', media, re.S)
+    state = re.search(r'PlaybackState[^\n]*?state=(\d+)[^\n]*?position=(\d+)', match[1]) if match else None
+    if state is None:
+        raise AssertionError('Actual app media-session state and position unavailable')
+    return {'state': int(state[1]), 'positionMs': int(state[2]),
+            'audioWakeLockHeld': bool(re.search(r'PARTIAL_WAKE_LOCK[^\n]*Yfuse:background-audio', power))}
+
+
+def require_state(out, label, state, held):
+    deadline = time.monotonic() + 15
+    while True:
+        result = session(out, label)
+        if result['state'] == state and result['audioWakeLockHeld'] == held:
+            return result
+        if time.monotonic() >= deadline:
+            raise AssertionError('Audio state/lock mismatch: ' + repr(result))
+        time.sleep(.5)
+
+
+def main():
+    engine.guard()
+    core = os.environ['QA_ENGINE']
+    pilot = os.environ.get('QA_POWER_PILOT') == 'true'
+    out = Path('results/background-audio')
+    out.mkdir(parents=True, exist_ok=True)
+    fixture = Path(os.environ['RUNNER_TEMP']) / 'background-audio.mp4'
+    subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=24',
+                    '-f', 'lavfi', '-i', 'sine=sample_rate=48000', '-t', '3600', '-c:v', 'libx264',
+                    '-preset', 'ultrafast', '-crf', '35', '-c:a', 'aac', '-movflags', '+faststart', str(fixture)], check=True)
+    server = MediaServer(fixture, out / 'media-requests.jsonl')
+    recorder = None
+    phases = []
+    status = 'incomplete'
+    try:
+        adb('reverse', 'tcp:18389', 'tcp:18389')
+        engine.configure(core)
+        enable_audio()
+        adb('shell', 'dumpsys', 'battery', 'unplug')
+        adb('shell', 'dumpsys', 'battery', 'set', 'level', '80')
+        adb('shell', 'dumpsys', 'battery', 'set', 'status', '3')
+        adb('shell', 'dumpsys', 'batterystats', '--reset')
+        initial = playing(core)
+        (out / 'engine-evidence.json').write_text(json.dumps(initial), encoding='utf-8')
+        (out / 'conditions.json').write_text(json.dumps({
+            'pilot': pilot, 'batterySimulated': True, 'levelSetpoint': 80, 'backgroundAudioEnabled': True,
+            'pictureInPictureAppOp': 'deny', 'preferenceSetup': 'Fresh cloud app XML; not a UI setting test',
+            'expectedBackgroundBehavior': 'YCore audio continues; SenPlayer capability fallback pauses',
+            'audioProofLimit': 'Actual media-session positions and tagged wake lock, no physical audible-output or energy assertion',
+        }, indent=2), encoding='utf-8')
+        recorder = Recorder(out)
+        schedule = [('foreground-playing', 600), ('background-audio-requested', 1200),
+                    ('screenoff-audio-requested', 1200), ('background-paused', 600)]
+        for name, long_seconds in schedule:
+            seconds = 45 if pilot else long_seconds
+            row = {'phase': name, 'plannedSeconds': seconds, 'status': 'incomplete'}
+            phases.append(row)
+            if name == 'background-audio-requested':
+                adb('shell', 'input', 'keyevent', '3')
+            elif name == 'screenoff-audio-requested':
+                adb('shell', 'input', 'keyevent', '223')
+            elif name == 'background-paused':
+                adb('shell', 'cmd', 'media_session', 'dispatch', 'pause')
+            active = name == 'foreground-playing' or (core == 'YCore' and name != 'background-paused')
+            held = active and name != 'foreground-playing'
+            row['entryEvidence'] = require_state(out, name + '-entry', 3 if active else 2, held)
+            adb('shell', 'dumpsys', 'gfxinfo', 'com.yfuse', 'reset')
+            began = time.monotonic()
+            count = 0
+            while time.monotonic() - began < seconds:
+                recorder.capture(name, server.counters(), heavy=count % 4 == 0,
+                                 intervention=time.monotonic() - began < 60)
+                count += 1
+                time.sleep(min(30, max(0, seconds - (time.monotonic() - began))))
+            row['exitEvidence'] = require_state(out, name + '-exit', 3 if active else 2, held)
+            delta = row['exitEvidence']['positionMs'] - row['entryEvidence']['positionMs']
+            if (active and delta < seconds * 500) or (not active and abs(delta) > 1500):
+                raise AssertionError('Actual session position did not match requested lifecycle: ' + str(delta))
+            row.update(status='recorded', measuredSeconds=round(time.monotonic() - began, 2), positionDeltaMs=delta)
+            recorder.finish(phases, 'incomplete')
+            print('BACKGROUND_AUDIO', core, name, row['status'], flush=True)
+        status = 'recorded'
+    except Exception:
+        failure_diagnostics(out, 'audio-lifecycle-failure')
+        raise
+    finally:
+        if recorder:
+            recorder.finish(phases, status)
+        adb('shell', 'am', 'force-stop', 'com.yfuse', check=False)
+        adb('shell', 'input', 'keyevent', '224', check=False)
+        adb('shell', 'dumpsys', 'battery', 'reset', check=False)
+        server.close()
+
+
+if __name__ == '__main__':
+    main()
