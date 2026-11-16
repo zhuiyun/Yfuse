@@ -44,6 +44,7 @@ import com.yfuse.core.designsystem.OrbProgressDefaults
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.PageHint
+import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.YfChip
 import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.overlayAction
@@ -99,6 +100,7 @@ fun UnifiedLibraryScreen(
     var shareTitle by remember(policy, servers.servers) { mutableStateOf<List<CrossServerMediaHit>?>(null) }
     val scope = rememberCoroutineScope()
     val palette = LocalPalette.current
+    StatusBarIconStyle(darkIcons = !palette.isDark)
     LaunchedEffect(pager, query) {
         pager.reset(servers.servers, query)
         pager.loadMore()
@@ -117,7 +119,12 @@ fun UnifiedLibraryScreen(
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             LibraryAction("返回", onClick = onBack)
-            Text("全部服务器", style = AppTypography.body.strong, modifier = Modifier.padding(top = 12.dp))
+            Text(
+                "全部服务器",
+                style = AppTypography.body.strong,
+                color = palette.text,
+                modifier = Modifier.padding(top = 12.dp),
+            )
             LibraryAction(if (state.loading) "读取中…" else "刷新", enabled = !state.loading, onClick = {
                 scope.launch { pager.refresh(servers.servers, query) }
             })
