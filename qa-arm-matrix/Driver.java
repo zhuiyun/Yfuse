@@ -9,6 +9,18 @@ import android.view.MotionEvent;
 public final class Driver extends Instrumentation {
     private Bundle args;
     public void onCreate(Bundle state) { super.onCreate(state); args=state; start(); }
+    private android.view.accessibility.AccessibilityNodeInfo editableAt(
+            android.view.accessibility.AccessibilityNodeInfo node, int x, int y) {
+        if (node == null) return null;
+        android.graphics.Rect box = new android.graphics.Rect(); node.getBoundsInScreen(box);
+        if (node.isEditable() && node.isEnabled() && node.isVisibleToUser() && box.contains(x, y)
+                && "com.yfuse".equals(String.valueOf(node.getPackageName()))) return node;
+        for (int i = 0; i < node.getChildCount(); i++) {
+            android.view.accessibility.AccessibilityNodeInfo found = editableAt(node.getChild(i), x, y);
+            if (found != null) return found;
+        }
+        return null;
+    }
     private void node(android.view.accessibility.AccessibilityNodeInfo n, org.xmlpull.v1.XmlSerializer xml, int depth) throws Exception {
         if(n==null||depth>70)return;
         xml.startTag(null,"node");
@@ -188,6 +200,17 @@ public final class Driver extends Instrumentation {
         Bundle result=new Bundle();
         try {
             final UiAutomation ui=getUiAutomation();
+            if ("setText".equals(args.getString("mode"))) {
+                android.view.accessibility.AccessibilityNodeInfo field = editableAt(
+                        ui.getRootInActiveWindow(), Integer.parseInt(args.getString("x")), Integer.parseInt(args.getString("y")));
+                if (field == null) throw new IllegalStateException("Visible editable control unavailable");
+                Bundle text = new Bundle();
+                text.putCharSequence(android.view.accessibility.AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+                        args.getString("value", ""));
+                if (!field.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SET_TEXT, text))
+                    throw new IllegalStateException("Editable action rejected");
+                result.putString("outcome", "text-set"); finish(-1, result); return;
+            }
             if("select".equals(args.getString("mode"))){perform(ui,result);finish(-1,result);return;}
             if("volume".equals(args.getString("mode"))){volume(ui,result);return;}
             if("tree".equals(args.getString("mode"))) {

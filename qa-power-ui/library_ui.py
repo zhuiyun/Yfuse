@@ -6,8 +6,8 @@ import features as ui
 
 
 def field(label, value, secret=False):
-    # Android 12 input keycombination does not reliably implement Ctrl+A: it
-    # inserted a literal 'a' in the baseline. Use ordinary editing key events.
+    # Use the visible editor's accessibility action. This avoids unsupported
+    # Ctrl+A injection and an IME window replacing the active accessibility tree.
     ui.hide_keyboard()
     def editable():
         anchor = ui.grab(label, 6)
@@ -20,9 +20,11 @@ def field(label, value, secret=False):
         ref = ui.coords(anchor)
         return min(candidates, key=lambda n: abs(ui.coords(n)[1] - ref[1]))
 
-    ui.tap(editable())
-    ui.shell('input', 'keyevent', '123', *(['67'] * 80))
-    ui.shell('input', 'text', value)
+    x, y = ui.coords(editable())
+    result = ui.adb('shell', 'am', 'instrument', '-w', '-e', 'mode', 'setText',
+                    '-e', 'x', x, '-e', 'y', y, '-e', 'value', value, 'qa.yfuse.gesture/.Driver')
+    if 'outcome=text-set' not in result:
+        raise AssertionError('Visible editor action failed: ' + label)
     time.sleep(.3)
     ui.hide_keyboard()
     if not secret:

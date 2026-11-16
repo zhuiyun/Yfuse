@@ -1,4 +1,4 @@
-name: Capture baseline pages through visible actionable controls
+name: Native page audit with accessible fixture setup
 'on':
   push:
     branches:
@@ -35,6 +35,22 @@ jobs:
 
           preview/baseline-limit.txt'
         retention-days: 10
+    - name: Build visible editable-control instrumentation
+      run: 'set -euo pipefail
+
+        mkdir qa-driver
+
+        cp qa-arm-matrix/Driver.java qa-volume/input-driver.java
+
+        sed ''s|adb install -r driver.apk|cp driver.apk "$GITHUB_WORKSPACE/qa-driver/driver.apk"|''
+        qa-volume/build-driver.sh > "$RUNNER_TEMP/driver.sh"
+
+        bash "$RUNNER_TEMP/driver.sh"'
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+      with:
+        name: power-ui-input-driver
+        path: qa-driver/
+        retention-days: 7
   ui:
     name: Native page evidence ${{ matrix.variant }}
     needs: acquire
@@ -58,10 +74,8 @@ jobs:
         path: preview
     - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
       with:
-        name: arm-input-driver
+        name: power-ui-input-driver
         path: qa-driver
-        run-id: 43838817605
-        github-token: ${{ github.token }}
     - name: Verify runtime and prepare evidence tools
       run: 'set -euo pipefail
 
