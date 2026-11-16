@@ -1,4 +1,4 @@
-name: Power and UI baseline with verified Android 12 form input
+name: Power baseline and explicitly verified light and dark native pages
 'on':
   push:
     branches:

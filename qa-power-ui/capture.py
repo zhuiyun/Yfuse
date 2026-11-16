@@ -84,6 +84,17 @@ def main():
     variant = os.environ.get('QA_UI_VARIANT', 'light')
     adb('shell', 'cmd', 'uimode', 'night', 'yes' if variant == 'dark-large' else 'no')
     adb('shell', 'settings', 'put', 'system', 'font_scale', '1.3' if variant == 'dark-large' else '1.0')
+    # The application defaults to Dark, independent of the system setting.
+    # Select the actual application theme through its visible control.
+    ui.launch()
+    ui.root('我的')
+    ui.tap(ui.grab('外观与交互', 8))
+    ui.tap(ui.grab('深色' if variant == 'dark-large' else '浅色', 4))
+    time.sleep(1)
+    theme = adb('shell', 'cat', '/data/user/0/com.yfuse/shared_prefs/yfuse.xml')
+    selected = ET.fromstring(theme).find("./string[@name='theme.mode']")
+    if selected is None or selected.text != ('Dark' if variant == 'dark-large' else 'Light'):
+        raise AssertionError('Application theme change was not verified')
     rows = []
     library = LibraryServer(out / 'fixture-requests.jsonl')
     adb('reverse', 'tcp:18196', 'tcp:18196')

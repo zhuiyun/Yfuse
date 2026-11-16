@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+import xml.etree.ElementTree as ET
 
 from media import MediaServer
 from library import LibraryServer
@@ -124,6 +125,7 @@ def main():
         connect()
     except Exception as error:
         screen().save(out / 'library-setup-failure.png')
+        (out / 'library-setup-failure.xml').write_bytes(ET.tostring(ui.snapshot(), encoding='utf-8'))
         (out / 'setup-failure.json').write_text(json.dumps({'error': str(error),
             'labels': ui.page_info(ui.snapshot()), 'status': 'measurement-not-started'}), encoding='utf-8')
         server.close()

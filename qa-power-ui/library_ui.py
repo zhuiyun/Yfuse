@@ -9,20 +9,24 @@ def field(label, value, secret=False):
     # Android 12 input keycombination does not reliably implement Ctrl+A: it
     # inserted a literal 'a' in the baseline. Use ordinary editing key events.
     ui.hide_keyboard()
-    ui.grab(label, 6)
-    candidates = [n for n in ui.nodes(ui.snapshot())
-                  if n.get('class', '').endswith('EditText') and label in ui.labels(n)]
-    if len(candidates) != 1:
-        raise AssertionError('Expected one labeled editable control: ' + label)
-    ui.tap(candidates[0])
+    def editable():
+        anchor = ui.grab(label, 6)
+        candidates = [n for n in ui.nodes(ui.snapshot())
+                      if n.get('class', '').endswith('EditText')]
+        if not candidates:
+            raise AssertionError('No editable controls visible: ' + label)
+        # Compose may expose the content description on a parent semantics node,
+        # separately from the inner EditText; the visible label anchors the row.
+        ref = ui.coords(anchor)
+        return min(candidates, key=lambda n: abs(ui.coords(n)[1] - ref[1]))
+
+    ui.tap(editable())
     ui.shell('input', 'keyevent', '123', *(['67'] * 80))
     ui.shell('input', 'text', value)
     time.sleep(.3)
     ui.hide_keyboard()
     if not secret:
-        edited = [n for n in ui.nodes(ui.snapshot())
-                  if n.get('class', '').endswith('EditText') and label in ui.labels(n)]
-        if len(edited) != 1 or edited[0].get('text') != value:
+        if editable().get('text') != value:
             raise AssertionError('Editable control value was not accepted: ' + label)
 
 
