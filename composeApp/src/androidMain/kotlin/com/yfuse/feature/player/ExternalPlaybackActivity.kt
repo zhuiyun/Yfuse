@@ -123,7 +123,7 @@ class ExternalPlaybackActivity : Activity() {
             PlayerActivity
                 .intent(
                     context = this,
-                    items = listOf(externalPlaybackItem(url = target.uri, title = title)),
+                    items = listOf(externalPlaybackItem(url = target.uri, title = title, mimeType = incoming.type)),
                     startIndex = 0,
                     startPositionMs = 0L,
                     engine = preferences?.engine?.value ?: PlayerEngine.YCore,

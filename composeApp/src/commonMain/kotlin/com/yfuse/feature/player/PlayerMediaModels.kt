@@ -225,6 +225,8 @@ data class PlayerMediaItem(
     val providerIds: Map<String, String> = emptyMap(),
     val mediaType: String = "",
     val year: Int? = null,
+    /** Container hint supplied by an external video intent, including extensionless stream URLs. */
+    val sourceMimeType: String? = null,
 ) {
     /**
      * The file currently playing, when the entry's sources were fetched at all.

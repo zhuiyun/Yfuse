@@ -1,5 +1,6 @@
 package com.yfuse.core2.android
 
+import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.api.YOutputEvidenceResetReason
 import com.yfuse.core2.api.YPlaybackException
 import com.yfuse.core2.api.YPlaybackFailureCategory
@@ -44,6 +45,23 @@ internal fun decodedAudioDrainProgress(
         writtenBytes == 0 -> YDecodedAudioDrainProgress.Backpressured
         else -> YDecodedAudioDrainProgress.Pending
     }
+}
+
+/** A timed-out metadata probe must not silently turn an explicitly declared video into audio. */
+internal fun validateNativeDirectVideoTrack(
+    item: YMediaItem,
+    hasVideoTrack: Boolean,
+) {
+    if (hasVideoTrack ||
+        (item.mimeType?.startsWith("video/", ignoreCase = true) != true && item.sourceHints?.videoCodec.isNullOrBlank())
+    ) {
+        return
+    }
+    throw YPlaybackException(
+        category = YPlaybackFailureCategory.Container,
+        stage = YPlaybackFailureStage.Demux,
+        safeDetail = "NativeDirect source did not expose its declared video track",
+    )
 }
 
 internal fun validateNativeDirectDolbyIdentity(

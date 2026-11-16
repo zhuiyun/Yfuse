@@ -159,7 +159,7 @@ internal class AndroidNativeDirectYPlayer(
     }
 
     override fun play() {
-        if (sessionControl.released) return
+        if (sessionControl.released || mutableState.value.phase == YPlaybackPhase.Failed) return
         mutableState.updateState {
             it.copy(
                 playbackRequested = true,

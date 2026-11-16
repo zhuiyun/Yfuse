@@ -562,6 +562,7 @@ internal class AndroidNativeDirectSession(
         // Audio-only media is a first-class source here: music, audiobooks and audio-only
         // versions have no video track and must not be rejected at the container stage.
         videoTrackIndex = demux.findFirstTrack(VIDEO_MIME_PREFIX)
+        validateNativeDirectVideoTrack(item, hasVideoTrack = videoTrackIndex != null)
         val selectedAudio =
             selectNativeDirectInitialAudio(
                 audioDisabled = audioDisabled,
@@ -784,6 +785,9 @@ internal class AndroidNativeDirectSession(
     }
 
     private fun startPlayback() {
+        // Settings/Surface updates can enqueue Play after failure. Only Prepare/Retry may reopen
+        // the source while the router is releasing this child to recover on another route.
+        if (mutableState.value.phase == YPlaybackPhase.Failed) return
         val previewResumeUs = pausedPreview.takeResumePosition()
         requestedPlay = true
         if (prepared && previewResumeUs != null) {
