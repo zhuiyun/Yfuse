@@ -23,8 +23,30 @@ object YAudioConfiguration {
      * reads such frames only when the format says so (`is-adts`).
      */
     fun aacIsAdts(codecPrivateData: List<ByteArray>): Boolean = codecPrivateData.none { it.isNotEmpty() }
+
+    /**
+     * FFmpeg exposes FLAC's 34-byte STREAMINFO payload. Android's csd-0 requires a complete
+     * FLAC metadata stream: the marker and a block header must precede that payload.
+     * Container/platform headers already carrying the marker are preserved without nesting.
+     */
+    fun flacCodecSpecificData(extra: ByteArray): ByteArray {
+        val hasMarker = extra.size >= FLAC_MAGIC.size && FLAC_MAGIC.indices.all { extra[it] == FLAC_MAGIC[it] }
+        if (!hasMarker && extra.size == FLAC_STREAMINFO_BYTES) {
+            return FLAC_MAGIC + byteArrayOf(0x80.toByte(), 0, 0, FLAC_STREAMINFO_BYTES.toByte()) + extra
+        }
+        require(
+            extra.size >= FLAC_STREAMINFO_BYTES + 8 &&
+                hasMarker &&
+                (extra[4].toInt() and 0x7F) == 0 &&
+                extra[5] == 0.toByte() && extra[6] == 0.toByte() &&
+                extra[7] == FLAC_STREAMINFO_BYTES.toByte(),
+        ) { "FLAC initialization is missing a complete STREAMINFO block" }
+        return extra.copyOf()
+    }
 }
 
+private val FLAC_MAGIC = "fLaC".encodeToByteArray()
+private const val FLAC_STREAMINFO_BYTES = 34
 private val OPUS_HEAD_MAGIC = "OpusHead".encodeToByteArray()
 private const val OPUS_HEAD_MIN_BYTES = 19
 private const val OPUS_SAMPLE_RATE = 48_000L

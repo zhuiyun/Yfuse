@@ -59,6 +59,11 @@ internal fun validateNativeDirectDolbyIdentity(
 }
 
 internal fun yCoreDecoderFailureMessage(failure: YPlaybackException): String {
+    if (failure.stage == YPlaybackFailureStage.AudioDecoderConfigure ||
+        failure.stage == YPlaybackFailureStage.AudioDecoderQueue
+    ) {
+        return "YCore 2.0 无法解码当前音轨"
+    }
     val unavailable =
         generateSequence<Throwable>(failure) { it.cause }
             .take(16)
