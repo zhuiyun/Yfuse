@@ -107,6 +107,7 @@ def decode_playback(label,target,duration,max_wait=60):
     history=[]
     max_wait=max_wait if target is None else min(max_wait, 40)
     while time.monotonic()-begin<max_wait:
+        observation_started=time.monotonic()
         try:r,tree=reveal()
         except AssertionError:
             tree=snapshot()
@@ -115,9 +116,12 @@ def decode_playback(label,target,duration,max_wait=60):
             time.sleep(.5);continue
         pos=media_clock(tree)
         duration=media_duration(tree) or duration
+        tree_finished=time.monotonic()
         pix=patch(screen())
         elapsed=time.monotonic()-begin
-        history.append({"s":pos,"elapsed":round(elapsed,1),"contrast":round(sum(ImageStat.Stat(pix).stddev)/3,2)})
+        history.append({"s":pos,"elapsed":round(elapsed,1),"contrast":round(sum(ImageStat.Stat(pix).stddev)/3,2),
+                        "treeMs":round((tree_finished-observation_started)*1000),
+                        "captureMs":round((time.monotonic()-tree_finished)*1000)})
         if pos is not None and (duration<=1 or pos<duration-1) and (target is None or target-12 <= pos <= target+elapsed+12):
             if prev:
                 oldpos,oldim=prev

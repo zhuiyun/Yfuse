@@ -1,4 +1,4 @@
-name: Private source relay retry with a single-run network source identity
+name: Recheck opaque TS and Dolby playback with ordinary movie and episode controls
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
@@ -31,9 +31,9 @@ jobs:
       matrix: {shard: [0]}
     env:
       QA_SHARD: ${{ matrix.shard }}
-      QA_PROBE_LABELS: m-029,e-027
+      QA_PROBE_LABELS: m-001,m-029,e-014,e-027
       QA_OPEN_DIAGNOSTIC_SECONDS: 60
-      QA_BENCHMARK_LABELS: ''
+      QA_BENCHMARK_LABELS: m-029,e-027
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 90
     steps:
@@ -65,8 +65,8 @@ jobs:
         run: |
           set -euo pipefail
           api="https://api.github.com/repos/$GITHUB_REPOSITORY"
-          build=43819930137
-          expected=580fcafbe5182413bcc7a3979b5348c0c97a83a0
+          build=43837990618
+          expected=01c516e080448587d5225342ccd4aff94a6fed85
           for i in $(seq 1 260); do
             artifact=$(curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/$build/artifacts" | jq -r '.artifacts[] | select(.name=="candidate-test-input" and .expired==false) | .id' | head -1)
             if [[ "$artifact" =~ ^[0-9]+$ ]]; then break; fi
