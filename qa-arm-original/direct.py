@@ -160,5 +160,7 @@ if __name__=='__main__':
     shard,n=map(int,sys.argv[1:3])
     for item in rows[shard::n]:
         try:run(item)
-        except (AssertionError,OSError,TimeoutError,subprocess.TimeoutExpired,ValueError,KeyError,RuntimeError) as e:measured(item['id']+'-incomplete',kind=item['kind'],error=type(e).__name__)
+        except (AssertionError,OSError,TimeoutError,subprocess.TimeoutExpired,ValueError,KeyError,RuntimeError) as e:
+            measured(item['id']+'-incomplete',kind=item['kind'],error=type(e).__name__)
+            capture_failure(item['id']+'-incomplete')
     print('DIRECT_COUNT',sum(r['case'].endswith('-opened') for r in ROWS),len(rows[shard::n]),flush=True)

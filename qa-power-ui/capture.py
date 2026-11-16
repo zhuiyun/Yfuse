@@ -79,6 +79,23 @@ def capture(out, name):
             'humanInspection': 'pending'}
 
 
+def failure_diagnostics(out, key):
+    # Only disposable cloud profiles are used; preserve crash and focus evidence before relaunch.
+    commands = {
+        'crash': ['logcat', '-d', '-b', 'crash', '-t', '1000'],
+        'logcat': ['logcat', '-d', '-v', 'threadtime', '-t', '2500'],
+        'window': ['shell', 'dumpsys', 'window', 'windows'],
+        'exit-info': ['shell', 'dumpsys', 'activity', 'exit-info', 'com.yfuse'],
+        'pid': ['shell', 'pidof', 'com.yfuse'],
+    }
+    for label, command in commands.items():
+        try:
+            (out / (key + '-' + label + '.txt')).write_text(
+                adb(*command, check=False, timeout=20), encoding='utf-8')
+        except Exception as error:
+            (out / (key + '-' + label + '-unavailable.txt')).write_text(type(error).__name__)
+
+
 def main():
     engine.guard()
     ui.pkg = 'com.yfuse'
@@ -108,6 +125,12 @@ def main():
         from secondary_routes import ROUTES as routes
     else:
         routes = ROUTES + POPULATED_ROUTES
+    requested = {name for name in os.environ.get('QA_UI_ROUTES', '').split(',') if name}
+    if requested:
+        available = {route[0] for route in routes}
+        if requested - available:
+            raise ValueError('Unknown requested routes')
+        routes = [route for route in routes if route[0] in requested]
     library = LibraryServer(out / 'fixture-requests.jsonl')
     adb('reverse', 'tcp:18196', 'tcp:18196')
     populated = False
@@ -123,10 +146,17 @@ def main():
                 raise RuntimeError('Populated fixture sign-in was not verified')
             ui.launch()
             ui.root(tab)
-            for label in path:
-                before = set(ui.page_info(ui.snapshot()))
+            for route_step, label in enumerate(path):
+                # page_info deliberately filters long/private-looking labels for display.
+                # Navigation verification must still notice a newly expanded long paragraph.
+                before = {(n.get('text', ''), n.get('content-desc', '')) for n in ui.nodes(ui.snapshot())}
+                if os.environ.get('QA_UI_TRACE') == 'true':
+                    capture(out, key + '-step-' + str(route_step) + '-before')
                 click(label, 10)
-                if set(ui.page_info(ui.snapshot())) == before:
+                if os.environ.get('QA_UI_TRACE') == 'true':
+                    capture(out, key + '-step-' + str(route_step) + '-after')
+                after = {(n.get('text', ''), n.get('content-desc', '')) for n in ui.nodes(ui.snapshot())}
+                if after == before:
                     raise AssertionError('Control did not expose a new page or dialog: ' + str(label))
             if name == 'about-section':
                 # About is an inline section, not a link or a separate screen.
@@ -161,6 +191,7 @@ def main():
         except Exception as error:
             row['status'] = 'capture-blocked'
             row['reason'] = type(error).__name__ + ': ' + str(error)[:180]
+            failure_diagnostics(out, key)
             try:
                 row['blockedState'] = capture(out, key + '-blocked')
             except Exception:
@@ -174,8 +205,8 @@ def main():
     adb('shell', 'cmd', 'uimode', 'night', 'no')
     adb('shell', 'settings', 'put', 'system', 'font_scale', '1.0')
     library.close()
-    if not any(r['status'] == 'captured-needs-review' for r in rows):
-        raise SystemExit('No valid route captures')
+    if any(r['status'] != 'captured-needs-review' for r in rows):
+        raise SystemExit('Some requested route captures are incomplete; inspect coverage.json')
 
 
 if __name__ == '__main__':

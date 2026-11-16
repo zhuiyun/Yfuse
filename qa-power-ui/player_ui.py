@@ -9,7 +9,7 @@ import time
 from power import engine, adb, screen, playing, pause, direct, ui
 from media import MediaServer
 from navigation import click, bounds
-from capture import capture
+from capture import capture, failure_diagnostics
 
 ROUTES = [
     ('paused-controls', []), ('subtitles', ['字幕']), ('audio', ['音轨']),
@@ -91,6 +91,7 @@ def main():
             except Exception as error:
                 row['status'] = 'capture-blocked'
                 row['error'] = type(error).__name__ + ': ' + str(error)[:200]
+                failure_diagnostics(out, '%02d-%s' % (index, name))
                 try:
                     row['blockedState'] = capture(out, '%02d-%s-blocked' % (index, name))
                 except Exception:

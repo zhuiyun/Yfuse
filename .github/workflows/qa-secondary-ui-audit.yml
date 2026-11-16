@@ -1,4 +1,4 @@
-name: Secondary native dialogs and configuration page visual audit
+name: Trace unresolved large-text motion routes and encryption disclosure
 'on':
   push:
     branches:
@@ -67,6 +67,8 @@ jobs:
         - dark-large
     env:
       QA_UI_SCOPE: secondary
+      QA_UI_TRACE: true
+      QA_UI_ROUTES: motion-theme-choice,particle-choice,dialog-animation-choice,loading-animation-choice,player-transition-choice,account-encryption-info
       QA_UI_VARIANT: ${{ matrix.variant }}
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
