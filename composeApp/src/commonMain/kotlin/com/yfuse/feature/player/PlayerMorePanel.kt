@@ -461,6 +461,7 @@ internal fun MorePanel(
                 // it takes the timeline itself so the four that are not
                 // stay off it.
                 val liveDiagnostics = playback.value.diagnostics
+                val ycoreDiagnostics = liveDiagnostics.engine.contains("YCore", ignoreCase = true)
                 PopupBackLabel("媒体信息") { onAdvancedPage(AdvancedPage.Root) }
                 PopupMenuRow(
                     icon = AppIcons.Info,
@@ -468,7 +469,7 @@ internal fun MorePanel(
                     onClick = onOpenProblem,
                 )
                 DiagnosticRow("容器", containerLabel ?: "未知")
-                if (liveDiagnostics.engine.contains("YCore", ignoreCase = true)) {
+                if (ycoreDiagnostics) {
                     DiagnosticRow(
                         "YCore 管线",
                         liveDiagnostics.plannedRenderPath.ifBlank { "等待规划" },
@@ -498,8 +499,8 @@ internal fun MorePanel(
                 DiagnosticRow(
                     "视频",
                     listOf(
-                        liveDiagnostics.videoCodec,
-                        liveDiagnostics.dynamicRange,
+                        codecReadoutLabel(liveDiagnostics.videoCodec),
+                        liveDiagnostics.dynamicRange.uppercase(),
                     ).filter(String::isNotBlank).joinToString(" · "),
                 )
                 DiagnosticRow("码率", liveDiagnostics.bitrateBitsPerSecond.asBitrate())
@@ -525,7 +526,7 @@ internal fun MorePanel(
                     "播放内核",
                     listOf(
                         liveDiagnostics.engine,
-                        liveDiagnostics.decoder,
+                        liveDiagnostics.decoder.takeUnless { it.equals("no", ignoreCase = true) }.orEmpty(),
                     ).filter(String::isNotBlank).joinToString(" · "),
                 )
                 PopupDivider()
@@ -541,13 +542,15 @@ internal fun MorePanel(
                 liveDiagnostics.planningReason?.takeIf(String::isNotBlank)?.let { reason ->
                     DiagnosticRow("规划原因", reason)
                 }
-                PopupDivider()
-                PopupMenuRow(
-                    icon = AppIcons.Refresh,
-                    title = "重置 YCore 学习数据",
-                    subtitle = "清除本机故障记忆与性能基线",
-                    onClick = onResetAdaptiveLearning,
-                )
+                if (ycoreDiagnostics) {
+                    PopupDivider()
+                    PopupMenuRow(
+                        icon = AppIcons.Refresh,
+                        title = "重置 YCore 学习数据",
+                        subtitle = "清除本机故障记忆与性能基线",
+                        onClick = onResetAdaptiveLearning,
+                    )
+                }
             }
         }
     }

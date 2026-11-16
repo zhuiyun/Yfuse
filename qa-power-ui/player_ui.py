@@ -114,6 +114,10 @@ def main():
                     unavailable = '未评估 · 当前内核未提供功耗依据'
                     if (unavailable in labels) != (core == 'SenPlayer'):
                         raise AssertionError('Power assessment must match the actual engine evidence')
+                    if ('重置 YCore 学习数据' in labels) != (core == 'YCore'):
+                        raise AssertionError('Engine-specific reset action is incorrectly exposed or hidden')
+                    if core == 'YCore' and 'H.264 · SDR' not in labels:
+                        raise AssertionError('Actual video information must use readable codec names')
                     row['enginePowerEvidenceLabelVerified'] = True
                 row['status'] = 'captured-needs-review'
             except Exception as error:

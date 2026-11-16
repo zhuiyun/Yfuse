@@ -143,7 +143,7 @@ private fun engineShortLabel(engine: String): String =
         else -> engine.substringBefore(' ').uppercase()
     }
 
-private fun codecReadoutLabel(codec: String): String =
+internal fun codecReadoutLabel(codec: String): String =
     when (codec.lowercase()) {
         "video/avc", "avc", "h264" -> "H.264"
         "video/hevc", "hevc", "h265" -> "HEVC"
