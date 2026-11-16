@@ -157,20 +157,30 @@ public final class Driver extends Instrumentation {
                 int y=r.centerY(),end=r.left+(int)Math.round((r.width()-1)*(target/(double)duration)),from=r.left+(int)(r.width()*(target>duration/2?.17:.81));
                 long down=SystemClock.uptimeMillis();touch(ui,down,0,from,y);
                 for(int m=1;m<=7;m++){SystemClock.sleep(19);touch(ui,down,2,from+(end-from)*m/7,y);}touch(ui,down,1,end,y);
-                row.put("issued",true);row.put("releasedAt",System.currentTimeMillis());row.put("bounds",r.flattenToString());org.json.JSONArray samples=new org.json.JSONArray();row.put("samples",samples);long readAt=-900;long begin=SystemClock.uptimeMillis(),firstT=0;double first=-1;boolean ok=false;
+                row.put("issued",true);row.put("releasedAt",System.currentTimeMillis());row.put("bounds",r.flattenToString());org.json.JSONArray samples=new org.json.JSONArray();row.put("samples",samples);long readAt=-900;long begin=SystemClock.uptimeMillis();double[] anchor={-1,0,0};boolean ok=false;
                 while(SystemClock.uptimeMillis()-begin<9500){
                     double pos=marker(ui),elapsed=(SystemClock.uptimeMillis()-begin)/1000.;
                     if(SystemClock.uptimeMillis()-begin-readAt>=470){org.json.JSONArray v=new org.json.JSONArray();v.put(Math.round(elapsed*1000));v.put(pos);samples.put(v);readAt=SystemClock.uptimeMillis()-begin;}
-                    if(pos>=target-2.1 && pos<=target+elapsed+1.8){
-                        if(first<0||pos<first){first=pos;firstT=SystemClock.uptimeMillis();}
-                        else if(pos>=first+.375 && pos-first<=(SystemClock.uptimeMillis()-firstT)/1000.+1.75){
-                            row.put("first",first);row.put("later",pos);row.put("ms",SystemClock.uptimeMillis()-begin);ok=true;break;}
+                    if(verifiedProgress(anchor,pos,Math.round(elapsed*1000),target)){
+                        row.put("first",anchor[0]);row.put("later",pos);row.put("ms",SystemClock.uptimeMillis()-begin);ok=true;break;
                     } SystemClock.sleep(105);
                 }
+                row.put("anchorPTS",anchor[0]);row.put("anchorElapsedMs",anchor[1]);row.put("anchorResets",anchor[2]);
                 row.put("ok",ok);if(!ok){row.put("reason","target or advancing frame not verified");row.put("after",command(ui.getRootInActiveWindow()));row.put("stateAfter",playbackState(ui.getRootInActiveWindow()));row.put("endPTS",marker(ui));}
             }catch(Exception e){row.put("reason",e.getClass().getSimpleName());}
         }
         result.putString("rows",android.util.Base64.encodeToString(rows.toString().getBytes("UTF-8"),android.util.Base64.NO_WRAP));finish(-1,result);
+    }
+
+    static boolean verifiedProgress(double[] anchor,double pos,long elapsedMs,int target) {
+        if(pos<target-2.1 || pos>target+elapsedMs/1000.+1.8)return false;
+        // A seek preroll or transient marker can precede the actual landing. A discontinuity
+        // starts a fresh pair; it must never count as playback or poison every later sample.
+        if(anchor[0]<0 || pos<anchor[0] || pos-anchor[0]>(elapsedMs-anchor[1])/1000.+1.75){
+            if(anchor[0]>=0)anchor[2]++;
+            anchor[0]=pos;anchor[1]=elapsedMs;return false;
+        }
+        return pos>=anchor[0]+.375;
     }
 
     public void onStart() {

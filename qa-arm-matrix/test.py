@@ -81,7 +81,8 @@ for idx,clip in enumerate(clips):
             save();continue
         attempted=0
         for batch in range(batches):
-            seed=(11987311 if os.environ['QA_ENGINE']=='YCore' else 22987311)+shard*2017+idx*137+session*19+batch
+            base_seed=int(os.environ.get('QA_SEED_BASE',str((11987311 if os.environ['QA_ENGINE']=='YCore' else 22987311)+shard*2017+idx*137)))
+            seed=base_seed+session*19+batch
             try:
                 answer=adb('shell','am','instrument','-w','-e','mode','volume','-e','variant','original','-e','seed',seed,'-e','count',batch_count,'-e','duration',clip['duration'],'qa.yfuse.gesture/.Driver',timeout=350)
                 match=re.search(r'INSTRUMENTATION_RESULT: rows=([A-Za-z0-9+/=]+)',answer)
