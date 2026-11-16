@@ -1,4 +1,4 @@
-name: Continuous movie and episode switching in one process
+name: Continuous switching after accepting the local-source prompt
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]

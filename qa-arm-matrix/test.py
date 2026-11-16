@@ -104,9 +104,14 @@ def open_media(clip):
         im=screen();current=marker(im)
         if continuous and not title_seen:
             tree=snapshot()
+            # Accept the local-network prompt before revealing player controls. Tapping
+            # outside this modal cancels the open, so no player exists to test afterwards.
+            button=find(tree,['打开','Open','仍然打开','知道了','Got it','确定','OK'])
+            if button is not None:
+                tap(*coords(button));seen=None;time.sleep(.28);continue
             title_seen=any(expected_title in (node.get('text',''),node.get('content-desc','')) for node in tree.iter('node'))
-            if not title_seen:tap(im.width*.5,im.height*.32)
-        if title_seen and current is not None and seen is not None and current>seen+.25 and current-seen<6:
+            if not title_seen and current is not None:tap(im.width*.5,im.height*.32)
+        if title_seen and current is not None and (not continuous or current<12) and seen is not None and current>seen+.25 and current-seen<6:
             if continuous:sample_process()
             return True
         if current is not None:seen=current
@@ -131,7 +136,10 @@ for idx,clip in enumerate(clips):
         detail['open']='passed' if ok or detail.get('open')=='passed' else 'no advancing picture'
         if not ok:
             capture_open_failure(clip,session)
-            save();continue
+            save()
+            if continuous and os.environ.get('QA_STOP_ON_FAILURE')=='true':
+                raise SystemExit('Continuous playback did not start; preserve the first failure')
+            continue
         attempted=0
         for batch in range(batches):
             base_seed=int(os.environ.get('QA_SEED_BASE',str((11987311 if os.environ['QA_ENGINE']=='YCore' else 22987311)+shard*2017+idx*137)))
