@@ -1483,6 +1483,7 @@ internal fun PlayerControls(
                     pauseInfoShown = pauseInfoShown,
                     stoppedAtItemEnd = stoppedAtItemEnd,
                     showPausedKey = showPausedKey,
+                    overlayOpen = remotePanel != null,
                     watchLocked = watchLocked,
                     speedBoostable = !watch.connected && cast.deviceId == null,
                     remoteChrome = remoteChrome,
