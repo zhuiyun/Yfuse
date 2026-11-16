@@ -14,7 +14,7 @@ from telemetry import Recorder
 def work_names(output, stage):
     """Copy only a disposable guest's scheduler database; export worker/job identities."""
     base = '/data/user/0/com.yfuse/no_backup/androidx.work.workdb'
-    result = {'stage': stage, 'available': False, 'workers': [], 'systemIds': []}
+    result = {'stage': stage, 'available': False, 'workers': [], 'systemIds': [], 'runCounters': []}
     with tempfile.TemporaryDirectory(prefix='yfuse-workdb-', dir=os.environ['RUNNER_TEMP']) as folder:
         destination = Path(folder) / 'work.db'
         for suffix in ('', '-wal', '-shm'):
@@ -27,12 +27,22 @@ def work_names(output, stage):
                     'select id, worker_class_name, state, interval_duration, run_attempt_count from WorkSpec')]
                 result['systemIds'] = [list(row) for row in connection.execute(
                     'select work_spec_id, system_id from SystemIdInfo')]
+                columns = {row[1] for row in connection.execute('pragma table_info(WorkSpec)')}
+                selected = [name for name in ('id', 'worker_class_name', 'state', 'period_count',
+                            'last_enqueue_time', 'schedule_requested_at') if name in columns]
+                result['runCounters'] = [dict(zip(selected, row)) for row in connection.execute(
+                    'select ' + ','.join(selected) + ' from WorkSpec')]
                 result['available'] = True
             finally:
                 connection.close()
         except sqlite3.Error as error:
             result['error'] = type(error).__name__
     (output / (stage + '-work-identities.json')).write_text(json.dumps(result, indent=2), encoding='utf-8')
+    if os.environ.get('QA_REQUIRE_NO_REMINDERS') == 'true':
+        if not result['available']:
+            raise AssertionError('Scheduler database unavailable; cannot verify absent reminder jobs')
+        if any(row[1].endswith('.CalendarReminderWorker') and row[2] in (0, 1, 4) for row in result['workers']):
+            raise AssertionError('Empty profile still has active reminder work at ' + stage)
 
 
 def main():
