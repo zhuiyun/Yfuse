@@ -5,7 +5,7 @@ on:
     paths: ['.github/workflows/qa-integrated-ui-fixed.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: f0973393f8f5b48eb18a9e43c9fa3bc3643a83ca
+  QA_APP_SHA: 73b60b34546039f1aaa951af1982eb7371b2a339
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: f0973393f8f5b48eb18a9e43c9fa3bc3643a83ca
+          ref: 73b60b34546039f1aaa951af1982eb7371b2a339
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78

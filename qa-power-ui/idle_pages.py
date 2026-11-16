@@ -4,7 +4,8 @@ from pathlib import Path
 import time
 from capture import capture, failure_diagnostics
 from library import LibraryServer
-from library_ui import connect, field
+from library_ui import connect, field, submit_search
+from navigation import click
 from power import engine, adb, ui, home
 from telemetry import Recorder
 
@@ -21,8 +22,7 @@ def enter(name, output):
         ui.tap(search)
         ui.hide_keyboard()
         field('搜索电影、剧集、演员', '山海')
-        adb('shell', 'input', 'keyevent', '66')
-        ui.hide_keyboard()
+        submit_search('山海')
         evidence = capture(output, name, expected='山海之间', timeout=25)
         if not any('山海之间' in text for text in evidence['labels']):
             raise AssertionError('Search results did not arrive')
@@ -43,6 +43,23 @@ def main():
     status = 'incomplete'
     try:
         connect()
+        home('我的')
+        click('外观与交互')
+        row = ui.grab('库页轮播图', 8)
+        # Capture both states through the actual settings switch; do not silently
+        # treat a missed tap as a controlled carousel-off condition.
+        def enabled():
+            tree = ui.snapshot()
+            candidates = [n for n in ui.nodes(tree) if n.get('clickable') == 'true'
+                          and n.get('state') in ('On', 'Off', '开启', '关闭')
+                          and any('库页轮播图' in ui.labels(child) for child in n.iter('node'))]
+            if len(candidates) != 1:
+                raise AssertionError('Carousel switch state unavailable')
+            return candidates[0].get('checked') == 'true'
+        if enabled():
+            ui.tap(row)
+        if enabled():
+            raise AssertionError('Carousel did not switch off')
         adb('shell', 'dumpsys', 'battery', 'unplug')
         adb('shell', 'dumpsys', 'battery', 'set', 'level', '80')
         adb('shell', 'dumpsys', 'battery', 'set', 'status', '3')
@@ -50,6 +67,7 @@ def main():
         recorder = Recorder(output)
         (output / 'conditions.json').write_text(json.dumps({'batterySimulated': True,
             'levelSetpoint': 80, 'chargingSetpoint': False, 'playback': False,
+            'carouselEnabled': False, 'searchSubmittedByIme': True,
             'phasesMinutes': {'library-idle': 10, 'search-idle': 10, 'settings-idle': 5, 'background-idle': 5},
             'collectorSeconds': 30, 'excludeFirstSecondsPerPhase': 60,
             'scope': 'Identical synthetic library; normal theme and default motion; no physical energy measurement'}), encoding='utf-8')

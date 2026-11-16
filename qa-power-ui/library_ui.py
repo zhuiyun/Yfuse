@@ -44,6 +44,28 @@ def field(label, value, secret=False):
             raise AssertionError('Editable control value was not accepted: ' + label)
 
 
+def submit_search(value):
+    editors = [n for n in ui.nodes(ui.snapshot())
+               if n.get('class', '').endswith('EditText') and n.get('text') == value]
+    if len(editors) != 1:
+        raise AssertionError('Expected one populated search editor')
+    ui.tap(editors[0])
+    x, y = ui.coords(editors[0])
+    command = ['am', 'instrument', '-w', '-e', 'mode', 'imeAction',
+               '-e', 'x', str(x), '-e', 'y', str(y), 'qa.yfuse.gesture/.Driver']
+    result = ui.adb('shell', shlex.join(command))
+    if 'outcome=ime-submitted' not in result:
+        raise AssertionError('Search IME submission was not accepted')
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        editors = [n for n in ui.nodes(ui.snapshot())
+                   if n.get('class', '').endswith('EditText') and n.get('text') == value]
+        if len(editors) == 1 and editors[0].get('focused') == 'false':
+            return
+        time.sleep(.25)
+    raise AssertionError('Search editor retained focus after IME submission')
+
+
 def connect(port=18196):
     ui.pkg = 'com.yfuse'
     ui.launch()

@@ -1,4 +1,4 @@
-name: Paired30minute library and populated-search study with verified editor input after current-IME visibility correction
+name: Paired30minute library without carousel and search after real IME submission
 'on':
   push:
     branches:
@@ -35,6 +35,22 @@ jobs:
 
           preview/baseline-limit.txt'
         retention-days: 10
+    - name: Build visible editable-control instrumentation
+      run: 'set -euo pipefail
+
+        mkdir qa-driver
+
+        cp qa-arm-matrix/Driver.java qa-volume/input-driver.java
+
+        sed ''s|adb install -r driver.apk|cp driver.apk "$GITHUB_WORKSPACE/qa-driver/driver.apk"|''
+        qa-volume/build-driver.sh > "$RUNNER_TEMP/driver.sh"
+
+        bash "$RUNNER_TEMP/driver.sh"'
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+      with:
+        name: power-ui-input-driver
+        path: qa-driver/
+        retention-days: 7
   before:
     name: before30minute real library and search idle pages
     needs: acquire-before
@@ -52,8 +68,6 @@ jobs:
       with:
         name: power-ui-input-driver
         path: qa-driver
-        run-id: 43889473089
-        github-token: ${{ github.token }}
     - name: Verify runtime and prepare evidence tools
       run: 'set -euo pipefail
 
@@ -140,7 +154,9 @@ jobs:
         retention-days: 10
   after:
     name: after30minute real library and search idle pages
-    needs: acquire-after
+    needs:
+    - acquire-after
+    - acquire-before
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 120
     steps:
@@ -155,8 +171,6 @@ jobs:
       with:
         name: power-ui-input-driver
         path: qa-driver
-        run-id: 43889473089
-        github-token: ${{ github.token }}
     - name: Verify runtime and prepare evidence tools
       run: 'set -euo pipefail
 

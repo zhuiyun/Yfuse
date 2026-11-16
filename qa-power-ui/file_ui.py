@@ -170,7 +170,9 @@ def main():
         # click action. Verify the form, then choose the fixture's HTTP scheme.
         ui.wait(['WebDAV', 'WebDav'])
         click('HTTP')
-        field('地址', 'http://127.0.0.1:18198/dav')
+        field('地址', '127.0.0.1')
+        field('端口', '18198')
+        field('路径', 'dav')
         field('显示名称', 'QA-DAV')
         click('连接并添加')
         record('06-webdav-added', 'QA-DAV')

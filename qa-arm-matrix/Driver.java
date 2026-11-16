@@ -31,6 +31,7 @@ public final class Driver extends Instrumentation {
         for(int i=0;i<keys.length;i++)xml.attribute(null,keys[i],vals[i]==null?"":vals[i].toString());
         xml.attribute(null,"visible",Boolean.toString(n.isVisibleToUser()));
         xml.attribute(null,"selected",Boolean.toString(n.isSelected()));
+        xml.attribute(null,"focused",Boolean.toString(n.isFocused()));
         boolean horizontal=false,vertical=false;
         for(android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction action:n.getActionList()) {
             int id=action.getId();
@@ -237,7 +238,7 @@ public final class Driver extends Instrumentation {
                 result.putString("command", command(ui.getRootInActiveWindow()));
                 finish(-1, result); return;
             }
-            if ("setText".equals(args.getString("mode"))) {
+            if ("setText".equals(args.getString("mode")) || "imeAction".equals(args.getString("mode"))) {
                 android.view.accessibility.AccessibilityNodeInfo field = null;
                 for (int attempt = 0; attempt < 30 && field == null; attempt++) {
                     field = editableAt(ui.getRootInActiveWindow(),
@@ -245,6 +246,11 @@ public final class Driver extends Instrumentation {
                     if (field == null) SystemClock.sleep(100);
                 }
                 if (field == null) throw new IllegalStateException("Visible editable control unavailable");
+                if ("imeAction".equals(args.getString("mode"))) {
+                    if (!field.performAction(android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.getId()))
+                        throw new IllegalStateException("Editor IME action rejected");
+                    result.putString("outcome", "ime-submitted"); finish(-1, result); return;
+                }
                 Bundle text = new Bundle();
                 text.putCharSequence(android.view.accessibility.AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
                         args.getString("value", ""));
