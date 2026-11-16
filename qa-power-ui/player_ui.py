@@ -63,8 +63,12 @@ def main():
     adb('reverse', 'tcp:18389', 'tcp:18389')
     engine.configure(core)
     rows = []
+    requested = {name for name in os.environ.get('QA_PLAYER_ROUTES', '').split(',') if name}
+    if requested - {name for name, _ in ROUTES}:
+        raise ValueError('Unknown requested player route')
+    routes = [(name, path) for name, path in ROUTES if not requested or name in requested]
     try:
-        for index, (name, path) in enumerate(ROUTES, 1):
+        for index, (name, path) in enumerate(routes, 1):
             row = {'name': name, 'path': path, 'status': 'incomplete'}
             rows.append(row)
             try:
@@ -120,7 +124,7 @@ def main():
     finally:
         server.close()
     incomplete = [row['name'] for row in rows if row['status'] != 'captured-needs-review']
-    if incomplete or len(rows) != len(ROUTES):
+    if incomplete or len(rows) != len(routes):
         raise SystemExit('Player evidence incomplete: ' + ', '.join(incomplete))
 
 
