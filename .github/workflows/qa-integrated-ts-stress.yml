@@ -1,4 +1,4 @@
-name: Stress the intermittent YCore transport-stream freeze with frame diagnostics
+name: Reproduce the intermittent transport seek with live Java and native stacks
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
@@ -16,8 +16,8 @@ jobs:
     env:
       QA_ENGINE: YCore
       QA_SHARD: '13'
-      QA_SESSIONS: '20'
-      QA_BATCHES: '2'
+      QA_SESSIONS: '12'
+      QA_BATCHES: '1'
       QA_BATCH_COUNT: '16'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -29,7 +29,8 @@ jobs:
       - name: Verify APK and reproduce the same H264/AAC transport stream
         run: |
           set -euo pipefail
-          echo "QA_SEED_BASE=$((12013806 + ${{ matrix.lane }} * 104729))" >> "$GITHUB_ENV"
+          echo "QA_SEED_BASE=12013864" >> "$GITHUB_ENV"
+          echo "QA_REPEAT_SEED=true" >> "$GITHUB_ENV"
           (cd preview && sha256sum -c apk.sha256)
           grep -Fx 'app=15d635d0da26aa528ab5157b2585ec43b1bf9421' preview/provenance.txt
           sudo apt-get -qq update && sudo apt-get install -y ffmpeg python3-pil

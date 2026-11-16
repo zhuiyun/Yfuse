@@ -44,6 +44,21 @@ def capture_open_failure(clip, session):
     pathlib.Path(str(prefix)+'-tree.txt').write_text(ET.tostring(snapshot(),encoding='unicode'))
     pathlib.Path(str(prefix)+'-logcat.txt').write_text(adb('logcat','-d','-v','threadtime',check=False))
     pathlib.Path(str(prefix)+'-diagnostics.txt').write_text(adb('shell','cat /data/user/0/com.yfuse/no_backup/diagnostics/diagnostic-*.jsonl',check=False))
+    # Capture a live blocked seek before the next session force-stops it. These are public
+    # generated fixtures; private-source jobs never execute this recorder.
+    pid=adb('shell','pidof com.yfuse',check=False).strip()
+    if pid.isdigit():
+        try:
+            adb('shell','kill -3 '+pid,check=False,timeout=10)
+            time.sleep(1)
+            pathlib.Path(str(prefix)+'-native-stacks.txt').write_text(adb('shell','debuggerd -b '+pid,check=False,timeout=20))
+            pathlib.Path(str(prefix)+'-java-stacks.txt').write_text(adb('shell','cat /data/anr/*',check=False,timeout=10))
+        except subprocess.SubprocessError:
+            pathlib.Path(str(prefix)+'-stack-capture.txt').write_text('Timed out capturing cloud emulator stacks')
+    time.sleep(8)
+    screen().save(str(prefix)+'-later-screen.png')
+    pathlib.Path(str(prefix)+'-later-diagnostics.txt').write_text(adb('shell','cat /data/user/0/com.yfuse/no_backup/diagnostics/diagnostic-*.jsonl',check=False))
+    pathlib.Path(str(prefix)+'-later-logcat.txt').write_text(adb('logcat','-d','-v','threadtime',check=False))
 def save():
     report['issued']=sum(bool(r.get('issued')) for c in rec for r in c['rows'])
     report['verified']=sum(bool(r.get('ok')) for c in rec for r in c['rows'])
@@ -82,7 +97,7 @@ for idx,clip in enumerate(clips):
         attempted=0
         for batch in range(batches):
             base_seed=int(os.environ.get('QA_SEED_BASE',str((11987311 if os.environ['QA_ENGINE']=='YCore' else 22987311)+shard*2017+idx*137)))
-            seed=base_seed+session*19+batch
+            seed=base_seed if os.environ.get('QA_REPEAT_SEED')=='true' else base_seed+session*19+batch
             try:
                 answer=adb('shell','am','instrument','-w','-e','mode','volume','-e','variant','original','-e','seed',seed,'-e','count',batch_count,'-e','duration',clip['duration'],'qa.yfuse.gesture/.Driver',timeout=350)
                 match=re.search(r'INSTRUMENTATION_RESULT: rows=([A-Za-z0-9+/=]+)',answer)
