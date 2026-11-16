@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import statistics
 
-IDLE = {'servers-idle', 'library-idle', 'settings-idle', 'paused',
+IDLE = {'servers-idle', 'library-idle', 'search-idle', 'settings-idle', 'paused',
         'after-player-idle', 'background-idle', 'screen-off'}
 
 

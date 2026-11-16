@@ -1,0 +1,217 @@
+name: Paired30minute populated library and search idle-render study
+'on':
+  push:
+    branches:
+    - codex/two-engines-cloud-seek-20261113
+    paths:
+    - .github/workflows/qa-idle-pages.yml
+permissions:
+  contents: read
+  actions: read
+jobs:
+  acquire-before:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
+    - name: Acquire built diagnostic baseline and retain known qualification failures
+      env:
+        API_TOKEN: ${{ github.token }}
+      run: bash qa-power-ui/acquire-baseline.sh 43886247081 bd556cb716a2791010c0543dbd6a650be011714b
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+      with:
+        name: idle-pages-before-input
+        path: 'preview/composeApp-release.apk
+
+          preview/provenance.txt
+
+          preview/apk.sha256
+
+          preview/baseline-build-run.json
+
+          preview/baseline-build-jobs.json
+
+          preview/baseline-limit.txt'
+        retention-days: 10
+  before:
+    name: before30minute real library and search idle pages
+    needs: acquire-before
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
+    - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      with:
+        name: idle-pages-before-input
+        path: preview
+    - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      with:
+        name: power-ui-input-driver
+        path: qa-driver
+        run-id: 43889473089
+        github-token: ${{ github.token }}
+    - name: Verify runtime and prepare evidence tools
+      run: 'set -euo pipefail
+
+        mkdir -p results
+
+        # apk.sha256 may also name unrelated build inputs; verify this exact app entry.
+
+        (cd preview && grep ''composeApp-release.apk$'' apk.sha256 | sha256sum -c
+        -)
+
+        grep -Fx "app=bd556cb716a2791010c0543dbd6a650be011714b" preview/provenance.txt
+
+        cp preview/provenance.txt preview/apk.sha256 preview/baseline-build-*.json
+        preview/baseline-limit.txt results/
+
+        printf ''qa=%s\nrun=%s\n'' "$GITHUB_SHA" "$GITHUB_RUN_ID" > results/qa-provenance.txt
+
+        sudo apt-get update -qq
+
+        sudo apt-get install -y python3-pil
+
+        '
+    - name: Boot disposable cloud ARM64 Android
+      run: bash qa-arm-dual/redroid.sh
+    - name: Install exact candidate in the disposable guest
+      run: 'set -euo pipefail
+
+        test "$GITHUB_ACTIONS" = true
+
+        adb install -r -g preview/composeApp-release.apk
+
+        adb install -r qa-driver/driver.apk
+
+        adb shell wm size 720x1280
+
+        adb shell wm density 260
+
+        adb shell settings put secure immersive_mode_confirmations confirmed
+
+        adb shell settings put secure accessibility_interactive_ui_timeout_ms 60000
+
+        adb shell wm dismiss-keyguard
+
+        touch /tmp/yfuse-tree-active
+
+        adb shell getprop > results/guest-properties.txt
+
+        docker inspect qa-android --format ''{{.Image}}'' > results/cloud-image.txt
+
+        '
+    - name: Observe real library and search result pages without touches
+      run: /usr/bin/python3 qa-power-ui/idle_pages.py
+    - if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+      with:
+        name: idle-pages-before
+        path: results/
+        retention-days: 14
+  acquire-after:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
+    - name: Acquire built diagnostic baseline and retain known qualification failures
+      env:
+        API_TOKEN: ${{ github.token }}
+      run: bash qa-power-ui/acquire-baseline.sh 43902079947 6b9b49f6a394c1fadf059ce2f825e17b1ad948d1
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+      with:
+        name: idle-pages-after-input
+        path: 'preview/composeApp-release.apk
+
+          preview/provenance.txt
+
+          preview/apk.sha256
+
+          preview/baseline-build-run.json
+
+          preview/baseline-build-jobs.json
+
+          preview/baseline-limit.txt'
+        retention-days: 10
+  after:
+    name: after30minute real library and search idle pages
+    needs: acquire-after
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
+    - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      with:
+        name: idle-pages-after-input
+        path: preview
+    - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      with:
+        name: power-ui-input-driver
+        path: qa-driver
+        run-id: 43889473089
+        github-token: ${{ github.token }}
+    - name: Verify runtime and prepare evidence tools
+      run: 'set -euo pipefail
+
+        mkdir -p results
+
+        # apk.sha256 may also name unrelated build inputs; verify this exact app entry.
+
+        (cd preview && grep ''composeApp-release.apk$'' apk.sha256 | sha256sum -c
+        -)
+
+        grep -Fx "app=6b9b49f6a394c1fadf059ce2f825e17b1ad948d1" preview/provenance.txt
+
+        cp preview/provenance.txt preview/apk.sha256 preview/baseline-build-*.json
+        preview/baseline-limit.txt results/
+
+        printf ''qa=%s\nrun=%s\n'' "$GITHUB_SHA" "$GITHUB_RUN_ID" > results/qa-provenance.txt
+
+        sudo apt-get update -qq
+
+        sudo apt-get install -y python3-pil
+
+        '
+    - name: Boot disposable cloud ARM64 Android
+      run: bash qa-arm-dual/redroid.sh
+    - name: Install exact candidate in the disposable guest
+      run: 'set -euo pipefail
+
+        test "$GITHUB_ACTIONS" = true
+
+        adb install -r -g preview/composeApp-release.apk
+
+        adb install -r qa-driver/driver.apk
+
+        adb shell wm size 720x1280
+
+        adb shell wm density 260
+
+        adb shell settings put secure immersive_mode_confirmations confirmed
+
+        adb shell settings put secure accessibility_interactive_ui_timeout_ms 60000
+
+        adb shell wm dismiss-keyguard
+
+        touch /tmp/yfuse-tree-active
+
+        adb shell getprop > results/guest-properties.txt
+
+        docker inspect qa-android --format ''{{.Image}}'' > results/cloud-image.txt
+
+        '
+    - name: Observe real library and search result pages without touches
+      run: /usr/bin/python3 qa-power-ui/idle_pages.py
+    - if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+      with:
+        name: idle-pages-after
+        path: results/
+        retention-days: 14

@@ -149,6 +149,13 @@ def main():
         library.close()
         raise
     recorder = Recorder(out)
+    (out / 'conditions.json').write_text(json.dumps({
+        'protocol': 2, 'batteryLevelSetpoint': 80, 'batteryIsSimulated': True,
+        'chargingSetpoint': False, 'seekPattern': 'alternating18and62percent',
+        'networkFailure': 'uncached outage URL must receive HTTP503 before the phase starts',
+        'engineIdentity': 'same source requires native mapping/output evidence within10seconds; all attempts retained',
+        'comparisonLimit': 'Earlier protocol used simulated level0, repeated18percent seeks and did not prove uncached503.',
+    }, indent=2), encoding='utf-8')
     phases = []
     status = 'incomplete'
     # This changes only the guest's charging state so Batterystats accounts for activity.
