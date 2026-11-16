@@ -1,4 +1,4 @@
-name: Actual player popup audit with refreshed pause state and complete capture gate
+name: Actual player popup audit with scrolls constrained to the visible menu
 'on':
   push:
     branches:

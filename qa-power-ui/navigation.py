@@ -35,8 +35,20 @@ def control(keys, scrolls=8):
                 if left >= 0 and right <= width and top >= 0 and end <= bottom:
                     return target
         if attempt < scrolls:
-            ui.shell('input', 'swipe', width // 2, int(bottom * .87),
-                     width // 2, int(height * .25), 450)
+            panes = [n for n in ui.nodes(tree) if n.get('scrollable') == 'true'
+                     and 'HorizontalScrollView' not in n.get('class', '')]
+            if not panes:
+                break
+            pane = max(panes, key=lambda n: (bounds(n)[2] - bounds(n)[0]) *
+                       (bounds(n)[3] - bounds(n)[1]))
+            left, top, right, end = bounds(pane)
+            left, top, right, end = max(0, left), max(0, top), min(width, right), min(bottom, end)
+            if right <= left or end - top < 40:
+                break
+            # A player's menu lives on the right. A screen-centre swipe dismisses it
+            # and then searches the video underneath, rather than scrolling the menu.
+            ui.shell('input', 'swipe', (left + right) // 2, int(top + (end - top) * .82),
+                     (left + right) // 2, int(top + (end - top) * .25), 450)
             time.sleep(.5)
     raise LookupError('No visible actionable control: ' + str(keys))
 
