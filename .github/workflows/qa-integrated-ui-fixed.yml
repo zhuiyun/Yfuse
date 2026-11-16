@@ -1,11 +1,11 @@
-name: Full UI regression with pinned settings header and idle sampling repair
+name: Full UI regression with fresh accessibility bounds and frame-stage diagnostics
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
     paths: ['.github/workflows/qa-integrated-ui-fixed.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: 7ab9b6b372eab29181daff32c0ff660604087b20
+  QA_APP_SHA: 0688214c5d37232476307e804fa164ff939a0ea9
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 7ab9b6b372eab29181daff32c0ff660604087b20
+          ref: 0688214c5d37232476307e804fa164ff939a0ea9
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
