@@ -1,4 +1,4 @@
-name: Paired30minute library and populated-search study with verified editor input
+name: Paired30minute library and populated-search study with verified editor input after current-IME visibility correction
 'on':
   push:
     branches:

@@ -1,4 +1,4 @@
-name: Search, person and multi-server UI through synthetic server fixtures
+name: Search, person and multi-server UI through synthetic server fixtures after current-IME visibility correction
 'on':
   push:
     branches:

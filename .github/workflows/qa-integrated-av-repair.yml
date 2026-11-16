@@ -1,11 +1,11 @@
-name: Qualify player panel layering and idle activity fixes
+name: Qualify enlarged detail titles and player panel layering
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
     paths: ['.github/workflows/qa-integrated-av-repair.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: e527c57b2667adbcc2a886020ab7d4c5cf0c20f6
+  QA_APP_SHA: 1cffaa8919a3990aed68f2ce1cf3bd9c45442e1b
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: e527c57b2667adbcc2a886020ab7d4c5cf0c20f6
+          ref: 1cffaa8919a3990aed68f2ce1cf3bd9c45442e1b
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78

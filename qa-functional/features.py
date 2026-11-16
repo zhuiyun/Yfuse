@@ -85,8 +85,15 @@ def dock(t,tab):
  candidates=[n for n in nodes(t) if n.get('content-desc')==tab and n.get('package')==pkg]
  return max(candidates,key=lambda n:coords(n)[1]) if candidates else None
 def hide_keyboard():
+ # WindowManager's current insets are authoritative. mImeWindowVis can retain
+ # an old visible flag after dismissal; a second Back would leave the app page.
+ displays=shell('dumpsys','window','displays')
+ ime=[line for line in displays.splitlines() if re.search(r'InsetsSource.*type=(?:ITYPE_IME|ime)\b',line)]
+ if ime:
+  if any(re.search(r'(?:mVisible|visible)=true\b',line) for line in ime):shell('input','keyevent',4);time.sleep(.45)
+  return
  state=shell('dumpsys','input_method')
- if re.search(r'(?:mInputShown|isInputViewShown|mIsInputViewShown)=true|mImeWindowVis=0x3',state):shell('input','keyevent',4);time.sleep(.45)
+ if re.search(r'(?:mInputShown|isInputViewShown|mIsInputViewShown)=true',state):shell('input','keyevent',4);time.sleep(.45)
 def root(tab):
  hide_keyboard()
  for _ in range(6):
