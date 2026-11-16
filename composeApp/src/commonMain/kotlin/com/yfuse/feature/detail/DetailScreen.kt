@@ -6,11 +6,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
@@ -548,20 +550,24 @@ fun DetailScreen(component: DetailComponent) {
             val density = LocalDensity.current
             // Enough artwork to feel cinematic while still exposing the title and primary
             // decision on compact phones. The old 60% crop hid too much of the useful page.
-            val heroHeight =
+            val preferredHeroHeight =
                 when (windowWidthTier(maxWidth)) {
                     WindowWidthTier.Compact -> (maxHeight * 0.48f).coerceAtMost(520.dp)
                     WindowWidthTier.Medium -> (maxHeight * 0.48f).coerceAtMost(580.dp)
                     WindowWidthTier.Expanded -> (maxHeight * 0.46f).coerceAtMost(620.dp)
                 }
-            val heroHeightPx = with(density) { heroHeight.toPx() }
-
             // Lift the measured caption and the primary action over the artwork. The backdrop
             // continues 20dp below 播放, while the blend into the page still begins at the
             // artwork's physical lower edge.
             var captionLift by remember {
                 mutableStateOf(TypicalCaptionHeight + SheetGap + PlayButtonHeroOverlap)
             }
+            // A larger caption must grow the artwork instead of rising behind Back/More.
+            // Measure the real title block so long names, accessibility text and badges
+            // all leave the same status-bar and toolbar clearance on short windows.
+            val statusBarHeight = with(density) { WindowInsets.statusBars.getTop(this).toDp() }
+            val heroHeight = preferredHeroHeight.coerceAtLeast(captionLift + statusBarHeight + TopBarHeight)
+            val heroHeightPx = with(density) { heroHeight.toPx() }
 
             val artworkAspectRatio = maxWidth.value / heroHeight.value.coerceAtLeast(1f)
             val artworkFadeFraction =
