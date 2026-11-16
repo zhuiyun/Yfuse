@@ -1,0 +1,275 @@
+name: Combined-repair full two-engine cloud stability matrix
+on:
+  push:
+    branches: [codex/two-engines-cloud-seek-20261113]
+    paths: ['.github/workflows/qa-integrated-final.yml']
+permissions: {contents: read, actions: read}
+env:
+  QA_APP_SHA: a8826b79c7d09eb043e107e2a5d29b77ef8cf7ae
+jobs:
+  build:
+    name: Acquire the qualified identical release candidate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: candidate-test-input
+          path: preview
+          run-id: 43805125654
+          github-token: '${{ github.token }}'
+      - name: Check exact APK and qualification results
+        env: {API_TOKEN: "${{ github.token }}"}
+        run: |
+          set -euo pipefail
+          (cd preview && sha256sum -c apk.sha256)
+          grep -Fx "app=$QA_APP_SHA" preview/provenance.txt
+          curl -fsSL -H "Authorization: Bearer $API_TOKEN" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/43805125654/jobs?per_page=100" > "$RUNNER_TEMP/qualification.json"
+          jq -e '[.jobs[] | select(.name=="build" or (.name=="Actual ARM64 software-frame and seek-preview contract")) | .conclusion] | length==2 and all(.=="success")' "$RUNNER_TEMP/qualification.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: candidate-test-input, path: preview, retention-days: 7}
+
+  driver:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - name: Build the screenshot and touch instrumentation
+        run: |
+          set -euo pipefail
+          mkdir qa-driver
+          cp qa-arm-matrix/Driver.java qa-volume/input-driver.java
+          sed 's|adb install -r driver.apk|cp driver.apk "$GITHUB_WORKSPACE/qa-driver/driver.apk"|' qa-volume/build-driver.sh > "$RUNNER_TEMP/build-qa.sh"
+          bash "$RUNNER_TEMP/build-qa.sh"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: arm-input-driver, path: qa-driver/, retention-days: 5}
+  test:
+    needs: [driver,build]
+    name: Native ${{ matrix.engine }} buffered thumbnail
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        engine: [SenPlayer,YCore]
+    env:
+      QA_ENGINE: ${{ matrix.engine }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: arm-input-driver, path: qa-driver}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: candidate-test-input, path: preview}
+      - name: Verify the fixed app and prepare a real cold hole in the server's byte range
+        run: |
+          set -euo pipefail
+          mkdir -p preview results
+          (cd preview && sha256sum -c apk.sha256)
+          grep -Fx "app=$QA_APP_SHA" preview/provenance.txt
+          cp preview/provenance.txt preview/apk.sha256 results/
+          sudo apt-get -qq update && sudo apt-get install -y ffmpeg python3-pil python3-numpy fonts-dejavu-core
+          /usr/bin/python3 qa-scrub/fixture.py qa-media
+          /usr/bin/python3 qa-cache-fixed/boundary.py
+      - name: Boot Android 12 with a native ARM64 process
+        run: bash qa-arm-dual/redroid.sh
+      - name: Hold the same finger through hot, cold and hot positions
+        run: bash qa-cache-fixed/holds.sh
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: 'cached-holds-${{ matrix.engine }}', path: results/, retention-days: 10}
+  volume:
+    needs: [driver,build]
+    name: Native ${{ matrix.engine }} movies and episodes ${{ matrix.shard }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 190
+    strategy:
+      fail-fast: false
+      max-parallel: 18
+      matrix:
+        shard: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]
+        engine: [SenPlayer,YCore]
+    env:
+      QA_ENGINE: ${{ matrix.engine }}
+      QA_SHARD: ${{ matrix.shard }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: arm-input-driver, path: qa-driver}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: candidate-test-input, path: preview}
+      - name: Verify exact APK and prepare movies and episodes
+        run: |
+          set -euo pipefail
+          mkdir -p preview results
+          (cd preview && sha256sum -c apk.sha256)
+          grep -Fx "app=$QA_APP_SHA" preview/provenance.txt
+          cp preview/provenance.txt preview/apk.sha256 results/
+          sudo apt-get -qq update && sudo apt-get install -y ffmpeg python3-pil
+          /usr/bin/python3 qa-title-seek-check/prepare.py "$QA_SHARD" 16
+      - name: Boot Android 12 with a native ARM64 process
+        run: bash qa-arm-dual/redroid.sh
+      - name: Prove the selected engine, movie and episode output and each touch landing
+        run: bash qa-arm-matrix/run.sh
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: 'integrated-${{ matrix.engine }}-${{ matrix.shard }}', path: results/, retention-days: 10}
+  pointer:
+    name: Actual Android rail press and cancel regression
+    needs: build
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: candidate-test-input, path: preview}
+      - name: Boot isolated ARM64 cloud Android
+        run: bash qa-arm-dual/redroid.sh
+      - name: Run down, stationary hold, cancel, move and release assertions
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTIONS" = true
+          adb install -r -g preview/instrumentation-target.apk
+          adb install -r -g preview/regressions.apk
+          adb shell am instrument -w -r -e class 'com.yfuse.feature.player.SoftFeedbackInstrumentedTest#seek_cancel_never_commits_and_release_commits_once_with_or_without_motion,com.yfuse.feature.player.BufferedScrubDecodeInstrumentedTest' com.yfuse.test/androidx.test.runner.AndroidJUnitRunner | tee "$RUNNER_TEMP/qa-test.txt"
+          grep -E 'OK \(3 tests\)' "$RUNNER_TEMP/qa-test.txt"
+
+  fast-contracts:
+    name: Release scripts and source boundaries
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up validation Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v6
+        with:
+          python-version: "3.13"
+      - name: Install validation dependencies
+        run: python3 -m pip install -r scripts/requirements-validation.txt
+      - name: Check script prerequisites
+        run: python3 scripts/check-validation-env.py --profile scripts --report build/validation/scripts-env.json
+      - name: Verify release metadata and script behavior
+        run: |
+          python3 scripts/release_metadata.py
+          python3 -m unittest discover -s scripts/tests -p 'test_*.py'
+          python3 -m unittest discover -s tools/offline-cutout-probe/tests -p 'test_*.py'
+          python3 -m unittest discover -s tools/mlkit-cutout-probe/tests -p 'test_*.py'
+          python3 scripts/verify-tv-source.py --manifest tvApp/src/androidMain/AndroidManifest.xml --banner tvApp/src/main/res/drawable-nodpi/tv_banner.png
+          python3 scripts/verify-module-boundaries.py
+          python3 scripts/check-backend-boundary.py
+      # PlayerRoot's content lambda grew past what R8 9.1 could turn into a DEX that Android 17
+      # verifies, and 1.0.91 crashed before its first frame. A listed function may not grow past
+      # its ceiling in config/function-size-baseline.txt, and a new one may not pass 1,500 lines.
+      - name: Keep functions under their size ceilings
+        run: python3 scripts/check_function_size.py
+      - name: Verify renderer cancellation and Cast media-state isolation
+        run: node --test castReceiver/receiver.test.cjs watchTogetherServer/calendarRenderer/*.test.mjs
+
+  fast-jvm:
+    name: Backend, protocol and server tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Java
+        uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+      - name: Run backend, protocol and server tests without native bootstrap
+        run: ./gradlew :yfuseBackendClient:jvmTest :watchTogetherProtocol:jvmTest :watchTogetherServer:test --no-daemon
+      - name: Verify backend disabled configuration
+        run: ./gradlew :yfuseBackendClient:jvmTest -PyfuseBackendEnabled=false --no-daemon
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: fast-jvm-tests-${{ github.sha }}
+          path: |
+            watchTogetherProtocol/build/test-results/
+            watchTogetherServer/build/test-results/
+            yfuseBackendClient/build/test-results/
+          retention-days: 7
+
+  control_driver:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - name: Build network and gesture recorder
+        run: |
+          mkdir qa-private-driver
+          python3 qa-full-library/build_input.py
+          sed 's|adb install -r driver.apk|cp driver.apk "$GITHUB_WORKSPACE/qa-private-driver/driver.apk"|' qa-source-trace/build-driver.sh > "$RUNNER_TEMP/driver.sh"
+          bash "$RUNNER_TEMP/driver.sh"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: private-input-driver, path: qa-private-driver/, retention-days: 5}
+  control_recovery:
+    needs: [control_driver,build]
+    name: Playback controls and recovery ${{ matrix.mode }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [decoder,recovery,software]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - name: Prepare public decoder fixtures
+        run: |
+          mkdir -p private-results preview
+          sudo apt-get update -qq
+          sudo apt-get install -y python3-pil python3-cryptography ffmpeg
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: private-input-driver, path: driver}
+      - name: Boot native ARM64 emulator before issuing short-lived media locations
+        run: bash qa-arm-dual/redroid.sh
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: candidate-test-input, path: preview}
+      - name: Verify identical app
+        run: |
+          (cd preview && sha256sum -c apk.sha256)
+          grep -Fx "app=$QA_APP_SHA" preview/provenance.txt
+      - name: Open media from the full app library and measure playback
+        run: |
+          test "$GITHUB_ACTIONS" = true
+          (cd preview && sha256sum -c apk.sha256)
+          adb root || true
+          adb wait-for-device
+          adb install -r -g preview/composeApp-release.apk
+          adb install -r driver/driver.apk
+          adb shell wm size 720x1280
+          adb shell wm density 260
+          adb shell settings put secure immersive_mode_confirmations confirmed
+          adb shell settings put secure accessibility_interactive_ui_timeout_ms 60000
+          adb shell wm dismiss-keyguard
+          touch /tmp/yfuse-tree-active
+          case "${{ matrix.mode }}" in
+            decoder) /usr/bin/python3 qa-differential/controls.py ;;
+            recovery) /usr/bin/python3 qa-differential/controls.py --recovery-only ;;
+            software) QA_OUTPUT_REPRO=true QA_RECOVERY_CORE=YCore /usr/bin/python3 qa-differential/controls.py ;;
+          esac
+      - name: Clear disposable Android session
+        if: always()
+        run: |
+          if command -v adb >/dev/null; then timeout 15 adb shell pm clear com.yfuse || true; fi
+          rm -f "$RUNNER_TEMP/qa-private.pem" "$RUNNER_TEMP/envelope.json"
+      - name: Retain numeric playback measurements
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: integrated-controls-${{ matrix.mode }}
+          path: private-results
+          retention-days: 7
