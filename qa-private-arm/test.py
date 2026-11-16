@@ -146,7 +146,14 @@ def sample_range(media, position):
     except urllib.error.HTTPError as exc:
         body=exc.read(8192).decode("utf-8","ignore").lower()
         flags=[tag for tag,terms in {"expired":["expiredtoken","request has expired","url expired","已过期"],"addressDenied":["ip mismatch","ip not allowed","ip does not match","ip不匹配"],"signatureRejected":["signaturedoesnotmatch","signature mismatch","invalid signature"],"accessDenied":["accessdenied","access denied","forbidden"]}.items() if any(t in body for t in terms)]
-        return {"code":exc.code,"bytesRead":0,"validRange":False,"providerHint":flags}
+        detail={"code":exc.code,"bytesRead":0,"validRange":False,"providerHint":flags}
+        try:
+            failure=json.loads(body)
+            if isinstance(failure.get("code"),int):detail["providerCode"]=failure["code"]
+            message=str(failure.get("message",""))
+            if re.fullmatch(r"download err: [0-9]{1,12}",message):detail["providerError"]=int(message.split(": ")[1])
+        except (ValueError,AttributeError):pass
+        return detail
     except (TimeoutError,OSError):return {"code":0,"bytesRead":0,"validRange":False}
 
 
@@ -213,7 +220,7 @@ def source_range_benchmark(media):
             elapsed=time.monotonic()-begin
             measurements.append({"status":code,"bytes":received,"elapsedMs":round(elapsed*1000),"firstByteMs":None if first is None else round(first*1000),"bitsPerSecond":round(received*8/max(elapsed,.001)),"complete":received==amount})
         except Exception as failure:
-            measurements.append({"status":code,"bytes":received,"elapsedMs":round((time.monotonic()-begin)*1000),"errorType":type(failure).__name__})
+            measurements.append({"status":getattr(failure,"code",code),"bytes":received,"elapsedMs":round((time.monotonic()-begin)*1000),"errorType":type(failure).__name__})
     return measurements
 
 
@@ -244,6 +251,7 @@ if __name__=='__main__':
         for where,pos in positions.items():
             result=sample_range(media,pos)
             answers[where]={'code':result['code'],'correct':bool(result.get('validRange') and result.get('signature')==media.get('rangeHashes',{}).get(where))}
+            answers[where].update({k:result[k] for k in ('providerHint','providerCode','providerError') if k in result})
         return label,answers
     groups={}
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
@@ -272,7 +280,7 @@ if __name__=='__main__':
             cmd='am start -W -a android.intent.action.VIEW -n com.yfuse/com.yfuse.feature.player.ExternalPlaybackActivity -t video/'+mime+' -d '+shlex.quote(media['location'])
             try:
                 adb('shell',cmd,check=False)
-                result=decode_playback(label,None,media['seconds']);proof=engine.engine_evidence(core,since)
+                result=decode_playback(label,None,media['seconds'],max_wait=int(os.environ.get('QA_OPEN_DIAGNOSTIC_SECONDS','60')));proof=engine.engine_evidence(core,since)
                 identity_deadline=time.monotonic()+12
                 while not proof['active'] and time.monotonic()<identity_deadline:
                     time.sleep(1)

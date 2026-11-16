@@ -1,4 +1,4 @@
-name: Verify combined recovery on the failed audio source and high-bitrate movie with both engines
+name: Diagnose remaining movie and episode recovery with both engines
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
@@ -28,10 +28,11 @@ jobs:
     strategy:
       fail-fast: false
       max-parallel: 4
-      matrix: {shard: [0]}
+      matrix: {shard: [0,1,2,3]}
     env:
       QA_SHARD: ${{ matrix.shard }}
-      QA_PROBE_LABELS: m-012,m-030
+      QA_PROBE_LABELS: m-029,m-030
+      QA_OPEN_DIAGNOSTIC_SECONDS: 150
       QA_BENCHMARK_LABELS: m-012
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 90
@@ -62,8 +63,8 @@ jobs:
         run: |
           set -euo pipefail
           api="https://api.github.com/repos/$GITHUB_REPOSITORY"
-          build=43805125654
-          expected=a8826b79c7d09eb043e107e2a5d29b77ef8cf7ae
+          build=43808092986
+          expected=74a3996d5cfdeaf4314f81456ef3dfca5d343b44
           for i in $(seq 1 260); do
             artifact=$(curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/$build/artifacts" | jq -r '.artifacts[] | select(.name=="candidate-test-input" and .expired==false) | .id' | head -1)
             if [[ "$artifact" =~ ^[0-9]+$ ]]; then break; fi
