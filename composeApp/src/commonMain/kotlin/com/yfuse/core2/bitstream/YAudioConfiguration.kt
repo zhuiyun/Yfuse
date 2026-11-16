@@ -38,7 +38,8 @@ object YAudioConfiguration {
             extra.size >= FLAC_STREAMINFO_BYTES + 8 &&
                 hasMarker &&
                 (extra[4].toInt() and 0x7F) == 0 &&
-                extra[5] == 0.toByte() && extra[6] == 0.toByte() &&
+                extra[5] == 0.toByte() &&
+                extra[6] == 0.toByte() &&
                 extra[7] == FLAC_STREAMINFO_BYTES.toByte(),
         ) { "FLAC initialization is missing a complete STREAMINFO block" }
         return extra.copyOf()
