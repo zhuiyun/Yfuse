@@ -169,6 +169,7 @@ def app_events():
     knownText={"network","source","decoder","unknown","ready","failed","buffering","nativedirect","ffmpeg","mediacodec","ycore","senplayer","true","false","videodecoderconfigure","sourceopen","datasourceread","transport","engine","http","tcp","timeout","codec","ended","software","hardware","preparing","surface","video/hevc","video/avc","video/av01"}
     fields.update({"failurestage","codecmime","codecprofile","outputallowed","bufferedms","requiredms","targetms","waitms","queuebytes","memorybudgetbytes","queuebudgetbytes","plannedbudgetbytes","queuesamples","fillscheduled","readelapsedms","lastpacketagems","packetsread","demuxthroughputbps","pendingtrackcount","endofinput","atcapacity","generation","audiorendering","videorendering","renderedframecount","decodedframecount","droppedframecount","framesrendered","framesdropped","outputgeneration","videooutputverified","audiooutputverified","deterministic"})
     fields.update({"renderedframes","droppedframes","lastvideoms","softwarevideo","pendingvideoframe"})
+    fields.update({"elapsedms","remainingms","attempt","itemindex"})
     knownText.update({"nativenhanced","nativeenhanced","softwarefallback","softwarevideodecoderconfigure","softwarevideodecode","audiorender","videorender","audiodecoderconfigure","audiodecoderqueue","videodecoderqueue","demux","seek","prepare","audio/flac","audio/aac","audio/opus","video/dolby-vision","video/x-vnd.on2.vp9","video/mpeg2","video/mp4v-es"})
 
     for line in raw.splitlines():
@@ -188,7 +189,11 @@ def app_events():
         combined=" ".join([str(x.get("message","")),str(x.get("exception") or {}),str(x.get("attributes",{}))]).lower()
         labels=[q for q in ["sslhandshakeexception","sockettimeoutexception","unknownhostexception","econnreset","connection reset","invalidresponsecode","unsupported","decoder configure","mediaserver died","codecexception","insufficient resource","permission denied","httpdatasource","connection refused"] if q in combined]
         labels.extend("http"+code for code in ("401","403","416") if re.search(r"(?:http(?: status)?|response code|statuscode)\s*[:=]?\s*"+code+r"(?!\d)",combined))
-        keep.append({"event":event,"time":x.get("timestamp"),"values":attrs,"hints":labels})
+        exception=x.get('exception') or {}
+        stack=str(exception.get('stackTrace','')) if isinstance(exception,dict) else ''
+        # Only Java exception class names survive; message text and source locations do not.
+        chain=re.findall(r'(?m)^(?:Caused by: )?([a-zA-Z_$][a-zA-Z0-9_$.]*(?:Exception|Error))(?::|$)',stack)
+        keep.append({"event":event,"time":x.get("timestamp"),"values":attrs,"hints":labels,"exceptionChain":chain[:12]})
     return keep
 
 def android_network(url):
@@ -303,5 +308,5 @@ if __name__=='__main__':
                         except (ValueError,RuntimeError,AssertionError,subprocess.TimeoutExpired): measured(label+'-unconfirmed',fraction=fraction)
             except (ValueError,RuntimeError,AssertionError,subprocess.TimeoutExpired):measured(label+'-opened',moving=False)
             events=[e for e in app_events() if (e['time'],e['event']) not in prior]
-            measured(label+'-diagnostics',total=len(events),events=events[-100:])
+            measured(label+'-diagnostics',total=len(events),events=events[-600:])
             adb('shell','am','force-stop',PKG)

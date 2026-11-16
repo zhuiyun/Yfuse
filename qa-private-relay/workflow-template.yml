@@ -1,4 +1,4 @@
-name: Recheck opaque TS and Dolby playback with ordinary movie and episode controls
+name: Sixty original Emby movies and episodes on both repaired engines
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
@@ -27,15 +27,15 @@ jobs:
     name: Film and episode sample shard ${{ matrix.shard }}
     strategy:
       fail-fast: false
-      max-parallel: 4
-      matrix: {shard: [0]}
+      max-parallel: 2
+      matrix: {shard: [0, 1]}
     env:
       QA_SHARD: ${{ matrix.shard }}
-      QA_PROBE_LABELS: m-001,m-029,e-014,e-027
+      QA_PROBE_LABELS: m-000,m-001,m-002,m-003,m-004,m-005,m-006,m-007,m-008,m-009,m-010,m-011,m-012,m-013,m-014,m-015,m-016,m-017,m-018,m-019,m-020,m-021,m-022,m-023,m-024,m-025,m-026,m-027,m-028,m-029,m-030,m-031,e-000,e-001,e-002,e-003,e-004,e-005,e-006,e-007,e-008,e-009,e-010,e-011,e-012,e-013,e-014,e-015,e-016,e-017,e-018,e-019,e-020,e-021,e-022,e-023,e-024,e-025,e-026,e-027
       QA_OPEN_DIAGNOSTIC_SECONDS: 60
       QA_BENCHMARK_LABELS: m-029,e-027
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 90
+    timeout-minutes: 210
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with: {persist-credentials: false}
@@ -65,8 +65,8 @@ jobs:
         run: |
           set -euo pipefail
           api="https://api.github.com/repos/$GITHUB_REPOSITORY"
-          build=43837990618
-          expected=01c516e080448587d5225342ccd4aff94a6fed85
+          build=43846299305
+          expected=1a6e6a3e3a4672f5717a0de8be5de5a995afdeb8
           for i in $(seq 1 260); do
             artifact=$(curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/$build/artifacts" | jq -r '.artifacts[] | select(.name=="candidate-test-input" and .expired==false) | .id' | head -1)
             if [[ "$artifact" =~ ^[0-9]+$ ]]; then break; fi
