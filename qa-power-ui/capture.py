@@ -148,10 +148,11 @@ def main():
         row = {'step': number, 'name': name, 'tab': tab, 'route': path, 'status': 'unverified'}
         rows.append(row)
         try:
-            if not secondary and number == len(ROUTES) + 1:
+            needs_library = name in {route[0] for route in POPULATED_ROUTES}
+            if not secondary and needs_library and not populated:
                 connect()
                 populated = True
-            if not secondary and number > len(ROUTES) and not populated:
+            if not secondary and needs_library and not populated:
                 raise RuntimeError('Populated fixture sign-in was not verified')
             ui.launch()
             ui.root(tab)

@@ -1,4 +1,4 @@
-name: Verify app foreground and system-bar-safe UI navigation
+name: Audit all primary and secondary phone routes after navigation fixes
 'on':
   push:
     branches:
@@ -9,8 +9,8 @@ permissions:
   contents: read
   actions: read
 env:
-  QA_APP_SHA: 7ab9b6b372eab29181daff32c0ff660604087b20
-  QA_BUILD_RUN: 43868047280
+  QA_APP_SHA: bd556cb716a2791010c0543dbd6a650be011714b
+  QA_BUILD_RUN: 43886247081
 jobs:
   acquire:
     runs-on: ubuntu-24.04
@@ -65,16 +65,16 @@ jobs:
         include:
         - variant: light
           scope: secondary
-          routes: motion-theme-choice,particle-choice,dialog-animation-choice,loading-animation-choice,player-transition-choice,account-encryption-info
+          routes: ''
         - variant: light
           scope: primary
-          routes: appearance-motion,appearance-accessibility
+          routes: ''
         - variant: dark-large
           scope: secondary
-          routes: motion-theme-choice,particle-choice,dialog-animation-choice,loading-animation-choice,player-transition-choice,account-encryption-info
+          routes: ''
         - variant: dark-large
           scope: primary
-          routes: appearance-motion,appearance-accessibility
+          routes: ''
     env:
       QA_UI_SCOPE: ${{ matrix.scope }}
       QA_UI_TRACE: true
