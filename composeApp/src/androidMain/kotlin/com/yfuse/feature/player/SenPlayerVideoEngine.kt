@@ -84,6 +84,7 @@ internal class SenPlayerVideoEngine(
     private val surfaceProbe = SenPlayerSurfaceProbe()
     private val outputGeneration = AtomicLong()
     private var boundSurfaceEpoch = -1L
+    private var audioDelayMs = 0L
     private var outputWatchdog = SenPlayerOutputWatchdog()
     private var rebuffers = SenPlayerRebufferTracker()
     private var surfaceRecoveries = 0
@@ -405,6 +406,15 @@ internal class SenPlayerVideoEngine(
         subtitles.open(current, item, customUserAgent, initialTrackSelections[item.id])
         resetVideoEvidence(current.sourceId(), previousOutput, "source_opened")
         current.option("speed", state.value.speed.toString())
+        if (audioDelayMs != 0L) {
+            current.option("audio-delay", (audioDelayMs / 1000.0).toString())
+            AppLog.info(
+                "player.senplayer",
+                "audio_delay_restored",
+                "Audio delay reapplied after opening the native source",
+                mapOf("delayMs" to audioDelayMs.toString()),
+            )
+        }
         // A pause can arrive while original native open is blocking on this worker.
         current.play(requested)
         loadPending = false
@@ -909,7 +919,10 @@ internal class SenPlayerVideoEngine(
     override val supportsAudioDelay: Boolean get() = true
 
     override fun setAudioDelayMs(delayMs: Long): Boolean {
-        submit { session?.option("audio-delay", (delayMs / 1000.0).toString()) }
+        submit {
+            audioDelayMs = delayMs
+            session?.option("audio-delay", (delayMs / 1000.0).toString())
+        }
         return true
     }
 

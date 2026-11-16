@@ -7,8 +7,9 @@ import subprocess
 import time
 import xml.etree.ElementTree as ET
 
-from capture import failure_diagnostics
+from capture import capture, failure_diagnostics
 from media import MediaServer
+from navigation import click
 from power import adb, direct, engine, playing
 from telemetry import Recorder
 
@@ -102,9 +103,20 @@ def return_to_player(out):
     (out / 'foreground-return-moving-picture.json').write_text(json.dumps(proof), encoding='utf-8')
 
 
+def configure_audio_delay(out):
+    direct.reveal()
+    click('音轨', 3)
+    capture(out, 'audio-delay-before', expected='音频同步')
+    click('+200', 3)
+    click('+200', 3)
+    capture(out, 'audio-delay-selected', expected='延后 400 毫秒')
+    adb('shell', 'input', 'keyevent', '4')
+
+
 def main():
     engine.guard()
     core = os.environ['QA_ENGINE']
+    delay_restore = core == 'SenPlayer' and os.environ.get('QA_AUDIO_DELAY_RESTORE') == 'true'
     pilot = os.environ.get('QA_POWER_PILOT') == 'true'
     out = Path('results/background-audio')
     out.mkdir(parents=True, exist_ok=True)
@@ -125,6 +137,8 @@ def main():
         adb('shell', 'dumpsys', 'battery', 'set', 'status', '3')
         adb('shell', 'dumpsys', 'batterystats', '--reset')
         initial = playing(core)
+        if delay_restore:
+            configure_audio_delay(out)
         if lifecycle_evidence(out, 'after-launch') != 'true':
             raise AssertionError('Background audio preference changed after player launch')
         if core == 'YCore':
@@ -139,6 +153,7 @@ def main():
             'pictureInPictureAppOp': 'deny', 'preferenceSetup': 'Fresh cloud app XML; not a UI setting test',
             'expectedBackgroundBehavior': 'Cloud YCore SoftwareFallback and SenPlayer do not advertise background audio: both pause',
             'scopeLimit': 'This fixture verifies unsupported-route fallback, not active hardware-route background audio',
+            'audioDelayMs': 400 if delay_restore else 0,
             'audioProofLimit': 'Actual media-session positions and tagged wake lock, no physical audible-output or energy assertion',
         }, indent=2), encoding='utf-8')
         recorder = Recorder(out)
@@ -174,6 +189,12 @@ def main():
                 time.sleep(min(30, max(0, seconds - (time.monotonic() - began))))
             row['exitEvidence'] = require_state(out, name + '-exit', 3 if active else 2, held)
             lifecycle_evidence(out, name + '-exit')
+            if name == 'foreground-return' and delay_restore:
+                rows = [json.loads(line) for line in (out / (name + '-exit-diagnostics.jsonl')).read_text(encoding='utf-8').splitlines()
+                        if line.startswith('{')]
+                if not any(row.get('event') == 'audio_delay_restored' and row.get('attributes', {}).get('delayms') == '400'
+                           for row in rows):
+                    raise AssertionError('Original native session did not acknowledge restored400ms audio delay')
             delta = row['exitEvidence']['positionMs'] - row['entryEvidence']['positionMs']
             if (active and delta < seconds * 500) or (not active and abs(delta) > 1500):
                 raise AssertionError('Actual session position did not match requested lifecycle: ' + str(delta))
