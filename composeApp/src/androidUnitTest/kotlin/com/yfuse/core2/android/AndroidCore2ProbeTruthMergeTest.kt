@@ -85,6 +85,33 @@ class AndroidCore2ProbeTruthMergeTest {
         assertTrue(probe(false, YAudioCodec.Ac3).requiresEnhancedAudioDemux(1))
     }
 
+    @Test
+    fun transportAudioOnlyResultRequiresVideoTruthBeforeRouting() {
+        val base = probe(true, YAudioCodec.Aac)
+        val platform =
+            base.copy(
+                playbackRequest = base.playbackRequest.copy(audioOnly = true, container = YContainer.MpegTs),
+            )
+        assertTrue(platform.requiresEnhancedTruthProbe())
+        val enhanced = probe(false, YAudioCodec.Aac)
+        val combined = enhanced.preservingPlatformDemuxCapability(platform)
+        assertTrue(combined.materiallyOverrides(platform))
+        assertFalse(combined.playbackRequest.platformDemuxSupported)
+        assertTrue(combined.playbackRequest.platformAudioDemuxSupported)
+        assertFalse(combined.playbackRequest.audioOnly)
+    }
+
+    @Test
+    fun confirmedAudioOnlyProbeKeepsTheWorkingPlatformPath() {
+        val base = probe(true, YAudioCodec.Aac)
+        val platform = base.copy(playbackRequest = base.playbackRequest.copy(audioOnly = true))
+        val deep = platform.copy(playbackRequest = platform.playbackRequest.copy(platformDemuxSupported = false))
+        val combined = deep.preservingPlatformDemuxCapability(platform)
+        assertTrue(combined.playbackRequest.platformDemuxSupported)
+        assertTrue(combined.playbackRequest.audioOnly)
+        assertFalse(combined.materiallyOverrides(platform))
+    }
+
     private fun probe(
         platformDemux: Boolean,
         audioCodec: YAudioCodec?,

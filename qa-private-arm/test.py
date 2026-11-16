@@ -169,7 +169,7 @@ def app_events():
         for k,v in x.get("attributes",{}).items():
             k=k.lower();raw_value=str(v);v=raw_value.lower()
             if k in fields and (re.fullmatch(r"-?\d{1,15}",v) or v in knownText):attrs[k]=v
-            if k in {"exceptiontype","origin"} and re.fullmatch(r"[a-z0-9_$.:() -]{1,200}",v):
+            if (k in {"exceptiontype","origin"} or re.fullmatch(r"frame[0-7]",k)) and re.fullmatch(r"[a-z0-9_$.:() -]{1,200}",v):
                 attrs[k]=raw_value
             if k in {"decoder","decoderattempts"} and re.fullmatch(r"(?:(?:c2|omx)\.[a-z0-9._-]+)(?:,(?:c2|omx)\.[a-z0-9._-]+)*",v):
                 attrs[k]=v

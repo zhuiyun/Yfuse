@@ -2749,7 +2749,12 @@ internal class AndroidAdaptiveCore2YPlayer(
                     "command" to command.javaClass.simpleName,
                     "exceptionType" to root.diagnosticTypeName(),
                     "origin" to root.diagnosticOrigin(),
-                ),
+                ) +
+                    root.stackTrace.take(8).mapIndexed { index, frame ->
+                        // Only source symbols, never exception messages, URLs or local file paths.
+                        "frame$index" to
+                            "${frame.className.substringAfterLast('.')}.${frame.methodName}:${frame.lineNumber}"
+                    },
         )
     }
 

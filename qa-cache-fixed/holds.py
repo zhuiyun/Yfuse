@@ -64,6 +64,10 @@ for _ in range(28):
     time.sleep(.45)
 else:raise RuntimeError('no timecoded moving source')
 identity=engine_evidence(os.environ['QA_ENGINE'])
+identity_deadline=time.monotonic()+12
+while not identity['active'] and time.monotonic()<identity_deadline:
+    time.sleep(.5)
+    identity=engine_evidence(os.environ['QA_ENGINE'])
 (out/'engine.json').write_text(json.dumps(identity))
 assert identity['active'], 'active engine not verified'
 r,tr=show();baseline=screen();baseline.save(out/'base.png')

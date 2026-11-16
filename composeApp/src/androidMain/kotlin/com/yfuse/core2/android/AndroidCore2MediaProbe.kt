@@ -779,7 +779,8 @@ internal class AndroidCore2RouteEvaluator(
                                     retainForPlayback =
                                         prepareSourceForPlayback &&
                                             (
-                                                !platform.playbackRequest.platformAudioDemuxSupported ||
+                                                platform.playbackRequest.audioOnly ||
+                                                    !platform.playbackRequest.platformAudioDemuxSupported ||
                                                     platform.playbackRequest.audio == null
                                             ),
                                 ).sourceSuccessOrThrow()
@@ -980,7 +981,8 @@ internal fun YCore2RouteDecision.runtimeCapabilityKey(): YRuntimeVideoCapability
     runtimeVideoCapabilityKey(probe.playbackRequest, plan)
 
 internal fun YCore2ProbeResult.Success.materiallyOverrides(platform: YCore2ProbeResult.Success): Boolean =
-    dolbyVisionConfig != null &&
+    playbackRequest.audioOnly != platform.playbackRequest.audioOnly ||
+        dolbyVisionConfig != null &&
         platform.dolbyVisionConfig == null ||
         playbackRequest.video.hdrType != platform.playbackRequest.video.hdrType ||
         playbackRequest.video.codec != platform.playbackRequest.video.codec ||
@@ -1006,7 +1008,8 @@ internal fun YCore2ProbeResult.Success.preservingPlatformDemuxCapability(
             playbackRequest.copy(
                 platformDemuxSupported =
                     playbackRequest.platformDemuxSupported ||
-                        platform.playbackRequest.platformDemuxSupported,
+                        platform.playbackRequest.platformDemuxSupported &&
+                        (!platform.playbackRequest.audioOnly || playbackRequest.audioOnly),
                 platformAudioDemuxSupported =
                     platform.playbackRequest.audio != null &&
                         platform.playbackRequest.platformAudioDemuxSupported,
