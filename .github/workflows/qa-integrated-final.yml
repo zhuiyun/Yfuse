@@ -1,31 +1,22 @@
-name: Combined-repair full two-engine cloud stability matrix
+name: HTTP ownership repair full two-engine cloud stability matrix
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
     paths: ['.github/workflows/qa-integrated-final.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: a8826b79c7d09eb043e107e2a5d29b77ef8cf7ae
+  QA_APP_SHA: 580fcafbe5182413bcc7a3979b5348c0c97a83a0
 jobs:
   build:
     name: Acquire the qualified identical release candidate
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 85
     steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: candidate-test-input
-          path: preview
-          run-id: 43805125654
-          github-token: '${{ github.token }}'
-      - name: Check exact APK and qualification results
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - name: Wait for unit and actual ARM64 qualification
         env: {API_TOKEN: "${{ github.token }}"}
-        run: |
-          set -euo pipefail
-          (cd preview && sha256sum -c apk.sha256)
-          grep -Fx "app=$QA_APP_SHA" preview/provenance.txt
-          curl -fsSL -H "Authorization: Bearer $API_TOKEN" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/43805125654/jobs?per_page=100" > "$RUNNER_TEMP/qualification.json"
-          jq -e '[.jobs[] | select(.name=="build" or (.name=="Actual ARM64 software-frame and seek-preview contract")) | .conclusion] | length==2 and all(.=="success")' "$RUNNER_TEMP/qualification.json"
+        run: bash qa-integrated/acquire-qualified-candidate.sh 43819930137 580fcafbe5182413bcc7a3979b5348c0c97a83a0
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with: {name: candidate-test-input, path: preview, retention-days: 7}
 
@@ -94,6 +85,7 @@ jobs:
     env:
       QA_ENGINE: ${{ matrix.engine }}
       QA_SHARD: ${{ matrix.shard }}
+      QA_STOP_ON_FAILURE: 'true'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with: {persist-credentials: false}

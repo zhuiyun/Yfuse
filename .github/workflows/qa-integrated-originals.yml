@@ -1,11 +1,24 @@
-name: Recheck original movies and episodes after merged video-track recovery
+name: Recheck original movies and episodes after HTTP ownership repair
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
     paths: ['.github/workflows/qa-integrated-originals.yml']
 permissions: {contents: read, actions: read}
 jobs:
+  build:
+    name: Acquire the qualified identical release candidate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 85
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - name: Wait for unit and actual ARM64 qualification
+        env: {API_TOKEN: "${{ github.token }}"}
+        run: bash qa-integrated/acquire-qualified-candidate.sh 43819930137 580fcafbe5182413bcc7a3979b5348c0c97a83a0
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: candidate-test-input, path: preview, retention-days: 7}
   originals:
+    needs: build
     name: Original ${{ matrix.engine }} files ${{ matrix.shard }}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 100
@@ -21,26 +34,16 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with: {persist-credentials: false}
-      - name: Download identical verified candidate and driver
-        env: {API_TOKEN: "${{ github.token }}"}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: candidate-test-input, path: preview}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: arm-input-driver, path: qa-driver, run-id: 43815842246, github-token: '${{ github.token }}'}
+      - name: Verify identical candidate and prepare original file checks
         run: |
           set -euo pipefail
-          api="https://api.github.com/repos/$GITHUB_REPOSITORY"
-          mkdir -p preview qa-driver results
-          for i in $(seq 1 240); do
-            artifacts=$(curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/43815842246/artifacts")
-            app=$(jq -r '.artifacts[] | select(.name=="candidate-test-input" and .expired==false) | .id' <<<"$artifacts")
-            driver=$(jq -r '.artifacts[] | select(.name=="arm-input-driver" and .expired==false) | .id' <<<"$artifacts")
-            if [[ "$app" =~ ^[0-9]+$ && "$driver" =~ ^[0-9]+$ ]]; then break; fi
-            sleep 10
-          done
-          test -n "$app" && test -n "$driver"
-          curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/artifacts/$app/zip" -o "$RUNNER_TEMP/app.zip"
-          curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/artifacts/$driver/zip" -o "$RUNNER_TEMP/driver.zip"
-          unzip -q "$RUNNER_TEMP/app.zip" -d preview
-          unzip -q "$RUNNER_TEMP/driver.zip" -d qa-driver
+          mkdir -p results
           (cd preview && sha256sum -c apk.sha256)
-          grep -Fx "app=74a3996d5cfdeaf4314f81456ef3dfca5d343b44" preview/provenance.txt
+          grep -Fx "app=580fcafbe5182413bcc7a3979b5348c0c97a83a0" preview/provenance.txt
           cp preview/provenance.txt preview/apk.sha256 results/
           sudo apt-get update -qq
           sudo apt-get install -y ffmpeg python3-pil

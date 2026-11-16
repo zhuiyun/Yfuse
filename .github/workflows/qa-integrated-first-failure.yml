@@ -1,10 +1,22 @@
-name: Compare direct TCP and ADB media transport on the same failing seeks
+name: Recheck HTTP ownership repair on exact TS and MP4 failing sequences
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
     paths: ['.github/workflows/qa-integrated-first-failure.yml']
 permissions: {contents: read, actions: read}
 jobs:
+  build:
+    name: Acquire the qualified identical release candidate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 85
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - name: Wait for unit and actual ARM64 qualification
+        env: {API_TOKEN: "${{ github.token }}"}
+        run: bash qa-integrated/acquire-qualified-candidate.sh 43819930137 580fcafbe5182413bcc7a3979b5348c0c97a83a0
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: candidate-test-input, path: preview, retention-days: 7}
   driver:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -20,7 +32,7 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with: {name: first-failure-driver, path: qa-driver/, retention-days: 5}
   diagnose:
-    needs: driver
+    needs: [driver,build]
     strategy:
       fail-fast: false
       max-parallel: 4
@@ -47,14 +59,14 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with: {name: first-failure-driver, path: qa-driver}
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with: {name: candidate-test-input, path: preview, run-id: 43808092986, github-token: '${{ github.token }}'}
+        with: {name: candidate-test-input, path: preview}
       - name: Verify APK and reproduce the same H264/AAC transport stream
         run: |
           set -euo pipefail
           echo "QA_SEED_BASE=${{ matrix.seed }}" >> "$GITHUB_ENV"
           echo "QA_REPEAT_SESSION=true" >> "$GITHUB_ENV"
           (cd preview && sha256sum -c apk.sha256)
-          grep -Fx 'app=74a3996d5cfdeaf4314f81456ef3dfca5d343b44' preview/provenance.txt
+          grep -Fx 'app=580fcafbe5182413bcc7a3979b5348c0c97a83a0' preview/provenance.txt
           sudo apt-get -qq update && sudo apt-get install -y ffmpeg python3-pil
           /usr/bin/python3 qa-title-seek-check/prepare.py "${{ matrix.title }}" 86
       - name: Boot cloud ARM64 Android
