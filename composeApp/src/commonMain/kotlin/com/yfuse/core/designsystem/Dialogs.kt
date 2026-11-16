@@ -570,8 +570,6 @@ fun OverlayHeader(
                     subtitle,
                     style = AppTypography.caption.regular,
                     color = palette.sub2,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
@@ -835,8 +833,6 @@ fun OverlayOptionRow(
                     description,
                     style = AppTypography.caption.regular,
                     color = selection?.contentColor ?: palette.sub2,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
