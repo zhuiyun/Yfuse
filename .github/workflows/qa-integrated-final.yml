@@ -1,11 +1,11 @@
-name: external video recovery repair full two-engine cloud stability matrix
+name: enhanced startup and subtitle repair full two-engine cloud stability matrix
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
     paths: ['.github/workflows/qa-integrated-final.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: 01c516e080448587d5225342ccd4aff94a6fed85
+  QA_APP_SHA: 1a6e6a3e3a4672f5717a0de8be5de5a995afdeb8
 jobs:
   build:
     name: Acquire the qualified identical release candidate
@@ -16,7 +16,7 @@ jobs:
         with: {persist-credentials: false}
       - name: Wait for unit and actual ARM64 qualification
         env: {API_TOKEN: "${{ github.token }}"}
-        run: bash qa-integrated/acquire-qualified-candidate.sh 43837990618 01c516e080448587d5225342ccd4aff94a6fed85
+        run: bash qa-integrated/acquire-qualified-candidate.sh 43846299305 1a6e6a3e3a4672f5717a0de8be5de5a995afdeb8
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with: {name: candidate-test-input, path: preview, retention-days: 7}
 

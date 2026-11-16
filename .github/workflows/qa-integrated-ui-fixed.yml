@@ -1,11 +1,11 @@
-name: Full UI regression for external video recovery repair
+name: Full UI regression for enhanced startup and subtitle repair
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
     paths: ['.github/workflows/qa-integrated-ui-fixed.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: 01c516e080448587d5225342ccd4aff94a6fed85
+  QA_APP_SHA: 1a6e6a3e3a4672f5717a0de8be5de5a995afdeb8
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 01c516e080448587d5225342ccd4aff94a6fed85
+          ref: 1a6e6a3e3a4672f5717a0de8be5de5a995afdeb8
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
