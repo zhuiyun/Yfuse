@@ -1,4 +1,4 @@
-name: Power activity baseline and full native UI audit - iteration 0
+name: Power and UI baseline with verified Android 12 form input
 'on':
   push:
     branches:

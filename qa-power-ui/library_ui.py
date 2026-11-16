@@ -1,7 +1,29 @@
 """Sign into only the disposable loopback fixture through real native UI controls."""
 import sys
+import time
 sys.path.insert(0, 'qa-functional')
 import features as ui
+
+
+def field(label, value, secret=False):
+    # Android 12 input keycombination does not reliably implement Ctrl+A: it
+    # inserted a literal 'a' in the baseline. Use ordinary editing key events.
+    ui.hide_keyboard()
+    ui.grab(label, 6)
+    candidates = [n for n in ui.nodes(ui.snapshot())
+                  if n.get('class', '').endswith('EditText') and label in ui.labels(n)]
+    if len(candidates) != 1:
+        raise AssertionError('Expected one labeled editable control: ' + label)
+    ui.tap(candidates[0])
+    ui.shell('input', 'keyevent', '123', *(['67'] * 80))
+    ui.shell('input', 'text', value)
+    time.sleep(.3)
+    ui.hide_keyboard()
+    if not secret:
+        edited = [n for n in ui.nodes(ui.snapshot())
+                  if n.get('class', '').endswith('EditText') and label in ui.labels(n)]
+        if len(edited) != 1 or edited[0].get('text') != value:
+            raise AssertionError('Editable control value was not accepted: ' + label)
 
 
 def connect():
@@ -13,9 +35,9 @@ def connect():
     http = ui.find(ui.snapshot(), 'HTTP')
     if http is not None:
         ui.tap(http)
-    ui.field('地址', '127.0.0.1', True)
-    ui.field('端口', '18196', True)
-    ui.field('用户名', 'seekqa', True)
-    ui.field('密码', 'local-fixture-only', True)
+    field('地址', '127.0.0.1')
+    field('端口', '18196')
+    field('用户名', 'seekqa')
+    field('密码', 'local-fixture-only', secret=True)
     ui.tap(ui.grab('连接到服务器', 6))
     ui.wait(['Cloud QA Library', '测试电影', '测试剧集'], 35)
