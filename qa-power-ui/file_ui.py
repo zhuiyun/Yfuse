@@ -160,6 +160,9 @@ def main():
         if re.match(rb'HTTP/1\.[01] 20[01]', response) is None:
             raise AssertionError('Synthetic video import did not receive a success response')
         record('04-wifi-imported', 'Imported-QA.mp4')
+        expected_size = str(len(media) // 1024) + ' KB'
+        if not any(expected_size in text for text in rows[-1]['top']['labels']):
+            raise AssertionError('Imported video size did not match fixture bytes')
         click('停止接收')
         record('05-wifi-stopped', '开启临时接收')
 
@@ -179,6 +182,8 @@ def main():
         ui.root('服务器')
         click('QA-DAV')
         record('07-file-browser', 'clip.mp4')
+        if not any(expected_size in text for text in rows[-1]['top']['labels']):
+            raise AssertionError('WebDAV video size did not match fixture bytes')
     except Exception as error:
         rows.append({'name': 'flow-failure', 'status': 'capture-blocked', 'error': type(error).__name__ + ': ' + str(error)[:180]})
         failure_diagnostics(out, 'failure')
