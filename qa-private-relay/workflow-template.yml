@@ -1,4 +1,4 @@
-name: Original movie and episode verification through a temporary source relay
+name: Private source relay retry with a single-run network source identity
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
@@ -46,6 +46,8 @@ jobs:
           mkdir -p private-key private-results preview
           openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out "$RUNNER_TEMP/qa-private.pem" 2>/dev/null
           openssl pkey -in "$RUNNER_TEMP/qa-private.pem" -pubout -out private-key/public.pem
+          curl --noproxy "*" --fail --silent --show-error --max-time 12 https://api.ipify.org -o private-key/egress-ip.txt
+          python3 -c 'import ipaddress,pathlib; ip=ipaddress.ip_address(pathlib.Path("private-key/egress-ip.txt").read_text().strip()); assert ip.version==4 and ip.is_global'
           sudo apt-get update -qq
           sudo apt-get install -y python3-pil python3-cryptography ffmpeg
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
@@ -56,7 +58,7 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: relay-sourcekey-${{ github.run_id }}-${{ matrix.shard }}-${{ github.run_attempt }}
-          path: private-key/public.pem
+          path: private-key/
           retention-days: 1
       - name: Verify the same preview and wait for its encrypted film locations
         env: {API_TOKEN: "${{ github.token }}"}

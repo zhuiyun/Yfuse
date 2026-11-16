@@ -1,5 +1,6 @@
 """Cloud-only TLS-pinned bridge; Android sees the same bytes through an isolated loopback port."""
 import base64
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -28,6 +29,23 @@ if len(certificates) != 1:
     raise ValueError("A single pinned test endpoint is required")
 tls = ssl.create_default_context(cadata=certificates.pop())
 opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), urllib.request.HTTPSHandler(context=tls))
+Path("private-results").mkdir(exist_ok=True)
+try:
+    first = next(iter(items.values()))
+    request = urllib.request.Request(first["location"], headers={
+        "Range": "bytes=0-1023", "User-Agent": "Emby for Android Mobile", "Accept-Encoding": "identity",
+    })
+    with opener.open(request, timeout=12) as response:
+        data = response.read(1024)
+        if response.status != 206 or hashlib.sha256(data).hexdigest()[:16] != first["rangeHashes"]["start"]:
+            raise ValueError("The remote relay did not return the original source bytes")
+except Exception as error:
+    Path("private-results/relay-path.json").write_text(json.dumps({
+        "sourcePath": "temporary-server-relay", "remoteAdmissionPassed": False,
+        "errorType": type(error).__name__, "httpStatus": getattr(error, "code", 0),
+        "appPlaybackAttempts": 0,
+    }))
+    raise SystemExit("The temporary relay must be reachable before starting player tests")
 token = secrets.token_urlsafe(32)
 state = RelayState(items, token, 4 * 3600, 32 * 1024 ** 3, opener)
 server = BoundedHTTPServer(("127.0.0.1", 18396), handler_for(state))
