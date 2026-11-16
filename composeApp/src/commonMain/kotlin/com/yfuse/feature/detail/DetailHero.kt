@@ -35,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.RoundRect
@@ -603,7 +604,7 @@ internal fun TitleBlock(
     val arrival = rememberOneTakeArrival(detail.id)
     var row = 0
     Column(
-        modifier.fillMaxWidth(),
+        modifier.fillMaxWidth().detailCaptionScrim(),
         horizontalAlignment = Alignment.Start,
     ) {
         Text(
@@ -815,6 +816,27 @@ internal fun primaryActionContentColor(accent: Color): Color {
  * scrim, and the accent's light end rather than the spec's `#3D64C9`, which is a
  * light-theme ink and goes muddy on a photograph.
  */
+private fun Modifier.detailCaptionScrim(): Modifier =
+    drawWithCache {
+        val fade = 16.dp.toPx()
+        val edge = Dimens.pageHorizontal.toPx()
+        val height = size.height + fade * 2
+        val inset = fade / height
+        val shade = Color.Black.copy(alpha = 0.62f)
+        val brush =
+            Brush.verticalGradient(
+                0f to Color.Transparent,
+                inset to shade,
+                (1f - inset) to shade,
+                1f to Color.Transparent,
+                startY = -fade,
+                endY = size.height + fade,
+            )
+        onDrawBehind {
+            drawRect(brush, Offset(-edge, -fade), Size(size.width + edge * 2, height))
+        }
+    }
+
 private val ArtworkInk = Color.White
 private val ArtworkInkSub = Color.White.copy(alpha = 0.94f)
 private val ArtworkInkFaint = Color.White.copy(alpha = 0.84f)

@@ -39,6 +39,17 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import com.yfuse.core.designsystem.ThemeText as Text
 
+private fun wifiImportedSizeLabel(bytes: Long): String =
+    when {
+        bytes < 1024 -> "$bytes B"
+        bytes < 1024 * 1024 -> "${bytes / 1024} KB"
+        bytes < 1024L * 1024 * 1024 -> "${bytes / 1024 / 1024} MB"
+        else -> {
+            val tenths = bytes * 10 / (1024L * 1024 * 1024)
+            "${tenths / 10}.${tenths % 10} GB"
+        }
+    }
+
 @Composable
 internal fun WifiImportEntry() {
     var open by remember { mutableStateOf(false) }
@@ -128,7 +139,7 @@ private fun WifiImportDialog(onDismiss: () -> Unit) {
                 Row(Modifier.fillMaxWidth()) {
                     OverlayActionRow(
                         label = file.name,
-                        description = "${file.sizeBytes / 1024 / 1024} MB · 已存入本机",
+                        description = "${wifiImportedSizeLabel(file.sizeBytes)} · 已存入本机",
                         modifier =
                             Modifier
                                 .weight(
