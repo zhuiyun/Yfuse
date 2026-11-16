@@ -103,7 +103,7 @@ class YCoreMediaSuiteInstrumentedTest {
     fun enhanced_transport_retry_keeps_the_assigned_route_and_renders_again() =
         runBlocking {
             val context = InstrumentationRegistry.getInstrumentation().targetContext
-            val file = GeneratedAvcAacTestMedia.create(context.cacheDir)
+            val file = enhancedRetryFixture(context.cacheDir)
             try {
                 val item = YMediaItem(id = "enhanced-retry", uri = Uri.fromFile(file).toString())
                 val mediaProbe = AndroidCore2MediaProbe(context)
@@ -163,6 +163,19 @@ class YCoreMediaSuiteInstrumentedTest {
                 check(file.delete() || !file.exists())
             }
         }
+
+    private fun enhancedRetryFixture(cacheDirectory: File): File {
+        val supplied = InstrumentationRegistry.getArguments().getString("enhancedRetryFixture")
+        if (supplied.isNullOrBlank()) return GeneratedAvcAacTestMedia.create(cacheDirectory)
+        // Some native ARM cloud images expose an AVC encoder but never return its first
+        // input buffer. This test exercises playback and transport retry, not encoding.
+        // CI supplies a hashed, generated AVC/AAC clip; all playback assertions stay intact.
+        val source = File(supplied)
+        check(source.isFile && source.length() > 0L) { "Explicit enhanced retry fixture is missing" }
+        return File.createTempFile("enhanced-retry-", ".mp4", cacheDirectory).also { target ->
+            source.copyTo(target, overwrite = true)
+        }
+    }
 
     @Test
     fun generated_avc_aac_paused_seek_shows_one_frame_and_keeps_audio_paused() =
