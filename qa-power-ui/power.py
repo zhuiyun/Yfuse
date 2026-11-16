@@ -33,19 +33,28 @@ def home(tab):
     ui.root(tab)
 
 
-def open_video():
+def open_video(url='http://127.0.0.1:18389/fixture.mp4'):
     adb('shell', 'am', 'start', '-W', '-a', 'android.intent.action.VIEW', '-n',
         'com.yfuse/com.yfuse.feature.player.ExternalPlaybackActivity', '-t', 'video/mp4',
-        '-d', 'http://127.0.0.1:18389/fixture.mp4')
+        '-d', url)
 
 
-def playing(core):
+def playing(core, url='http://127.0.0.1:18389/fixture.mp4'):
     opened = time.time()
-    open_video()
+    open_video(url)
     result = direct.decode_playback('power-' + core, None, 3600)
     identity = engine.engine_evidence(core, opened)
+    identities = [identity]
+    deadline = time.monotonic() + 10
+    while not identity['active'] and time.monotonic() < deadline:
+        time.sleep(1)
+        identity = engine.engine_evidence(core, opened)
+        identities.append(identity)
+    evidence = Path('results/engine-entry-' + str(time.time_ns()) + '.json')
+    evidence.parent.mkdir(exist_ok=True)
+    evidence.write_text(json.dumps({'movingPicture': result, 'identityChecks': identities}), encoding='utf-8')
     if not identity['active']:
-        raise AssertionError('Requested native engine not active')
+        raise AssertionError('Requested native engine not active: ' + json.dumps(identity))
     if rail(ui.snapshot()):
         image = screen()
         tap(image.width * .5, image.height * .35)
@@ -90,7 +99,7 @@ def enter(name, server, core):
         home('我的')
     elif name in ('playing', 'seeking', 'recovered-playback'):
         server.failure = False
-        return playing(core)
+        return playing(core, 'http://127.0.0.1:18389/outage.mp4') if name == 'recovered-playback' else playing(core)
     elif name == 'paused':
         return pause()
     elif name == 'after-player-idle':
@@ -103,7 +112,12 @@ def enter(name, server, core):
     elif name == 'network-failure':
         home('我的')
         server.failure = True
-        open_video()
+        open_video('http://127.0.0.1:18389/outage.mp4')
+        deadline = time.monotonic() + 15
+        while server.counters()['unavailableResponses'] == 0 and time.monotonic() < deadline:
+            time.sleep(.5)
+        if server.counters()['unavailableResponses'] == 0:
+            raise AssertionError('No actual HTTP503 observed; cached playback is not a network-failure test')
     return {'entered': name}
 
 
@@ -140,6 +154,8 @@ def main():
     # This changes only the guest's charging state so Batterystats accounts for activity.
     # It does NOT manufacture a battery discharge or create a physical power sensor.
     adb('shell', 'dumpsys', 'battery', 'unplug')
+    adb('shell', 'dumpsys', 'battery', 'set', 'level', '80')
+    adb('shell', 'dumpsys', 'battery', 'set', 'status', '3')
     adb('shell', 'dumpsys', 'batterystats', '--reset')
     adb('shell', 'dumpsys', 'batterystats', '--enable', 'full-wake-history')
     try:
@@ -155,17 +171,18 @@ def main():
                 began = time.monotonic()
                 next_action = began + 30
                 number = 0
+                action_number = 0
                 while time.monotonic() - began < duration:
                     action = False
                     if name in ('seeking', 'settings-interaction') and time.monotonic() >= next_action:
                         if name == 'seeking':
-                            row.setdefault('seeks', []).append(seek(number))
+                            row.setdefault('seeks', []).append(seek(action_number))
                         else:
                             width, height = ui.size()
-                            start, end = (.75, .30) if number % 2 else (.30, .75)
+                            start, end = (.75, .30) if action_number % 2 else (.30, .75)
                             adb('shell', 'input', 'swipe', width // 2, int(height * start),
                                 width // 2, int(height * end), 400)
-                        number += 1
+                        action_number += 1
                         next_action = time.monotonic() + 30
                         action = True
                     recorder.capture(name, {**server.counters(), 'libraryRequests': library.requests}, heavy=number % 4 == 0,
@@ -180,6 +197,8 @@ def main():
                 row['status'] = 'failed'
                 row['error'] = type(error).__name__ + ': ' + str(error)[:200]
                 screen().save(out / (name + '-failure.png'))
+                from capture import failure_diagnostics
+                failure_diagnostics(out, name)
             finally:
                 recorder.finish(phases, 'incomplete')
         status = 'recorded' if all(r['status'] == 'recorded' for r in phases) else 'failed'

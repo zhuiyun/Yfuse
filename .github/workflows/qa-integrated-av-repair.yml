@@ -1,11 +1,11 @@
-name: Qualify player submenu navigation and library lifecycle fixes
+name: Qualify idle rendering and reminder scheduling fixes
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
     paths: ['.github/workflows/qa-integrated-av-repair.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: cacebec022ea6e7b11883e67da928fcba5ac4eb5
+  QA_APP_SHA: 6b9b49f6a394c1fadf059ce2f825e17b1ad948d1
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: cacebec022ea6e7b11883e67da928fcba5ac4eb5
+          ref: 6b9b49f6a394c1fadf059ce2f825e17b1ad948d1
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78

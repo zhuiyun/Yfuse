@@ -1,11 +1,11 @@
-name: Full UI regression including player submenu scroll and background lifecycle
+name: Qualify idle rendering and subscription lifecycle on Android10 15 and17
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
     paths: ['.github/workflows/qa-integrated-ui-fixed.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: cacebec022ea6e7b11883e67da928fcba5ac4eb5
+  QA_APP_SHA: 6b9b49f6a394c1fadf059ce2f825e17b1ad948d1
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: cacebec022ea6e7b11883e67da928fcba5ac4eb5
+          ref: 6b9b49f6a394c1fadf059ce2f825e17b1ad948d1
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
@@ -67,8 +67,8 @@ jobs:
         with: {name: ui-validation-input, path: preview, retention-days: 7}
   instrumented:
     env:
-      QA_MIN_TESTS: ${{ matrix.api == 29 && 2 || 104 }}
-      QA_TEST_CLASSES: ${{ matrix.api == 29 && 'com.yfuse.feature.calendar.CalendarReminderSchedulingInstrumentedTest' || '' }}
+      QA_MIN_TESTS: ${{ matrix.api == 29 && 3 || 105 }}
+      QA_TEST_CLASSES: ${{ matrix.api == 29 && 'com.yfuse.feature.calendar.CalendarReminderSchedulingInstrumentedTest,com.yfuse.core.designsystem.SkeletonSweepLifecycleInstrumentedTest' || '' }}
       # API 37 goldfish codec rejects memfd transfers under the image's SELinux policy.
       # Only forced low-level fixture routes use the platform software codec; adaptive
       # production playback retains its default decoder selection and recovery.

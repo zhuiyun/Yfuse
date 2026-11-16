@@ -13,6 +13,7 @@ class MediaServer:
         self.output = Path(output)
         self.lock = threading.Lock()
         self.requests = self.bytes = 0
+        self.unavailable_responses = 0
         self.failure = False
         owner = self
 
@@ -36,6 +37,8 @@ class MediaServer:
                 sent = 0
                 with owner.lock:
                     owner.requests += 1
+                    if status == 503:
+                        owner.unavailable_responses += 1
                 try:
                     if status >= 400:
                         self.send_error(status)
@@ -73,7 +76,7 @@ class MediaServer:
 
     def counters(self):
         with self.lock:
-            return {'requests': self.requests, 'bytes': self.bytes}
+            return {'requests': self.requests, 'bytes': self.bytes, 'unavailableResponses': self.unavailable_responses}
 
     def close(self):
         self.server.shutdown()
