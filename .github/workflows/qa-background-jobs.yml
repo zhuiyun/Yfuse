@@ -22,7 +22,7 @@ jobs:
       run: bash qa-power-ui/acquire-baseline.sh 43853752670 eff812329895ae01f7545677110ff12af96de37e
     - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
       with:
-        name: power-long-before-input
+        name: background-jobs-before-input
         path: 'preview/composeApp-release.apk
 
           preview/provenance.txt
@@ -46,7 +46,7 @@ jobs:
         persist-credentials: false
     - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
       with:
-        name: background-jobs-before
+        name: background-jobs-before-input
         path: preview
     - name: Verify runtime and prepare evidence tools
       run: 'set -euo pipefail
@@ -115,7 +115,7 @@ jobs:
       run: bash qa-power-ui/acquire-baseline.sh 43868047280 7ab9b6b372eab29181daff32c0ff660604087b20
     - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
       with:
-        name: power-long-after-input
+        name: background-jobs-after-input
         path: 'preview/composeApp-release.apk
 
           preview/provenance.txt
@@ -139,7 +139,7 @@ jobs:
         persist-credentials: false
     - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
       with:
-        name: background-jobs-after
+        name: background-jobs-after-input
         path: preview
     - name: Verify runtime and prepare evidence tools
       run: 'set -euo pipefail
