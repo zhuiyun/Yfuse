@@ -8,6 +8,7 @@ import time
 import xml.etree.ElementTree as ET
 from library import LibraryServer
 from library_ui import connect
+from navigation import click
 
 sys.path.insert(0, 'qa-arm-matrix')
 import engine
@@ -36,13 +37,13 @@ ROUTES = [
     ('appearance-motion', '我的', [['外观与交互', '外观设置'], '动画与动效']),
     ('appearance-accessibility', '我的', [['外观与交互', '外观设置'], '辅助功能']),
     ('glass', '我的', [['外观与交互', '外观设置'], ['玻璃材质', '玻璃质感']]),
-    ('splash', '我的', [['外观与交互', '外观设置'], ['启动动画', '启动画面']]),
+    ('splash', '我的', [['外观与交互', '外观设置'], 'Logo 与开屏动画']),
     ('diagnostics', '我的', [['数据与诊断', '数据管理']]),
     ('downloads', '我的', [['下载与离线库', '下载中心']]),
     ('stremio', '我的', ['Stremio 插件']),
     ('trakt', '我的', [['Trakt', 'Trakt 同步']]),
     ('device-handoff', '我的', [['设备接力', '跨设备接力']]),
-    ('capabilities', '我的', ['设备能力']), ('about', '我的', ['关于']),
+    ('sync', '我的', ['同步状态与恢复']), ('about-section', '我的', []),
     ('calendar', '观看', ['追剧日历']), ('history', '观看', ['播放记录']),
     ('discover', '观看', ['发现']),
 ]
@@ -88,8 +89,8 @@ def main():
     # Select the actual application theme through its visible control.
     ui.launch()
     ui.root('我的')
-    ui.tap(ui.grab('外观与交互', 8))
-    ui.tap(ui.grab('深色' if variant == 'dark-large' else '浅色', 4))
+    click('外观与交互')
+    click('深色' if variant == 'dark-large' else '浅色', 4)
     time.sleep(1)
     theme = adb('shell', 'cat', '/data/user/0/com.yfuse/shared_prefs/yfuse.xml')
     selected = ET.fromstring(theme).find("./string[@name='theme.mode']")
@@ -112,8 +113,14 @@ def main():
             ui.launch()
             ui.root(tab)
             for label in path:
-                ui.tap(ui.grab(label, 10))
-                time.sleep(.7)
+                before = set(ui.page_info(ui.snapshot()))
+                click(label, 10)
+                if set(ui.page_info(ui.snapshot())) == before:
+                    raise AssertionError('Control did not expose a new page or dialog: ' + str(label))
+            if name == 'about-section':
+                # About is an inline section, not a link or a separate screen.
+                from navigation import control
+                control('检测升级', 10)
             time.sleep(1)
             row['top'] = capture(out, key + '-top')
             width, height = ui.size()
