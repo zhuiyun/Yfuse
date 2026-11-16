@@ -1358,21 +1358,27 @@ internal fun SettingsPage(
             locator.ready = true
         }
     }
-    LazyColumn(
+    Column(
         modifier = modifier.fillMaxSize().statusBarsPadding().imePadding(),
-        state = state,
-        contentPadding = PaddingValues(top = SettingsHeaderTop, bottom = effectiveBottomInset),
-        verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
-        motionItem {
-            SettingsPageHeader(
-                title = title,
-                subtitle = subtitle,
-                onBack = onBack,
-                showBackButton = showBackButton,
-            )
+        Spacer(Modifier.height(SettingsHeaderTop))
+        SettingsPageHeader(
+            title = title,
+            subtitle = subtitle,
+            onBack = onBack,
+            showBackButton = showBackButton,
+        )
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            state = state,
+            contentPadding = PaddingValues(bottom = effectiveBottomInset),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
+        ) {
+            // Keep settings-search item indexes stable while the Back control
+            // and page identity remain visible above the scrolling content.
+            item(key = "settings-content-origin") { }
+            content()
         }
-        content()
     }
 }
 

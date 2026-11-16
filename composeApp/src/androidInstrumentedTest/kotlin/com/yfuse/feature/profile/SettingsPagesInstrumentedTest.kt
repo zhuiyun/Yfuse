@@ -50,6 +50,7 @@ class SettingsPagesInstrumentedTest {
                     locator.value = SettingsLocatorRequest(anchor.pageTitle, anchor.itemIndex, anchor.label)
                 }
                 await("Search target ${anchor.label}") { visibleNode(anchor.label) != null }
+                await("Back remains visible after locating ${anchor.label}") { clickableNode("返回") != null }
                 if (captured.add(requireNotNull(target.page))) {
                     val directory = File(instrumentation.targetContext.getExternalFilesDir(null), "settings-evidence")
                     directory.mkdirs()
@@ -61,6 +62,8 @@ class SettingsPagesInstrumentedTest {
                     }
                 }
             }
+            click("返回")
+            await("Return from a scrolled settings child") { page.value == ProfilePage.Appearance }
             for ((label, destination) in listOf(
                 "首页与导航" to ProfilePage.AppearanceLayout,
                 "动画与动效" to ProfilePage.AppearanceMotion,
