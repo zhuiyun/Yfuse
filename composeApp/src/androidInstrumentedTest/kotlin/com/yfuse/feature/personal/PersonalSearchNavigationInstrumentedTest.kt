@@ -19,6 +19,7 @@ import com.yfuse.launchMainActivityForInput
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.util.concurrent.atomic.AtomicInteger
 
 /** Real pointer presses retain the animated feedback which accessibility-only clicks bypass. */
 @RunWith(AndroidJUnit4::class)
@@ -28,6 +29,11 @@ class PersonalSearchNavigationInstrumentedTest {
     @Test(timeout = 120_000L)
     fun repeated_search_collapse_keeps_the_current_list_and_back_returns_one_level() {
         val pages = mutableStateOf(listOf("profile", "personal"))
+        val backCalls = AtomicInteger()
+        val popPage = {
+            backCalls.incrementAndGet()
+            pages.value = pages.value.dropLast(1)
+        }
         launchMainActivityForInput().use { scenario ->
             scenario.onActivity { activity ->
                 activity.setContent {
@@ -35,7 +41,7 @@ class PersonalSearchNavigationInstrumentedTest {
                     YfuseTheme(dark = true) {
                         OfficialNavDisplay(
                             backStack = pages.value,
-                            onBack = { pages.value = pages.value.dropLast(1) },
+                            onBack = popPage,
                             contentKey = { it },
                         ) { page ->
                             if (page == "personal") {
@@ -43,7 +49,7 @@ class PersonalSearchNavigationInstrumentedTest {
                                     state = PersonalCenterState(),
                                     onIntent = {},
                                     servers = emptyList(),
-                                    onBack = { pages.value = pages.value.dropLast(1) },
+                                    onBack = popPage,
                                     onOpenMedia = {},
                                     initialTab = PersonalCenterTab.WatchLater,
                                     onSwipeable = {},
@@ -71,11 +77,17 @@ class PersonalSearchNavigationInstrumentedTest {
                 }
             }
             instrumentation.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
-            // Navigation keeps both destinations visible during the pop animation.
+            // The outgoing route loses accessibility semantics before the animation commits.
+            // Wait for the model on its owning thread as well as the visible destination.
             await("Back shows the immediate parent and finishes the list exit") {
-                node("片单返回后的个人页") != null && node("搜索片单") == null
+                var committed = false
+                scenario.onActivity { committed = pages.value == listOf("profile") }
+                committed && node("片单返回后的个人页") != null && node("搜索片单") == null
             }
-            assertTrue("Back removed more than one route", pages.value == listOf("profile"))
+            scenario.onActivity {
+                assertTrue("Back removed more than one route: ${pages.value}", pages.value == listOf("profile"))
+                assertTrue("Back was delivered ${backCalls.get()} times", backCalls.get() == 1)
+            }
         }
     }
 

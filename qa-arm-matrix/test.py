@@ -30,7 +30,20 @@ class HTTP(BaseHTTPRequestHandler):
                 except (BrokenPipeError,ConnectionResetError):pass
 server=ThreadingHTTPServer(('127.0.0.1',18382),HTTP);server.daemon_threads=True;Thread(target=server.serve_forever,daemon=True).start()
 shard=int(sys.argv[1])
-rec=[];report={'shard':shard,'planned':len(clips)*160,'files':rec}
+sessions=int(os.environ.get('QA_SESSIONS','5'))
+batches=int(os.environ.get('QA_BATCHES','2'))
+batch_count=int(os.environ.get('QA_BATCH_COUNT','16'))
+assert sessions>0 and batches>0 and batch_count>0
+rec=[];report={'shard':shard,'planned':len(clips)*sessions*batches*batch_count,'files':rec}
+
+def capture_open_failure(clip, session):
+    # This lane only serves the allowlisted public fixtures, never private media locations.
+    prefix=out/(clip['name'].replace('.','-')+'-session-'+str(session))
+    screen().save(str(prefix)+'-screen.png')
+    import xml.etree.ElementTree as ET
+    pathlib.Path(str(prefix)+'-tree.txt').write_text(ET.tostring(snapshot(),encoding='unicode'))
+    pathlib.Path(str(prefix)+'-logcat.txt').write_text(adb('logcat','-d','-v','threadtime',check=False))
+    pathlib.Path(str(prefix)+'-diagnostics.txt').write_text(adb('shell','cat /data/user/0/com.yfuse/no_backup/diagnostics/diagnostic-*.jsonl',check=False))
 def save():
     report['issued']=sum(bool(r.get('issued')) for c in rec for r in c['rows'])
     report['verified']=sum(bool(r.get('ok')) for c in rec for r in c['rows'])
@@ -52,7 +65,7 @@ def open_media(clip):
     return False
 for idx,clip in enumerate(clips):
     detail=dict(clip,rows=[],sessions=[]);rec.append(detail);save()
-    for session in range(5):
+    for session in range(sessions):
         since=time.time()
         ok=open_media(clip)
         proof=engine_evidence(os.environ['QA_ENGINE'],since)
@@ -63,12 +76,14 @@ for idx,clip in enumerate(clips):
         print('IDENTITY',clip['name'],session,ok,proof,flush=True)
         ok=ok and proof['active']
         detail['open']='passed' if ok or detail.get('open')=='passed' else 'no advancing picture'
-        if not ok:save();continue
+        if not ok:
+            capture_open_failure(clip,session)
+            save();continue
         attempted=0
-        for batch in range(2):
+        for batch in range(batches):
             seed=(11987311 if os.environ['QA_ENGINE']=='YCore' else 22987311)+shard*2017+idx*137+session*19+batch
             try:
-                answer=adb('shell','am','instrument','-w','-e','mode','volume','-e','variant','original','-e','seed',seed,'-e','count',16,'-e','duration',clip['duration'],'qa.yfuse.gesture/.Driver',timeout=350)
+                answer=adb('shell','am','instrument','-w','-e','mode','volume','-e','variant','original','-e','seed',seed,'-e','count',batch_count,'-e','duration',clip['duration'],'qa.yfuse.gesture/.Driver',timeout=350)
                 match=re.search(r'INSTRUMENTATION_RESULT: rows=([A-Za-z0-9+/=]+)',answer)
                 if not match:raise ValueError('missing instrumentation response')
                 rows=json.loads(base64.b64decode(match[1]))
