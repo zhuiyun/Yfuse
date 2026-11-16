@@ -45,6 +45,8 @@ def session(out, label):
     power = adb('shell', 'dumpsys', 'power')
     (out / (label + '-media-session.txt')).write_text(media, encoding='utf-8')
     (out / (label + '-power.txt')).write_text(power, encoding='utf-8')
+    if 'Wake Locks: size=' not in power:
+        raise AssertionError('Current system wake-lock inventory unavailable')
     match = re.search(r'package=com\.yfuse\b(.*?)(?=Session #|\Z)', media, re.S)
     state = re.search(r'PlaybackState[^\n]*?state=(\d+)[^\n]*?position=(\d+)', match[1]) if match else None
     if state is None:

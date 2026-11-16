@@ -288,7 +288,7 @@ internal fun PlaybackSettingsScreen(
                         true,
                         icon = AppIcons.Volume,
                         iconTint = SettingTint.audio,
-                        description = "关闭屏幕或切到后台时只播放声音，回到播放器时恢复画面",
+                        description = "支持时在熄屏或后台继续播放声音；不支持时暂停，回到播放器后提示",
                         onChange = onBackgroundAudio,
                     )
                 }
