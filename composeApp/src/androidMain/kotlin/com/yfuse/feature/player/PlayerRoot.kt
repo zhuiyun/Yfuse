@@ -772,7 +772,12 @@ internal fun PlayerRoot(
                             playbackHealth =
                                 assessment.runtimeFault?.reason
                                     ?: assessment.health.diagnosticLabel,
-                            powerProfile = assessment.power.diagnosticLabel,
+                            powerProfile =
+                                if (base.diagnostics.engine == PlayerEngine.SenPlayer.label) {
+                                    "未评估 · 当前内核未提供功耗依据"
+                                } else {
+                                    assessment.power.diagnosticLabel
+                                },
                             resourcePressure = runtimeEnvironment.diagnosticLabel,
                             mediaProbe = activeProbeResult.diagnosticLabel,
                             performanceBaseline =

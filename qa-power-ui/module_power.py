@@ -74,18 +74,23 @@ def main():
                     expected = '登录 Yfuse 账号'
                 elif name == 'channels-idle':
                     page('服务器', ['IPTV · 电视直播', 'IPTV・电视直播'])
+                    ui.wait('订阅名称', 15)
                     field('订阅名称', 'Module QA')
                     field('M3U 地址', 'http://127.0.0.1:18198/list.m3u')
                     click('添加订阅')
                     expected = 'Cloud Channel A'
                 elif name == 'file-browser-idle':
                     page('服务器', '添加文件来源')
+                    ui.wait(['WebDAV', 'WebDav'], 15)
                     click('HTTP')
                     field('地址', '127.0.0.1')
                     field('端口', '18198')
                     field('路径', 'dav')
                     field('显示名称', 'Module DAV')
                     click('连接并添加')
+                    ui.wait('Module DAV', 30)
+                    ui.root('服务器')
+                    click('Module DAV')
                     expected = 'clip.mp4'
                 elif name == 'wifi-receiver-idle':
                     page('服务器', 'Wi-Fi 导入视频', '开启临时接收')

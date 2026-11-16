@@ -109,6 +109,12 @@ def main():
                     previous = shot['treeSha256']
                 else:
                     row['scrollEndObserved'] = False
+                if name == 'media-info' and os.environ.get('QA_VERIFY_POWER_LABEL') == 'true':
+                    labels = row['top']['labels'] + [label for shot in row['scrolls'] for label in shot['labels']]
+                    unavailable = '未评估 · 当前内核未提供功耗依据'
+                    if (unavailable in labels) != (core == 'SenPlayer'):
+                        raise AssertionError('Power assessment must match the actual engine evidence')
+                    row['enginePowerEvidenceLabelVerified'] = True
                 row['status'] = 'captured-needs-review'
             except Exception as error:
                 row['status'] = 'capture-blocked'

@@ -1,4 +1,4 @@
-name: Eighty-minute module activity and WiFi receiver background shutdown
+name: Verify module entry then measure eighty-minute activity and receiver shutdown
 'on':
   push:
     branches:
