@@ -1,5 +1,6 @@
 """Sign into only the disposable loopback fixture through real native UI controls."""
 import sys
+import shlex
 import time
 from pathlib import Path
 sys.path.insert(0, 'qa-functional')
@@ -22,8 +23,11 @@ def field(label, value, secret=False):
         return min(candidates, key=lambda n: abs(ui.coords(n)[1] - ref[1]))
 
     x, y = ui.coords(editable())
-    result = ui.adb('shell', 'am', 'instrument', '-w', '-e', 'mode', 'setText',
-                    '-e', 'x', x, '-e', 'y', y, '-e', 'value', value, 'qa.yfuse.gesture/.Driver')
+    command = ['am', 'instrument', '-w', '-e', 'mode', 'setText',
+               '-e', 'x', str(x), '-e', 'y', str(y), '-e', 'value', value, 'qa.yfuse.gesture/.Driver']
+    # adb shell joins arguments into a remote shell command. Quote the whole
+    # command so spaces, Unicode and URL punctuation remain one input value.
+    result = ui.adb('shell', shlex.join(command))
     if 'outcome=text-set' not in result:
         evidence = Path('results/form-input-failure.txt')
         evidence.write_text(result.replace(value, '<fixture-value>'), encoding='utf-8')
@@ -31,7 +35,12 @@ def field(label, value, secret=False):
     time.sleep(.3)
     ui.hide_keyboard()
     if not secret:
-        if editable().get('text') != value:
+        # A placeholder disappears after typing. Verify the same visible editor
+        # by its previous position instead of searching for the vanished label.
+        candidates = [n for n in ui.nodes(ui.snapshot())
+                      if n.get('class', '').endswith('EditText') and n.get('visible') != 'false']
+        actual = min(candidates, key=lambda n: abs(ui.coords(n)[0] - x) + abs(ui.coords(n)[1] - y), default=None)
+        if actual is None or actual.get('text') != value:
             raise AssertionError('Editable control value was not accepted: ' + label)
 
 
