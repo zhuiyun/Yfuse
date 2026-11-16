@@ -1522,11 +1522,9 @@ internal class AndroidAdaptiveCore2YPlayer(
             if (!next.setAudioDelayMs(audioDelayMs)) reportRejectedSetting(next, "audioDelay")
             if (!next.setAudioEffect(audioEffect)) reportRejectedSetting(next, "audioEffect")
             applyChildSettings(next)
-            // NativeDirect gets the caller's newest output rather than the command copy, which may
-            // still be queued behind this very start (see requestedVideoOutput): before prepare()
-            // it only records the Surface and then configures its decoder with it. The enhanced
-            // child starts a full prepare for any valid Surface, and the prepare() below would then
-            // open the source a second time, so it keeps receiving the output by command.
+            // Both native children record the initial Surface without opening until Prepare.
+            // Direct uses the caller's latest output; enhanced keeps the route-selected Surface,
+            // including a replacement requested when switching to a software producer.
             val attachedOutput = if (next is AndroidNativeDirectYPlayer) requestedVideoOutput else output
             next.setVideoOutput(attachedOutput)
             childVideoOutput = attachedOutput

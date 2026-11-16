@@ -202,7 +202,7 @@ internal class AndroidNativeEnhancedYPlayer(
     }
 
     override fun play() {
-        if (released) return
+        if (released || mutableState.value.phase == YPlaybackPhase.Failed) return
         mutableState.updateState {
             it.copy(
                 playbackRequested = true,
@@ -455,6 +455,10 @@ internal class AndroidNativeEnhancedYPlayer(
         private var speed = 1f
         private var audioDelayMs = 0L
         private var prepared = false
+
+        // Attaching a Surface before Prepare only records the output. Otherwise the router's
+        // SetVideoOutput, Prepare, Play sequence opens and discards the source twice.
+        private var preparationRequested = false
         private var lastPublishNs = 0L
         private var externalSubtitles = emptyList<AndroidLoadedExternalSubtitle>()
         private val externalSubtitleSession =
@@ -938,6 +942,7 @@ internal class AndroidNativeEnhancedYPlayer(
             )
             prepared = false
             requestedPlay = false
+            preparationRequested = false
             // Publish the failure before cleanup waits for a stalled demux owner. Resource
             // ownership remains with this worker until close reaches its safe release barrier.
             mutableState.updateState {
@@ -996,9 +1001,13 @@ internal class AndroidNativeEnhancedYPlayer(
                     for (command in coalesceNativeEnhancedCommands(pendingCommands)) {
                         try {
                             when (command) {
-                                Command.Prepare ->
+                                Command.Prepare -> {
+                                    preparationRequested = true
                                     prepareCurrent(mutableState.value.positionMs * MICROS_PER_MILLISECOND)
+                                }
                                 Command.Play -> {
+                                    if (mutableState.value.phase == YPlaybackPhase.Failed) continue
+                                    preparationRequested = true
                                     requestedPlay = true
                                     if (!prepared) {
                                         prepareCurrent(mutableState.value.positionMs * MICROS_PER_MILLISECOND)
@@ -1072,7 +1081,7 @@ internal class AndroidNativeEnhancedYPlayer(
                                                 prepared = false
                                                 prepareCurrent(position)
                                             }
-                                    } else if (!prepared) {
+                                    } else if (!prepared && preparationRequested) {
                                         prepareCurrent(mutableState.value.positionMs * MICROS_PER_MILLISECOND)
                                     }
                                     command.detached?.complete(Unit)
@@ -1146,6 +1155,7 @@ internal class AndroidNativeEnhancedYPlayer(
                                     currentIndex = command.index
                                     session.close()
                                     prepared = false
+                                    preparationRequested = true
                                     prepareCurrent(0L)
                                 }
                             }

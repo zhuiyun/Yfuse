@@ -206,17 +206,32 @@ public final class SenPlayerSession implements AutoCloseable {
     ensureUsable();
     rt.requirePermit();
     Class<?> configClass = rt.loader.loadClass("hi3");
-    Object config = subtitleConfiguration(configClass, rt.loader.loadClass("gi3"), secondary,
+    Object config = subtitleConfiguration(newSubtitleConfiguration(rt.loader), rt.loader.loadClass("gi3"), secondary,
         primaryScale, secondaryScale, primaryDelay, secondaryDelay, foreground, outline, background,
         outlineWidth, customStyle);
     checkCode(awaitOperation(invoke("M", new Class[] {configClass, long.class}, config, source)));
   }
 
-  static Object subtitleConfiguration(Class<?> configClass, Class<?> styleClass, boolean secondary,
+  /** hi3 has no declared constructor in the pinned DEX; its original factory allocates it. */
+  static Object newSubtitleConfiguration(ClassLoader loader) throws ReflectiveOperationException {
+    Class<?> styleModel = loader.loadClass("vw4");
+    Object style = styleModel.getConstructor(String.class, double.class, double.class, double.class,
+        boolean.class, boolean.class, String.class, String.class, String.class, String.class,
+        double.class, double.class).newInstance("Roboto", 40.0, 1.0, 0.0, false, false,
+            "#FFFFFFFF", "#000000FF", "#000000FF", "#00000000", 2.0, 1.0);
+    Class<?> settingsModel = loader.loadClass("ew4");
+    Object settings = settingsModel.getConstructor(styleModel, styleModel, boolean.class,
+        boolean.class, double.class, double.class, double.class, boolean.class, boolean.class,
+        boolean.class, double.class).newInstance(style, style, true, false, 0.0, Double.NaN,
+            1.0, false, true, false, 1.0);
+    return settingsModel.getMethod("c", boolean.class).invoke(settings, false);
+  }
+
+  static Object subtitleConfiguration(Object config, Class<?> styleClass, boolean secondary,
       double primaryScale, double secondaryScale, double primaryDelay, double secondaryDelay,
       String foreground, String outline, String background, double outlineWidth, boolean customStyle)
       throws ReflectiveOperationException {
-    Object config = configClass.getConstructor().newInstance();
+    Class<?> configClass = config.getClass();
     for (boolean second : new boolean[] {false, true}) {
       Object style = styleClass.getConstructor().newInstance();
       styleClass.getField("a").set(style, "Roboto");

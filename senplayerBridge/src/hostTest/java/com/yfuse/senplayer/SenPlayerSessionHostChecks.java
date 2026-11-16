@@ -55,7 +55,7 @@ public final class SenPlayerSessionHostChecks {
     System.out.println("NO_ORIGINAL_RUNTIME_NO_JNI_NO_NETWORK");
   }
 
-  // Reflection-compatible shapes of hi3 and gi3 in the pinned original DEX.
+  // Field-compatible objects only; the original hi3 has no reflective constructor.
   public static final class SubtitleConfiguration {
     public SubtitleStyle a, b;
     public String c, d;
@@ -70,7 +70,7 @@ public final class SenPlayerSessionHostChecks {
   private static void subtitlesAreVisibleWithOrWithoutASecondaryTrack() throws Exception {
     for (boolean secondary : new boolean[] {false, true}) {
       SubtitleConfiguration config = (SubtitleConfiguration) SenPlayerSession.subtitleConfiguration(
-          SubtitleConfiguration.class, SubtitleStyle.class, secondary, 1.2, 0.8, 0.35, -0.5,
+          new SubtitleConfiguration(), SubtitleStyle.class, secondary, 1.2, 0.8, 0.35, -0.5,
           "#FFFFFFFF", "#000000FF", "#00000000", 2.0, false);
       check(config.e && config.m == 1.0, "selected English text has a visible, opaque output");
       check(config.g == secondary && config.i && !config.f, "secondary slot and source-authored style");

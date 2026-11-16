@@ -142,6 +142,10 @@ class YCoreMediaSuiteInstrumentedTest {
                         )
                     try {
                         assertTrue(player.setVideoOutput(output.output))
+                        // The router attaches output before Prepare. Merely receiving a Surface
+                        // must not demux/decode once here and then open the same source again.
+                        delay(1_000L)
+                        assertTrue(player.state.value.phase == YPlaybackPhase.Idle)
                         player.prepare()
                         player.play()
                         awaitPlayable(player, "enhanced-before-retry")
