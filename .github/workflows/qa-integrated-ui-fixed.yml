@@ -1,78 +1,83 @@
-name: Qualify idle rendering and subscription lifecycle on Android12 15 and17
-on:
+name: Verify final UI with observed animation readiness and10repeat interactions
+true:
   push:
-    branches: [codex/two-engines-cloud-seek-20261113]
-    paths: ['.github/workflows/qa-integrated-ui-fixed.yml']
-permissions: {contents: read, actions: read}
+    branches:
+    - codex/two-engines-cloud-seek-20261113
+    paths:
+    - .github/workflows/qa-integrated-ui-fixed.yml
+permissions:
+  contents: read
+  actions: read
 env:
-  QA_APP_SHA: 0642c1b24a22ffcc39a3526b2d79d0d0881abb64
+  QA_APP_SHA: a5c9aac5027f4f9093d49982fe98c67282705d75
 jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 95
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          ref: 0642c1b24a22ffcc39a3526b2d79d0d0881abb64
-          persist-credentials: false
-          fetch-depth: 0
-      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
-        with: {distribution: temurin, java-version: '17', cache: gradle}
-      - name: Verify native inputs and build the release candidate
-        env: {API_TOKEN: "${{ github.token }}"}
-        run: |
-          set -euo pipefail
-          api="https://api.github.com/repos/$GITHUB_REPOSITORY"
-          app_sha=$(git rev-parse HEAD)
-          native_sha=8a9bb9a7b626d7c7695caf95d7a885192c101935
-          git diff --exit-code "$native_sha" "$app_sha" -- ycore-native scripts/native scripts/native-build-download.py scripts/ycore-source-receipt.py
-          producer=43803470495
-          name="ycore-source-$native_sha-$producer-1"
-          artifact=""
-          for i in $(seq 1 135); do
-            artifact=$(curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/$producer/artifacts" | jq -r --arg n "$name" '.artifacts[] | select(.name==$n and .expired==false) | .id' | head -1)
-            if [[ "$artifact" =~ ^[0-9]+$ ]]; then break; fi
-            sleep 12
-          done
-          test -n "$artifact"
-          curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/artifacts/$artifact" | jq -e --arg n "ycore-source-$native_sha-43803470495-1" '.name==$n and .expired==false and .workflow_run.id==43803470495' >/dev/null
-          curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/artifacts/$artifact/zip" -o "$RUNNER_TEMP/native.zip"
-          mkdir "$RUNNER_TEMP/native-in"
-          unzip -q "$RUNNER_TEMP/native.zip" -d "$RUNNER_TEMP/native-in"
-          export YCORE_NATIVE_AAR_PATH="$RUNNER_TEMP/native-in/ycore-native.aar"
-          export YCORE_SOURCE_RECEIPT="$RUNNER_TEMP/native-in/source-build.json"
-          export YCORE_SOURCE_COMMIT="$native_sha" SOURCE_COMMIT="$native_sha"
-          export YCORE_SOURCE_AAR_SHA256=$(sha256sum "$YCORE_NATIVE_AAR_PATH" | cut -d' ' -f1)
-          export YCORE_SOURCE_PROVENANCE_SHA256=$(sha256sum "$RUNNER_TEMP/native-in/NATIVE-SOURCES.txt" | cut -d' ' -f1)
-          input_tree="$RUNNER_TEMP/verified-native-source"
-          git worktree add --detach "$input_tree" "$native_sha"
-          (cd "$input_tree" && python3 scripts/prepare-playback-inputs.py)
-          mkdir -p composeApp/libs
-          cp "$input_tree"/composeApp/libs/ycore-native.{aar,aar.sha256,sources.txt} composeApp/libs/
-          cp -a "$input_tree"/senplayerBridge/src/main/assets/senplayer/. senplayerBridge/src/main/assets/senplayer/
-          (cd composeApp/libs && sha256sum -c ycore-native.aar.sha256)
-          test "$(git rev-parse HEAD)" = "$app_sha"
-          git diff --exit-code -- .
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-37.0'
-          python3 scripts/check_function_size.py
-          ./gradlew :composeApp:assembleDebug :composeApp:assembleDebugAndroidTest -PyfuseApplicationId=com.yfuse.validation -PyfuseIncludeMdk=false -PyfusePlaybackProfile=ycore-senplayer -PyfuseNativeOnlyRuntime=true -Pkotlin.compiler.execution.strategy=in-process '-Dorg.gradle.jvmargs=-Xmx8g -Dfile.encoding=UTF-8' --no-parallel --max-workers=2 --no-daemon
-          mkdir preview
-          cp composeApp/build/outputs/apk/debug/composeApp-debug.apk preview/app.apk
-          test_apk=$(find composeApp/build/outputs/apk/androidTest -name '*.apk' | head -1)
-          cp "$test_apk" preview/tests.apk
-          printf 'app=%s\n' "$app_sha" > preview/provenance.txt
-          (cd preview && sha256sum app.apk tests.apk > apk.sha256)
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        with: {name: ui-validation-input, path: preview, retention-days: 7}
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        ref: a5c9aac5027f4f9093d49982fe98c67282705d75
+        persist-credentials: false
+        fetch-depth: 0
+    - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
+      with:
+        distribution: temurin
+        java-version: '17'
+        cache: gradle
+    - name: Verify native inputs and build the release candidate
+      env:
+        API_TOKEN: ${{ github.token }}
+      run: "set -euo pipefail\napi=\"https://api.github.com/repos/$GITHUB_REPOSITORY\"\
+        \napp_sha=$(git rev-parse HEAD)\nnative_sha=8a9bb9a7b626d7c7695caf95d7a885192c101935\n\
+        git diff --exit-code \"$native_sha\" \"$app_sha\" -- ycore-native scripts/native\
+        \ scripts/native-build-download.py scripts/ycore-source-receipt.py\nproducer=43803470495\n\
+        name=\"ycore-source-$native_sha-$producer-1\"\nartifact=\"\"\nfor i in $(seq\
+        \ 1 135); do\n  artifact=$(curl -fsSL --retry 2 -H \"Authorization: Bearer\
+        \ $API_TOKEN\" \"$api/actions/runs/$producer/artifacts\" | jq -r --arg n \"\
+        $name\" '.artifacts[] | select(.name==$n and .expired==false) | .id' | head\
+        \ -1)\n  if [[ \"$artifact\" =~ ^[0-9]+$ ]]; then break; fi\n  sleep 12\n\
+        done\ntest -n \"$artifact\"\ncurl -fsSL --retry 2 -H \"Authorization: Bearer\
+        \ $API_TOKEN\" \"$api/actions/artifacts/$artifact\" | jq -e --arg n \"ycore-source-$native_sha-43803470495-1\"\
+        \ '.name==$n and .expired==false and .workflow_run.id==43803470495' >/dev/null\n\
+        curl -fsSL --retry 2 -H \"Authorization: Bearer $API_TOKEN\" \"$api/actions/artifacts/$artifact/zip\"\
+        \ -o \"$RUNNER_TEMP/native.zip\"\nmkdir \"$RUNNER_TEMP/native-in\"\nunzip\
+        \ -q \"$RUNNER_TEMP/native.zip\" -d \"$RUNNER_TEMP/native-in\"\nexport YCORE_NATIVE_AAR_PATH=\"\
+        $RUNNER_TEMP/native-in/ycore-native.aar\"\nexport YCORE_SOURCE_RECEIPT=\"\
+        $RUNNER_TEMP/native-in/source-build.json\"\nexport YCORE_SOURCE_COMMIT=\"\
+        $native_sha\" SOURCE_COMMIT=\"$native_sha\"\nexport YCORE_SOURCE_AAR_SHA256=$(sha256sum\
+        \ \"$YCORE_NATIVE_AAR_PATH\" | cut -d' ' -f1)\nexport YCORE_SOURCE_PROVENANCE_SHA256=$(sha256sum\
+        \ \"$RUNNER_TEMP/native-in/NATIVE-SOURCES.txt\" | cut -d' ' -f1)\ninput_tree=\"\
+        $RUNNER_TEMP/verified-native-source\"\ngit worktree add --detach \"$input_tree\"\
+        \ \"$native_sha\"\n(cd \"$input_tree\" && python3 scripts/prepare-playback-inputs.py)\n\
+        mkdir -p composeApp/libs\ncp \"$input_tree\"/composeApp/libs/ycore-native.{aar,aar.sha256,sources.txt}\
+        \ composeApp/libs/\ncp -a \"$input_tree\"/senplayerBridge/src/main/assets/senplayer/.\
+        \ senplayerBridge/src/main/assets/senplayer/\n(cd composeApp/libs && sha256sum\
+        \ -c ycore-native.aar.sha256)\ntest \"$(git rev-parse HEAD)\" = \"$app_sha\"\
+        \ngit diff --exit-code -- .\nyes | \"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager\"\
+        \ --licenses >/dev/null 2>&1 || true\n\"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager\"\
+        \ 'platforms;android-37.0'\npython3 scripts/check_function_size.py\n./gradlew\
+        \ :composeApp:assembleDebug :composeApp:assembleDebugAndroidTest -PyfuseApplicationId=com.yfuse.validation\
+        \ -PyfuseIncludeMdk=false -PyfusePlaybackProfile=ycore-senplayer -PyfuseNativeOnlyRuntime=true\
+        \ -Pkotlin.compiler.execution.strategy=in-process '-Dorg.gradle.jvmargs=-Xmx8g\
+        \ -Dfile.encoding=UTF-8' --no-parallel --max-workers=2 --no-daemon\nmkdir\
+        \ preview\ncp composeApp/build/outputs/apk/debug/composeApp-debug.apk preview/app.apk\n\
+        test_apk=$(find composeApp/build/outputs/apk/androidTest -name '*.apk' | head\
+        \ -1)\ncp \"$test_apk\" preview/tests.apk\nprintf 'app=%s\\n' \"$app_sha\"\
+        \ > preview/provenance.txt\n(cd preview && sha256sum app.apk tests.apk > apk.sha256)\n"
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+      with:
+        name: ui-validation-input
+        path: preview
+        retention-days: 7
   instrumented:
     env:
       QA_MIN_TESTS: ${{ matrix.api == 32 && 3 || 105 }}
-      QA_TEST_CLASSES: ${{ matrix.api == 32 && 'com.yfuse.feature.calendar.CalendarReminderSchedulingInstrumentedTest,com.yfuse.core.designsystem.SkeletonSweepLifecycleInstrumentedTest' || '' }}
-      # API 37 goldfish codec rejects memfd transfers under the image's SELinux policy.
-      # Only forced low-level fixture routes use the platform software codec; adaptive
-      # production playback retains its default decoder selection and recovery.
-      QA_PLATFORM_AVC_DECODER: ${{ matrix.api == 37 && 'c2.android.avc.decoder' || '' }}
+      QA_TEST_CLASSES: ${{ matrix.api == 32 && 'com.yfuse.feature.calendar.CalendarReminderSchedulingInstrumentedTest,com.yfuse.core.designsystem.SkeletonSweepLifecycleInstrumentedTest'
+        || '' }}
+      QA_PLATFORM_AVC_DECODER: ${{ matrix.api == 37 && 'c2.android.avc.decoder' ||
+        '' }}
+      QA_REPEAT_UI_TIMING: ${{ matrix.api != 32 && 'true' || 'false' }}
     needs: build
     name: Full UI and generated-media regressions API ${{ matrix.api }}
     runs-on: ubuntu-24.04
@@ -81,40 +86,58 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {api: 32, sdk: '32'}
-          - {api: 35, sdk: '35'}
-          - {api: 37, sdk: '37.0'}
+        - api: 32
+          sdk: '32'
+        - api: 35
+          sdk: '35'
+        - api: 37
+          sdk: '37.0'
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with: {persist-credentials: false}
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with: {name: ui-validation-input, path: preview}
-      - name: Verify app and enable acceleration
-        run: |
-          set -euo pipefail
-          (cd preview && sha256sum -c apk.sha256)
-          grep -Fx "app=$QA_APP_SHA" preview/provenance.txt
-          test -c /dev/kvm
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-      - name: Use current Android 17 tools
-        if: matrix.api == 37
-        run: sudo rm -rf "${ANDROID_HOME:?}/cmdline-tools"
-      - name: Run every self-contained device regression
-        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
-        with:
-          api-level: ${{ matrix.sdk }}
-          target: google_apis
-          arch: x86_64
-          profile: pixel_2
-          ram-size: 4096M
-          heap-size: 512M
-          disk-size: 4096M
-          emulator-boot-timeout: 600
-          disable-animations: false
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -accel on
-          script: bash qa-integrated/ui-regressions.sh "${{ matrix.api }}"
-      - if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        with: {name: 'fixed-ui-api-${{ matrix.api }}', path: results/, retention-days: 10}
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
+    - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      with:
+        name: ui-validation-input
+        path: preview
+    - name: Verify app and enable acceleration
+      run: 'set -euo pipefail
+
+        (cd preview && sha256sum -c apk.sha256)
+
+        grep -Fx "app=$QA_APP_SHA" preview/provenance.txt
+
+        test -c /dev/kvm
+
+        echo ''KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"''
+        | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+
+        sudo udevadm control --reload-rules
+
+        sudo udevadm trigger --name-match=kvm
+
+        '
+    - name: Use current Android 17 tools
+      if: matrix.api == 37
+      run: sudo rm -rf "${ANDROID_HOME:?}/cmdline-tools"
+    - name: Run every self-contained device regression
+      uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+      with:
+        api-level: ${{ matrix.sdk }}
+        target: google_apis
+        arch: x86_64
+        profile: pixel_2
+        ram-size: 4096M
+        heap-size: 512M
+        disk-size: 4096M
+        emulator-boot-timeout: 600
+        disable-animations: false
+        emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          -no-snapshot -camera-back none -accel on
+        script: bash qa-integrated/ui-regressions.sh "${{ matrix.api }}"
+    - if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+      with:
+        name: fixed-ui-api-${{ matrix.api }}
+        path: results/
+        retention-days: 10

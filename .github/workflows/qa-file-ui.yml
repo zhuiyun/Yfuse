@@ -1,4 +1,4 @@
-name: Actual WebDAV file browser IPTV and Wi-Fi import UI
+name: Verify matching actual file sizes in WiFi import and WebDAV
 'on':
   push:
     branches:
@@ -9,8 +9,8 @@ permissions:
   contents: read
   actions: read
 env:
-  QA_APP_SHA: f0973393f8f5b48eb18a9e43c9fa3bc3643a83ca
-  QA_BUILD_RUN: 43913060507
+  QA_APP_SHA: 0642c1b24a22ffcc39a3526b2d79d0d0881abb64
+  QA_BUILD_RUN: 43918020137
 jobs:
   acquire:
     runs-on: ubuntu-24.04

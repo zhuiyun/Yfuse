@@ -1,4 +1,4 @@
-name: Verify opaque readable player gesture help in both engines and phone widths
+name: Verify final codec labels and player panels in both engines and widths
 'on':
   push:
     branches:
@@ -9,8 +9,8 @@ permissions:
   contents: read
   actions: read
 env:
-  QA_APP_SHA: 01a74dc1ea41b222e275da58b44e09e2abdd6553
-  QA_BUILD_RUN: 43909205462
+  QA_APP_SHA: 0642c1b24a22ffcc39a3526b2d79d0d0881abb64
+  QA_BUILD_RUN: 43918020137
 jobs:
   acquire:
     runs-on: ubuntu-24.04
@@ -71,7 +71,7 @@ jobs:
     env:
       QA_ENGINE: ${{ matrix.engine }}
       QA_REQUIRE_CLEAR_PANELS: 'true'
-      QA_PLAYER_ROUTES: paused-controls,gestures-help
+      QA_PLAYER_ROUTES: paused-controls,more,media-info,engine,gestures-help
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with:

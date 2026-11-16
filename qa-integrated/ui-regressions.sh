@@ -22,3 +22,10 @@ if [[ -n "${QA_PLATFORM_AVC_DECODER:-}" ]]; then
 fi
 adb shell am instrument -w -r "${test_args[@]}" com.yfuse.validation.test/androidx.test.runner.AndroidJUnitRunner | tee results/instrumentation.txt
 python3 qa-integrated/check-instrumentation.py results/instrumentation.txt "${QA_MIN_TESTS:-20}"
+if [[ "${QA_REPEAT_UI_TIMING:-false}" == true ]]; then
+  timing_cases='com.yfuse.feature.library.LibraryHomeLifecycleInstrumentedTest#arriving_libraries_start_at_first_card_and_later_refresh_keeps_user_scroll,com.yfuse.feature.player.SoftFeedbackInstrumentedTest#compound_play_surface_preserves_separate_actions_and_disabled_state'
+  for iteration in $(seq 1 10); do
+    adb shell am instrument -w -r -e class "$timing_cases" com.yfuse.validation.test/androidx.test.runner.AndroidJUnitRunner | tee "results/timing-repeat-$iteration.txt"
+    python3 qa-integrated/check-instrumentation.py "results/timing-repeat-$iteration.txt" 2
+  done
+fi

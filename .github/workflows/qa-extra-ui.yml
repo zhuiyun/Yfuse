@@ -1,5 +1,4 @@
-name: Search, person and multi-server UI through synthetic server fixtures after current-IME
-  visibility correction
+name: Verify theme contrast and navigation in unified library
 'on':
   push:
     branches:
@@ -10,8 +9,8 @@ permissions:
   contents: read
   actions: read
 env:
-  QA_APP_SHA: 01a74dc1ea41b222e275da58b44e09e2abdd6553
-  QA_BUILD_RUN: 43909205462
+  QA_APP_SHA: 0642c1b24a22ffcc39a3526b2d79d0d0881abb64
+  QA_BUILD_RUN: 43918020137
 jobs:
   acquire:
     runs-on: ubuntu-24.04
