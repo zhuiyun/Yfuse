@@ -24,6 +24,7 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.YfuseTheme
 import com.yfuse.launchMainActivityForInput
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -102,12 +103,16 @@ class AccountSessionsEvidenceInstrumentedTest {
                         )
                         capture("$prefix-top")
                         if (name == "loading") {
-                            assertTrue(
+                            val refresh =
+                                requireNotNull(
+                                    nodes().firstOrNull {
+                                        it.contentDescription?.toString() ==
+                                            "刷新登录设备"
+                                    },
+                                )
+                            assertFalse(
                                 "Refresh disabled during load",
-                                nodes().none {
-                                    it.isEnabled &&
-                                        it.contentDescription?.contains("刷新登录设备") == true
-                                },
+                                effectivelyEnabled(refresh),
                             )
                         } else {
                             captureScrolls(prefix)
@@ -138,16 +143,20 @@ class AccountSessionsEvidenceInstrumentedTest {
             )
         }
         assertTrue("Session list reaches its final actions: $prefix", reachedActions)
-        if (prefix.endsWith("busy")) {
-            assertTrue(
-                "Busy bulk actions are disabled",
-                nodes().none {
-                    it.isVisibleToUser &&
-                        it.isEnabled &&
-                        it.actionList.any { action -> action.label == "全部设备退出" }
-                },
-            )
+        if (prefix.endsWith("busy") || prefix.endsWith("empty")) {
+            val label = if (prefix.endsWith("busy")) "全部设备退出" else "退出其他设备"
+            val action = requireNotNull(nodes().firstOrNull { it.isVisibleToUser && it.text?.toString() == label })
+            assertFalse("Unavailable bulk action is disabled", effectivelyEnabled(action))
         }
+    }
+
+    private fun effectivelyEnabled(node: AccessibilityNodeInfo): Boolean {
+        var current: AccessibilityNodeInfo? = node
+        while (current != null) {
+            if (!current.isEnabled) return false
+            current = current.parent
+        }
+        return true
     }
 
     private fun nodes(): List<AccessibilityNodeInfo> {
