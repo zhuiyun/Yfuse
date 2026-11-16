@@ -8,6 +8,7 @@ import com.yfuse.core.logging.diagnosticTypeName
 import com.yfuse.core2.api.YAudioEffect
 import com.yfuse.core2.api.YDolbyAtmosOutputMode
 import com.yfuse.core2.api.YMediaItem
+import com.yfuse.core2.api.YOutputEvidenceResetReason
 import com.yfuse.core2.api.YPlaybackException
 import com.yfuse.core2.api.YPlaybackFailureCategory
 import com.yfuse.core2.api.YPlaybackPhase
@@ -19,6 +20,7 @@ import com.yfuse.core2.api.YPlayerState
 import com.yfuse.core2.api.YTrack
 import com.yfuse.core2.api.YTrackType
 import com.yfuse.core2.api.YVideoOutput
+import com.yfuse.core2.api.invalidateOutputEvidence
 import com.yfuse.core2.api.matchingPreference
 import com.yfuse.core2.capability.YHdrType
 import com.yfuse.core2.demux.YDemuxOpenResult
@@ -55,8 +57,8 @@ import java.net.URI
 /**
  * Unified YPlayer wrapper for the Phase-3 NativeEnhanced graph.
  *
- * It is still opt-in: production routing must explicitly choose this player only after the enhanced
- * probe and strategy return an executable NativeEnhanced plan. Legacy remains the recovery path.
+ * The adaptive router selects the enhanced demux graph and its platform or in-core FFmpeg
+ * decoders. Every recovery route remains inside YCore.
  */
 internal class AndroidNativeEnhancedYPlayer(
     context: Context,
@@ -509,7 +511,10 @@ internal class AndroidNativeEnhancedYPlayer(
                         phase = YPlaybackPhase.Preparing,
                         playing = false,
                         buffering = requestedPlay,
-                        diagnostics = it.diagnostics.copy(videoOutput = "等待 Surface"),
+                        diagnostics =
+                            it.diagnostics
+                                .invalidateOutputEvidence(YOutputEvidenceResetReason.SurfaceChanged)
+                                .copy(videoOutput = "等待 Surface"),
                     )
                 }
                 return
@@ -1052,7 +1057,11 @@ internal class AndroidNativeEnhancedYPlayer(
                                                 playing = false,
                                                 buffering = requestedPlay,
                                                 positionMs = position / MICROS_PER_MILLISECOND,
-                                                diagnostics = it.diagnostics.copy(videoOutput = "等待 Surface"),
+                                                diagnostics =
+                                                    it.diagnostics
+                                                        .invalidateOutputEvidence(
+                                                            YOutputEvidenceResetReason.SurfaceChanged,
+                                                        ).copy(videoOutput = "等待 Surface"),
                                             )
                                         }
                                     } else if (prepared && previous?.surface?.isValid == true) {
