@@ -53,6 +53,20 @@ def session(out, label):
             'audioWakeLockHeld': bool(re.search(r'PARTIAL_WAKE_LOCK[^\n]*Yfuse:background-audio', power))}
 
 
+def lifecycle_evidence(out, label):
+    raw = adb('shell', 'cat /data/user/0/com.yfuse/no_backup/diagnostics/diagnostic-*.jsonl', check=False)
+    (out / (label + '-diagnostics.jsonl')).write_text(raw, encoding='utf-8')
+    root = ET.fromstring(adb('shell', 'cat', '/data/user/0/com.yfuse/shared_prefs/yfuse.xml'))
+    preference = root.find("./boolean[@name='player.backgroundAudio']")
+    # Record only this synthetic fixture's setting, never the entire preference file.
+    value = preference.get('value') if preference is not None else None
+    (out / (label + '-preference.json')).write_text(json.dumps({'backgroundAudio': value}), encoding='utf-8')
+    for kind, command in [('appops', ['cmd', 'appops', 'get', 'com.yfuse', 'PICTURE_IN_PICTURE']),
+                          ('activity', ['dumpsys', 'activity', 'activities'])]:
+        (out / (label + '-' + kind + '.txt')).write_text(adb('shell', *command, check=False), encoding='utf-8')
+    return value
+
+
 def require_state(out, label, state, held):
     deadline = time.monotonic() + 15
     while True:
@@ -60,6 +74,7 @@ def require_state(out, label, state, held):
         if result['state'] == state and result['audioWakeLockHeld'] == held:
             return result
         if time.monotonic() >= deadline:
+            lifecycle_evidence(out, label)
             raise AssertionError('Audio state/lock mismatch: ' + repr(result))
         time.sleep(.5)
 
@@ -87,6 +102,8 @@ def main():
         adb('shell', 'dumpsys', 'battery', 'set', 'status', '3')
         adb('shell', 'dumpsys', 'batterystats', '--reset')
         initial = playing(core)
+        if lifecycle_evidence(out, 'after-launch') != 'true':
+            raise AssertionError('Background audio preference changed after player launch')
         (out / 'engine-evidence.json').write_text(json.dumps(initial), encoding='utf-8')
         (out / 'conditions.json').write_text(json.dumps({
             'pilot': pilot, 'batterySimulated': True, 'levelSetpoint': 80, 'backgroundAudioEnabled': True,
@@ -119,6 +136,7 @@ def main():
                 count += 1
                 time.sleep(min(30, max(0, seconds - (time.monotonic() - began))))
             row['exitEvidence'] = require_state(out, name + '-exit', 3 if active else 2, held)
+            lifecycle_evidence(out, name + '-exit')
             delta = row['exitEvidence']['positionMs'] - row['entryEvidence']['positionMs']
             if (active and delta < seconds * 500) or (not active and abs(delta) > 1500):
                 raise AssertionError('Actual session position did not match requested lifecycle: ' + str(delta))
@@ -127,6 +145,7 @@ def main():
             print('BACKGROUND_AUDIO', core, name, row['status'], flush=True)
         status = 'recorded'
     except Exception:
+        lifecycle_evidence(out, 'failure')
         failure_diagnostics(out, 'audio-lifecycle-failure')
         raise
     finally:
