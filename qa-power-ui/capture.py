@@ -88,6 +88,13 @@ def capture(out, name, expected=None, timeout=12):
             'humanInspection': 'pending'}
 
 
+def surface_signature(tree):
+    # Preserve node order: selected semantics often live on an unlabelled parent.
+    # A set would lose which of two otherwise identical parents became selected.
+    return tuple((n.get('text', ''), n.get('content-desc', ''), n.get('checked'), n.get('selected'),
+                  n.get('state'), n.get('enabled')) for n in ui.nodes(tree))
+
+
 def verify_detail_clearance(tree_file, title):
     tree = ET.parse(tree_file).getroot()
     parents = {child: parent for parent in tree.iter() for child in parent}
@@ -178,14 +185,14 @@ def main():
             for route_step, label in enumerate(path):
                 # page_info deliberately filters long/private-looking labels for display.
                 # Navigation verification must still notice a newly expanded long paragraph.
-                before = {(n.get('text', ''), n.get('content-desc', '')) for n in ui.nodes(ui.snapshot())}
+                before = surface_signature(ui.snapshot())
                 if os.environ.get('QA_UI_TRACE') == 'true':
                     capture(out, key + '-step-' + str(route_step) + '-before')
                 category_context = ('测试电影', '测试剧集', '播放列表') if label in ('测试电影', '测试剧集') else ()
                 click(label, 10, horizontal_context=category_context)
                 if os.environ.get('QA_UI_TRACE') == 'true':
                     capture(out, key + '-step-' + str(route_step) + '-after')
-                after = {(n.get('text', ''), n.get('content-desc', '')) for n in ui.nodes(ui.snapshot())}
+                after = surface_signature(ui.snapshot())
                 if after == before:
                     raise AssertionError('Control did not expose a new page or dialog: ' + str(label))
             if name == 'about-section':
