@@ -66,7 +66,10 @@ public final class Driver extends Instrumentation {
     private String playbackState(android.view.accessibility.AccessibilityNodeInfo node) {
         if (node == null) return "";
         String state=String.valueOf(android.os.Build.VERSION.SDK_INT>=30?node.getStateDescription():node.getContentDescription());
-        if (state.contains("播放进度")) return state;
+        if (state.contains("播放进度") || String.valueOf(node.getClassName()).contains("SeekBar")) {
+            if (!node.refresh()) return "";
+            return String.valueOf(android.os.Build.VERSION.SDK_INT>=30?node.getStateDescription():node.getContentDescription());
+        }
         for(int i=0;i<node.getChildCount();i++){
             String value=playbackState(node.getChild(i));
             if(!value.isEmpty())return value;
@@ -76,8 +79,12 @@ public final class Driver extends Instrumentation {
     private String command(android.view.accessibility.AccessibilityNodeInfo node) {
         if(node==null)return "";
         String value=String.valueOf(node.getContentDescription());
-        if(value.equals("暂停")||value.equals("Pause"))return "playing";
-        if(value.equals("播放")||value.equals("Play"))return "paused";
+        if(value.equals("暂停")||value.equals("Pause")||value.equals("播放")||value.equals("Play")) {
+            if (!node.refresh()) return "";
+            value=String.valueOf(node.getContentDescription());
+            if(value.equals("暂停")||value.equals("Pause"))return "playing";
+            if(value.equals("播放")||value.equals("Play"))return "paused";
+        }
         for(int i=0;i<node.getChildCount();i++){String s=command(node.getChild(i));if(!s.isEmpty())return s;}
         return "";
     }

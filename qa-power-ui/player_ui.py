@@ -24,8 +24,9 @@ ROUTES = [
 ]
 
 
-def pause_visible():
+def pause_visible(output):
     result = adb('shell', 'am', 'instrument', '-w', '-e', 'mode', 'playerPause', 'qa.yfuse.gesture/.Driver')
+    output.write_text(result, encoding='utf-8')
     values = dict(re.findall(r'INSTRUMENTATION_RESULT: (\w+)=(.*)', result))
     clocks = [re.search(r'播放进度 ((?:\d+:)?\d+:\d+)', values.get(key, ''))
               for key in ('firstState', 'secondState')]
@@ -35,7 +36,7 @@ def pause_visible():
             value = value * 60 + int(part)
         return value
     if values.get('command', '').strip() != 'paused' or not all(clocks) or abs(seconds(clocks[1]) - seconds(clocks[0])) > 1:
-        raise AssertionError('Atomic pause action and stable media clock not confirmed')
+        raise AssertionError('Atomic pause action and stable media clock not confirmed: ' + repr(values)[:240])
     return {'positionBefore': seconds(clocks[0]), 'positionAfter': seconds(clocks[1]), 'command': 'paused'}
 
 
@@ -60,7 +61,7 @@ def main():
             try:
                 adb('shell', 'am', 'force-stop', 'com.yfuse')
                 row['playback'] = playing(core)
-                row['pause'] = pause_visible()
+                row['pause'] = pause_visible(out / ('%02d-pause-result.txt' % index))
                 for label in path:
                     click(label, 8)
                 key = '%02d-%s' % (index, name)
@@ -94,6 +95,8 @@ def main():
                     row['blockedState'] = capture(out, '%02d-%s-blocked' % (index, name))
                 except Exception:
                     pass
+                if 'pause' not in row:
+                    break  # A shared setup failure must not be repeated through every menu.
             finally:
                 (out / 'coverage.json').write_text(json.dumps({'engine': core, 'routes': rows,
                     'auditComplete': False, 'limits': ['Generated AVC/AAC source; original media compatibility is separate.',
@@ -102,8 +105,9 @@ def main():
                 print('PLAYER_UI', core, name, row['status'], flush=True)
     finally:
         server.close()
-    if not any(row['status'] == 'captured-needs-review' for row in rows):
-        raise SystemExit('No player route captured; evidence collection did not complete')
+    incomplete = [row['name'] for row in rows if row['status'] != 'captured-needs-review']
+    if incomplete or len(rows) != len(ROUTES):
+        raise SystemExit('Player evidence incomplete: ' + ', '.join(incomplete))
 
 
 if __name__ == '__main__':
