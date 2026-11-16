@@ -1,0 +1,73 @@
+{
+  "expectedTree": "afd17658fcb600553dbd6ecceae897abd593b304",
+  "files": [
+    {
+      "target": "senplayerBridge/src/main/assets/senplayer/native/libMLibKit.so",
+      "size": 15671472,
+      "sha256": "cf963053a74a64d7325ef64ed5a466f516787fdd8fe1df6f94b48da1ed5f5f4d",
+      "parts": [
+        {
+          "path": ".ci-score-upload/libMLibKit.so.000.part",
+          "size": 8388608,
+          "sha256": "1e9b6650b2b4c97d9262eb36b0ca2fc1edb89dfcfe80e3ec0bef5ea1c913d373",
+          "gitSha": "589165f6d463570c079b9defc717ae671edde5dd"
+        },
+        {
+          "path": ".ci-score-upload/libMLibKit.so.001.part",
+          "size": 7282864,
+          "sha256": "8e5f56a02bdeae5a6c2d0e70f833d088b56dff4572a0adf45b72fee755844a6d",
+          "gitSha": "3ff3aeb90086902249c462d3660f0c58934f908a"
+        }
+      ]
+    },
+    {
+      "target": "senplayerBridge/src/main/assets/senplayer/native/libFFmpegKit.so",
+      "size": 54435336,
+      "sha256": "e6f26a53f8cf793cc1733ae4fbfed30a71794a2ca932c585048021e865aad1a3",
+      "parts": [
+        {
+          "path": ".ci-score-upload/libFFmpegKit.so.000.part",
+          "size": 8388608,
+          "sha256": "c1bc27f4bcd71a6d8f44397b5c4da9ecb18be4f67b4e5e35993288b41e84d9cf",
+          "gitSha": "489a2a5f73f5bd0084f331202b684a976d8449b2"
+        },
+        {
+          "path": ".ci-score-upload/libFFmpegKit.so.001.part",
+          "size": 8388608,
+          "sha256": "61787c438334ef35498d87f46e078e4931875f549701ae3f5b0380ed2add4bdd",
+          "gitSha": "2e4b80d133c4899da464d3d4ba1b6b031f424ef8"
+        },
+        {
+          "path": ".ci-score-upload/libFFmpegKit.so.002.part",
+          "size": 8388608,
+          "sha256": "8a24e087888541040c16316c355d080bb044e40fa50180d83339b410ba6ccf87",
+          "gitSha": "5c4c594ecf43ea848a986dfcb2d507cff7d7cf61"
+        },
+        {
+          "path": ".ci-score-upload/libFFmpegKit.so.003.part",
+          "size": 8388608,
+          "sha256": "c2da90648d132f8789e2c76d893546163a555ef37062d8b96e2463d740bf079a",
+          "gitSha": "e44a16e68feed895bddaedf8cae7b3a07974f415"
+        },
+        {
+          "path": ".ci-score-upload/libFFmpegKit.so.004.part",
+          "size": 8388608,
+          "sha256": "41738f56b6adae7788d421afc215c7c37ab70b3d0b600db86ca43d5726e080d4",
+          "gitSha": "76ba8094f54d1b067aa74607f55521c3ca7d9592"
+        },
+        {
+          "path": ".ci-score-upload/libFFmpegKit.so.005.part",
+          "size": 8388608,
+          "sha256": "40456281f41f467cf2145bcc4082a11e8384dab5212bdb9a116b557a08f812c2",
+          "gitSha": "4b587ee4a0784c183d57e15bf9be535a69c0ffd5"
+        },
+        {
+          "path": ".ci-score-upload/libFFmpegKit.so.006.part",
+          "size": 4103688,
+          "sha256": "b901e7ee178971473c8d66bc8fcb7acf90c11da430bfe67f4c84ba752ef033a3",
+          "gitSha": "0189799bc4eec9652813c7b6d93e4be7a6c2459a"
+        }
+      ]
+    }
+  ]
+}
