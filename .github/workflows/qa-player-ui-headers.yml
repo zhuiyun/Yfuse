@@ -1,4 +1,4 @@
-name: Verify final codec labels and player panels in both engines and widths
+name: Verify actual engine power labels in both cores and widths
 'on':
   push:
     branches:
@@ -9,8 +9,8 @@ permissions:
   contents: read
   actions: read
 env:
-  QA_APP_SHA: 0642c1b24a22ffcc39a3526b2d79d0d0881abb64
-  QA_BUILD_RUN: 43918020137
+  QA_APP_SHA: 61686049a52ed23decce12621e0aba4eeae53f04
+  QA_BUILD_RUN: 43923181860
 jobs:
   acquire:
     runs-on: ubuntu-24.04
@@ -72,6 +72,7 @@ jobs:
       QA_ENGINE: ${{ matrix.engine }}
       QA_REQUIRE_CLEAR_PANELS: 'true'
       QA_PLAYER_ROUTES: paused-controls,more,media-info,engine,gestures-help
+      QA_VERIFY_POWER_LABEL: 'true'
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with:
