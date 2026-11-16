@@ -71,12 +71,10 @@ class LibraryHomeLifecycleInstrumentedTest {
             while (!scrollable.isScrollable) scrollable = requireNotNull(scrollable.parent)
             assertTrue(scrollable.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD))
             await("User can scroll the category shelf") { rect("测试剧集")?.left?.let { it < initialLeft } == true }
-            instrumentation.waitForIdleSync()
-            SystemClock.sleep(300)
-            val userLeft = requireNotNull(rect("测试剧集")).left
+            val userLeft = settledLeft("测试剧集")
             scenario.onActivity { rows.value = rows.value.map { it.copy(totalCount = 25) } }
             await("Refreshed counts") { find("25部") != null }
-            assertEquals("Content refresh must retain the user's position", userLeft, requireNotNull(rect("测试剧集")).left)
+            assertEquals("Content refresh must retain the user's position", userLeft, settledLeft("测试剧集"))
             capture("categories-refreshed-user-position")
         }
     }
@@ -126,6 +124,20 @@ class LibraryHomeLifecycleInstrumentedTest {
     }
 
     private fun rect(label: String): Rect? = find(label)?.let { node -> Rect().also(node::getBoundsInScreen) }
+
+    private fun settledLeft(label: String): Int {
+        var previous: Int? = null
+        var unchangedSince = SystemClock.uptimeMillis()
+        await("Category position must settle before comparing refresh") {
+            val current = rect(label)?.left
+            if (current != previous) {
+                previous = current
+                unchangedSince = SystemClock.uptimeMillis()
+            }
+            current != null && SystemClock.uptimeMillis() - unchangedSince >= 750L
+        }
+        return requireNotNull(previous)
+    }
 
     private fun await(
         description: String,

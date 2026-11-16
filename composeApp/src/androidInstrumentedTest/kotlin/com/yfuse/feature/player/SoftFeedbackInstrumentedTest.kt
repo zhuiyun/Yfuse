@@ -2,9 +2,9 @@ package com.yfuse.feature.player
 
 import android.graphics.Bitmap
 import android.os.SystemClock
-import android.provider.Settings
 import android.view.MotionEvent
 import android.view.ViewTreeObserver
+import android.view.accessibility.AccessibilityNodeInfo
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -32,8 +32,6 @@ import com.yfuse.MainActivity
 import com.yfuse.core.designsystem.AccessibilityOptions
 import com.yfuse.core.designsystem.YfuseTheme
 import com.yfuse.core2.api.YBufferedRange
-import com.yfuse.feature.detail.DETAIL_SPLIT_ARRIVAL_MS
-import com.yfuse.feature.detail.DETAIL_SPLIT_MS
 import com.yfuse.feature.detail.DetailActionDock
 import com.yfuse.feature.detail.DetailPlayButtonHeight
 import org.junit.Assert.assertEquals
@@ -360,16 +358,24 @@ class SoftFeedbackInstrumentedTest {
     }
 
     /**
-     * Draws frames until a dock opened with progress has split 从头 off. It arrives as one key and
-     * splits once the page is in; until then the end of the row answers as 播放, so a tap there
-     * that came too soon counted as a second play.
+     * Wait for the actual separate action. Slow guest frames can keep the liquid mid-split
+     * beyond its nominal wall-clock duration; while it is one key the end correctly plays.
      */
     private fun awaitFromStartSplit() {
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val scale = Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
-        val split = SystemClock.uptimeMillis() + DETAIL_SPLIT_ARRIVAL_MS + (DETAIL_SPLIT_MS * maxOf(scale, 1f)).toLong()
-        while (SystemClock.uptimeMillis() < split) frame()
-        frame()
+        fun ready(node: AccessibilityNodeInfo?): Boolean {
+            if (node == null) return false
+            if (node.isVisibleToUser && node.isEnabled && node.actionList.any { it.label?.toString() == "从头播放" }) {
+                return true
+            }
+            return (0 until node.childCount).any { ready(node.getChild(it)) }
+        }
+        val deadline = SystemClock.uptimeMillis() + 15_000L
+        while (SystemClock.uptimeMillis() < deadline) {
+            if (ready(InstrumentationRegistry.getInstrumentation().uiAutomation.rootInActiveWindow)) return
+            frame()
+        }
+        capture("split-action-unavailable.png")
+        throw AssertionError("Separate from-start action did not become available")
     }
 
     private fun frame() {
