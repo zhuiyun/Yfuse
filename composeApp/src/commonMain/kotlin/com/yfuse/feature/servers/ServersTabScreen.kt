@@ -232,6 +232,7 @@ internal fun ServersGridScreen(component: ServersTabComponent) {
                     ) {
                         motionItem(key = "header", span = { GridItemSpan(maxLineSpan) }) {
                             ServersHeader(
+                                hasServers = state.servers.isNotEmpty(),
                                 onAdd = { component.store.accept(ServersIntent.OpenAddDialog) }.takeIf { canManage },
                                 refreshing = refreshing,
                                 refreshingFromKey = refreshing && !refreshByPull,

@@ -87,6 +87,7 @@ internal fun routesSummary(
 
 @Composable
 internal fun ServersHeader(
+    hasServers: Boolean,
     /** Null for a profile that cannot add servers; the key is then left out. */
     onAdd: (() -> Unit)?,
     /** A refresh is under way, however it was started; the key waits for it. */
@@ -114,9 +115,13 @@ internal fun ServersHeader(
                 style = AppTypography.display.strong,
                 color = palette.text,
                 // A pull-to-refresh page: TalkBack's touch exploration never produces the pull.
-                modifier = Modifier.weight(1f).refreshAction(enabled = !refreshing, onRefresh = onRefreshAll),
+                modifier =
+                    Modifier
+                        .weight(
+                            1f,
+                        ).refreshAction(enabled = hasServers && !refreshing, onRefresh = onRefreshAll),
             )
-            if (onAdd != null) {
+            if (hasServers && onAdd != null) {
                 Row(
                     Modifier
                         .pressableTarget(AppShapes.chip, onClickLabel = "添加服务器", onClick = onAdd)
@@ -135,6 +140,9 @@ internal fun ServersHeader(
                 }
             }
         }
+        // The empty state already has the only useful action: adding a server.
+        // Sorting, layout and refresh have no target until a server exists.
+        if (!hasServers) return@Column
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),

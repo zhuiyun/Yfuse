@@ -129,6 +129,9 @@ class YCoreMediaSuiteInstrumentedTest {
                                         },
                                 ),
                             initialDecision = YCore2RouteDecision(probe, plan),
+                            // The actual router passes software/GPU plans explicitly; the
+                            // default NativeEnhanced eligibility check covers hardware only.
+                            forcedPlan = plan.takeIf { it.decodePath == YDecodePath.Software },
                             allowAudioPassthrough = false,
                         )
                     try {
