@@ -19,6 +19,8 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
+STAGE = "configuration"
+
 
 def temporary_certificate(host, lifetime):
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -39,6 +41,7 @@ def temporary_certificate(host, lifetime):
 
 
 def run(config):
+    global STAGE
     # Only the reviewed local sources are supplied by the SSH launcher, never by a cloud client.
     relay = {}
     resolver = {}
@@ -51,12 +54,14 @@ def run(config):
     if not wanted:
         raise ValueError("An explicit media allowlist is required")
     try:
+        STAGE = "server-login"
         login = resolver["call"]("/Users/AuthenticateByName", {
             "Username": config["credentials"][0], "Pw": config["credentials"][1],
         })
         resolver["TOKEN"] = login["AccessToken"]
         resolver["USER"] = login["User"]["Id"]
         selected = []
+        STAGE = "server-inventory"
         for kind in ("Movie", "Episode"):
             rows = resolver["choose"](resolver["candidates"](kind), 20)
             selected.extend((("m-" if kind == "Movie" else "e-") + str(index).zfill(3), item)
@@ -65,6 +70,7 @@ def run(config):
         if {label for label, _ in selected} != wanted:
             raise ValueError("The requested source selection changed")
         media = {}
+        STAGE = "source-resolution"
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
             for label, row, error in pool.map(resolver["resolve"], selected):
                 if error or not row:
@@ -73,11 +79,19 @@ def run(config):
     finally:
         if resolver.get("TOKEN"):
             try:
-                resolver["call"]("/Sessions/Logout", {})
+                STAGE = "server-logout"
+                request = resolver["urllib"].request.Request(resolver["ROOT"] + "/Sessions/Logout", data=b"{}", headers={
+                    "X-Emby-Authorization": resolver["AUTH"], "X-Emby-Token": resolver["TOKEN"],
+                    "Content-Type": "application/json",
+                })
+                with resolver["HTTP"].open(request, timeout=15) as response:
+                    if response.status not in (200, 204):
+                        raise ValueError("The source session did not log out")
             finally:
                 resolver["TOKEN"] = None
         config.pop("credentials", None)
     capability = secrets.token_urlsafe(32)
+    STAGE = "temporary-tls"
     state = relay["RelayState"](media, capability, config["lifetimeSeconds"], config["byteBudget"])
     key, certificate_pem = temporary_certificate(host, config["lifetimeSeconds"])
     for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
@@ -92,9 +106,11 @@ def run(config):
         tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         tls.options |= ssl.OP_NO_TLSv1 | ssl.OP_NO_TLSv1_1
         tls.load_cert_chain(str(cert_file), str(key_file))
+        STAGE = "temporary-listener"
         server = relay["BoundedHTTPServer"](("0.0.0.0", config["port"]), relay["handler_for"](state), tls)
         server.timeout = 1
         try:
+            STAGE = "encrypted-manifest"
             envelopes = {}
             for shard, public in config["keys"].items():
                 subset = {}
@@ -118,6 +134,7 @@ def run(config):
                        "byteBudget": config["byteBudget"],
                        "sourceHTTP": dict(Counter(str(code) for row in media.values() for code in row["rangeCodes"].values()))}
             print(json.dumps({"envelopes": envelopes, "summary": summary}), flush=True)
+            STAGE = "serving"
             while state.alive():
                 server.handle_request()
         finally:
@@ -130,5 +147,5 @@ if __name__ == "__main__":
     try:
         run(json.loads(sys.stdin.readline()))
     except Exception as error:
-        print(json.dumps({"errorType": type(error).__name__}), flush=True)
+        print(json.dumps({"errorType": type(error).__name__, "stage": STAGE}), flush=True)
         raise SystemExit(1)
