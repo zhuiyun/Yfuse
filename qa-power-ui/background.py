@@ -72,12 +72,22 @@ def main():
             row['measuredSeconds'] = round(time.monotonic() - began, 2)
             row['status'] = 'recorded'
             recorder.finish(phases, 'incomplete')
-        status = 'recorded'
+        if os.environ.get('QA_EXPECT_QUIET_DIAGNOSTICS') == 'true':
+            for row in phases:
+                count = row['memorySamplesWhileInPhase']
+                good = (count is not None and
+                        (count >= 3 if row['phase'] == 'foreground-playing' else count == 0))
+                row['diagnosticExpectationMet'] = good
+                if not good:
+                    row['status'] = 'failed'
+        status = 'recorded' if all(r['status'] == 'recorded' for r in phases) else 'failed'
     finally:
         recorder.finish(phases, status)
         (out / 'engine-evidence.json').write_text(json.dumps(evidence), encoding='utf-8')
         adb('shell', 'input', 'keyevent', '224', check=False)
         server.close()
+    if status != 'recorded':
+        raise SystemExit('Diagnostic cancellation or foreground sampling validation failed')
 
 
 if __name__ == '__main__':

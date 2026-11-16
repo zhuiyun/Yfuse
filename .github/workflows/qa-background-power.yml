@@ -1,4 +1,4 @@
-name: Isolate paused and background diagnostic activity
+name: Verify paused background and screen-off diagnostics are cancelled
 'on':
   push:
     branches:
@@ -19,7 +19,7 @@ jobs:
     - name: Acquire built diagnostic baseline and retain known qualification failures
       env:
         API_TOKEN: ${{ github.token }}
-      run: bash qa-power-ui/acquire-baseline.sh 43853752670 eff812329895ae01f7545677110ff12af96de37e
+      run: bash qa-power-ui/acquire-baseline.sh 43859799143 58cd8f030bf5e6dee062aa971b27407f73f4cdfe
     - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
       with:
         name: power-ui-baseline-input
@@ -48,6 +48,7 @@ jobs:
         - SenPlayer
     env:
       QA_ENGINE: ${{ matrix.engine }}
+      QA_EXPECT_QUIET_DIAGNOSTICS: true
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with:
@@ -71,7 +72,7 @@ jobs:
 
         (cd preview && grep ''composeApp-release.apk$'' apk.sha256 | sha256sum -c -)
 
-        grep -Fx "app=eff812329895ae01f7545677110ff12af96de37e" preview/provenance.txt
+        grep -Fx "app=58cd8f030bf5e6dee062aa971b27407f73f4cdfe" preview/provenance.txt
 
         cp preview/provenance.txt preview/apk.sha256 preview/baseline-build-*.json preview/baseline-limit.txt results/
 
