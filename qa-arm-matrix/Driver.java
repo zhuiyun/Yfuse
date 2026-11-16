@@ -23,11 +23,13 @@ public final class Driver extends Instrumentation {
     }
     private void node(android.view.accessibility.AccessibilityNodeInfo n, org.xmlpull.v1.XmlSerializer xml, int depth) throws Exception {
         if(n==null||depth>70)return;
+        if(!n.refresh())return;
         xml.startTag(null,"node");
         android.graphics.Rect box=new android.graphics.Rect();n.getBoundsInScreen(box);
         String[] keys={"text","content-desc","class","package","bounds","enabled","checked","clickable","focusable","scrollable","state"};
         Object[] vals={n.getText(),n.getContentDescription(),n.getClassName(),n.getPackageName(),"["+box.left+","+box.top+"]["+box.right+","+box.bottom+"]",n.isEnabled(),n.isChecked(),n.isClickable(),n.isFocusable(),n.isScrollable(),android.os.Build.VERSION.SDK_INT>=30?n.getStateDescription():null};
         for(int i=0;i<keys.length;i++)xml.attribute(null,keys[i],vals[i]==null?"":vals[i].toString());
+        xml.attribute(null,"visible",Boolean.toString(n.isVisibleToUser()));
         boolean horizontal=false,vertical=false;
         for(android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction action:n.getActionList()) {
             int id=action.getId();

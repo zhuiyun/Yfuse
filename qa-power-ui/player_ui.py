@@ -8,7 +8,7 @@ import time
 
 from power import engine, adb, screen, playing, pause, direct, ui
 from media import MediaServer
-from navigation import click, bounds
+from navigation import click, bounds, vertical_pane
 from capture import capture, failure_diagnostics
 
 ROUTES = [
@@ -22,6 +22,15 @@ ROUTES = [
     ('sleep', ['更多', '播放设置', '睡眠定时']),
     ('gestures', ['更多', '播放设置', '手势设置']),
 ]
+
+MARKERS = {
+    'subtitles': '导入', 'audio': '音频同步', 'speed': '1.25x',
+    'skip': '在线获取片头片尾', 'danmaku': '显示设置', 'cast': '局域网投屏设备',
+    'more': '媒体信息', 'engine': '本视频使用', 'media-info': '播放问题说明与诊断导出',
+    'bookmarks': '保存当前播放时间', 'handoff': '接力规则', 'gestures-help': '手势与快捷键',
+    'playback-settings': '自动播放下一集', 'picture': '显示帧率',
+    'sleep': '睡眠定时', 'gestures': '手势设置',
+}
 
 
 def pause_visible(output):
@@ -66,11 +75,15 @@ def main():
                     click(label, 8)
                 key = '%02d-%s' % (index, name)
                 row['top'] = capture(out, key + '-top')
+                if 'com.yfuse' not in row['top']['packages']:
+                    raise AssertionError('Requested player is not the foreground screenshot subject')
+                if name in MARKERS and not any(MARKERS[name] in label for label in row['top']['labels']):
+                    raise AssertionError('Expected player panel content was not captured: ' + name)
                 row['scrolls'] = []
                 previous = row['top']['treeSha256']
                 for number in range(1, 20):
                     tree = ui.snapshot()
-                    scrollables = [n for n in ui.nodes(tree) if n.get('scrollable') == 'true']
+                    scrollables = [n for n in ui.nodes(tree) if vertical_pane(n)]
                     if not scrollables:
                         row['scrollEndObserved'] = True
                         break

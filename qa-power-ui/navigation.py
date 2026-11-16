@@ -71,7 +71,7 @@ def control(keys, scrolls=8):
         bottom = min([safe_bottom] + docks)
         for key in keys:
             for node in ui.nodes(tree):
-                if key not in ui.labels(node):
+                if key not in ui.labels(node) or node.get('visible') == 'false':
                     continue
                 target = node
                 while target is not None and target.get('clickable') != 'true':
@@ -79,7 +79,14 @@ def control(keys, scrolls=8):
                 if target is None or target.get('enabled') == 'false':
                     continue
                 left, top, right, end = bounds(target)
-                if left >= safe_left and right <= safe_right and top >= safe_top and end <= bottom:
+                ancestor = parents.get(target)
+                clipped = False
+                while ancestor is not None:
+                    if ancestor.get('scrollable') == 'true':
+                        a, b, c, d = bounds(ancestor)
+                        clipped |= left < a or top < b or right > c or end > d
+                    ancestor = parents.get(ancestor)
+                if not clipped and left >= safe_left and right <= safe_right and top >= safe_top and end <= bottom:
                     return target
         if attempt < scrolls:
             panes = [n for n in ui.nodes(tree) if vertical_pane(n)]
