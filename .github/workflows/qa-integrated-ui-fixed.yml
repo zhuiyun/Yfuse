@@ -1,11 +1,11 @@
-name: Full UI regression with fresh accessibility bounds and frame-stage diagnostics
+name: Full UI regression including library arrival and background clock lifecycle
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
     paths: ['.github/workflows/qa-integrated-ui-fixed.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: 0688214c5d37232476307e804fa164ff939a0ea9
+  QA_APP_SHA: 4a1d7485cd07e2983c2f6ce6ffd72a9a8995e4da
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 0688214c5d37232476307e804fa164ff939a0ea9
+          ref: 4a1d7485cd07e2983c2f6ce6ffd72a9a8995e4da
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
@@ -67,7 +67,7 @@ jobs:
         with: {name: ui-validation-input, path: preview, retention-days: 7}
   instrumented:
     env:
-      QA_MIN_TESTS: 99
+      QA_MIN_TESTS: 101
       # API 37 goldfish codec rejects memfd transfers under the image's SELinux policy.
       # Only forced low-level fixture routes use the platform software codec; adaptive
       # production playback retains its default decoder selection and recovery.
