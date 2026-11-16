@@ -1896,10 +1896,24 @@ internal class AndroidEnhancedPlaybackSession(
 
     private fun drainSoftwareVideo(): Boolean {
         if (softwareVideoDecodeEnded) return false
+        val renderProgress = softwareVideoRenderer.snapshot()
+        val minimumPresentationUs =
+            softwareVideoMinimumPresentationUs(
+                seekTargetUs = seekVideoTargetUs,
+                masterPositionUs = audioRenderer.videoClockPositionUs(currentPositionUs()),
+                renderedRealtimeNs = renderProgress.renderedRealtimeNs,
+                nowNs = System.nanoTime(),
+                preview = pausedPreview.active,
+            )
         val output =
             pendingSoftwareVideoOutput
-                ?: when (val decoded = requireNotNull(softwareDecoder).receiveVideo()) {
+                ?: when (val decoded = requireNotNull(softwareDecoder).receiveVideo(minimumPresentationUs)) {
                     YSoftwareVideoDecodeResult.TryAgain -> return false
+                    is YSoftwareVideoDecodeResult.Skipped -> {
+                        droppedFrames++
+                        lastVideoUs = decoded.presentationTimeUs
+                        return true
+                    }
                     YSoftwareVideoDecodeResult.Ended -> {
                         softwareVideoDecodeEnded = true
                         val render = softwareVideoRenderer.snapshot()
@@ -1930,7 +1944,7 @@ internal class AndroidEnhancedPlaybackSession(
             if (pausedPreview.active) {
                 YVideoFrameReleaseDecision.Render(nowNs)
             } else {
-                preserveFirstVideoFrame(
+                preserveSoftwareVideoProgress(
                     decision =
                         videoFrameReleaseDecision(
                             presentationTimeUs = output.presentationTimeUs,
@@ -1941,7 +1955,7 @@ internal class AndroidEnhancedPlaybackSession(
                             lateDropThresholdNs = LATE_FRAME_DROP_NS,
                             lateImmediateAllowanceNs = LATE_FRAME_IMMEDIATE_NS,
                         ),
-                    firstFrameRendered = firstVideoFrameRendered,
+                    renderedRealtimeNs = renderProgress.renderedRealtimeNs,
                     nowNs = nowNs,
                 )
             }

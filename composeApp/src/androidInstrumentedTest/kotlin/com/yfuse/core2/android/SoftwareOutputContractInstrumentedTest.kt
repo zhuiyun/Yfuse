@@ -57,6 +57,44 @@ class SoftwareOutputContractInstrumentedTest {
     }
 
     @Test
+    fun overdue_interlaced_fields_skip_conversion_and_preserve_the_next_field() {
+        assertTrue(FfmpegNativeBridge.softwareVideoTimed)
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val file = File(instrumentation.targetContext.cacheDir, "timed-top25.mkv")
+        file.writeBytes(
+            Base64.decode(
+                instrumentation.context.assets.open("ycore/top25.mkv.b64").use { it.readBytes() },
+                Base64.DEFAULT,
+            ),
+        )
+        try {
+            val handle = FfmpegNativeBridge.open(file.absolutePath, emptyMap())
+            try {
+                FfmpegNativeBridge.selectTracks(handle, intArrayOf(0))
+                FfmpegNativeBridge.configureSoftwareDecoder(handle, 0, false)
+                val presented = mutableListOf<Long>()
+                val discarded = mutableListOf<Long>()
+                decode(
+                    handle,
+                    video = true,
+                    minimumPresentationTimeUs = 50_000L,
+                    skipped = { metadata, buffer ->
+                        discarded += metadata[2]
+                        // No oversized RGBA allocation or conversion may precede a discarded field.
+                        assertEquals(1, buffer.capacity())
+                    },
+                ) { metadata, _ -> presented += metadata[2] }
+                assertEquals(listOf(0L, 20_000L, 40_000L), discarded)
+                assertEquals(listOf(60_000L, 80_000L, 100_000L), presented)
+            } finally {
+                FfmpegNativeBridge.close(handle)
+            }
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test
     fun float_pcm_retains_bits_below_signed_16_resolution() {
         assertTrue("Bundled native audio must support float PCM", FfmpegNativeBridge.softwareAudioFloat)
         val file = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "precision24.wav")
@@ -98,6 +136,8 @@ class SoftwareOutputContractInstrumentedTest {
     private fun decode(
         handle: Long,
         video: Boolean,
+        minimumPresentationTimeUs: Long = Long.MIN_VALUE,
+        skipped: (LongArray, ByteBuffer) -> Unit = { _, _ -> error("Unexpected discarded frame") },
         output: (LongArray, ByteBuffer) -> Unit,
     ) {
         val packetBuffer = ByteBuffer.allocateDirect(65536)
@@ -107,13 +147,14 @@ class SoftwareOutputContractInstrumentedTest {
             while (true) {
                 val result =
                     if (video) {
-                        FfmpegNativeBridge.receiveSoftwareVideoFrame(handle, 0, frameBuffer)
+                        FfmpegNativeBridge.receiveSoftwareVideoFrame(handle, 0, frameBuffer, minimumPresentationTimeUs)
                     } else {
                         FfmpegNativeBridge.receiveSoftwareAudioFrame(handle, 0, frameBuffer)
                     }
                 when (result[0]) {
                     -1L -> frameBuffer = ByteBuffer.allocateDirect(result[1].toInt()).order(ByteOrder.nativeOrder())
                     1L -> output(result, frameBuffer)
+                    3L -> skipped(result, frameBuffer)
                     2L -> return
                     0L -> break
                     else -> error("Unexpected software frame ${result[0]}")

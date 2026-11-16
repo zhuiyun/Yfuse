@@ -111,10 +111,11 @@ constexpr size_t kMaxSoftwareToneMapPixels = 4096U * 2160U;
 constexpr int kSoftwareFrameAgain = 0;
 constexpr int kSoftwareFrameData = 1;
 constexpr int kSoftwareFrameEof = 2;
+constexpr int kSoftwareFrameSkipped = 3;
 constexpr int kSoftwareFrameGrowBuffer = -1;
 // Version 3: video frames are RGBA (Android ARGB_8888 memory order; v2 wrote BGRA), YUV matrix and
 // range follow the stream, and isolated undecodable packets are dropped instead of thrown.
-constexpr int kSoftwareDecoderApiVersion = 4;
+constexpr int kSoftwareDecoderApiVersion = 5;
 // A damaged TS segment or a broken frame at a splice is dropped the way ffmpeg and mpv drop it.
 // Only this many failures in a row, with no frame decoded in between, mean the decoder cannot
 // play the stream at all.
@@ -1630,7 +1631,7 @@ int software_conversion_threads() {
     return std::clamp(static_cast<int>(cores / 2U), 1, kMaxSoftwareConversionThreads);
 }
 
-/** The YUV matrix of a decoded frame, resolving untagged streams the way mpv and MediaCodec do. */
+/** The YUV matrix of a decoded frame, resolving untagged SD and HD streams by their dimensions. */
 int scaler_colorspace(const AVFrame* frame, const AVCodecParameters* parameters) {
     const AVColorSpace space =
         frame->colorspace != AVCOL_SPC_UNSPECIFIED ? frame->colorspace : parameters->color_space;
@@ -3453,12 +3454,12 @@ int64_t software_video_duration_us(const AVFrame* frame, AVStream* stream, AVFor
     return 0;
 }
 
-jlongArray native_receive_software_video_frame(
+jlongArray receive_software_video_frame(
     JNIEnv* env,
-    jclass,
     jlong handle,
     jint index,
-    jobject target) {
+    jobject target,
+    jlong minimum_pts_us) {
     DemuxSession* session = from_handle(handle);
     AVStream* stream = checked_stream(env, session, index);
     if (!stream) return nullptr;
@@ -3502,6 +3503,25 @@ jlongArray native_receive_software_video_frame(
     const int64_t duration_us = software_video_duration_us(decoder->frame, stream, session->format);
     const jlong pts_us = ycore_deinterlace::field_pts(
         timestamp_us(decoder->frame->best_effort_timestamp, stream->time_base), duration_us, decoder->output_field);
+    // Keep decoding reference pictures, but avoid allocating/converting pixels the audio-master
+    // clock or seek target has already passed. Converting every discarded 4K frame can itself
+    // keep the decoder behind forever. Each interlaced field retains its own timestamp.
+    const bool another_field = (decoder->frame->flags & AV_FRAME_FLAG_INTERLACED) &&
+        height >= 2 && decoder->output_field == 0 && duration_us > 1 && pts_us != kNoTimestamp;
+    auto consume_field = [&]() {
+        if (another_field) {
+            decoder->output_field = 1;
+        } else {
+            av_frame_unref(decoder->frame);
+            if (decoder->field_frame) av_frame_unref(decoder->field_frame);
+            decoder->frame_pending = false;
+            decoder->output_field = 0;
+        }
+    };
+    if (pts_us != kNoTimestamp && minimum_pts_us != kNoTimestamp && pts_us < minimum_pts_us) {
+        consume_field();
+        return make_software_frame_result(env, kSoftwareFrameSkipped, 0, pts_us, width, height, 0);
+    }
     if (static_cast<uint64_t>(capacity) < required) {
         return make_software_frame_result(
             env,
@@ -3534,16 +3554,7 @@ jlongArray native_receive_software_video_frame(
             return nullptr;
         }
     }
-    const bool another_field = (decoder->frame->flags & AV_FRAME_FLAG_INTERLACED) &&
-        height >= 2 && decoder->output_field == 0 && duration_us > 1 && pts_us != kNoTimestamp;
-    if (another_field) {
-        decoder->output_field = 1;
-    } else {
-        av_frame_unref(decoder->frame);
-        if (decoder->field_frame) av_frame_unref(decoder->field_frame);
-        decoder->frame_pending = false;
-        decoder->output_field = 0;
-    }
+    consume_field();
     return make_software_frame_result(
         env,
         kSoftwareFrameData,
@@ -3552,6 +3563,16 @@ jlongArray native_receive_software_video_frame(
         width,
         height,
         static_cast<jlong>(width) * 4L);
+}
+
+jlongArray native_receive_software_video_frame(
+    JNIEnv* env, jclass, jlong handle, jint index, jobject target) {
+    return receive_software_video_frame(env, handle, index, target, kNoTimestamp);
+}
+
+jlongArray native_receive_software_video_frame_timed(
+    JNIEnv* env, jclass, jlong handle, jint index, jobject target, jlong minimum_pts_us) {
+    return receive_software_video_frame(env, handle, index, target, minimum_pts_us);
 }
 
 jlongArray receive_software_audio_frame(
@@ -3869,6 +3890,20 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
         if (float_audio) {
             const JNINativeMethod method = {"nativeReceiveSoftwareFloatAudioFrame", "(JILjava/nio/ByteBuffer;)[J",
                 reinterpret_cast<void*>(native_receive_software_float_audio_frame)};
+            if (env->RegisterNatives(bridge, &method, 1) != JNI_OK) {
+                env->DeleteLocalRef(bridge);
+                return JNI_ERR;
+            }
+        } else {
+            env->ExceptionClear();
+        }
+    }
+    if (result == JNI_OK) {
+        jmethodID timed_video = env->GetMethodID(
+            bridge, "nativeReceiveSoftwareVideoFrameTimed", "(JILjava/nio/ByteBuffer;J)[J");
+        if (timed_video) {
+            const JNINativeMethod method = {"nativeReceiveSoftwareVideoFrameTimed",
+                "(JILjava/nio/ByteBuffer;J)[J", reinterpret_cast<void*>(native_receive_software_video_frame_timed)};
             if (env->RegisterNatives(bridge, &method, 1) != JNI_OK) {
                 env->DeleteLocalRef(bridge);
                 return JNI_ERR;

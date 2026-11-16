@@ -343,7 +343,9 @@ internal class AndroidFfmpegDemuxer :
     fun receiveSoftwareVideoFrame(
         trackId: YTrackId,
         target: ByteBuffer,
-    ): LongArray = FfmpegNativeBridge.receiveSoftwareVideoFrame(requireHandle(), trackId.value, target)
+        minimumPresentationTimeUs: Long = Long.MIN_VALUE,
+    ): LongArray =
+        FfmpegNativeBridge.receiveSoftwareVideoFrame(requireHandle(), trackId.value, target, minimumPresentationTimeUs)
 
     fun receiveSoftwareAudioFrame(
         trackId: YTrackId,

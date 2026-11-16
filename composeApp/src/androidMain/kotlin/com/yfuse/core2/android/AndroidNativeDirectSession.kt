@@ -181,6 +181,7 @@ internal class AndroidNativeDirectSession(
     private val renderedFrameRateSampler = YRenderedFrameRateSampler()
     private val pausedPreview = AndroidPausedVideoPreview()
     private val videoEosGate = AndroidVideoEosGate()
+    private val videoFirstOutputWatchdog = VideoFirstOutputWatchdog()
     private val surfaceCompletion = AndroidSurfacePlaybackCompletion()
     private var seekVideoSubmissionPending = false
 
@@ -308,6 +309,7 @@ internal class AndroidNativeDirectSession(
                 return true
             }
             if (requestedPlay && !refreshOutputGate()) {
+                videoFirstOutputWatchdog.stalled(System.nanoTime(), active = false, outputVerified = firstVideoFrameRendered)
                 publishClockPosition()
                 return false
             }
@@ -370,6 +372,19 @@ internal class AndroidNativeDirectSession(
                 externalSubtitleSession.request(secondaryExternalSubtitleId)
             }
             recoverVideoIfNoSyncSampleArrives()
+            if (videoFirstOutputWatchdog.stalled(
+                    nowNs = System.nanoTime(),
+                    active = requestedPlay && videoRenderable && !videoOutputEnded,
+                    outputVerified = firstVideoFrameRendered,
+                )
+            ) {
+                throw YPlaybackException(
+                    category = YPlaybackFailureCategory.Decoder,
+                    stage = YPlaybackFailureStage.VideoDecoderQueue,
+                    safeDetail = "NativeDirect video decoder produced no first frame after accepting input",
+                    cause = VideoDecoderNoOutputException(),
+                )
+            }
             publishClockPosition()
             if (requestedPlay) finishIfEnded()
             return didWork
@@ -815,6 +830,7 @@ internal class AndroidNativeDirectSession(
     }
 
     private fun pausePlaybackInternal(keepRequested: Boolean) {
+        videoFirstOutputWatchdog.stalled(System.nanoTime(), active = false, outputVerified = firstVideoFrameRendered)
         bufferWaitClock.reset()
         renderedFrameRateSampler.reset()
         val positionUs = currentPositionUs()
@@ -1301,7 +1317,10 @@ internal class AndroidNativeDirectSession(
                                     sample.cryptoInfo,
                                 )
                             }.also { result ->
-                                if (result == YCodecQueueResult.Queued) videoEosGate.inputQueued()
+                                if (result == YCodecQueueResult.Queued) {
+                                    videoEosGate.inputQueued()
+                                    videoFirstOutputWatchdog.inputQueued()
+                                }
                             }
                         }
                     }
@@ -2470,6 +2489,7 @@ internal class AndroidNativeDirectSession(
     }
 
     private fun resetVideoRenderEvidence() {
+        videoFirstOutputWatchdog.reset()
         renderedFrameRateSampler.reset()
         videoOutputEpoch.reset()
         firstVideoFrameRendered = false
@@ -2477,6 +2497,7 @@ internal class AndroidNativeDirectSession(
     }
 
     private fun attachVideoRenderEvidence() {
+        videoFirstOutputWatchdog.reset()
         renderedFrameRateSampler.reset()
         val generation = videoOutputEpoch.reset()
         firstVideoFrameRendered = false

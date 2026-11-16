@@ -1952,7 +1952,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                     platformDecoderOutputRejected =
                         generateSequence(reportedFailure) { it.cause }
                             .take(16)
-                            .any { it is VideoCodecOutputStateException }
+                            .any { it is VideoCodecOutputStateException || it is VideoDecoderNoOutputException }
                     attemptRanOutOfTime =
                         yCoreAttemptRanOutOfTime(
                             reported = reportedFailure,
