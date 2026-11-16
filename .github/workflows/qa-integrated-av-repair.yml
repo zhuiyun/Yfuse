@@ -1,11 +1,11 @@
-name: Build combined audio and video recovery candidate
+name: Build video-track discovery and combined recovery candidate
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
     paths: ['.github/workflows/qa-integrated-av-repair.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: a8826b79c7d09eb043e107e2a5d29b77ef8cf7ae
+  QA_APP_SHA: 74a3996d5cfdeaf4314f81456ef3dfca5d343b44
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: a8826b79c7d09eb043e107e2a5d29b77ef8cf7ae
+          ref: 74a3996d5cfdeaf4314f81456ef3dfca5d343b44
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
