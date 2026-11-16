@@ -4,6 +4,7 @@ import time
 import sys
 sys.path.insert(0, 'qa-functional')
 import features as ui
+from ext_run import screen
 
 
 def bounds(node):
@@ -13,14 +14,14 @@ def bounds(node):
 
 def control(keys, scrolls=8):
     keys = [keys] if isinstance(keys, str) else keys
-    width, height = ui.size()
+    width, height = screen().size
     for attempt in range(scrolls + 1):
         tree = ui.snapshot()
         parents = {child: parent for parent in tree.iter() for child in parent}
         docks = [bounds(n)[1] for n in ui.nodes(tree)
                  if n.get('content-desc') in ('我的', '服务器', '媒体库', '观看')
                  and bounds(n)[1] > height * .65]
-        bottom = min(docks) if docks else height * .94
+        bottom = min(docks) if docks else height
         for key in keys:
             for node in ui.nodes(tree):
                 if key not in ui.labels(node):

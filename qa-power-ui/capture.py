@@ -1,5 +1,6 @@
 """Current-run native UI evidence. Reachability is not a visual audit verdict."""
 import json
+import hashlib
 import os
 from pathlib import Path
 import re
@@ -73,6 +74,7 @@ def capture(out, name):
                 targets.append({'boundsPx': bounds, 'labels': ui.labels(node),
                                 'enabled': node.get('enabled'), 'class': node.get('class')})
     return {'image': name + '.png', 'tree': name + '.xml', 'labels': words,
+            'treeSha256': hashlib.sha256(ET.tostring(tree)).hexdigest(),
             'targets': targets, 'widthPx': image.width, 'heightPx': image.height,
             'humanInspection': 'pending'}
 
@@ -129,17 +131,20 @@ def main():
             row['top'] = capture(out, key + '-top')
             width, height = ui.size()
             # Retain successive viewports so long settings pages are actually reviewed.
-            previous = row['top']['labels']
+            previous = row['top']['treeSha256']
             row['scrolls'] = []
-            for page in range(1, 5):
+            for page in range(1, 26):
                 adb('shell', 'input', 'swipe', width // 2, int(height * .78),
                     width // 2, int(height * .30), 450)
                 time.sleep(.6)
                 shot = capture(out, key + '-scroll-' + str(page))
                 row['scrolls'].append(shot)
-                if shot['labels'] == previous:
+                if shot['treeSha256'] == previous:
+                    row['scrollEndObserved'] = True
                     break
-                previous = shot['labels']
+                previous = shot['treeSha256']
+            else:
+                row['scrollEndObserved'] = False
             row['status'] = 'captured-needs-review'
         except Exception as error:
             row['status'] = 'capture-blocked'
