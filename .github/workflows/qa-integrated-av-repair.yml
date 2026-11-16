@@ -1,11 +1,11 @@
-name: Build external video identity and failed decoder recovery repair
+name: Build enhanced startup and original subtitle factory repair
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
     paths: ['.github/workflows/qa-integrated-av-repair.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: 01c516e080448587d5225342ccd4aff94a6fed85
+  QA_APP_SHA: 1a6e6a3e3a4672f5717a0de8be5de5a995afdeb8
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 01c516e080448587d5225342ccd4aff94a6fed85
+          ref: 1a6e6a3e3a4672f5717a0de8be5de5a995afdeb8
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
@@ -100,8 +100,8 @@ jobs:
           grep -Fx "app=$QA_APP_SHA" preview/provenance.txt
           adb install -r -g preview/instrumentation-target.apk
           adb install -r -g preview/regressions.apk
-          adb shell am instrument -w -r -e class 'com.yfuse.core2.android.SoftwareOutputContractInstrumentedTest,com.yfuse.feature.player.SoftFeedbackInstrumentedTest#seek_cancel_never_commits_and_release_commits_once_with_or_without_motion,com.yfuse.feature.player.BufferedScrubDecodeInstrumentedTest' com.yfuse.test/androidx.test.runner.AndroidJUnitRunner | tee results/contracts.txt
-          grep -E 'OK \(6 tests\)' results/contracts.txt
+          adb shell am instrument -w -r -e class 'com.yfuse.core2.android.SoftwareOutputContractInstrumentedTest,com.yfuse.feature.player.SoftFeedbackInstrumentedTest#seek_cancel_never_commits_and_release_commits_once_with_or_without_motion,com.yfuse.feature.player.BufferedScrubDecodeInstrumentedTest,com.yfuse.core2.android.YCoreMediaSuiteInstrumentedTest#enhanced_transport_retry_keeps_the_assigned_route_and_renders_again' com.yfuse.test/androidx.test.runner.AndroidJUnitRunner | tee results/contracts.txt
+          grep -E 'OK \(7 tests\)' results/contracts.txt
           ! grep -E 'FAILURES|INSTRUMENTATION_FAILED|INSTRUMENTATION_ABORTED' results/contracts.txt
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
