@@ -1,4 +1,4 @@
-name: One-hour requested background audio with verified preference and lifecycle events
+name: One-hour unsupported audio route fallback and restored playback
 'on':
   push:
     branches:
@@ -9,8 +9,8 @@ permissions:
   contents: read
   actions: read
 env:
-  QA_APP_SHA: a1728aac808f9040ede6933df74c54cd8419bb6e
-  QA_BUILD_RUN: 43928595551
+  QA_APP_SHA: c5ac5fa39bc05d297598c1744b1a6fbaf4550dd8
+  QA_BUILD_RUN: 43935513611
 jobs:
   acquire:
     runs-on: ubuntu-24.04
@@ -216,7 +216,7 @@ jobs:
         docker inspect qa-android --format ''{{.Image}}'' > results/cloud-image.txt
 
         '
-    - name: Record 60 minutes across four audio lifecycle scenarios
+    - name: Record 60 minutes across five lifecycle scenarios including foreground recovery
       run: /usr/bin/python3 qa-power-ui/background_audio.py
     - if: always()
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9

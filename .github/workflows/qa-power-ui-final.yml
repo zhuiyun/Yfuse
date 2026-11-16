@@ -1,4 +1,4 @@
-name: Final candidate four-hour power activity and true network recovery per core
+name: Surface repair four-hour power activity and true network recovery per core
 'on':
   push:
     branches:
@@ -9,8 +9,8 @@ permissions:
   contents: read
   actions: read
 env:
-  QA_APP_SHA: 0642c1b24a22ffcc39a3526b2d79d0d0881abb64
-  QA_BUILD_RUN: 43918020137
+  QA_APP_SHA: c5ac5fa39bc05d297598c1744b1a6fbaf4550dd8
+  QA_BUILD_RUN: 43935513611
 jobs:
   acquire:
     runs-on: ubuntu-24.04
