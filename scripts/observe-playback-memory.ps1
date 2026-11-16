@@ -2,7 +2,7 @@ param(
     [Parameter(Mandatory = $true)][string]$Serial,
     [Parameter(Mandatory = $true)][string]$RunLabel,
     [Parameter(Mandatory = $true)][string]$MediaSha256,
-    [ValidateSet('YCore', 'Exo', 'Mpv', 'Mdk', 'SenPlayer')][string]$Engine = 'YCore',
+    [ValidateSet('YCore', 'SenPlayer')][string]$Engine = 'YCore',
     [ValidateSet('Off', 'Single', 'Dual')][string]$SubtitleMode = 'Off',
     [ValidatePattern('^[A-Za-z][A-Za-z0-9_.]+$')][string]$Package = 'com.yfuse',
     [ValidateRange(10, 600)][int]$DurationSeconds = 90,

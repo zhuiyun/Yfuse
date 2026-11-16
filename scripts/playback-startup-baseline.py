@@ -1,7 +1,7 @@
 """Summarize real startup milestones from exported diagnostic JSONL, grouped by actual engine.
 
 Run separately for each device, media case and network scenario. This reads existing logs and
-never treats a missing output milestone (notably MDK audio) as a zero-latency success.
+never treats a missing output milestone as a zero-latency success.
 """
 from __future__ import annotations
 

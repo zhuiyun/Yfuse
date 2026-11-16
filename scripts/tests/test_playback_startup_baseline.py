@@ -20,12 +20,12 @@ def milestone(index, engine="YCore2Native", stage="first_video_output", elapsed=
 class StartupBaselineTest(unittest.TestCase):
     def test_quantiles_group_actual_engines_and_do_not_invent_audio(self):
         records = [milestone(i, elapsed=i * 100) for i in range(1, 21)]
-        records.append(milestone(21, engine="libmpv", elapsed=700))
+        records.append(milestone(21, engine="SenPlayer", elapsed=700))
         records.append(records[0])
         records.append(dict(records[1], event="playback_output_resumed"))
         report = BASELINE.summarize(records)
         self.assertEqual(2, len(report["rows"]))
-        row = report["rows"][0]
+        row = next(row for row in report["rows"] if row["engine"] == "YCore2Native")
         self.assertEqual((20, 1000, 1900), (row["samples"], row["p50_ms"], row["p95_ms"]))
         self.assertTrue(row["sufficient_samples"])
         self.assertTrue(all(row["stage"] == "first_video_output" for row in report["rows"]))

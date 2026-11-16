@@ -3,7 +3,7 @@ param(
     [long]$Revision,
     [ValidateRange(1, 31)]
     [int]$ValidDays = 7,
-    [ValidateSet("ycore.all", "ycore.demux", "ycore.gpu", "mpv", "mdk")]
+    [ValidateSet("ycore.all", "ycore.demux", "ycore.gpu")]
     [string[]]$Disable = @(),
     # A deploy account that may write $RemoteDir, e.g. yfuse-deploy@47.112.219.60. There is no
     # default: publishing used to go to root@ unless told otherwise.
