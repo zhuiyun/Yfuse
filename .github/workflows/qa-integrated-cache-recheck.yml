@@ -1,0 +1,82 @@
+name: Recheck both buffered-thumbnail paths on the merged video-track repair
+on:
+  push:
+    branches: [codex/two-engines-cloud-seek-20261113]
+    paths: ['.github/workflows/qa-integrated-cache-recheck.yml']
+permissions: {contents: read, actions: read}
+env:
+  QA_APP_SHA: 74a3996d5cfdeaf4314f81456ef3dfca5d343b44
+jobs:
+  build:
+    name: Acquire the qualified identical release candidate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: candidate-test-input
+          path: preview
+          run-id: 43808092986
+          github-token: '${{ github.token }}'
+      - name: Check exact APK and qualification results
+        env: {API_TOKEN: "${{ github.token }}"}
+        run: |
+          set -euo pipefail
+          (cd preview && sha256sum -c apk.sha256)
+          grep -Fx "app=$QA_APP_SHA" preview/provenance.txt
+          curl -fsSL -H "Authorization: Bearer $API_TOKEN" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/43808092986/jobs?per_page=100" > "$RUNNER_TEMP/qualification.json"
+          jq -e '[.jobs[] | select(.name=="build" or (.name=="Actual ARM64 software-frame and seek-preview contract")) | .conclusion] | length==2 and all(.=="success")' "$RUNNER_TEMP/qualification.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: candidate-test-input, path: preview, retention-days: 7}
+
+  driver:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - name: Build the screenshot and touch instrumentation
+        run: |
+          set -euo pipefail
+          mkdir qa-driver
+          cp qa-arm-matrix/Driver.java qa-volume/input-driver.java
+          sed 's|adb install -r driver.apk|cp driver.apk "$GITHUB_WORKSPACE/qa-driver/driver.apk"|' qa-volume/build-driver.sh > "$RUNNER_TEMP/build-qa.sh"
+          bash "$RUNNER_TEMP/build-qa.sh"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: arm-input-driver, path: qa-driver/, retention-days: 5}
+  test:
+    needs: [driver,build]
+    name: Native ${{ matrix.engine }} buffered thumbnail
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        engine: [SenPlayer,YCore]
+    env:
+      QA_ENGINE: ${{ matrix.engine }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: arm-input-driver, path: qa-driver}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: candidate-test-input, path: preview}
+      - name: Verify the fixed app and prepare a real cold hole in the server's byte range
+        run: |
+          set -euo pipefail
+          mkdir -p preview results
+          (cd preview && sha256sum -c apk.sha256)
+          grep -Fx "app=$QA_APP_SHA" preview/provenance.txt
+          cp preview/provenance.txt preview/apk.sha256 results/
+          sudo apt-get -qq update && sudo apt-get install -y ffmpeg python3-pil python3-numpy fonts-dejavu-core
+          /usr/bin/python3 qa-scrub/fixture.py qa-media
+          /usr/bin/python3 qa-cache-fixed/boundary.py
+      - name: Boot Android 12 with a native ARM64 process
+        run: bash qa-arm-dual/redroid.sh
+      - name: Hold the same finger through hot, cold and hot positions
+        run: bash qa-cache-fixed/holds.sh
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: 'cached-holds-${{ matrix.engine }}', path: results/, retention-days: 10}

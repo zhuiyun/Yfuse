@@ -1,11 +1,11 @@
-name: Full UI regression after FLAC repair with documented emulator codec
+name: Full UI regression for the merged video-track and audio recovery repairs
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
     paths: ['.github/workflows/qa-integrated-ui-fixed.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: 0b913aba54382d61491aff026a4cfa9145039187
+  QA_APP_SHA: 74a3996d5cfdeaf4314f81456ef3dfca5d343b44
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 0b913aba54382d61491aff026a4cfa9145039187
+          ref: 74a3996d5cfdeaf4314f81456ef3dfca5d343b44
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
@@ -24,9 +24,9 @@ jobs:
           set -euo pipefail
           api="https://api.github.com/repos/$GITHUB_REPOSITORY"
           app_sha=$(git rev-parse HEAD)
-          native_sha=0fc3e4c488ff4af984269b981f0a09aaef6c717c
+          native_sha=8a9bb9a7b626d7c7695caf95d7a885192c101935
           git diff --exit-code "$native_sha" "$app_sha" -- ycore-native scripts/native scripts/native-build-download.py scripts/ycore-source-receipt.py
-          producer=43434181604
+          producer=43803470495
           name="ycore-source-$native_sha-$producer-1"
           artifact=""
           for i in $(seq 1 135); do
@@ -35,7 +35,7 @@ jobs:
             sleep 12
           done
           test -n "$artifact"
-          curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/artifacts/$artifact" | jq -e --arg n "ycore-source-$native_sha-43434181604-1" '.name==$n and .expired==false and .workflow_run.id==43434181604' >/dev/null
+          curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/artifacts/$artifact" | jq -e --arg n "ycore-source-$native_sha-43803470495-1" '.name==$n and .expired==false and .workflow_run.id==43803470495' >/dev/null
           curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/artifacts/$artifact/zip" -o "$RUNNER_TEMP/native.zip"
           mkdir "$RUNNER_TEMP/native-in"
           unzip -q "$RUNNER_TEMP/native.zip" -d "$RUNNER_TEMP/native-in"
