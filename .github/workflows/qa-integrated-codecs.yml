@@ -1,4 +1,4 @@
-name: Extended video and audio codec playback qualification
+name: Extended codec playback with valid 48 kHz audio fixtures
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]

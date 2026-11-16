@@ -25,7 +25,7 @@ for index, codec, suffix, mime, video, audio in cases:
     target = root / name
     command = ['ffmpeg', '-nostdin', '-v', 'error', '-y', '-threads', '2',
                '-i', str(root / original['name']), '-t', '60', '-map', '0:v:0', '-map', '0:a:0',
-               '-vf', 'scale=480:270', '-r', '25' if codec == 'mpeg2' else '16', '-g', '16', '-threads', '2'] + video + audio
+               '-vf', 'scale=480:270', '-r', '25' if codec == 'mpeg2' else '16', '-g', '16', '-threads', '2'] + video + audio + ['-ar', '48000']
     if suffix in ('mov', 'mp4'):
         command += ['-movflags', '+faststart']
     if suffix in ('ts', 'm2ts'):
