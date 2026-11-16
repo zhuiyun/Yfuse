@@ -58,7 +58,7 @@ def input_bounds(width, height):
     return system_bar_bounds(dump, width, height)
 
 
-def control(keys, scrolls=8):
+def control(keys, scrolls=8, horizontal_context=()):
     keys = [keys] if isinstance(keys, str) else keys
     width, height = screen().size
     safe_left, safe_top, safe_right, safe_bottom = input_bounds(width, height)
@@ -89,6 +89,25 @@ def control(keys, scrolls=8):
                 if not clipped and left >= safe_left and right <= safe_right and top >= safe_top and end <= bottom:
                     return target
         if attempt < scrolls:
+            horizontal = [n for n in ui.nodes(tree) if n.get('scroll-horizontal') == 'true'
+                          and any(any(label in ui.labels(child) for label in horizontal_context)
+                                  for child in n.iter())]
+            for pane in horizontal:
+                left, top, right, end = bounds(pane)
+                # The category row must first be vertically visible. Keep its drag away
+                # from the floating dock and the system bars, just like a real touch.
+                if top >= safe_top and end <= bottom and end - top >= 40:
+                    left, right = max(left, safe_left), min(right, safe_right)
+                    if right - left < 40:
+                        continue
+                    ui.shell('input', 'swipe', int(left + (right - left) * .82), (top + end) // 2,
+                             int(left + (right - left) * .22), (top + end) // 2, 450)
+                    time.sleep(.5)
+                    break
+            else:
+                horizontal = []
+            if horizontal:
+                continue
             panes = [n for n in ui.nodes(tree) if vertical_pane(n)]
             if not panes:
                 break
@@ -106,6 +125,6 @@ def control(keys, scrolls=8):
     raise LookupError('No visible actionable control: ' + str(keys))
 
 
-def click(keys, scrolls=8):
-    ui.tap(control(keys, scrolls))
+def click(keys, scrolls=8, horizontal_context=()):
+    ui.tap(control(keys, scrolls, horizontal_context))
     time.sleep(.7)

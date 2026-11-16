@@ -163,7 +163,8 @@ def main():
                 before = {(n.get('text', ''), n.get('content-desc', '')) for n in ui.nodes(ui.snapshot())}
                 if os.environ.get('QA_UI_TRACE') == 'true':
                     capture(out, key + '-step-' + str(route_step) + '-before')
-                click(label, 10)
+                category_context = ('测试电影', '测试剧集', '播放列表') if label in ('测试电影', '测试剧集') else ()
+                click(label, 10, horizontal_context=category_context)
                 if os.environ.get('QA_UI_TRACE') == 'true':
                     capture(out, key + '-step-' + str(route_step) + '-after')
                 after = {(n.get('text', ''), n.get('content-desc', '')) for n in ui.nodes(ui.snapshot())}
