@@ -31,11 +31,12 @@ def diagnostics(out, phase, began):
 def main():
     engine.guard()
     core = os.environ['QA_ENGINE']
+    long_run = os.environ.get('QA_POWER_LONG') == 'true'
     out = Path('results/background')
     out.mkdir(parents=True, exist_ok=True)
     fixture = Path(os.environ['RUNNER_TEMP']) / 'background.mp4'
     subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=24',
-                    '-f', 'lavfi', '-i', 'sine=sample_rate=48000', '-t', '600', '-c:v', 'libx264',
+                    '-f', 'lavfi', '-i', 'sine=sample_rate=48000', '-t', '7200' if long_run else '600', '-c:v', 'libx264',
                     '-preset', 'ultrafast', '-crf', '35', '-c:a', 'aac', '-movflags', '+faststart', str(fixture)], check=True)
     server = MediaServer(fixture, out / 'media-requests.jsonl')
     adb('reverse', 'tcp:18389', 'tcp:18389')
@@ -45,8 +46,11 @@ def main():
     phases = []
     status = 'incomplete'
     try:
-        for name, seconds in [('foreground-playing', 60), ('foreground-paused', 120),
-                              ('background-paused', 180), ('screenoff-paused', 180), ('force-stopped', 120)]:
+        schedule = ([('foreground-playing', 3600), ('foreground-paused', 1800),
+                     ('background-paused', 3600), ('screenoff-paused', 3600), ('force-stopped', 1800)]
+                    if long_run else [('foreground-playing', 60), ('foreground-paused', 120),
+                                      ('background-paused', 180), ('screenoff-paused', 180), ('force-stopped', 120)])
+        for name, seconds in schedule:
             if name == 'foreground-paused':
                 pause()
             elif name == 'background-paused':
@@ -61,11 +65,11 @@ def main():
             screen().save(out / (name + '.png'))
             row = {'phase': name, 'plannedSeconds': seconds, 'status': 'incomplete', 'startedEpoch': stamp}
             phases.append(row)
-            first_sample = True
+            sample_number = 0
             while time.monotonic() - began < seconds:
                 elapsed = time.monotonic() - began
-                recorder.capture(name, server.counters(), heavy=first_sample, intervention=elapsed < 30)
-                first_sample = False
+                recorder.capture(name, server.counters(), heavy=sample_number % 4 == 0, intervention=elapsed < 30)
+                sample_number += 1
                 time.sleep(min(30, max(0, seconds - (time.monotonic() - began))))
             row['diagnosticEvents'] = diagnostics(out, name, stamp)
             row['memorySamplesWhileInPhase'] = len(row['diagnosticEvents']) if row['diagnosticEvents'] is not None else None
