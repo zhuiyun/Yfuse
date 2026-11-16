@@ -249,10 +249,12 @@ class FileSourcePlaybackProgress(
     fun flush() = recorder.flush()
 }
 
-/** `58.3 GB`, `734 MB`: one decimal from a gigabyte up, whole megabytes below. */
+/** Use the file's appropriate unit, retaining one decimal from a gigabyte up. */
 internal fun formatFileSize(bytes: Long): String {
+    if (bytes < 1024) return "$bytes B"
+    if (bytes < 1024 * 1024) return "${bytes / 1024} KB"
     val megabytes = bytes / (1024.0 * 1024.0)
-    if (megabytes < 1024.0) return "${megabytes.toLong().coerceAtLeast(1L)} MB"
+    if (megabytes < 1024.0) return "${megabytes.toLong()} MB"
     val tenths = (megabytes / 1024.0 * 10).toLong()
     return "${tenths / 10}.${tenths % 10} GB"
 }

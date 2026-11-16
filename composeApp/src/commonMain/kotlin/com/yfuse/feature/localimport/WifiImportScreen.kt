@@ -32,23 +32,13 @@ import com.yfuse.core.localimport.createWifiImportService
 import com.yfuse.core.network.localNetworkConnectionsRestricted
 import com.yfuse.core.network.localNetworkPermissionGranted
 import com.yfuse.core.network.rememberLocalNetworkPermissionRequest
+import com.yfuse.feature.filesource.formatFileSize
 import com.yfuse.feature.player.PlayerLauncher
 import com.yfuse.feature.player.PlayerMediaItem
 import com.yfuse.feature.player.externalPlaybackItem
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import com.yfuse.core.designsystem.ThemeText as Text
-
-private fun wifiImportedSizeLabel(bytes: Long): String =
-    when {
-        bytes < 1024 -> "$bytes B"
-        bytes < 1024 * 1024 -> "${bytes / 1024} KB"
-        bytes < 1024L * 1024 * 1024 -> "${bytes / 1024 / 1024} MB"
-        else -> {
-            val tenths = bytes * 10 / (1024L * 1024 * 1024)
-            "${tenths / 10}.${tenths % 10} GB"
-        }
-    }
 
 @Composable
 internal fun WifiImportEntry() {
@@ -139,7 +129,7 @@ private fun WifiImportDialog(onDismiss: () -> Unit) {
                 Row(Modifier.fillMaxWidth()) {
                     OverlayActionRow(
                         label = file.name,
-                        description = "${wifiImportedSizeLabel(file.sizeBytes)} · 已存入本机",
+                        description = "${formatFileSize(file.sizeBytes)} · 已存入本机",
                         modifier =
                             Modifier
                                 .weight(

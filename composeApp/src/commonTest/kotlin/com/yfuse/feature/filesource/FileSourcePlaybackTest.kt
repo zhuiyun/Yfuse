@@ -115,7 +115,7 @@ class FileSourcePlaybackTest {
 
     @Test
     fun sizes_read_like_the_rest_of_the_app() {
-        assertEquals("1 MB", formatFileSize(10L))
+        assertEquals("10 B", formatFileSize(10L))
         assertEquals("734 MB", formatFileSize(734L * 1024 * 1024))
         // Tenths are cut rather than rounded, as a version's 42.3 GB is on a server item.
         assertEquals("58.3 GB", formatFileSize(58L * 1024 * 1024 * 1024 + 390L * 1024 * 1024))
