@@ -42,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalDensity
@@ -897,9 +898,17 @@ private fun HeroCarousel(
             Modifier
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
-                .padding(
+                .background(
+                    Brush.verticalGradient(
+                        0f to Color.Transparent,
+                        0.06f to Color.Black.copy(alpha = 0.62f),
+                        0.80f to Color.Black.copy(alpha = 0.62f),
+                        1f to Color.Transparent,
+                    ),
+                ).padding(
                     start = 20.dp,
                     end = 20.dp,
+                    top = 24.dp,
                     bottom = LibraryHeroContentBottom,
                 ).launchWaveItem(),
         ) {
@@ -949,7 +958,7 @@ private fun HeroCarousel(
                         text = overview,
                         modifier = Modifier.carouselCaptionEntry(captionProgress, stage = 1),
                         style = AppTypography.caption.regular.copy(shadow = HeroTextShadow),
-                        color = Color.White.copy(alpha = 0.80f),
+                        color = Color.White.copy(alpha = 0.92f),
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )

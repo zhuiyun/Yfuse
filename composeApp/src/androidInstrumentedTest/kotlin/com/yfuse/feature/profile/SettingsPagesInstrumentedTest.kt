@@ -5,8 +5,12 @@ import android.graphics.Bitmap
 import android.os.SystemClock
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.Modifier
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -14,6 +18,7 @@ import com.russhwolf.settings.SharedPreferencesSettings
 import com.yfuse.MainActivity
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.designsystem.AccessibilityOptions
+import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalSettingsLocator
 import com.yfuse.core.designsystem.MotionTheme
 import com.yfuse.core.designsystem.SettingsLocatorRequest
@@ -138,14 +143,16 @@ class SettingsPagesInstrumentedTest {
                     activity.setContent {
                         YfuseTheme(dark = true, accessibility = AccessibilityOptions(reduceMotion = true)) {
                             CompositionLocalProvider(LocalSettingsLocator provides locator.value) {
-                                AppearanceSettingsScreen(
-                                    page.value,
-                                    prefs,
-                                    "测试图标",
-                                    onBack = { page.value = ProfilePage.Appearance },
-                                    onOpenPage = { page.value = it },
-                                    onAction = {},
-                                )
+                                Box(Modifier.fillMaxSize().background(LocalPalette.current.background)) {
+                                    AppearanceSettingsScreen(
+                                        page.value,
+                                        prefs,
+                                        "测试图标",
+                                        onBack = { page.value = ProfilePage.Appearance },
+                                        onOpenPage = { page.value = it },
+                                        onAction = {},
+                                    )
+                                }
                             }
                         }
                     }
@@ -200,6 +207,25 @@ class SettingsPagesInstrumentedTest {
             if (condition()) return
             SystemClock.sleep(50L)
         }
-        assertTrue(label, condition())
+        if (!condition()) {
+            val directory = File(instrumentation.targetContext.getExternalFilesDir(null), "settings-evidence")
+            directory.mkdirs()
+            val name = "failure-${label.hashCode()}"
+            instrumentation.uiAutomation.takeScreenshot()?.let { bitmap ->
+                File(directory, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                bitmap.recycle()
+            }
+            val rows = mutableListOf<String>()
+            val pending = ArrayDeque<AccessibilityNodeInfo>()
+            instrumentation.uiAutomation.rootInActiveWindow?.let(pending::addLast)
+            while (pending.isNotEmpty()) {
+                val node = pending.removeFirst()
+                val bounds = android.graphics.Rect().also(node::getBoundsInScreen)
+                rows += "${node.text} | ${node.contentDescription} | visible=${node.isVisibleToUser} | $bounds"
+                repeat(node.childCount) { node.getChild(it)?.let(pending::addLast) }
+            }
+            File(directory, "$name.txt").writeText("$label\n" + rows.joinToString("\n"))
+            assertTrue(label, false)
+        }
     }
 }

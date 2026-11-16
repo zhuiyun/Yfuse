@@ -45,7 +45,7 @@ ROUTES = [
     ('trakt', '我的', [['Trakt', 'Trakt 同步']]),
     ('device-handoff', '我的', [['设备接力', '跨设备接力']]),
     ('sync', '我的', ['同步状态与恢复']), ('about-section', '我的', []),
-    ('calendar', '观看', ['追剧日历']), ('history', '观看', ['播放记录']),
+    ('calendar', '观看', ['追剧日历']), ('history', '观看', []),
     ('discover', '观看', ['发现']),
 ]
 

@@ -94,6 +94,10 @@ internal fun PlaybackState.playbackMethodReadoutLabel(): String? {
     return when {
         transcoding -> PlaybackMethod.Transcode.label
         diagnostic == PlaybackMethod.Transcode.label -> PlaybackMethod.DirectPlay.label
+        diagnostic == "NativeTunnel" || diagnostic == "NativeDirect" || diagnostic == "NativeEnhanced" -> "硬件解码"
+        diagnostic == "GpuEnhanced" -> "增强渲染"
+        diagnostic == "SoftwareFallback" -> "软件解码"
+        diagnostic == "Unknown" -> null
         else -> diagnostic
     }
 }

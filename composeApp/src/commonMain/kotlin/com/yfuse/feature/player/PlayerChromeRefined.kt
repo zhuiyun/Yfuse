@@ -170,7 +170,8 @@ internal fun RefinedTopBar(
                 drawRect(
                     cssLinearGradient(
                         180f,
-                        0f to ambientScrim(ambientLight?.value, alpha = 0.44f),
+                        0f to ambientScrim(ambientLight?.value, alpha = 0.86f),
+                        0.90f to ambientScrim(ambientLight?.value, alpha = 0.84f),
                         1f to Color.Transparent,
                     ),
                 )
@@ -235,7 +236,7 @@ internal fun RefinedTopBar(
                     Text(
                         shownSubtitle,
                         style = AppTypography.caption.regular,
-                        color = Color.White.copy(alpha = 0.44f),
+                        color = Color.White.copy(alpha = 0.90f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(top = 2.dp),
@@ -554,7 +555,8 @@ private fun RefinedBottomBarContent(
                 drawRect(
                     cssLinearGradient(
                         0f,
-                        0f to ambientScrim(ambientLight?.value, alpha = 0.55f),
+                        0f to ambientScrim(ambientLight?.value, alpha = 0.86f),
+                        0.90f to ambientScrim(ambientLight?.value, alpha = 0.84f),
                         1f to Color.Transparent,
                     ),
                 )
