@@ -1,11 +1,11 @@
-name: Full UI regression for enhanced startup and subtitle repair
+name: Full UI regression with pinned settings header and idle sampling repair
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
     paths: ['.github/workflows/qa-integrated-ui-fixed.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: 1a6e6a3e3a4672f5717a0de8be5de5a995afdeb8
+  QA_APP_SHA: 95c655e9ffb837fa3337530747199d582f7c6c5e
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 1a6e6a3e3a4672f5717a0de8be5de5a995afdeb8
+          ref: 95c655e9ffb837fa3337530747199d582f7c6c5e
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78

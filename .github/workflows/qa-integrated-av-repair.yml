@@ -1,11 +1,11 @@
-name: Qualify iteration 1 memory sampling and empty server UI repairs
+name: Qualify fixed settings navigation and activity sampling
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
     paths: ['.github/workflows/qa-integrated-av-repair.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: 4dd8f0bae04125bd15497ec0e6d58ca4fda742f3
+  QA_APP_SHA: 95c655e9ffb837fa3337530747199d582f7c6c5e
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 4dd8f0bae04125bd15497ec0e6d58ca4fda742f3
+          ref: 95c655e9ffb837fa3337530747199d582f7c6c5e
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
