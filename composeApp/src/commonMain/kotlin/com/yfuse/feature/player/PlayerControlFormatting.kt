@@ -120,10 +120,10 @@ internal fun PlaybackState.readoutLine(
         playbackMethodReadoutLabel(),
         resolutionLabel(videoHeight),
         dolbyVisionLabel,
-        diagnostics.dynamicRange.takeIf { it.isNotBlank() && dolbyVisionLabel == null },
+        diagnostics.dynamicRange.takeIf { it.isNotBlank() && dolbyVisionLabel == null }?.uppercase(),
         containerLabel?.takeIf { it.isNotBlank() },
         diagnostics.engine.takeIf { it.isNotBlank() }?.let(::engineShortLabel),
-        diagnostics.videoCodec.takeIf { it.isNotBlank() && it != "未知" }?.uppercase(),
+        diagnostics.videoCodec.takeIf { it.isNotBlank() && it != "未知" }?.let(::codecReadoutLabel),
         diagnostics.bitrateBitsPerSecond.takeIf { it > 0L }?.asBitrate(),
         diagnostics.frameRate.takeIf { it > 0f }?.asFrameRate(),
     ).joinToString(" · ")
@@ -141,6 +141,16 @@ private fun engineShortLabel(engine: String): String =
         engine.substringBefore('（').substringBefore(' ').equals(SEN_PLAYER_DISPLAY_NAME, ignoreCase = true) ||
             engine.contains(PlayerEngine.SenPlayer.name, ignoreCase = true) -> SEN_PLAYER_DISPLAY_NAME
         else -> engine.substringBefore(' ').uppercase()
+    }
+
+private fun codecReadoutLabel(codec: String): String =
+    when (codec.lowercase()) {
+        "video/avc", "avc", "h264" -> "H.264"
+        "video/hevc", "hevc", "h265" -> "HEVC"
+        "video/av01", "av1" -> "AV1"
+        "video/x-vnd.on2.vp8", "vp8" -> "VP8"
+        "video/x-vnd.on2.vp9", "vp9" -> "VP9"
+        else -> codec.uppercase()
     }
 
 private fun resolutionLabel(height: Int): String? =
