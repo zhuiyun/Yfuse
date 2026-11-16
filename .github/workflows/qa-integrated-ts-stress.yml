@@ -1,0 +1,43 @@
+name: Stress the intermittent YCore transport-stream freeze with frame diagnostics
+on:
+  push:
+    branches: [codex/two-engines-cloud-seek-20261113]
+    paths: ['.github/workflows/qa-integrated-ts-stress.yml']
+permissions: {contents: read, actions: read}
+jobs:
+  diagnose:
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: {lane: [0,1,2,3]}
+    name: Transport stress lane ${{ matrix.lane }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 65
+    env:
+      QA_ENGINE: YCore
+      QA_SHARD: '13'
+      QA_SESSIONS: '20'
+      QA_BATCHES: '2'
+      QA_BATCH_COUNT: '16'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: arm-input-driver, path: qa-driver, run-id: 43799990156, github-token: '${{ github.token }}'}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: video-diagnostic-input, path: preview, run-id: 43800491978, github-token: '${{ github.token }}'}
+      - name: Verify APK and reproduce the same H264/AAC transport stream
+        run: |
+          set -euo pipefail
+          echo "QA_SEED_BASE=$((12013806 + ${{ matrix.lane }} * 104729))" >> "$GITHUB_ENV"
+          (cd preview && sha256sum -c apk.sha256)
+          grep -Fx 'app=15d635d0da26aa528ab5157b2585ec43b1bf9421' preview/provenance.txt
+          sudo apt-get -qq update && sudo apt-get install -y ffmpeg python3-pil
+          /usr/bin/python3 qa-title-seek-check/prepare.py 45 86
+      - name: Boot cloud ARM64 Android
+        run: bash qa-arm-dual/redroid.sh
+      - name: Capture the failed open and decoder diagnostics
+        run: bash qa-arm-matrix/run.sh
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: 'ts-stress-${{ matrix.lane }}', path: results/, retention-days: 10}
