@@ -1,0 +1,62 @@
+name: Diagnose enhanced retry on exact existing runtime
+'on':
+  push:
+    branches:
+    - codex/two-engines-cloud-seek-20261113
+    paths:
+    - .github/workflows/qa-native-retry-diagnose.yml
+permissions:
+  contents: read
+  actions: read
+env:
+  QA_APP_SHA: eff812329895ae01f7545677110ff12af96de37e
+jobs:
+  diagnose:
+    name: Enhanced retry diagnostic ${{ matrix.decoder }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 35
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
+    - name: Read exact built APKs without suppressing known failures
+      env:
+        API_TOKEN: ${{ github.token }}
+      run: bash qa-power-ui/acquire-baseline.sh 43853752670 eff812329895ae01f7545677110ff12af96de37e
+    - name: Boot only the cloud ARM64 emulator
+      run: bash qa-arm-dual/redroid.sh
+    - name: Verify actual native frame skipping and cached preview
+      run: "set -euo pipefail\nmkdir -p results\ncollect() {\n  adb logcat -d -v threadtime > results/native-logcat.txt\
+        \ || true\n  adb shell cat '/data/user/0/com.yfuse/no_backup/diagnostics/diagnostic-*.jsonl' > results/native-diagnostics.jsonl\
+        \ || true\n  adb shell dumpsys media.codec > results/codec-service.txt || true\n  adb exec-out screencap\
+        \ -p > results/final.png || true\n}\ntrap collect EXIT\n(cd preview && sha256sum -c apk.sha256)\ngrep -Fx\
+        \ \"app=$QA_APP_SHA\" preview/provenance.txt\nadb install -r -g preview/instrumentation-target.apk\nadb\
+        \ install -r -g preview/regressions.apk\nsudo apt-get update -qq\nsudo apt-get install -y ffmpeg\nffmpeg\
+        \ -v error -y -f lavfi -i testsrc2=size=320x180:rate=10 -f lavfi -i anullsrc=r=48000:cl=mono -t 20 -c:v\
+        \ libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac -b:a 64k -movflags +faststart \"$RUNNER_TEMP/enhanced-retry.mp4\"\
+        \nsha256sum \"$RUNNER_TEMP/enhanced-retry.mp4\" > results/fixture.sha256\nffprobe -v error -show_entries\
+        \ stream=codec_name,codec_type,width,height:format=duration -of json \"$RUNNER_TEMP/enhanced-retry.mp4\"\
+        \ > results/fixture.json\njq -e '.streams | any(.codec_name==\"h264\" and .width==320 and .height==180)'\
+        \ results/fixture.json\njq -e '.streams | any(.codec_name==\"aac\")' results/fixture.json\nadb shell mkdir\
+        \ -p /sdcard/Android/data/com.yfuse/files\nadb push \"$RUNNER_TEMP/enhanced-retry.mp4\" /sdcard/Android/data/com.yfuse/files/enhanced-retry.mp4\n\
+        adb shell sha256sum /sdcard/Android/data/com.yfuse/files/enhanced-retry.mp4 > results/device-fixture.sha256\n\
+        test \"$(cut -d' ' -f1 results/fixture.sha256)\" = \"$(tr -d '\\r' < results/device-fixture.sha256 | cut\
+        \ -d' ' -f1)\"\nadb shell am instrument -w -r -e platformAvcDecoder \"$QA_PLATFORM_DECODER\" -e enhancedRetryFixture\
+        \ /sdcard/Android/data/com.yfuse/files/enhanced-retry.mp4 -e class 'com.yfuse.core2.android.SoftwareOutputContractInstrumentedTest,com.yfuse.feature.player.SoftFeedbackInstrumentedTest#seek_cancel_never_commits_and_release_commits_once_with_or_without_motion,com.yfuse.feature.player.BufferedScrubDecodeInstrumentedTest,com.yfuse.core2.android.YCoreMediaSuiteInstrumentedTest#enhanced_transport_retry_keeps_the_assigned_route_and_renders_again'\
+        \ com.yfuse.test/androidx.test.runner.AndroidJUnitRunner | tee results/contracts.txt\npython3 qa-integrated/check-instrumentation.py\
+        \ results/contracts.txt 7\ngrep -E 'OK \\(7 tests\\)' results/contracts.txt\n! grep -E 'FAILURES|INSTRUMENTATION_FAILED|INSTRUMENTATION_ABORTED'\
+        \ results/contracts.txt\n"
+    - if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+      with:
+        name: native-retry-diagnosis-${{ matrix.decoder }}
+        path: results/
+        retention-days: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        decoder:
+        - c2.android.avc.decoder
+        - OMX.google.h264.decoder
+    env:
+      QA_PLATFORM_DECODER: ${{ matrix.decoder }}

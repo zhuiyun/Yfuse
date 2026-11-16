@@ -16,10 +16,10 @@ jobs:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with:
         persist-credentials: false
-    - name: Acquire the exact qualified playback candidate
+    - name: Acquire built diagnostic baseline and retain known qualification failures
       env:
         API_TOKEN: ${{ github.token }}
-      run: bash qa-integrated/acquire-qualified-candidate.sh 43853752670 eff812329895ae01f7545677110ff12af96de37e
+      run: bash qa-power-ui/acquire-baseline.sh 43853752670 eff812329895ae01f7545677110ff12af96de37e
     - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
       with:
         name: power-ui-baseline-input
@@ -27,7 +27,13 @@ jobs:
 
           preview/provenance.txt
 
-          preview/apk.sha256'
+          preview/apk.sha256
+
+          preview/baseline-build-run.json
+
+          preview/baseline-build-jobs.json
+
+          preview/baseline-limit.txt'
         retention-days: 10
   background:
     name: Paused background sampling ${{ matrix.engine }}
@@ -67,7 +73,7 @@ jobs:
 
         grep -Fx "app=eff812329895ae01f7545677110ff12af96de37e" preview/provenance.txt
 
-        cp preview/provenance.txt preview/apk.sha256 results/
+        cp preview/provenance.txt preview/apk.sha256 preview/baseline-build-*.json preview/baseline-limit.txt results/
 
         printf ''qa=%s\nrun=%s\n'' "$GITHUB_SHA" "$GITHUB_RUN_ID" > results/qa-provenance.txt
 
