@@ -180,7 +180,11 @@ class YCoreMediaSuiteInstrumentedTest {
                         val player: YPlayer =
                             when (route) {
                                 YPlaybackRoute.NativeDirect ->
-                                    AndroidNativeDirectYPlayer(context, request, decoderName = generatedPlatformAvcDecoder())
+                                    AndroidNativeDirectYPlayer(
+                                        context,
+                                        request,
+                                        decoderName = generatedPlatformAvcDecoder(),
+                                    )
                                 YPlaybackRoute.NativeEnhanced ->
                                     AndroidNativeEnhancedYPlayer(
                                         context,
@@ -193,7 +197,7 @@ class YCoreMediaSuiteInstrumentedTest {
                                                 decodePath = YDecodePath.Hardware,
                                                 renderPath = YRenderPath.SurfaceDirect,
                                                 outputHdrType = YHdrType.Sdr,
-                                                reason = "Enhanced hardware test",
+                                                reason = "Enhanced platform decoder test",
                                                 decoderName = generatedPlatformAvcDecoder(),
                                             ),
                                     )
