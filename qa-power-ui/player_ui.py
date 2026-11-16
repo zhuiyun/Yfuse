@@ -74,7 +74,7 @@ def main():
                 for label in path:
                     click(label, 8)
                 key = '%02d-%s' % (index, name)
-                row['top'] = capture(out, key + '-top')
+                row['top'] = capture(out, key + '-top', expected=MARKERS.get(name))
                 if 'com.yfuse' not in row['top']['packages']:
                     raise AssertionError('Requested player is not the foreground screenshot subject')
                 if name in MARKERS and not any(MARKERS[name] in label for label in row['top']['labels']):

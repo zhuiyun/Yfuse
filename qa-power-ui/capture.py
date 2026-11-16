@@ -60,8 +60,16 @@ POPULATED_ROUTES = [
 ]
 
 
-def capture(out, name):
+def capture(out, name, expected=None, timeout=12):
     tree = ui.snapshot()
+    if expected is not None:
+        deadline = time.monotonic() + timeout
+        while not (any(n.get('package') == 'com.yfuse' for n in ui.nodes(tree)) and
+                   any(expected in label for label in ui.page_info(tree))):
+            if time.monotonic() >= deadline:
+                break  # Preserve the actual wrong state for the caller's coverage gate.
+            time.sleep(.25)
+            tree = ui.snapshot()
     image = screen()
     image.save(out / (name + '.png'))
     (out / (name + '.xml')).write_bytes(ET.tostring(tree, encoding='utf-8'))

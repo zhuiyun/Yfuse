@@ -1,11 +1,11 @@
-name: Qualify library arrival and background clock fixes
+name: Qualify player submenu navigation and library lifecycle fixes
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
     paths: ['.github/workflows/qa-integrated-av-repair.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: ea6029f4f9b306e4a76454f2e711135f0f3e5e17
+  QA_APP_SHA: bd556cb716a2791010c0543dbd6a650be011714b
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ea6029f4f9b306e4a76454f2e711135f0f3e5e17
+          ref: bd556cb716a2791010c0543dbd6a650be011714b
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
