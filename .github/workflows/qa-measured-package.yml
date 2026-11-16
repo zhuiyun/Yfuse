@@ -1,0 +1,37 @@
+name: Verify the measured phone APK and both runtime inventories
+on:
+  push:
+    branches: [codex/cloud-playback-resilience-20261113]
+    paths: ['.github/workflows/qa-measured-package.yml']
+permissions: {contents: read, actions: read}
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {ref: bb06bdfa1718a7dcecb58ba727cf9c9bb3f2d86e, persist-credentials: false}
+      - name: Inspect the exact installed file, signature and alignment
+        env: {API_TOKEN: "${{ github.token }}"}
+        run: |
+          set -euo pipefail
+          mkdir -p apk native evidence
+          api="https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts"
+          for input in '14017387211 apk' '14016877505 native'; do
+            read -r id dir <<< "$input"
+            curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/$id/zip" -o "$RUNNER_TEMP/$dir.zip"
+            unzip -q "$RUNNER_TEMP/$dir.zip" -d "$dir"
+          done
+          (cd apk && sha256sum -c apk.sha256)
+          python3 scripts/verify-playback-package.py apk/composeApp-release.apk --ycore native/ycore-native.aar > evidence/package.json
+          bt=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+          "$bt/aapt" dump badging apk/composeApp-release.apk | sed -n '1p' > evidence/version
+          grep -F "name='com.yfuse'" evidence/version
+          grep -F "versionCode='348'" evidence/version
+          grep -F "versionName='1.9.6'" evidence/version
+          "$bt/apksigner" verify --verbose --print-certs apk/composeApp-release.apk > evidence/signature
+          "$bt/zipalign" -c -P 16 4 apk/composeApp-release.apk
+          cp apk/apk.sha256 apk/provenance.txt evidence/
+          cat evidence/package.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: measured-phone-package, path: evidence, retention-days: 7}

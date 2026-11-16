@@ -1,0 +1,133 @@
+name: Press lifetime regression on both native Android engines
+on:
+  push:
+    branches: [codex/cloud-playback-resilience-20261113]
+    paths: ['.github/workflows/qa-press-regression.yml','qa-press-regression/**']
+permissions: {contents: read, actions: read}
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 95
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 22f42bd301cf51f954680ae027558d188d235e96
+          persist-credentials: false
+          fetch-depth: 3
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
+        with: {distribution: temurin, java-version: '17', cache: gradle}
+      - name: Verify native inputs and build the release candidate
+        env: {API_TOKEN: "${{ github.token }}"}
+        run: |
+          set -euo pipefail
+          api="https://api.github.com/repos/$GITHUB_REPOSITORY"
+          app_sha=$(git rev-parse HEAD)
+          test "$app_sha" = "22f42bd301cf51f954680ae027558d188d235e96"
+          native_sha="$app_sha"
+          producer=43392142969
+          name="ycore-source-$app_sha-$producer-1"
+          artifact=""
+          for i in $(seq 1 135); do
+            artifact=$(curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/$producer/artifacts" | jq -r --arg n "$name" '.artifacts[] | select(.name==$n and .expired==false) | .id' | head -1)
+            if [[ "$artifact" =~ ^[0-9]+$ ]]; then break; fi
+            sleep 12
+          done
+          test -n "$artifact"
+          curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/artifacts/$artifact" | jq -e --arg n "ycore-source-$app_sha-43392142969-1" '.name==$n and .expired==false and .workflow_run.id==43392142969' >/dev/null
+          curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/artifacts/$artifact/zip" -o "$RUNNER_TEMP/native.zip"
+          mkdir "$RUNNER_TEMP/native-in"
+          unzip -q "$RUNNER_TEMP/native.zip" -d "$RUNNER_TEMP/native-in"
+          export YCORE_NATIVE_AAR_PATH="$RUNNER_TEMP/native-in/ycore-native.aar"
+          export YCORE_SOURCE_RECEIPT="$RUNNER_TEMP/native-in/source-build.json"
+          export YCORE_SOURCE_COMMIT="$app_sha" SOURCE_COMMIT="$app_sha"
+          export YCORE_SOURCE_AAR_SHA256=$(sha256sum "$YCORE_NATIVE_AAR_PATH" | cut -d' ' -f1)
+          export YCORE_SOURCE_PROVENANCE_SHA256=$(sha256sum "$RUNNER_TEMP/native-in/NATIVE-SOURCES.txt" | cut -d' ' -f1)
+          python3 scripts/prepare-playback-inputs.py
+          (cd composeApp/libs && sha256sum -c ycore-native.aar.sha256)
+          test "$(git rev-parse HEAD)" = "$app_sha"
+          git diff --exit-code -- .
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-37.0'
+          ./gradlew :composeApp:assembleRelease :composeApp:assembleDebugAndroidTest :phoneShared:testAndroidHostTest --tests 'com.yfuse.feature.player.SeekScrubTiersTest' --tests 'com.yfuse.core2.android.ScrubByteWindowTest' -PyfuseIncludeMdk=false -PyfusePlaybackProfile=ycore-senplayer -PyfuseNativeOnlyRuntime=true -PallowDebugSigning=true '-Dorg.gradle.jvmargs=-Xmx6g -Dfile.encoding=UTF-8' --no-daemon
+          mkdir preview
+          cp composeApp/build/outputs/apk/release/composeApp-release.apk preview/
+          printf '%s\n' "$GITHUB_SHA 22f42bd301cf51f954680ae027558d188d235e96" > preview/source.txt
+          test_apk=$(find composeApp/build/outputs/apk/androidTest -name '*.apk' | head -1)
+          test -s "$test_apk"
+          cp "$test_apk" preview/regressions.apk
+          printf 'app=%s\nnative_built_from=%s\nsource_artifact=%s\n' "$app_sha" "$native_sha" "$artifact" > preview/provenance.txt
+          (cd preview && sha256sum composeApp-release.apk > apk.sha256)
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: candidate-test-input, path: preview, retention-days: 7}
+  driver:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - name: Build the screenshot and touch instrumentation
+        run: |
+          set -euo pipefail
+          mkdir qa-driver
+          cp qa-arm-matrix/Driver.java qa-volume/input-driver.java
+          sed 's|adb install -r driver.apk|cp driver.apk "$GITHUB_WORKSPACE/qa-driver/driver.apk"|' qa-volume/build-driver.sh > "$RUNNER_TEMP/build-qa.sh"
+          bash "$RUNNER_TEMP/build-qa.sh"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: arm-input-driver, path: qa-driver/, retention-days: 5}
+  test:
+    needs: [driver,build]
+    name: Native ${{ matrix.engine }} movies and episodes ${{ matrix.shard }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix:
+        shard: [0,1,2,3,4,5,6,7]
+        engine: [SenPlayer,YCore]
+    env:
+      QA_ENGINE: ${{ matrix.engine }}
+      QA_SHARD: ${{ matrix.shard }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: arm-input-driver, path: qa-driver}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: candidate-test-input, path: preview}
+      - name: Verify exact APK and prepare movies and episodes
+        run: |
+          set -euo pipefail
+          mkdir -p preview results
+          (cd preview && sha256sum -c apk.sha256)
+          grep -Fx 'app=22f42bd301cf51f954680ae027558d188d235e96' preview/provenance.txt
+          cp preview/provenance.txt preview/apk.sha256 results/
+          sudo apt-get -qq update && sudo apt-get install -y ffmpeg python3-pil
+          /usr/bin/python3 qa-title-seek-check/prepare.py "$QA_SHARD" 8
+      - name: Boot Android 12 with a native ARM64 process
+        run: bash qa-arm-dual/redroid.sh
+      - name: Prove the selected engine, movie and episode output and each touch landing
+        run: bash qa-press-regression/run.sh
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: 'press-${{ matrix.engine }}-${{ matrix.shard }}', path: results/, retention-days: 10}
+  pointer:
+    name: Actual Android rail press and cancel regression
+    needs: build
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: candidate-test-input, path: preview}
+      - name: Boot isolated ARM64 cloud Android
+        run: bash qa-arm-dual/redroid.sh
+      - name: Run down, stationary hold, cancel, move and release assertions
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTIONS" = true
+          adb install -r -g preview/composeApp-release.apk
+          adb install -r -g preview/regressions.apk
+          adb shell am instrument -w -r -e class 'com.yfuse.feature.player.SoftFeedbackInstrumentedTest#seek_cancel_never_commits_and_release_commits_once_with_or_without_motion' com.yfuse.test/androidx.test.runner.AndroidJUnitRunner | tee "$RUNNER_TEMP/qa-test.txt"
+          grep -E 'OK \(1 test\)' "$RUNNER_TEMP/qa-test.txt"

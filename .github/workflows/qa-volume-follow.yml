@@ -1,0 +1,70 @@
+name: Progress rail follow-up - 6144 randomized outcomes
+on:
+  push:
+    branches: [codex/cloud-playback-resilience-20261113]
+    paths: ['qa-volume-follow/**', '.github/workflows/qa-volume-follow.yml']
+permissions: {contents: read, actions: read}
+jobs:
+  volume:
+    name: Real rail shard ${{ matrix.shard }} API ${{ matrix.api }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 125
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+          - {shard: 20, api: 35, image: '35'}
+          - {shard: 21, api: 36, image: '36'}
+          - {shard: 22, api: 37, image: '37.0'}
+          - {shard: 23, api: 35, image: '35'}
+          - {shard: 24, api: 36, image: '36'}
+          - {shard: 25, api: 37, image: '37.0'}
+          - {shard: 26, api: 35, image: '35'}
+          - {shard: 27, api: 36, image: '36'}
+          - {shard: 28, api: 37, image: '37.0'}
+          - {shard: 29, api: 35, image: '35'}
+          - {shard: 30, api: 36, image: '36'}
+          - {shard: 31, api: 37, image: '37.0'}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Pin the candidate with the verified outage fix
+        env: {API_TOKEN: "${{ github.token }}"}
+        run: |
+          set -euo pipefail
+          mkdir -p preview results
+          curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/14007359626/zip" -o "$RUNNER_TEMP/input.zip"
+          unzip -q "$RUNNER_TEMP/input.zip" -d preview
+          (cd preview && sha256sum -c apk.sha256)
+          grep -F 6db79e3250515e3dfb6236d0342ecbe096590c08 preview/source.txt
+          cp preview/source.txt preview/apk.sha256 results/
+      - name: Enable hardware acceleration and install fixture tools
+        run: |
+          set -euo pipefail
+          test -c /dev/kvm
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg python3-pil
+          /usr/bin/python3 qa-volume/fixtures.py ${{ matrix.shard }}
+      - name: Use current SDK manager on Android 17
+        if: matrix.api == 37
+        run: sudo mv "$ANDROID_HOME/cmdline-tools" "$RUNNER_TEMP/old-cmdline-tools"
+      - name: Run the release preview on the emulator
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: ${{ matrix.image }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          ram-size: 4096M
+          emulator-boot-timeout: 600
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -accel on
+          script: bash qa-volume-follow/run.sh ${{ matrix.shard }}
+      - name: Keep per-gesture observations regardless of verdict
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: 'volume-${{ matrix.shard }}', path: results/, retention-days: 10}
