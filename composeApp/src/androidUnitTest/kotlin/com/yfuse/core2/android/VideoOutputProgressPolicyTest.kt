@@ -9,32 +9,42 @@ class VideoOutputProgressPolicyTest {
     @Test
     fun decoderNeedsAcceptedInputAndActiveTimeBeforeRecovery() {
         val watchdog = VideoFirstOutputWatchdog(timeoutNs = 100L)
-        assertFalse(watchdog.stalled(1000L, active = true, outputVerified = false))
-        watchdog.inputQueued()
-        assertFalse(watchdog.stalled(2000L, active = true, outputVerified = false))
-        assertFalse(watchdog.stalled(2099L, active = true, outputVerified = false))
-        assertTrue(watchdog.stalled(2100L, active = true, outputVerified = false))
+        assertFalse(watchdog.stalled(1000L, active = true, outputVerified = false, masterPositionUs = 0L))
+        watchdog.inputQueued(0L)
+        assertFalse(watchdog.stalled(2000L, active = true, outputVerified = false, masterPositionUs = 0L))
+        assertFalse(watchdog.stalled(2099L, active = true, outputVerified = false, masterPositionUs = 0L))
+        assertTrue(watchdog.stalled(2100L, active = true, outputVerified = false, masterPositionUs = 0L))
     }
 
     @Test
     fun pauseOrTransportStarvationCannotConsumeTheDecoderBudget() {
         val watchdog = VideoFirstOutputWatchdog(timeoutNs = 100L)
-        watchdog.inputQueued()
-        assertFalse(watchdog.stalled(0L, active = true, outputVerified = false))
-        assertFalse(watchdog.stalled(90L, active = false, outputVerified = false))
-        assertFalse(watchdog.stalled(1000L, active = true, outputVerified = false))
-        assertFalse(watchdog.stalled(1099L, active = true, outputVerified = false))
-        assertTrue(watchdog.stalled(1100L, active = true, outputVerified = false))
+        watchdog.inputQueued(0L)
+        assertFalse(watchdog.stalled(0L, active = true, outputVerified = false, masterPositionUs = 0L))
+        assertFalse(watchdog.stalled(90L, active = false, outputVerified = false, masterPositionUs = 0L))
+        assertFalse(watchdog.stalled(1000L, active = true, outputVerified = false, masterPositionUs = 0L))
+        assertFalse(watchdog.stalled(1099L, active = true, outputVerified = false, masterPositionUs = 0L))
+        assertTrue(watchdog.stalled(1100L, active = true, outputVerified = false, masterPositionUs = 0L))
     }
 
     @Test
     fun verifiedFrameAndNewOutputEpochClearTheTimeout() {
         val watchdog = VideoFirstOutputWatchdog(timeoutNs = 100L)
-        watchdog.inputQueued()
-        assertFalse(watchdog.stalled(0L, active = true, outputVerified = false))
-        assertFalse(watchdog.stalled(1000L, active = true, outputVerified = true))
+        watchdog.inputQueued(0L)
+        assertFalse(watchdog.stalled(0L, active = true, outputVerified = false, masterPositionUs = 0L))
+        assertFalse(watchdog.stalled(1000L, active = true, outputVerified = true, masterPositionUs = 0L))
         watchdog.reset()
-        assertFalse(watchdog.stalled(2000L, active = true, outputVerified = false))
+        assertFalse(watchdog.stalled(2000L, active = true, outputVerified = false, masterPositionUs = 0L))
+    }
+
+    @Test
+    fun authoredVideoDelayDoesNotTriggerDecoderRecoveryBeforeItsFirstPacketIsDue() {
+        val watchdog = VideoFirstOutputWatchdog(timeoutNs = 100L)
+        watchdog.inputQueued(60_000_000L)
+        assertFalse(watchdog.stalled(0L, active = true, outputVerified = false, masterPositionUs = 0L))
+        assertFalse(watchdog.stalled(1000L, active = true, outputVerified = false, masterPositionUs = 30_000_000L))
+        assertFalse(watchdog.stalled(2000L, active = true, outputVerified = false, masterPositionUs = 60_000_000L))
+        assertTrue(watchdog.stalled(2100L, active = true, outputVerified = false, masterPositionUs = 60_000_100L))
     }
 
     @Test

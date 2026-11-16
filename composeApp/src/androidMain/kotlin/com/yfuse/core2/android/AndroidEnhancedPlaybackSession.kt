@@ -1136,6 +1136,9 @@ internal class AndroidEnhancedPlaybackSession(
                 message = "Retrying Enhanced hardware decoder with original media timestamps",
             )
             true
+        } catch (failure: YPlaybackException) {
+            if (!recoverAudioDecoderFailure(failure)) throw failure
+            true
         }
 
     private fun pumpInternal(): Boolean {
@@ -2319,20 +2322,27 @@ internal class AndroidEnhancedPlaybackSession(
 
     private fun queueAudioSample(sample: YCompressedSample): YCodecQueueResult {
         if (!isAudioPassthrough()) {
-            return yPlaybackStage(
-                category = YPlaybackFailureCategory.Decoder,
-                stage = YPlaybackFailureStage.AudioDecoderQueue,
-                safeDetail = "Enhanced audio access unit",
-            ) {
-                if (softwareAudioActive) {
-                    requireNotNull(softwareDecoder).queueAudio(sample).toCodecQueueResult()
-                } else {
-                    audioDecoder.queueAccessUnit(
-                        data = java.nio.ByteBuffer.wrap(sample.data),
-                        presentationTimeUs = sample.presentationTimeUs,
-                        flags = sample.toExtractorFlags(),
-                    )
+            return try {
+                yPlaybackStage(
+                    category = YPlaybackFailureCategory.Decoder,
+                    stage = YPlaybackFailureStage.AudioDecoderQueue,
+                    safeDetail = "Enhanced audio access unit",
+                ) {
+                    if (softwareAudioActive) {
+                        requireNotNull(softwareDecoder).queueAudio(sample).toCodecQueueResult()
+                    } else {
+                        audioDecoder.queueAccessUnit(
+                            data = java.nio.ByteBuffer.wrap(sample.data),
+                            presentationTimeUs = sample.presentationTimeUs,
+                            flags = sample.toExtractorFlags(),
+                        )
+                    }
                 }
+            } catch (failure: YPlaybackException) {
+                if (!recoverAudioDecoderFailure(failure)) throw failure
+                // This packet was removed from demux read-ahead but not yet accepted by the
+                // input pump. Retry it once in the owned software decoder before consuming it.
+                queueAudioSample(sample)
             }
         }
         if (sample.presentationTimeUs >= seekAudioTargetUs) {
@@ -2435,13 +2445,30 @@ internal class AndroidEnhancedPlaybackSession(
                 !isAudioPassthrough() &&
                 !audioRendererConfigured
         if (!audioStartupWatchdog.shouldFallback(System.nanoTime(), eligible)) return false
+        return switchHardwareAudioToSoftware(runtimeFailure = false)
+    }
+
+    private fun recoverAudioDecoderFailure(failure: YPlaybackException): Boolean {
+        if (!canRecoverEnhancedAudioDecoder(
+                failure = failure,
+                softwareActive = softwareAudioActive,
+                passthrough = isAudioPassthrough(),
+                hasTrack = audioTrack != null,
+            )
+        ) {
+            return false
+        }
+        return switchHardwareAudioToSoftware(runtimeFailure = true)
+    }
+
+    private fun switchHardwareAudioToSoftware(runtimeFailure: Boolean): Boolean {
         val software = softwareDecoderOrNull() ?: return false
         val track = requireNotNull(audioTrack)
         val positionUs = currentPositionUs()
         yPlaybackStage(
             category = YPlaybackFailureCategory.Decoder,
             stage = YPlaybackFailureStage.AudioDecoderConfigure,
-            safeDetail = "Enhanced silent audio decoder fallback",
+            safeDetail = "Enhanced hardware audio decoder fallback",
         ) {
             software.configureAudio(track.id)
         }
@@ -2453,8 +2480,8 @@ internal class AndroidEnhancedPlaybackSession(
         seekAudioTargetUs = maxOf(seekAudioTargetUs, positionUs)
         AppLog.warning(
             category = "player.core2",
-            event = "enhanced_audio_startup_fallback",
-            message = "Audio packets produced no PCM format; switched only audio to FFmpeg",
+            event = if (runtimeFailure) "enhanced_audio_decoder_fallback" else "enhanced_audio_startup_fallback",
+            message = "Hardware audio output unavailable; switched only audio to FFmpeg",
             attributes =
                 mapOf(
                     "codec" to (track.audio?.codec?.name ?: "unknown"),

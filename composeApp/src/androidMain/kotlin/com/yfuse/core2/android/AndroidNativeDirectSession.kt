@@ -313,6 +313,7 @@ internal class AndroidNativeDirectSession(
                     System.nanoTime(),
                     active = false,
                     outputVerified = firstVideoFrameRendered,
+                    masterPositionUs = currentPositionUs(),
                 )
                 publishClockPosition()
                 return false
@@ -380,6 +381,7 @@ internal class AndroidNativeDirectSession(
                     nowNs = System.nanoTime(),
                     active = requestedPlay && videoRenderable && !videoOutputEnded,
                     outputVerified = firstVideoFrameRendered,
+                    masterPositionUs = currentPositionUs(),
                 )
             ) {
                 throw YPlaybackException(
@@ -834,7 +836,12 @@ internal class AndroidNativeDirectSession(
     }
 
     private fun pausePlaybackInternal(keepRequested: Boolean) {
-        videoFirstOutputWatchdog.stalled(System.nanoTime(), active = false, outputVerified = firstVideoFrameRendered)
+        videoFirstOutputWatchdog.stalled(
+            System.nanoTime(),
+            active = false,
+            outputVerified = firstVideoFrameRendered,
+            masterPositionUs = currentPositionUs(),
+        )
         bufferWaitClock.reset()
         renderedFrameRateSampler.reset()
         val positionUs = currentPositionUs()
@@ -1323,7 +1330,7 @@ internal class AndroidNativeDirectSession(
                             }.also { result ->
                                 if (result == YCodecQueueResult.Queued) {
                                     videoEosGate.inputQueued()
-                                    videoFirstOutputWatchdog.inputQueued()
+                                    videoFirstOutputWatchdog.inputQueued(sample.presentationTimeUs)
                                 }
                             }
                         }

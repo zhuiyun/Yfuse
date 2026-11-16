@@ -224,3 +224,16 @@ internal fun YVideoDecoderAttemptFailure.safeDiagnosticLabel(): String =
         if (recoverable) append(":recoverable")
         if (transient) append(":transient")
     }
+
+/** Owned software audio can replace a failed unprotected PCM decoder exactly once. */
+internal fun canRecoverEnhancedAudioDecoder(
+    failure: YPlaybackException,
+    softwareActive: Boolean,
+    passthrough: Boolean,
+    hasTrack: Boolean,
+): Boolean =
+    hasTrack &&
+        !softwareActive &&
+        !passthrough &&
+        failure.category == YPlaybackFailureCategory.Decoder &&
+        failure.stage in setOf(YPlaybackFailureStage.AudioDecoderConfigure, YPlaybackFailureStage.AudioDecoderQueue)

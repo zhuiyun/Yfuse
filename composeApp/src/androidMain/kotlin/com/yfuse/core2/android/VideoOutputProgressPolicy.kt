@@ -7,15 +7,15 @@ internal class VideoDecoderNoOutputException :
 internal class VideoFirstOutputWatchdog(
     private val timeoutNs: Long = 12_000_000_000L,
 ) {
-    private var inputQueued = false
+    private var firstInputPresentationUs: Long? = null
     private var activeSinceNs: Long? = null
 
-    fun inputQueued() {
-        inputQueued = true
+    fun inputQueued(presentationTimeUs: Long) {
+        firstInputPresentationUs = minOf(firstInputPresentationUs ?: presentationTimeUs, presentationTimeUs)
     }
 
     fun reset() {
-        inputQueued = false
+        firstInputPresentationUs = null
         activeSinceNs = null
     }
 
@@ -23,8 +23,10 @@ internal class VideoFirstOutputWatchdog(
         nowNs: Long,
         active: Boolean,
         outputVerified: Boolean,
+        masterPositionUs: Long,
     ): Boolean {
-        if (!active || !inputQueued || outputVerified) {
+        val inputDue = firstInputPresentationUs?.let { it <= masterPositionUs + 250_000L } == true
+        if (!active || !inputDue || outputVerified) {
             activeSinceNs = null
             return false
         }
