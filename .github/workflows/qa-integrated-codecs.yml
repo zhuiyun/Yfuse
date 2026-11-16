@@ -1,4 +1,4 @@
-name: Extended codec playback with valid 48 kHz audio fixtures
+name: Extended codecs on the external video recovery repair
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
@@ -24,8 +24,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with: {persist-credentials: false}
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with: {name: candidate-test-input, path: preview, run-id: 43819930137, github-token: '${{ github.token }}'}
+      - name: Wait for the new runtime qualification
+        env: {API_TOKEN: "${{ github.token }}"}
+        run: bash qa-integrated/acquire-qualified-candidate.sh 43837990618 01c516e080448587d5225342ccd4aff94a6fed85
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with: {name: arm-input-driver, path: qa-driver, run-id: 43821082631, github-token: '${{ github.token }}'}
       - name: Verify qualified candidate and prepare six video and audio combinations
@@ -33,7 +34,7 @@ jobs:
           set -euo pipefail
           mkdir -p results
           (cd preview && sha256sum -c apk.sha256)
-          grep -Fx "app=580fcafbe5182413bcc7a3979b5348c0c97a83a0" preview/provenance.txt
+          grep -Fx "app=01c516e080448587d5225342ccd4aff94a6fed85" preview/provenance.txt
           cp preview/provenance.txt preview/apk.sha256 results/
           sudo apt-get update -qq
           sudo apt-get install -y ffmpeg python3-pil
