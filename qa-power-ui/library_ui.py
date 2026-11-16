@@ -35,7 +35,7 @@ def field(label, value, secret=False):
             raise AssertionError('Editable control value was not accepted: ' + label)
 
 
-def connect():
+def connect(port=18196):
     ui.pkg = 'com.yfuse'
     ui.launch()
     ui.root('服务器')
@@ -45,7 +45,7 @@ def connect():
     if http is not None:
         ui.tap(http)
     field('地址', '127.0.0.1')
-    field('端口', '18196')
+    field('端口', str(port))
     field('用户名', 'seekqa')
     field('密码', 'local-fixture-only', secret=True)
     ui.tap(ui.grab('连接到服务器', 6))

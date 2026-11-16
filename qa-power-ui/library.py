@@ -21,11 +21,13 @@ def item(key, title, kind='Movie', **extra):
 
 
 class LibraryServer:
-    def __init__(self, output, port=18196):
+    def __init__(self, output, port=18196, name='Cloud QA Library'):
         self.output = Path(output)
         self.lock = threading.Lock()
         self.requests = 0
         self.failure = False
+        self.name = name
+        self.server_id = 'cloud-qa-only' if port == 18196 else 'cloud-qa-' + str(port)
         self.movies = [item('movie-' + str(i), title) for i, title in enumerate([
             '山海之间', '星际来信', '雨后小镇',
             '这是一个用于检验换行与省略行为的很长电影标题：夜空下的旅程'])]
@@ -71,8 +73,8 @@ class LibraryServer:
                     self.reply(asset.read_bytes(), 'image/webp')
                     return
                 if path.endswith('/System/Info/Public') or path.endswith('/System/Info'):
-                    value = {'ServerName': 'Cloud QA Library', 'Version': '4.8.0.0',
-                             'Id': 'cloud-qa-only', 'ProductName': 'Emby Server'}
+                    value = {'ServerName': owner.name, 'Version': '4.8.0.0',
+                             'Id': owner.server_id, 'ProductName': 'Emby Server'}
                 elif path.endswith('/Users/AuthenticateByName'):
                     value = {'AccessToken': 'local-fixture-only', 'User': {'Id': 'qa', 'Name': 'seekqa'}}
                 elif path.endswith('/Users/Public'):
