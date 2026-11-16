@@ -53,15 +53,18 @@ def playing(core):
 
 
 def pause():
-    direct.reveal()
-    node = ui.find(ui.snapshot(), ['暂停', 'Pause'])
+    _, tree = direct.reveal()
+    # Reuse the revealed tree: a second instrumentation attachment may outlive
+    # the player's auto-hide interval before the tap reaches the control.
+    node = ui.find(tree, ['暂停', 'Pause'])
     if node is None:
         raise AssertionError('Pause control unavailable')
     ui.tap(node)
-    direct.reveal()
-    first = direct.media_clock(ui.snapshot())
+    _, tree = direct.reveal()
+    first = direct.media_clock(tree)
     time.sleep(2)
-    second = direct.media_clock(ui.snapshot())
+    _, tree = direct.reveal()
+    second = direct.media_clock(tree)
     if first is None or second is None or abs(second - first) > 1:
         raise AssertionError('Playback did not pause')
     return {'positionBefore': first, 'positionAfter': second}

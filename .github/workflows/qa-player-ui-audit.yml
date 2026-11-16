@@ -1,4 +1,4 @@
-name: Actual YCore and SenPlayer player popup visual audit
+name: Actual YCore and SenPlayer player popup visual audit (reveal-tree reuse)
 'on':
   push:
     branches:

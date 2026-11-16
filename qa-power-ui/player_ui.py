@@ -68,6 +68,8 @@ def main():
                         row['scrollEndObserved'] = True
                         break
                     previous = shot['treeSha256']
+                else:
+                    row['scrollEndObserved'] = False
                 row['status'] = 'captured-needs-review'
             except Exception as error:
                 row['status'] = 'capture-blocked'
@@ -84,6 +86,8 @@ def main():
                 print('PLAYER_UI', core, name, row['status'], flush=True)
     finally:
         server.close()
+    if not any(row['status'] == 'captured-needs-review' for row in rows):
+        raise SystemExit('No player route captured; evidence collection did not complete')
 
 
 if __name__ == '__main__':
