@@ -23,6 +23,7 @@ import com.yfuse.core.designsystem.LocalSettingsLocator
 import com.yfuse.core.designsystem.MotionTheme
 import com.yfuse.core.designsystem.SettingsLocatorRequest
 import com.yfuse.core.designsystem.YfuseTheme
+import com.yfuse.launchMainActivityForInput
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -138,7 +139,7 @@ class SettingsPagesInstrumentedTest {
         val page = mutableStateOf(ProfilePage.Appearance)
         val locator = mutableStateOf<SettingsLocatorRequest?>(null)
         try {
-            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            launchMainActivityForInput().use { scenario ->
                 scenario.onActivity { activity ->
                     activity.setContent {
                         YfuseTheme(dark = true, accessibility = AccessibilityOptions(reduceMotion = true)) {
@@ -185,17 +186,38 @@ class SettingsPagesInstrumentedTest {
         instrumentation.uiAutomation.rootInActiveWindow?.let(pending::addLast)
         while (pending.isNotEmpty()) {
             val node = pending.removeFirst()
-            if (node.isVisibleToUser &&
-                (
-                    node.text?.lines()?.contains(label) == true ||
-                        node.contentDescription?.lines()?.contains(label) == true
-                )
+            if (node.text?.lines()?.contains(label) == true ||
+                node.contentDescription?.lines()?.contains(label) == true
             ) {
-                return node
+                // Scrolling invalidates cached child bounds independently of the parent. Query the
+                // provider before judging visibility; preserve changed coordinates as evidence.
+                val before = android.graphics.Rect().also(node::getBoundsInScreen)
+                val wasVisible = node.isVisibleToUser
+                if (node.refresh()) {
+                    val after = android.graphics.Rect().also(node::getBoundsInScreen)
+                    if (before != after || wasVisible != node.isVisibleToUser) {
+                        recordRefreshedBounds(label, before, after, wasVisible, node.isVisibleToUser)
+                    }
+                    if (node.isVisibleToUser) return node
+                }
             }
             repeat(node.childCount) { node.getChild(it)?.let(pending::addLast) }
         }
         return null
+    }
+
+    private fun recordRefreshedBounds(
+        label: String,
+        before: android.graphics.Rect,
+        after: android.graphics.Rect,
+        wasVisible: Boolean,
+        visible: Boolean,
+    ) {
+        val directory = File(instrumentation.targetContext.getExternalFilesDir(null), "settings-evidence")
+        directory.mkdirs()
+        File(directory, "refreshed-bounds.txt").appendText(
+            "$label | cached=$before visible=$wasVisible | refreshed=$after visible=$visible\n",
+        )
     }
 
     private fun await(

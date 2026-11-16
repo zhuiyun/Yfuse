@@ -351,6 +351,19 @@ private class FrameCostCollector(
     private val handler = Handler(thread.looper)
     private val samples = mutableListOf<Long>()
     private val firstFrames = mutableListOf<Long>()
+    private val components =
+        linkedMapOf(
+            "unknownDelay" to FrameMetrics.UNKNOWN_DELAY_DURATION,
+            "input" to FrameMetrics.INPUT_HANDLING_DURATION,
+            "animation" to FrameMetrics.ANIMATION_DURATION,
+            "layout" to FrameMetrics.LAYOUT_MEASURE_DURATION,
+            "draw" to FrameMetrics.DRAW_DURATION,
+            "sync" to FrameMetrics.SYNC_DURATION,
+            "commandIssue" to FrameMetrics.COMMAND_ISSUE_DURATION,
+            "swapBuffers" to FrameMetrics.SWAP_BUFFERS_DURATION,
+            "gpu" to FrameMetrics.GPU_DURATION,
+        )
+    private val componentSamples = components.keys.associateWith { mutableListOf<Long>() }
     private var droppedReports = 0
     private var budgetNs = 16_666_667L
 
@@ -372,6 +385,10 @@ private class FrameCostCollector(
                             firstFrames.add(total)
                         } else {
                             samples.add(total)
+                            components.forEach { (name, metric) ->
+                                val duration = metrics.getMetric(metric)
+                                if (duration >= 0L) componentSamples.getValue(name).add(duration)
+                            }
                         }
                     }
                     droppedReports += dropped
@@ -401,6 +418,7 @@ private class FrameCostCollector(
     fun reset() {
         samples.clear()
         firstFrames.clear()
+        componentSamples.values.forEach { it.clear() }
         droppedReports = 0
     }
 
@@ -424,7 +442,22 @@ private class FrameCostCollector(
             .put("firstDrawFrames", firstFrames.size)
             .put("firstDrawP95Ms", percentile(firstFrames.sorted(), 0.95))
             .put("droppedMetricReports", droppedReports)
+            .put("componentCosts", componentCosts())
     }
+
+    private fun componentCosts(): JSONObject =
+        JSONObject().apply {
+            componentSamples.forEach { (name, durations) ->
+                put(
+                    name,
+                    JSONObject().apply {
+                        put("samples", durations.size)
+                        put("p50Ms", if (durations.isEmpty()) JSONObject.NULL else percentile(durations.sorted(), 0.5))
+                        put("p95Ms", if (durations.isEmpty()) JSONObject.NULL else percentile(durations.sorted(), 0.95))
+                    },
+                )
+            }
+        }
 
     private fun percentile(
         sorted: List<Long>,
