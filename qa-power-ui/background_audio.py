@@ -98,7 +98,7 @@ def return_to_player(out):
         time.sleep(.5)
     else:
         raise AssertionError('Original player did not return to the foreground')
-    adb('shell', 'cmd', 'media_session', 'dispatch', 'play')
+    adb('shell', 'input', 'keyevent', '126')
     proof = direct.decode_playback('audio-foreground-return', None, 3600)
     (out / 'foreground-return-moving-picture.json').write_text(json.dumps(proof), encoding='utf-8')
 
@@ -168,7 +168,7 @@ def main():
             elif name == 'screenoff-audio-requested':
                 adb('shell', 'input', 'keyevent', '223')
             elif name == 'background-paused':
-                adb('shell', 'cmd', 'media_session', 'dispatch', 'pause')
+                adb('shell', 'input', 'keyevent', '127')
             elif name == 'foreground-return':
                 return_to_player(out)
             active = name in ('foreground-playing', 'foreground-return')

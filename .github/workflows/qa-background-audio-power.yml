@@ -1,4 +1,4 @@
-name: One-hour unsupported audio route fallback and restored playback
+name: One-hour fallback and foreground recovery using actual media key events
 'on':
   push:
     branches:

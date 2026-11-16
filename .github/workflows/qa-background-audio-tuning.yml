@@ -1,4 +1,4 @@
-name: One-hour SCore background recovery with400ms native audio delay restoration
+name: One-hour SCore400ms tuning recovery using actual media key events
 'on':
   push:
     branches:
