@@ -1,6 +1,7 @@
 """Sign into only the disposable loopback fixture through real native UI controls."""
 import sys
 import time
+from pathlib import Path
 sys.path.insert(0, 'qa-functional')
 import features as ui
 
@@ -24,6 +25,8 @@ def field(label, value, secret=False):
     result = ui.adb('shell', 'am', 'instrument', '-w', '-e', 'mode', 'setText',
                     '-e', 'x', x, '-e', 'y', y, '-e', 'value', value, 'qa.yfuse.gesture/.Driver')
     if 'outcome=text-set' not in result:
+        evidence = Path('results/form-input-failure.txt')
+        evidence.write_text(result.replace(value, '<fixture-value>'), encoding='utf-8')
         raise AssertionError('Visible editor action failed: ' + label)
     time.sleep(.3)
     ui.hide_keyboard()

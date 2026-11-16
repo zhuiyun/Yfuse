@@ -1,4 +1,4 @@
-name: Long activity baseline with accessible form setup
+name: Long activity baseline after editable window readiness check
 'on':
   push:
     branches:

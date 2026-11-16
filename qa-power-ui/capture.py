@@ -90,7 +90,11 @@ def main():
     ui.launch()
     ui.root('我的')
     click('外观与交互')
-    click('深色' if variant == 'dark-large' else '浅色', 4)
+    # Selected segments intentionally have no click action. First choose Light,
+    # since a clean install defaults to Dark, then choose Dark if requested.
+    click('浅色', 4)
+    if variant == 'dark-large':
+        click('深色', 4)
     time.sleep(1)
     theme = adb('shell', 'cat', '/data/user/0/com.yfuse/shared_prefs/yfuse.xml')
     selected = ET.fromstring(theme).find("./string[@name='theme.mode']")

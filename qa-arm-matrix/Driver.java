@@ -201,8 +201,12 @@ public final class Driver extends Instrumentation {
         try {
             final UiAutomation ui=getUiAutomation();
             if ("setText".equals(args.getString("mode"))) {
-                android.view.accessibility.AccessibilityNodeInfo field = editableAt(
-                        ui.getRootInActiveWindow(), Integer.parseInt(args.getString("x")), Integer.parseInt(args.getString("y")));
+                android.view.accessibility.AccessibilityNodeInfo field = null;
+                for (int attempt = 0; attempt < 30 && field == null; attempt++) {
+                    field = editableAt(ui.getRootInActiveWindow(),
+                            Integer.parseInt(args.getString("x")), Integer.parseInt(args.getString("y")));
+                    if (field == null) SystemClock.sleep(100);
+                }
                 if (field == null) throw new IllegalStateException("Visible editable control unavailable");
                 Bundle text = new Bundle();
                 text.putCharSequence(android.view.accessibility.AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
