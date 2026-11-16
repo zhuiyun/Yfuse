@@ -75,6 +75,20 @@ class RelayTest(unittest.TestCase):
         self.assertEqual((200, "10", b""), (status, headers["Content-Length"], body))
         self.assertEqual([], self.origin.requests)
 
+    def test_range_telemetry_is_numeric_bounded_and_has_no_source_or_capability(self):
+        self.request(headers={"Range": "bytes=3-6"})
+        deadline = time.monotonic() + 1
+        while not self.state.request_summary()['total'] and time.monotonic() < deadline:
+            time.sleep(.01)
+        row = self.state.request_summary()['retained'][0]
+        self.assertEqual(('m-001', 3, 6, 4, 206),
+                         (row['label'], row['start'], row['end'], row['bytes'], row['status']))
+        self.assertNotIn(self.token, str(row))
+        self.assertNotIn('media.invalid', str(row))
+        for _ in range(4100):self.state.record_request(row)
+        self.assertEqual(4101, self.state.request_summary()['total'])
+        self.assertEqual(4096, len(self.state.request_summary()['retained']))
+
     def test_expiry_and_stop_revoke_access(self):
         self.state.deadline = time.monotonic() - 1
         self.assertEqual(410, self.request()[0])

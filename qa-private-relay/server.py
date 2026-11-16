@@ -1,5 +1,6 @@
 """Bounded, read-only range relay; only an explicit in-memory source allowlist is served."""
 import hmac
+from collections import deque
 import http.server
 import re
 import socketserver
@@ -82,6 +83,8 @@ class RelayState:
         self.deadline = time.monotonic() + lifetime
         self.remaining = byte_budget
         self.bytes_sent = 0
+        self.request_count = 0
+        self.request_history = deque(maxlen=4096)
         self.lock = threading.Lock()
         self.slots = threading.BoundedSemaphore(8)
         self.stopped = threading.Event()
@@ -101,6 +104,15 @@ class RelayState:
         with self.lock:
             self.bytes_sent += amount
 
+    def record_request(self, record):
+        with self.lock:
+            self.request_count += 1
+            self.request_history.append(record)
+
+    def request_summary(self):
+        with self.lock:
+            return {"total": self.request_count, "retained": list(self.request_history)}
+
 
 def handler_for(state):
     class Handler(http.server.BaseHTTPRequestHandler):
@@ -109,6 +121,7 @@ def handler_for(state):
             pass
 
         def fail(self, status, size=None):
+            self.response_status = status
             self.send_response(status)
             self.send_header("Content-Length", "0")
             self.send_header("Cache-Control", "no-store")
@@ -164,6 +177,10 @@ def handler_for(state):
                 self.fail(503)
                 return
             started = False
+            began = time.monotonic()
+            metric = {"label": label, "start": lo, "end": hi, "bytes": 0,
+                      "startedEpochMs": round(time.time() * 1000)}
+            self.response_status = 0
             try:
                 if not state.alive():
                     self.fail(410)
@@ -192,17 +209,24 @@ def handler_for(state):
                         data = response.read(amount)
                         if not data or not state.alive():
                             break
+                        if "firstByteMs" not in metric:
+                            metric["firstByteMs"] = round((time.monotonic() - began) * 1000)
                         self.wfile.write(data)
                         state.sent(len(data))
+                        metric["bytes"] += len(data)
                         left -= len(data)
-            except Exception:
+            except Exception as error:
+                metric["errorType"] = type(error).__name__
                 if not started:
                     self.fail(502)
             finally:
                 self.close_connection = True
+                metric.update(status=self.response_status, elapsedMs=round((time.monotonic() - began) * 1000))
+                state.record_request(metric)
                 state.slots.release()
 
         def headers_for(self, lo, hi, partial, size):
+            self.response_status = 206 if partial else 200
             self.send_response(206 if partial else 200)
             self.send_header("Content-Type", "application/octet-stream")
             self.send_header("Content-Length", str(hi - lo + 1))
