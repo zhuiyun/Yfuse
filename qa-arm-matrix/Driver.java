@@ -24,6 +24,7 @@ public final class Driver extends Instrumentation {
         if(n==null)return null;
         String label=String.valueOf(n.getClassName())+" "+n.getContentDescription()+" "+(android.os.Build.VERSION.SDK_INT>=30?n.getStateDescription():"");
         if(label.contains("SeekBar")||label.contains("播放进度")) {
+            if(!n.refresh() || !n.isVisibleToUser())return null;
             android.graphics.Rect b=new android.graphics.Rect();n.getBoundsInScreen(b);
             if(b.width()>150 && b.height()>0)return b;
         }
@@ -122,6 +123,9 @@ public final class Driver extends Instrumentation {
         return null;
     }
     private void volume(UiAutomation ui,Bundle result)throws Exception {
+        // A new instrumentation connection can initially retain the previous control tree.
+        // Wait for UI events, then refresh the rail before measuring its current bounds.
+        try{ui.waitForIdle(250,2500);}catch(java.util.concurrent.TimeoutException ignored){}
         int count=Integer.parseInt(args.getString("count")),duration=Integer.parseInt(args.getString("duration"));
         int seed=Integer.parseInt(args.getString("seed"));java.util.Random random=new java.util.Random(seed);
         org.json.JSONArray rows=new org.json.JSONArray();android.graphics.Rect r=null;

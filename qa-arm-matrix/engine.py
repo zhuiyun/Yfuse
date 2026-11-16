@@ -48,6 +48,7 @@ def engine_evidence(engine, since=0):
         try:
             import datetime
             item=json.loads(line)
+            item['attributes']={k.lower():v for k,v in item.get('attributes',{}).items()}
             if datetime.datetime.fromisoformat(item['timestamp'].replace('Z','+00:00')).timestamp()>=since-1: rows.append(item)
         except (ValueError,TypeError,KeyError):pass
     sen_output=any(r.get('category')=='player.senplayer' and r.get('event') in ('video_output_sample','video_output_recovery') and (r.get('attributes',{}).get('rendered')=='true' or int(r.get('attributes',{}).get('decodedframes','0') or '0')>0) for r in rows)

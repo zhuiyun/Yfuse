@@ -56,4 +56,4 @@ for index,item in enumerate(catalog):
         problems.append({'id':item['id'],'reason':type(ex).__name__});print('PREPARE_FAILED',index,type(ex).__name__,flush=True)
     (root/'fixtures.json').write_text(json.dumps(files))
     (out/'source-preparation.json').write_text(json.dumps({'shard':shard,'prepared':[f['titleID'] for f in files],'failed':problems}))
-if not files:raise SystemExit(2)
+if not files or problems:raise SystemExit(2)

@@ -56,8 +56,9 @@ for idx,clip in enumerate(clips):
         since=time.time()
         ok=open_media(clip)
         proof=engine_evidence(os.environ['QA_ENGINE'],since)
-        if ok and not proof['active']:
-            time.sleep(1.4);proof=engine_evidence(os.environ['QA_ENGINE'],since)
+        identity_deadline=time.monotonic()+12
+        while ok and not proof['active'] and time.monotonic()<identity_deadline:
+            time.sleep(.5);proof=engine_evidence(os.environ['QA_ENGINE'],since)
         detail['sessions'].append({'session':session,'opened':ok,'identity':proof})
         print('IDENTITY',clip['name'],session,ok,proof,flush=True)
         ok=ok and proof['active']
