@@ -1,4 +1,4 @@
-"""Cloud comparison of repeated original Sintel seeks over origin and loopback HTTP."""
+"""Cloud comparison of repeated public original opens/seeks over origin and loopback HTTP."""
 import hashlib
 import json
 import os
@@ -12,8 +12,10 @@ if os.environ.get('GITHUB_ACTIONS') != 'true':
 
 import direct
 
-item = next(x for x in json.loads(Path('qa-format-originals/sources.json').read_text())
-            if x['id'] == 'sintel-blender-1080p-mkv')
+catalog = json.loads(Path('qa-format-originals/sources.json').read_text())
+catalog += [dict(x, mime='video/mp4') for x in json.loads(Path('qa-titles/catalog.json').read_text())]
+requested_id = os.environ.get('QA_ORIGINAL_ID', 'sintel-blender-1080p-mkv')
+item = next(x for x in catalog if x['id'] == requested_id)
 mode = os.environ['QA_ORIGINAL_PATH']
 if mode not in ('origin', 'loopback'):
     raise ValueError('Unknown control route')
@@ -21,7 +23,7 @@ os.environ['QA_CAPTURE_FAILURE'] = 'true'
 server = None
 
 if mode == 'loopback':
-    target = Path(os.environ['RUNNER_TEMP']) / 'sintel-original.mkv'
+    target = Path(os.environ['RUNNER_TEMP']) / 'public-original.media'
     subprocess.run(['curl', '--fail', '--location', '--retry', '3', '--max-time', '600',
                     '--output', str(target), item['url']], check=True)
     digest = hashlib.sha256()
@@ -35,7 +37,7 @@ if mode == 'loopback':
         def do_GET(self):self.serve(True)
         def do_HEAD(self):self.serve(False)
         def serve(self, body):
-            if self.path != '/original.mkv':
+            if self.path != '/original.media':
                 self.send_error(404);return
             size = target.stat().st_size
             import re
@@ -46,7 +48,7 @@ if mode == 'loopback':
                 self.send_error(416);return
             self.send_response(206 if match else 200)
             self.send_header('Content-Length', str(end-start+1))
-            self.send_header('Content-Type', 'video/x-matroska')
+            self.send_header('Content-Type', item['mime'])
             self.send_header('Accept-Ranges', 'bytes')
             if match:self.send_header('Content-Range', f'bytes {start}-{end}/{size}')
             self.end_headers()
@@ -66,7 +68,7 @@ if mode == 'loopback':
     server.daemon_threads = True
     threading.Thread(target=server.serve_forever, daemon=True).start()
     direct.adb('reverse', 'tcp:18389', 'tcp:18389')
-    item = dict(item, testUrl='http://127.0.0.1:18389/original.mkv')
+    item = dict(item, testUrl='http://127.0.0.1:18389/original.media')
 
 try:
     for index in range(12):
@@ -80,7 +82,7 @@ try:
         if not direct.ROWS[-1].get('ok'):
             break
     passed = sum(row['case'].endswith('-complete') and row.get('ok',False) for row in direct.ROWS)
-    direct.measured('repeat-summary', mode=mode, plannedOpens=12, passedOpens=passed)
+    direct.measured('repeat-summary', sourceId=requested_id, mode=mode, plannedOpens=12, passedOpens=passed)
     raise SystemExit(int(passed != 12))
 finally:
     if server:

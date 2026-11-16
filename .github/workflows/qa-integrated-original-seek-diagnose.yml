@@ -1,4 +1,4 @@
-name: Diagnose original SenPlayer MKV backward seek over origin and local bytes
+name: Diagnose first original MP4 startup failure on the current candidate
 'on':
   push:
     branches:
@@ -10,7 +10,7 @@ permissions:
   actions: read
 jobs:
   diagnose:
-    name: SenPlayer original seek control ${{ matrix.path }}
+    name: SenPlayer original startup control ${{ matrix.path }}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 75
     strategy:
@@ -24,6 +24,7 @@ jobs:
       QA_ENGINE: SenPlayer
       QA_ORIGINAL_PATH: ${{ matrix.path }}
       QA_CAPTURE_FAILURE: 'true'
+      QA_ORIGINAL_ID: blender-6402b77c-b61f-4a06-96ca-c8420a2becf4
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with:
@@ -32,7 +33,7 @@ jobs:
       with:
         name: candidate-test-input
         path: preview
-        run-id: 43837990618
+        run-id: 43872512692
         github-token: ${{ github.token }}
     - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
       with:
@@ -47,7 +48,7 @@ jobs:
 
         (cd preview && sha256sum -c apk.sha256)
 
-        grep -Fx "app=01c516e080448587d5225342ccd4aff94a6fed85" preview/provenance.txt
+        grep -Fx "app=7ab9b6b372eab29181daff32c0ff660604087b20" preview/provenance.txt
 
         cp preview/provenance.txt preview/apk.sha256 results/
 
@@ -87,6 +88,6 @@ jobs:
     - if: always()
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
       with:
-        name: original-seek-control-${{ matrix.path }}
+        name: original-startup-control-${{ matrix.path }}
         path: results/
         retention-days: 10
