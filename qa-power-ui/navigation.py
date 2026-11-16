@@ -32,7 +32,7 @@ def control(keys, scrolls=8):
                 if target is None or target.get('enabled') == 'false':
                     continue
                 left, top, right, end = bounds(target)
-                if left >= 0 and right <= width and top >= height * .035 and end <= bottom:
+                if left >= 0 and right <= width and top >= 0 and end <= bottom:
                     return target
         if attempt < scrolls:
             ui.shell('input', 'swipe', width // 2, int(bottom * .87),

@@ -1,4 +1,4 @@
-name: Long activity baseline after editable window readiness check
+name: Long activity retest after background sampling and UI fixes
 'on':
   push:
     branches:
@@ -19,7 +19,7 @@ jobs:
     - name: Acquire built diagnostic baseline and retain known qualification failures
       env:
         API_TOKEN: ${{ github.token }}
-      run: bash qa-power-ui/acquire-baseline.sh 43853752670 eff812329895ae01f7545677110ff12af96de37e
+      run: bash qa-power-ui/acquire-baseline.sh 43868047280 7ab9b6b372eab29181daff32c0ff660604087b20
     - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
       with:
         name: power-ui-baseline-input
@@ -136,7 +136,7 @@ jobs:
         path: results/
         retention-days: 14
   baseline:
-    name: Four-hour baseline ${{ matrix.engine }}
+    name: Four-hour after fixes ${{ matrix.engine }}
     needs:
     - acquire
     - pilot

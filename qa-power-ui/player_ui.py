@@ -1,6 +1,7 @@
 """Actual two-engine player popup and bright-video readability evidence."""
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import time
@@ -12,7 +13,7 @@ from capture import capture
 
 ROUTES = [
     ('paused-controls', []), ('subtitles', ['字幕']), ('audio', ['音轨']),
-    ('speed', ['倍速']), ('skip', ['片头片尾']), ('danmaku', ['弹幕']),
+    ('speed', ['播放速度']), ('skip', ['标记片头片尾']), ('danmaku', [['弹幕，已开启', '弹幕，已关闭']]),
     ('cast', ['投屏']), ('more', ['更多']), ('engine', ['更多', '播放内核']),
     ('media-info', ['更多', '媒体信息']), ('bookmarks', ['更多', '时间书签']),
     ('handoff', ['更多', '设备接力']), ('gestures-help', ['更多', '手势与快捷键']),
@@ -21,6 +22,21 @@ ROUTES = [
     ('sleep', ['更多', '播放设置', '睡眠定时']),
     ('gestures', ['更多', '播放设置', '手势设置']),
 ]
+
+
+def pause_visible():
+    result = adb('shell', 'am', 'instrument', '-w', '-e', 'mode', 'playerPause', 'qa.yfuse.gesture/.Driver')
+    values = dict(re.findall(r'INSTRUMENTATION_RESULT: (\w+)=(.*)', result))
+    clocks = [re.search(r'播放进度 ((?:\d+:)?\d+:\d+)', values.get(key, ''))
+              for key in ('firstState', 'secondState')]
+    def seconds(match):
+        value = 0
+        for part in match.group(1).split(':'):
+            value = value * 60 + int(part)
+        return value
+    if values.get('command', '').strip() != 'paused' or not all(clocks) or abs(seconds(clocks[1]) - seconds(clocks[0])) > 1:
+        raise AssertionError('Atomic pause action and stable media clock not confirmed')
+    return {'positionBefore': seconds(clocks[0]), 'positionAfter': seconds(clocks[1]), 'command': 'paused'}
 
 
 def main():
@@ -44,7 +60,7 @@ def main():
             try:
                 adb('shell', 'am', 'force-stop', 'com.yfuse')
                 row['playback'] = playing(core)
-                row['pause'] = pause()
+                row['pause'] = pause_visible()
                 for label in path:
                     click(label, 8)
                 key = '%02d-%s' % (index, name)

@@ -200,6 +200,23 @@ public final class Driver extends Instrumentation {
         Bundle result=new Bundle();
         try {
             final UiAutomation ui=getUiAutomation();
+            if ("playerPause".equals(args.getString("mode"))) {
+                if (readyRail(ui) == null) throw new IllegalStateException("Player controls unavailable");
+                android.view.accessibility.AccessibilityNodeInfo root = ui.getRootInActiveWindow();
+                if (!"paused".equals(command(root)) && !accessibleClick(exact(root, "暂停", "Pause")))
+                    throw new IllegalStateException("Pause action unavailable");
+                long deadline = SystemClock.uptimeMillis() + 6000;
+                while (SystemClock.uptimeMillis() < deadline && !"paused".equals(command(ui.getRootInActiveWindow())))
+                    SystemClock.sleep(100);
+                if (!"paused".equals(command(ui.getRootInActiveWindow())))
+                    throw new IllegalStateException("Pause state not confirmed");
+                SystemClock.sleep(500);
+                result.putString("firstState", playbackState(ui.getRootInActiveWindow()));
+                SystemClock.sleep(2200);
+                result.putString("secondState", playbackState(ui.getRootInActiveWindow()));
+                result.putString("command", command(ui.getRootInActiveWindow()));
+                finish(-1, result); return;
+            }
             if ("setText".equals(args.getString("mode"))) {
                 android.view.accessibility.AccessibilityNodeInfo field = null;
                 for (int attempt = 0; attempt < 30 && field == null; attempt++) {

@@ -9,7 +9,7 @@ import time
 import xml.etree.ElementTree as ET
 from library import LibraryServer
 from library_ui import connect
-from navigation import click
+from navigation import click, bounds
 
 sys.path.insert(0, 'qa-arm-matrix')
 import engine
@@ -134,8 +134,15 @@ def main():
             previous = row['top']['treeSha256']
             row['scrolls'] = []
             for page in range(1, 26):
-                adb('shell', 'input', 'swipe', width // 2, int(height * .78),
-                    width // 2, int(height * .30), 450)
+                tree = ui.snapshot()
+                panes = [node for node in ui.nodes(tree) if node.get('scrollable') == 'true']
+                if not panes:
+                    row['scrollEndObserved'] = True
+                    break
+                pane = max(panes, key=lambda node: (bounds(node)[2] - bounds(node)[0]) * (bounds(node)[3] - bounds(node)[1]))
+                left, top, right, bottom = bounds(pane)
+                adb('shell', 'input', 'swipe', (left + right) // 2, int(top + (bottom - top) * .82),
+                    (left + right) // 2, int(top + (bottom - top) * .25), 450)
                 time.sleep(.6)
                 shot = capture(out, key + '-scroll-' + str(page))
                 row['scrolls'].append(shot)
