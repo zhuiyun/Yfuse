@@ -13,6 +13,9 @@ class HTTP(BaseHTTPRequestHandler):
     def do_HEAD(self):self.serve(False)
     def do_GET(self):self.serve(True)
     def serve(self,body):
+        if os.environ.get('QA_STOP_ON_FAILURE')=='true':
+            with (out/'public-range-arrivals.jsonl').open('a') as log:
+                log.write(json.dumps({'timeMs':round(time.time()*1000),'method':self.command,'range':self.headers.get('Range','')})+'\n')
         name=self.path.lstrip('/')
         if name not in allow:self.send_error(404);return
         path=root/name;size=path.stat().st_size
@@ -46,6 +49,7 @@ def capture_open_failure(clip, session):
     pathlib.Path(str(prefix)+'-diagnostics.txt').write_text(adb('shell','cat /data/user/0/com.yfuse/no_backup/diagnostics/diagnostic-*.jsonl',check=False))
     # Capture a live blocked seek before the next session force-stops it. These are public
     # generated fixtures; private-source jobs never execute this recorder.
+    pathlib.Path(str(prefix)+'-host-sockets.txt').write_text(subprocess.run(['ss','-ntp'],capture_output=True,text=True).stdout)
     pid=adb('shell','pidof com.yfuse',check=False).strip()
     if pid.isdigit():
         try:
@@ -99,7 +103,7 @@ for idx,clip in enumerate(clips):
             base_seed=int(os.environ.get('QA_SEED_BASE',str((11987311 if os.environ['QA_ENGINE']=='YCore' else 22987311)+shard*2017+idx*137)))
             seed=base_seed+batch if os.environ.get('QA_REPEAT_SESSION')=='true' else base_seed if os.environ.get('QA_REPEAT_SEED')=='true' else base_seed+session*19+batch
             try:
-                answer=adb('shell','am','instrument','-w','-e','mode','volume','-e','variant','original','-e','seed',seed,'-e','count',batch_count,'-e','duration',clip['duration'],'qa.yfuse.gesture/.Driver',timeout=350)
+                answer=adb('shell','am','instrument','-w','-e','mode','volume','-e','variant','original','-e','seed',seed,'-e','count',batch_count,'-e','duration',clip['duration'],'-e','stopOnFailure',os.environ.get('QA_STOP_ON_FAILURE','false'),'qa.yfuse.gesture/.Driver',timeout=350)
                 match=re.search(r'INSTRUMENTATION_RESULT: rows=([A-Za-z0-9+/=]+)',answer)
                 if not match:raise ValueError('missing instrumentation response')
                 rows=json.loads(base64.b64decode(match[1]))

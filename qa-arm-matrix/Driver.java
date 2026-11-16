@@ -168,6 +168,7 @@ public final class Driver extends Instrumentation {
                 row.put("anchorPTS",anchor[0]);row.put("anchorElapsedMs",anchor[1]);row.put("anchorResets",anchor[2]);
                 row.put("ok",ok);if(!ok){row.put("reason","target or advancing frame not verified");row.put("after",command(ui.getRootInActiveWindow()));row.put("stateAfter",playbackState(ui.getRootInActiveWindow()));row.put("endPTS",marker(ui));}
             }catch(Exception e){row.put("reason",e.getClass().getSimpleName());}
+            if("true".equals(args.getString("stopOnFailure")) && !row.optBoolean("ok"))break;
         }
         result.putString("rows",android.util.Base64.encodeToString(rows.toString().getBytes("UTF-8"),android.util.Base64.NO_WRAP));finish(-1,result);
     }
