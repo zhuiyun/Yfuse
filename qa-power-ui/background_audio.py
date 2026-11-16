@@ -9,7 +9,7 @@ import xml.etree.ElementTree as ET
 
 from capture import failure_diagnostics
 from media import MediaServer
-from power import adb, engine, playing
+from power import adb, direct, engine, playing
 from telemetry import Recorder
 
 
@@ -79,6 +79,27 @@ def require_state(out, label, state, held):
         time.sleep(.5)
 
 
+def return_to_player(out):
+    original = (out / 'after-launch-activity.txt').read_text(encoding='utf-8')
+    tasks = re.findall(r'com\.yfuse/(?:com\.yfuse)?\.feature\.player\.PlayerActivity\s+t(\d+)', original)
+    if not tasks:
+        raise AssertionError('Original player task unavailable for foreground recovery')
+    adb('shell', 'input', 'keyevent', '224')
+    adb('shell', 'wm', 'dismiss-keyguard')
+    adb('shell', 'am', 'task', 'focus', tasks[0])
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        activities = adb('shell', 'dumpsys', 'activity', 'activities')
+        if re.search(r'mResumedActivity[^\n]*PlayerActivity', activities):
+            break
+        time.sleep(.5)
+    else:
+        raise AssertionError('Original player did not return to the foreground')
+    adb('shell', 'cmd', 'media_session', 'dispatch', 'play')
+    proof = direct.decode_playback('audio-foreground-return', None, 3600)
+    (out / 'foreground-return-moving-picture.json').write_text(json.dumps(proof), encoding='utf-8')
+
+
 def main():
     engine.guard()
     core = os.environ['QA_ENGINE']
@@ -104,16 +125,23 @@ def main():
         initial = playing(core)
         if lifecycle_evidence(out, 'after-launch') != 'true':
             raise AssertionError('Background audio preference changed after player launch')
+        if core == 'YCore':
+            rows = [json.loads(line) for line in (out / 'after-launch-diagnostics.jsonl').read_text(encoding='utf-8').splitlines()
+                    if line.startswith('{')]
+            routes = [row.get('attributes', {}).get('route') for row in rows if row.get('event') == 'route_selected']
+            if not routes or routes[-1] != 'SoftwareFallback':
+                raise AssertionError('This fallback study requires the actual cloud software route')
         (out / 'engine-evidence.json').write_text(json.dumps(initial), encoding='utf-8')
         (out / 'conditions.json').write_text(json.dumps({
             'pilot': pilot, 'batterySimulated': True, 'levelSetpoint': 80, 'backgroundAudioEnabled': True,
             'pictureInPictureAppOp': 'deny', 'preferenceSetup': 'Fresh cloud app XML; not a UI setting test',
-            'expectedBackgroundBehavior': 'YCore audio continues; SenPlayer capability fallback pauses',
+            'expectedBackgroundBehavior': 'Cloud YCore SoftwareFallback and SenPlayer do not advertise background audio: both pause',
+            'scopeLimit': 'This fixture verifies unsupported-route fallback, not active hardware-route background audio',
             'audioProofLimit': 'Actual media-session positions and tagged wake lock, no physical audible-output or energy assertion',
         }, indent=2), encoding='utf-8')
         recorder = Recorder(out)
-        schedule = [('foreground-playing', 600), ('background-audio-requested', 1200),
-                    ('screenoff-audio-requested', 1200), ('background-paused', 600)]
+        schedule = [('foreground-playing', 600), ('background-audio-requested', 1080),
+                    ('screenoff-audio-requested', 1080), ('background-paused', 600), ('foreground-return', 240)]
         for name, long_seconds in schedule:
             seconds = 45 if pilot else long_seconds
             row = {'phase': name, 'plannedSeconds': seconds, 'status': 'incomplete'}
@@ -124,9 +152,16 @@ def main():
                 adb('shell', 'input', 'keyevent', '223')
             elif name == 'background-paused':
                 adb('shell', 'cmd', 'media_session', 'dispatch', 'pause')
-            active = name == 'foreground-playing' or (core == 'YCore' and name != 'background-paused')
+            elif name == 'foreground-return':
+                return_to_player(out)
+            active = name in ('foreground-playing', 'foreground-return')
             held = active and name != 'foreground-playing'
             row['entryEvidence'] = require_state(out, name + '-entry', 3 if active else 2, held)
+            if name == 'background-audio-requested':
+                lifecycle_evidence(out, name + '-entry')
+                events = (out / (name + '-entry-diagnostics.jsonl')).read_text(encoding='utf-8')
+                if '"background_audio_unsupported"' not in events:
+                    raise AssertionError('Missing actual route-capability fallback event')
             adb('shell', 'dumpsys', 'gfxinfo', 'com.yfuse', 'reset')
             began = time.monotonic()
             count = 0

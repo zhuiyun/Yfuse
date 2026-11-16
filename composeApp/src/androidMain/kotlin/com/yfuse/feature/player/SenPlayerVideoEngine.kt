@@ -320,7 +320,22 @@ internal class SenPlayerVideoEngine(
         subtitles.surfaceChanged()
         pictureController.reset()
         resetVideoEvidence(session?.sourceId() ?: 0L, reason = "surface_detached")
-        session?.takeIf { it.isUsable() }?.surface(null, null)
+        val current = session?.takeIf { it.isUsable() }
+        if (current != null &&
+            detachSenPlayerSurface(
+                pause = current::pauseForFailure,
+                detach = { current.surface(null, null) },
+                close = ::closeSession,
+            )
+        ) {
+            loadPending = true
+            mutableState.update { it.copy(playing = false, buffering = false) }
+            AppLog.info(
+                "player.senplayer",
+                "surface_session_retired",
+                "Original runtime rejected an empty output; session released until a valid surface returns",
+            )
+        }
         mutableState.update {
             if (released.get() || it.error != null) {
                 it

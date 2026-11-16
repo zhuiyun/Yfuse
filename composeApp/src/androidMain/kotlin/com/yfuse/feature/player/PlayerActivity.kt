@@ -2070,6 +2070,12 @@ class PlayerActivity :
 
     private fun pauseUnsupportedBackgroundAudio(reason: String) {
         backgroundLocks.release()
+        AppLog.info(
+            "feature.player",
+            "background_audio_unsupported",
+            "The active route cannot carry background audio; playback is paused",
+            mapOf("reason" to reason, "engine" to activeState.diagnostics.engine),
+        )
         backgroundAudioLifecycle.pauseUnsupported(
             pausePlayback = { pausePlaybackForLifecycle(reason) },
             restoreVideo = { activePlayer?.setVideoSuspended(false) },
