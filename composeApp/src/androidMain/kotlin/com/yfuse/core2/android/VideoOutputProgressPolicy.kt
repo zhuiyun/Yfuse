@@ -1,7 +1,8 @@
 package com.yfuse.core2.android
 
 /** Audio can remain healthy while a codec accepts video packets without ever producing a frame. */
-internal class VideoDecoderNoOutputException : IllegalStateException("Video decoder accepted input without producing output")
+internal class VideoDecoderNoOutputException :
+    IllegalStateException("Video decoder accepted input without producing output")
 
 internal class VideoFirstOutputWatchdog(
     private val timeoutNs: Long = 12_000_000_000L,

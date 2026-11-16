@@ -309,7 +309,11 @@ internal class AndroidNativeDirectSession(
                 return true
             }
             if (requestedPlay && !refreshOutputGate()) {
-                videoFirstOutputWatchdog.stalled(System.nanoTime(), active = false, outputVerified = firstVideoFrameRendered)
+                videoFirstOutputWatchdog.stalled(
+                    System.nanoTime(),
+                    active = false,
+                    outputVerified = firstVideoFrameRendered,
+                )
                 publishClockPosition()
                 return false
             }

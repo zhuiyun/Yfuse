@@ -63,7 +63,9 @@ class SoftwareOutputContractInstrumentedTest {
         val file = File(instrumentation.targetContext.cacheDir, "timed-top25.mkv")
         file.writeBytes(
             Base64.decode(
-                instrumentation.context.assets.open("ycore/top25.mkv.b64").use { it.readBytes() },
+                instrumentation.context.assets
+                    .open("ycore/top25.mkv.b64")
+                    .use { it.readBytes() },
                 Base64.DEFAULT,
             ),
         )

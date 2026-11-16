@@ -78,7 +78,9 @@ internal class AndroidFfmpegSoftwareDecoderNode(
             when (result[SOFTWARE_FRAME_STATUS]) {
                 SOFTWARE_FRAME_AGAIN -> return YSoftwareVideoDecodeResult.TryAgain
                 SOFTWARE_FRAME_EOF -> return YSoftwareVideoDecodeResult.Ended
-                SOFTWARE_FRAME_SKIPPED -> return YSoftwareVideoDecodeResult.Skipped(result[SOFTWARE_FRAME_PTS].timestampOrZero())
+                SOFTWARE_FRAME_SKIPPED -> return YSoftwareVideoDecodeResult.Skipped(
+                    result[SOFTWARE_FRAME_PTS].timestampOrZero(),
+                )
                 SOFTWARE_FRAME_GROW -> {
                     val required = result[SOFTWARE_FRAME_SIZE]
                     require(required in 1..MAX_VIDEO_FRAME_BYTES.toLong()) {

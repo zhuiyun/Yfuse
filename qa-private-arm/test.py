@@ -192,6 +192,31 @@ def android_network(url):
     finally:adb("shell",f"rm -f {p}",check=False)
 
 
+def source_range_benchmark(media):
+    # Bounded transport measurements only; no bytes, titles, URLs or response headers leave the runner.
+    size=int(media.get("size",0))
+    if size<8388608:return []
+    amount=8388608
+    measurements=[]
+    for position in (0,(size-amount)//2,size-amount):
+        begin=time.monotonic();received=0;first=None;code=0
+        req=urllib.request.Request(media["location"],headers={"Range":f"bytes={position}-{position+amount-1}","User-Agent":PLAYBACK_USER_AGENT,"Accept-Encoding":"identity"})
+        try:
+            with POLICY.open(req,timeout=15) as response:
+                code=response.status
+                if code!=206:raise ValueError("Range benchmark requires partial response")
+                while received<amount and time.monotonic()-begin<25:
+                    data=response.read(min(262144,amount-received))
+                    if not data:break
+                    if first is None:first=time.monotonic()-begin
+                    received+=len(data)
+            elapsed=time.monotonic()-begin
+            measurements.append({"status":code,"bytes":received,"elapsedMs":round(elapsed*1000),"firstByteMs":None if first is None else round(first*1000),"bitsPerSecond":round(received*8/max(elapsed,.001)),"complete":received==amount})
+        except Exception as failure:
+            measurements.append({"status":code,"bytes":received,"elapsedMs":round((time.monotonic()-begin)*1000),"errorType":type(failure).__name__})
+    return measurements
+
+
 def source_probe(media):
     # Never retain stderr or the command arguments: both may repeat the signed address.
     try:
@@ -230,8 +255,10 @@ if __name__=='__main__':
     controls=[next((k for k in groups if k.startswith(prefix) and k not in candidates),None) for prefix in ('m-','e-')]
     launched=candidates+[k for k in controls if k]
     probe_labels=set(os.environ.get('QA_PROBE_LABELS','').split(','))
+    benchmark_labels=set(os.environ.get('QA_BENCHMARK_LABELS','').split(','))
     for label in launched:
         if label in probe_labels:measured(label+'-format-probe',**source_probe(items[label]))
+        if label in benchmark_labels:measured(label+'-range-benchmark',samples=source_range_benchmark(items[label]))
     cores=os.environ.get('QA_ENGINES','YCore,SenPlayer').split(',')
     if not cores or len(set(cores))!=len(cores) or any(core not in ('YCore','SenPlayer') for core in cores):raise ValueError('Invalid cloud engine selection')
     for core in cores:
