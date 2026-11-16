@@ -273,7 +273,7 @@ private fun SearchHomeScreen(
             .fillMaxSize()
             .imePadding()
             .imeNestedScroll()
-            .skeletonSweep()
+            .skeletonSweep(enabled = skeletonShown)
             .then(resultHandoff.page),
     ) {
         LazyColumn(

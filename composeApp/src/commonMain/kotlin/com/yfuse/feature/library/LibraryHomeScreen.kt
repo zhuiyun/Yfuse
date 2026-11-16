@@ -382,7 +382,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                 modifier =
                                     Modifier
                                         .fillMaxSize()
-                                        .skeletonSweep()
+                                        .skeletonSweep(enabled = state.loading && state.content.isEmpty)
                                         .arrivalSweep(refreshArrival)
                                         .launchWaveInterrupt(launchWave),
                                 state = listState,

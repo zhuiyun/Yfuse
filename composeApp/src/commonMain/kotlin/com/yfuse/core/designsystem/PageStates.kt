@@ -262,7 +262,8 @@ fun SkeletonBlock(
  * and over nothing else, and stops with the shared clock.
  */
 @Composable
-fun Modifier.skeletonSweep(): Modifier {
+fun Modifier.skeletonSweep(enabled: Boolean = true): Modifier {
+    if (!enabled) return this
     val clock = LocalSkeletonPulseClock.current ?: return this
     val visible = LocalRouteVisible.current
     DisposableEffect(clock, visible) {
