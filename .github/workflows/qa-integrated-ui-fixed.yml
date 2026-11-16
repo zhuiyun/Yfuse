@@ -1,11 +1,11 @@
-name: Full UI regression with transient transition polling fixed
+name: Full UI regression for external video recovery repair
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
     paths: ['.github/workflows/qa-integrated-ui-fixed.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: 9f3445e9873917e0a3c6ba63e2d344deb8bbec1b
+  QA_APP_SHA: 01c516e080448587d5225342ccd4aff94a6fed85
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 9f3445e9873917e0a3c6ba63e2d344deb8bbec1b
+          ref: 01c516e080448587d5225342ccd4aff94a6fed85
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
