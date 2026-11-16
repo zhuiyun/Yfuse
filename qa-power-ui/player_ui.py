@@ -26,10 +26,10 @@ ROUTES = [
 MARKERS = {
     'subtitles': '导入', 'audio': '音频同步', 'speed': '1.25x',
     'skip': '在线获取片头片尾', 'danmaku': '显示设置', 'cast': '局域网投屏设备',
-    'more': '媒体信息', 'engine': '本视频使用', 'media-info': '播放问题说明与诊断导出',
+    'more': '媒体信息', 'engine': '‹  播放内核', 'media-info': '播放问题说明与诊断导出',
     'bookmarks': '保存当前播放时间', 'handoff': '接力规则', 'gestures-help': '手势与快捷键',
-    'playback-settings': '自动播放下一集', 'picture': '显示帧率',
-    'sleep': '睡眠定时', 'gestures': '手势设置',
+    'playback-settings': '‹  播放设置', 'picture': '‹  画面设置',
+    'sleep': '‹  睡眠定时', 'gestures': '‹  手势设置',
 }
 
 
