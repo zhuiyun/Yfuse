@@ -121,6 +121,7 @@ def main():
     try:
         ui.root('服务器')
         click(['IPTV · 电视直播', 'IPTV・电视直播'])
+        ui.wait('订阅名称', 15)
         field('订阅名称', 'QA Channels')
         field('M3U 地址', 'http://127.0.0.1:18198/list.m3u')
         click('添加订阅')

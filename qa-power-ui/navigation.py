@@ -126,5 +126,25 @@ def control(keys, scrolls=8, horizontal_context=()):
 
 
 def click(keys, scrolls=8, horizontal_context=()):
-    ui.tap(control(keys, scrolls, horizontal_context))
+    target = control(keys, scrolls, horizontal_context)
+    previous = bounds(target)
+    stable_since = time.monotonic()
+    deadline = stable_since + 10
+    while time.monotonic() < deadline:
+        time.sleep(.12)
+        try:
+            current = control(keys, 0, horizontal_context)
+        except LookupError:
+            stable_since = time.monotonic()
+            continue
+        current_bounds = bounds(current)
+        if current_bounds != previous:
+            previous = current_bounds
+            stable_since = time.monotonic()
+        elif time.monotonic() - stable_since >= .3:
+            target = current
+            break
+    else:
+        raise AssertionError('Control did not settle before touch: ' + str(keys))
+    ui.tap(target)
     time.sleep(.7)

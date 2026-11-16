@@ -1,4 +1,4 @@
-name: Verify matching actual file sizes in WiFi import and WebDAV
+name: Repeat file flows after observed stable-control input and verify byte sizes
 'on':
   push:
     branches:
@@ -137,7 +137,16 @@ jobs:
 
         '
     - name: Capture current native pages and all reachable scroll states
-      run: /usr/bin/python3 qa-power-ui/file_ui.py
+      run: |
+        set -euo pipefail
+        for round in 1 2 3; do
+          test "$GITHUB_ACTIONS" = true
+          adb shell pm clear com.yfuse
+          status=0
+          /usr/bin/python3 qa-power-ui/file_ui.py || status=$?
+          mv results/file-ui "results/file-ui-round-$round"
+          test "$status" = 0
+        done
     - if: always()
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
       with:
