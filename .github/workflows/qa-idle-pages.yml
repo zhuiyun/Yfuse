@@ -1,4 +1,4 @@
-name: Paired30minute populated library and search idle-render study
+name: Paired30minute library and populated-search study with verified editor input
 'on':
   push:
     branches:

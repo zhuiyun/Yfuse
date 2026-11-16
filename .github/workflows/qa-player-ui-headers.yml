@@ -1,4 +1,4 @@
-name: Verify engine and picture panel headers at normal and compact widths
+name: Verify unobstructed player panels across both engines and phone widths
 'on':
   push:
     branches:
@@ -9,8 +9,8 @@ permissions:
   contents: read
   actions: read
 env:
-  QA_APP_SHA: bd556cb716a2791010c0543dbd6a650be011714b
-  QA_BUILD_RUN: 43886247081
+  QA_APP_SHA: e527c57b2667adbcc2a886020ab7d4c5cf0c20f6
+  QA_BUILD_RUN: 43904816658
 jobs:
   acquire:
     runs-on: ubuntu-24.04
@@ -70,7 +70,7 @@ jobs:
         - compact
     env:
       QA_ENGINE: ${{ matrix.engine }}
-      QA_PLAYER_ROUTES: engine,picture
+      QA_REQUIRE_CLEAR_PANELS: 'true'
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with:

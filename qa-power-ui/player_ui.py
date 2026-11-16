@@ -83,6 +83,11 @@ def main():
                     raise AssertionError('Requested player is not the foreground screenshot subject')
                 if name in MARKERS and not any(MARKERS[name] in label for label in row['top']['labels']):
                     raise AssertionError('Expected player panel content was not captured: ' + name)
+                if os.environ.get('QA_REQUIRE_CLEAR_PANELS') == 'true':
+                    resume_visible = '继续播放' in row['top']['labels']
+                    if bool(path) == resume_visible:
+                        raise AssertionError('Center resume action must be visible only without an open panel')
+                    row['centerActionVisibilityVerified'] = True
                 row['scrolls'] = []
                 previous = row['top']['treeSha256']
                 for number in range(1, 20):
