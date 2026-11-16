@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -151,7 +152,6 @@ import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.util.rememberPosterCardSharer
-import kotlinx.coroutines.delay
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
@@ -312,17 +312,10 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     val routeVisible = LocalRouteVisible.current
     // 「水火潮涌」: armed by a cold start that opens on 库, played once when content is first on screen.
     val launchWave = rememberLaunchWave(contentVisible = routeVisible && !state.content.isEmpty)
-    var freshnessNowEpochMs by remember { mutableStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(state.contentSource, state.updatedAtEpochMs, routeVisible) {
-        freshnessNowEpochMs = System.currentTimeMillis()
-        if (state.contentSource != LibraryContentSource.Cached || !routeVisible) {
-            return@LaunchedEffect
-        }
-        while (true) {
-            delay(MINUTE_MS)
-            freshnessNowEpochMs = System.currentTimeMillis()
-        }
-    }
+    val freshnessNowEpochMs by rememberLibraryFreshnessTime(
+        active = state.contentSource == LibraryContentSource.Cached && !state.content.isEmpty && routeVisible,
+        updatedAtEpochMs = state.updatedAtEpochMs,
+    )
     val carouselVisible by remember(listState) {
         derivedStateOf { listState.firstVisibleItemIndex == 0 && !listState.isScrollInProgress }
     }
@@ -582,7 +575,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                         }
                                     }
                                     waveItem(key = "library-categories") {
-                                        CategoryCards(
+                                        LibraryCategoryCards(
                                             baseUrl = baseUrl,
                                             accessToken = accessToken,
                                             rows = state.content.rows,
@@ -1117,7 +1110,7 @@ private fun ServerSheet(
  * grid that would just come up empty.
  */
 @Composable
-private fun CategoryCards(
+internal fun LibraryCategoryCards(
     baseUrl: String,
     accessToken: String,
     rows: List<HomeRow>,
@@ -1126,7 +1119,16 @@ private fun CategoryCards(
     onOpenPlaylists: () -> Unit,
     onRetry: () -> Unit,
 ) {
+    val listState = rememberLazyListState()
+    val hasLibraries = rows.isNotEmpty()
+    LaunchedEffect(baseUrl, hasLibraries) {
+        // The playlist placeholder can be composed before libraries arrive. Do not
+        // retain that trailing key as the first visible item after prepending them.
+        // Later content/count refreshes retain the user's chosen scroll position.
+        if (hasLibraries) listState.scrollToItem(0)
+    }
     LazyRow(
+        state = listState,
         contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
