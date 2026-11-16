@@ -1,11 +1,13 @@
 package com.yfuse.feature.profile
 
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.unit.dp
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.DialogAnimation
@@ -252,6 +254,7 @@ private fun MotionSettingsPage(
                         SettingTint.components,
                         supporting = if (reduced || systemOff) "当前已减少动画，关闭后应用所选风格" else theme.description,
                         trailingLabel = theme.label,
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 11.dp),
                     )
                 }
             }

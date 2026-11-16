@@ -3,8 +3,13 @@ package com.yfuse.feature.player
 import android.os.Debug
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.yfuse.core.logging.AppLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -16,30 +21,44 @@ import java.io.File
 @Composable
 internal fun ObservePlaybackProcessMemory(state: androidx.compose.runtime.State<PlaybackState>) {
     val latest by rememberUpdatedState(state)
-    LaunchedEffect(Unit) {
-        while (isActive) {
-            delay(10_000L)
-            val current = latest.value
-            if (current.ended || current.error != null) continue
-            val memory = withContext(Dispatchers.IO) { samplePlaybackProcessMemory() }
-            AppLog.info(
-                category = "player.performance",
-                event = "process_memory",
-                message = "Playback process memory sample",
-                attributes =
-                    memory +
-                        mapOf(
-                            "engine" to current.diagnostics.engine,
-                            "subtitleMode" to
-                                when {
-                                    current.secondarySubtitleTrackId != null &&
-                                        current.secondarySubtitleTrackId != EngineTrack.OFF -> "dual"
-                                    current.subtitleTracks.any { it.selected && it.id != EngineTrack.OFF } -> "single"
-                                    else -> "off_or_unknown"
-                                },
-                            "bufferSource" to current.bufferSnapshot.source.name,
-                        ),
-            )
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val sampling by remember(state) {
+        derivedStateOf {
+            val current = state.value
+            current.playing && !current.ended && current.error == null
+        }
+    }
+    // Stop the timer itself while paused or backgrounded, rather than waking
+    // every ten seconds just to skip the expensive process memory query.
+    LaunchedEffect(sampling, lifecycle) {
+        if (!sampling) return@LaunchedEffect
+        lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (isActive) {
+                delay(10_000L)
+                val current = latest.value
+                if (!current.playing || current.ended || current.error != null) continue
+                val memory = withContext(Dispatchers.IO) { samplePlaybackProcessMemory() }
+                AppLog.info(
+                    category = "player.performance",
+                    event = "process_memory",
+                    message = "Playback process memory sample",
+                    attributes =
+                        memory +
+                            mapOf(
+                                "engine" to current.diagnostics.engine,
+                                "subtitleMode" to
+                                    when {
+                                        current.secondarySubtitleTrackId != null &&
+                                            current.secondarySubtitleTrackId != EngineTrack.OFF -> "dual"
+                                        current.subtitleTracks.any {
+                                            it.selected && it.id != EngineTrack.OFF
+                                        } -> "single"
+                                        else -> "off_or_unknown"
+                                    },
+                                "bufferSource" to current.bufferSnapshot.source.name,
+                            ),
+                )
+            }
         }
     }
 }
