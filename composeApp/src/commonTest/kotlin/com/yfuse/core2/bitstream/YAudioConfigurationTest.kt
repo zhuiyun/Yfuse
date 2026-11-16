@@ -54,7 +54,13 @@ class YAudioConfigurationTest {
     fun `truncated or mislabeled flac initialization is rejected before decoding`() {
         val valid = "fLaC".encodeToByteArray() + byteArrayOf(0x80.toByte(), 0, 0, 34) + ByteArray(34)
         val invalid =
-            listOf(ByteArray(0), ByteArray(33), valid.copyOf(34), valid.copyOf(41), valid.copyOf().apply { this[4] = 1 })
+            listOf(
+                ByteArray(0),
+                ByteArray(33),
+                valid.copyOf(34),
+                valid.copyOf(41),
+                valid.copyOf().apply { this[4] = 1 },
+            )
         for (bad in invalid) {
             assertFailsWith<IllegalArgumentException> { YAudioConfiguration.flacCodecSpecificData(bad) }
         }
