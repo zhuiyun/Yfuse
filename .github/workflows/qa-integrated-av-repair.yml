@@ -1,11 +1,11 @@
-name: Build the HTTP reader ownership repair and verify both native engines
+name: Build external video identity and failed decoder recovery repair
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
     paths: ['.github/workflows/qa-integrated-av-repair.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: 580fcafbe5182413bcc7a3979b5348c0c97a83a0
+  QA_APP_SHA: 01c516e080448587d5225342ccd4aff94a6fed85
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 580fcafbe5182413bcc7a3979b5348c0c97a83a0
+          ref: 01c516e080448587d5225342ccd4aff94a6fed85
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
