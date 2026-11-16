@@ -5,7 +5,7 @@ on:
     paths: ['.github/workflows/qa-integrated-flac-repair.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: 325749eeab6c68a232316817a2fb160da938cf57
+  QA_APP_SHA: 217e6115c55d52e09f772833a52bfc867f0ae8c0
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 325749eeab6c68a232316817a2fb160da938cf57
+          ref: 217e6115c55d52e09f772833a52bfc867f0ae8c0
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
@@ -105,7 +105,7 @@ jobs:
         run: |
           set -euo pipefail
           (cd preview && sha256sum -c apk.sha256)
-          grep -Fx 'app=325749eeab6c68a232316817a2fb160da938cf57' preview/provenance.txt
+          grep -Fx 'app=217e6115c55d52e09f772833a52bfc867f0ae8c0' preview/provenance.txt
           sudo apt-get -qq update && sudo apt-get install -y ffmpeg python3-pil
           /usr/bin/python3 qa-title-seek-check/prepare.py 6 8
       - name: Boot cloud ARM64 Android
