@@ -1,0 +1,78 @@
+name: Verify pre-Android13 reminder scheduling and idle clock lifecycle on ABI-capable
+  guest
+'on':
+  push:
+    branches:
+    - codex/two-engines-cloud-seek-20261113
+    paths:
+    - .github/workflows/qa-pre33-lifecycle.yml
+permissions:
+  contents: read
+  actions: read
+jobs:
+  instrumented:
+    env:
+      QA_MIN_TESTS: 3
+      QA_TEST_CLASSES: com.yfuse.feature.calendar.CalendarReminderSchedulingInstrumentedTest,com.yfuse.core.designsystem.SkeletonSweepLifecycleInstrumentedTest
+    name: Pre-Android13 reminders and idle rendering API32
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - api: 32
+          sdk: '32'
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
+    - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      with:
+        name: ui-validation-input
+        path: preview
+        run-id: 43902080361
+        github-token: ${{ github.token }}
+    - name: Verify app and enable acceleration
+      run: 'set -euo pipefail
+
+        (cd preview && sha256sum -c apk.sha256)
+
+        grep -Fx "app=6b9b49f6a394c1fadf059ce2f825e17b1ad948d1" preview/provenance.txt
+
+        test -c /dev/kvm
+
+        echo ''KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"''
+        | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+
+        sudo udevadm control --reload-rules
+
+        sudo udevadm trigger --name-match=kvm
+
+        '
+    - name: Use current Android 17 tools
+      if: matrix.api == 37
+      run: sudo rm -rf "${ANDROID_HOME:?}/cmdline-tools"
+    - name: Verify supported ABI then run three lifecycle regressions
+      uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+      with:
+        api-level: ${{ matrix.sdk }}
+        target: google_apis
+        arch: x86_64
+        profile: pixel_2
+        ram-size: 4096M
+        heap-size: 512M
+        disk-size: 4096M
+        emulator-boot-timeout: 600
+        disable-animations: false
+        emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          -no-snapshot -camera-back none -accel on
+        script: set -e; mkdir -p results; adb shell getprop ro.product.cpu.abilist | tee results/supported-abis.txt;
+          grep -q arm64-v8a results/supported-abis.txt; bash qa-integrated/ui-regressions.sh
+          32
+    - if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+      with:
+        name: fixed-ui-api-${{ matrix.api }}
+        path: results/
+        retention-days: 10
