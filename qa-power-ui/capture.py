@@ -103,18 +103,23 @@ def main():
     if selected is None or selected.text != ('Dark' if variant == 'dark-large' else 'Light'):
         raise AssertionError('Application theme change was not verified')
     rows = []
+    secondary = os.environ.get('QA_UI_SCOPE') == 'secondary'
+    if secondary:
+        from secondary_routes import ROUTES as routes
+    else:
+        routes = ROUTES + POPULATED_ROUTES
     library = LibraryServer(out / 'fixture-requests.jsonl')
     adb('reverse', 'tcp:18196', 'tcp:18196')
     populated = False
-    for number, (name, tab, path) in enumerate(ROUTES + POPULATED_ROUTES, 1):
+    for number, (name, tab, path) in enumerate(routes, 1):
         key = '%02d-%s' % (number, name)
         row = {'step': number, 'name': name, 'tab': tab, 'route': path, 'status': 'unverified'}
         rows.append(row)
         try:
-            if number == len(ROUTES) + 1:
+            if not secondary and number == len(ROUTES) + 1:
                 connect()
                 populated = True
-            if number > len(ROUTES) and not populated:
+            if not secondary and number > len(ROUTES) and not populated:
                 raise RuntimeError('Populated fixture sign-in was not verified')
             ui.launch()
             ui.root(tab)
