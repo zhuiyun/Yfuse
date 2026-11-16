@@ -16,6 +16,13 @@ def analyze(directory):
     candidates = []
     for phase in summary['phases']:
         name = phase['phase']
+        phase_rows = [r for r in rows if r['phase'] == name]
+        # Scripted seeks and taps are the workload under study. Keep their CPU distribution
+        # separate from quiet intervals instead of silently dropping the entire active phase.
+        workload_rows = [r for r in phase_rows if
+                         r['seconds'] >= phase_rows[0]['seconds'] + 60 and
+                         r['cpuPercentOneCore'] is not None] if phase_rows else []
+        workload_cpu = sorted(r['cpuPercentOneCore'] for r in workload_rows)
         samples = [r for r in rows if r['phase'] == name and
                    not r.get('intervalIncludesIntervention', r['intervention'])]
         cpu = sorted(r['cpuPercentOneCore'] for r in samples if r['cpuPercentOneCore'] is not None)
@@ -24,12 +31,17 @@ def analyze(directory):
                   'usableSpanSeconds': round(elapsed, 2),
                   'cpuMedianPercentOneCore': statistics.median(cpu) if cpu else None,
                   'cpuP95PercentOneCore': cpu[min(len(cpu) - 1, int(.95 * len(cpu)))] if cpu else None,
-                  'libraryRequestsPerMinute': None, 'controlledMediaMiBPerMinute': None}
+                  'libraryRequestsPerMinute': None, 'controlledMediaMiBPerMinute': None,
+                  'workloadCpuSamplesAfterFirstMinute': len(workload_cpu),
+                  'workloadCpuMedianIncludingActions': statistics.median(workload_cpu) if workload_cpu else None,
+                  'workloadCpuP95IncludingActions': workload_cpu[min(len(workload_cpu) - 1, int(.95 * len(workload_cpu)))] if workload_cpu else None,
+                  'workloadCpuLimit': 'Includes scripted interactions and collector overhead; first minute excluded.'}
         if elapsed > 0:
             first, last = samples[0]['endpoint'], samples[-1]['endpoint']
             if 'libraryRequests' in first and 'libraryRequests' in last:
                 result['libraryRequestsPerMinute'] = round((last['libraryRequests'] - first['libraryRequests']) * 60 / elapsed, 3)
-            result['controlledMediaMiBPerMinute'] = round((last['bytes'] - first['bytes']) * 60 / elapsed / 1048576, 4)
+            if first.get('bytes') is not None and last.get('bytes') is not None:
+                result['controlledMediaMiBPerMinute'] = round((last['bytes'] - first['bytes']) * 60 / elapsed / 1048576, 4)
         frames = [r for r in samples if r.get('uiFramesSincePhaseReset') is not None]
         result['uiFramesPerSecond'] = None
         lifetimes = {tuple(sorted((p, v['startTicks']) for p, v in r['processes'].items())) for r in samples}
@@ -65,7 +77,7 @@ def plot(directory, rows):
     figure, axes = plt.subplots(5, 1, figsize=(13, 12), sharex=True)
     x = [r['seconds'] / 60 for r in rows]
     values = [([r['cpuPercentOneCore'] for r in rows], 'App CPU\n% of one guest core'),
-              ([r['endpoint']['bytes'] / 1048576 for r in rows], 'Media transferred\nMiB, cumulative'),
+              ([r['endpoint']['bytes'] / 1048576 if r['endpoint'].get('bytes') is not None else None for r in rows], 'Media transferred\nMiB, cumulative'),
               ([r['endpoint'].get('libraryRequests') for r in rows], 'Fixture API requests\ncumulative'),
               ([r.get('modelEstimate', {}).get('totalMah') for r in rows], 'UID power MODEL\nmAh, if available'),
               ([r['battery'].get('levelPercent') for r in rows], 'SIMULATED battery\nreported %')]

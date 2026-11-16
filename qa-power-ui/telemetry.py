@@ -29,6 +29,12 @@ def battery_fields(text):
     for source, target in names.items():
         match = re.search(r'^\s*' + re.escape(source) + r':\s*(-?\d+)\s*$', text, re.M)
         values[target] = int(match[1]) if match else None
+    for source, target in [('AC powered', 'acPowered'), ('USB powered', 'usbPowered'),
+                           ('Wireless powered', 'wirelessPowered'), ('present', 'present')]:
+        match = re.search(r'^\s*' + re.escape(source) + r':\s*(true|false)\s*$', text, re.M)
+        values[target] = match[1] == 'true' if match else None
+    match = re.search(r'^\s*status:\s*(\d+)\s*$', text, re.M)
+    values['statusCode'] = int(match[1]) if match else None
     return values
 
 
