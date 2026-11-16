@@ -1,0 +1,284 @@
+name: Power activity baseline and full native UI audit - iteration 0
+'on':
+  push:
+    branches:
+    - codex/two-engines-cloud-seek-20261113
+    paths:
+    - .github/workflows/qa-power-ui.yml
+permissions:
+  contents: read
+  actions: read
+jobs:
+  acquire:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
+    - name: Acquire the exact qualified playback candidate
+      env:
+        API_TOKEN: ${{ github.token }}
+      run: bash qa-integrated/acquire-qualified-candidate.sh 43846299305 1a6e6a3e3a4672f5717a0de8be5de5a995afdeb8
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+      with:
+        name: power-ui-baseline-input
+        path: 'preview/composeApp-release.apk
+
+          preview/provenance.txt
+
+          preview/apk.sha256'
+        retention-days: 10
+  pilot:
+    name: Pilot ${{ matrix.engine }}
+    needs: acquire
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        engine:
+        - YCore
+        - SenPlayer
+    env:
+      QA_ENGINE: ${{ matrix.engine }}
+      QA_POWER_PILOT: 'true'
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
+    - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      with:
+        name: power-ui-baseline-input
+        path: preview
+    - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      with:
+        name: arm-input-driver
+        path: qa-driver
+        run-id: 43838817605
+        github-token: ${{ github.token }}
+    - name: Verify runtime and prepare evidence tools
+      run: 'set -euo pipefail
+
+        mkdir -p results
+
+        # apk.sha256 may also name unrelated build inputs; verify this exact app entry.
+
+        (cd preview && grep ''composeApp-release.apk$'' apk.sha256 | sha256sum -c -)
+
+        grep -Fx "app=1a6e6a3e3a4672f5717a0de8be5de5a995afdeb8" preview/provenance.txt
+
+        cp preview/provenance.txt preview/apk.sha256 results/
+
+        printf ''qa=%s\nrun=%s\n'' "$GITHUB_SHA" "$GITHUB_RUN_ID" > results/qa-provenance.txt
+
+        sudo apt-get update -qq
+
+        sudo apt-get install -y ffmpeg python3-pil
+
+        '
+    - name: Boot disposable cloud ARM64 Android
+      run: bash qa-arm-dual/redroid.sh
+    - name: Install exact candidate and UI evidence driver
+      run: 'set -euo pipefail
+
+        test "$GITHUB_ACTIONS" = true
+
+        adb install -r -g preview/composeApp-release.apk
+
+        adb install -r qa-driver/driver.apk
+
+        adb shell wm size 720x1280
+
+        adb shell wm density 260
+
+        adb shell settings put secure immersive_mode_confirmations confirmed
+
+        adb shell settings put secure accessibility_interactive_ui_timeout_ms 60000
+
+        adb shell wm dismiss-keyguard
+
+        touch /tmp/yfuse-tree-active
+
+        adb shell getprop > results/guest-properties.txt
+
+        docker inspect qa-android --format ''{{.Image}}'' > results/cloud-image.txt
+
+        '
+    - name: Record short instrumentation pilot
+      run: /usr/bin/python3 qa-power-ui/power.py
+    - if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+      with:
+        name: power-pilot-${{ matrix.engine }}
+        path: results/
+        retention-days: 14
+  baseline:
+    name: Four-hour baseline ${{ matrix.engine }}
+    needs:
+    - acquire
+    - pilot
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      matrix:
+        engine:
+        - YCore
+        - SenPlayer
+    env:
+      QA_ENGINE: ${{ matrix.engine }}
+      QA_POWER_PILOT: 'false'
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
+    - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      with:
+        name: power-ui-baseline-input
+        path: preview
+    - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      with:
+        name: arm-input-driver
+        path: qa-driver
+        run-id: 43838817605
+        github-token: ${{ github.token }}
+    - name: Verify runtime and prepare evidence tools
+      run: 'set -euo pipefail
+
+        mkdir -p results
+
+        # apk.sha256 may also name unrelated build inputs; verify this exact app entry.
+
+        (cd preview && grep ''composeApp-release.apk$'' apk.sha256 | sha256sum -c -)
+
+        grep -Fx "app=1a6e6a3e3a4672f5717a0de8be5de5a995afdeb8" preview/provenance.txt
+
+        cp preview/provenance.txt preview/apk.sha256 results/
+
+        printf ''qa=%s\nrun=%s\n'' "$GITHUB_SHA" "$GITHUB_RUN_ID" > results/qa-provenance.txt
+
+        sudo apt-get update -qq
+
+        sudo apt-get install -y ffmpeg python3-pil
+
+        '
+    - name: Boot disposable cloud ARM64 Android
+      run: bash qa-arm-dual/redroid.sh
+    - name: Install exact candidate and UI evidence driver
+      run: 'set -euo pipefail
+
+        test "$GITHUB_ACTIONS" = true
+
+        adb install -r -g preview/composeApp-release.apk
+
+        adb install -r qa-driver/driver.apk
+
+        adb shell wm size 720x1280
+
+        adb shell wm density 260
+
+        adb shell settings put secure immersive_mode_confirmations confirmed
+
+        adb shell settings put secure accessibility_interactive_ui_timeout_ms 60000
+
+        adb shell wm dismiss-keyguard
+
+        touch /tmp/yfuse-tree-active
+
+        adb shell getprop > results/guest-properties.txt
+
+        docker inspect qa-android --format ''{{.Image}}'' > results/cloud-image.txt
+
+        '
+    - name: Record 240 minutes across twelve equal-comparison scenarios
+      run: /usr/bin/python3 qa-power-ui/power.py
+    - if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+      with:
+        name: power-baseline-${{ matrix.engine }}
+        path: results/
+        retention-days: 14
+  ui:
+    name: Native page evidence ${{ matrix.variant }}
+    needs: acquire
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 110
+    strategy:
+      fail-fast: false
+      matrix:
+        variant:
+        - light
+        - dark-large
+    env:
+      QA_UI_VARIANT: ${{ matrix.variant }}
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
+    - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      with:
+        name: power-ui-baseline-input
+        path: preview
+    - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      with:
+        name: arm-input-driver
+        path: qa-driver
+        run-id: 43838817605
+        github-token: ${{ github.token }}
+    - name: Verify runtime and prepare evidence tools
+      run: 'set -euo pipefail
+
+        mkdir -p results
+
+        # apk.sha256 may also name unrelated build inputs; verify this exact app entry.
+
+        (cd preview && grep ''composeApp-release.apk$'' apk.sha256 | sha256sum -c -)
+
+        grep -Fx "app=1a6e6a3e3a4672f5717a0de8be5de5a995afdeb8" preview/provenance.txt
+
+        cp preview/provenance.txt preview/apk.sha256 results/
+
+        printf ''qa=%s\nrun=%s\n'' "$GITHUB_SHA" "$GITHUB_RUN_ID" > results/qa-provenance.txt
+
+        sudo apt-get update -qq
+
+        sudo apt-get install -y ffmpeg python3-pil
+
+        '
+    - name: Boot disposable cloud ARM64 Android
+      run: bash qa-arm-dual/redroid.sh
+    - name: Install exact candidate and UI evidence driver
+      run: 'set -euo pipefail
+
+        test "$GITHUB_ACTIONS" = true
+
+        adb install -r -g preview/composeApp-release.apk
+
+        adb install -r qa-driver/driver.apk
+
+        adb shell wm size 720x1280
+
+        adb shell wm density 260
+
+        adb shell settings put secure immersive_mode_confirmations confirmed
+
+        adb shell settings put secure accessibility_interactive_ui_timeout_ms 60000
+
+        adb shell wm dismiss-keyguard
+
+        touch /tmp/yfuse-tree-active
+
+        adb shell getprop > results/guest-properties.txt
+
+        docker inspect qa-android --format ''{{.Image}}'' > results/cloud-image.txt
+
+        '
+    - name: Capture current native pages and all reachable scroll states
+      run: /usr/bin/python3 qa-power-ui/capture.py
+    - if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+      with:
+        name: ui-baseline-${{ matrix.variant }}
+        path: results/
+        retention-days: 14
