@@ -28,7 +28,7 @@ jobs:
           api="https://api.github.com/repos/$GITHUB_REPOSITORY"
           mkdir -p preview qa-driver results
           for i in $(seq 1 240); do
-            artifacts=$(curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/43786826864/artifacts")
+            artifacts=$(curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/43788137288/artifacts")
             app=$(jq -r '.artifacts[] | select(.name=="candidate-test-input" and .expired==false) | .id' <<<"$artifacts")
             driver=$(jq -r '.artifacts[] | select(.name=="arm-input-driver" and .expired==false) | .id' <<<"$artifacts")
             if [[ "$app" =~ ^[0-9]+$ && "$driver" =~ ^[0-9]+$ ]]; then break; fi

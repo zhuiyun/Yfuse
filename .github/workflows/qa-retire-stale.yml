@@ -1,0 +1,26 @@
+name: Retire two test runs waiting on the failed integrated build
+on:
+  push:
+    branches: [codex/two-engines-cloud-seek-20261113]
+    paths: ['.github/workflows/qa-retire-stale.yml']
+permissions: {contents: read, actions: write}
+jobs:
+  retire:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Verify and cancel only the two superseded runs
+        env: {API_TOKEN: "${{ github.token }}"}
+        run: |
+          set -euo pipefail
+          api="https://api.github.com/repos/$GITHUB_REPOSITORY"
+          for pair in 43787479754:2dd111f72 43787676324:8f18f5f42; do
+            id=${pair%%:*}
+            expected=${pair#*:}
+            state=$(curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/$id")
+            jq -e --arg sha "$expected" '.head_branch=="codex/two-engines-cloud-seek-20261113" and (.head_sha|startswith($sha))' <<<"$state" >/dev/null
+            if [[ "$(jq -r '.status' <<<"$state")" = completed ]]; then continue; fi
+            status=$(curl -sSL -o "$RUNNER_TEMP/cancel.json" -w '%{http_code}' -X POST -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/$id/cancel")
+            [[ "$status" = 202 || "$status" = 409 ]]
+            echo "Retired superseded run $id: HTTP $status"
+          done
