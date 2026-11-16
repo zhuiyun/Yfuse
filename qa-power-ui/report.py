@@ -64,18 +64,19 @@ def plot(directory, rows):
     import matplotlib.pyplot as plt
     figure, axes = plt.subplots(5, 1, figsize=(13, 12), sharex=True)
     x = [r['seconds'] / 60 for r in rows]
-    values = [([r['cpuPercentOneCore'] for r in rows], 'Main process CPU (% of one guest core)'),
-              ([r['endpoint']['bytes'] / 1048576 for r in rows], 'Controlled media response bytes (MiB, cumulative)'),
-              ([r['endpoint'].get('libraryRequests') for r in rows], 'Fixture API requests (cumulative)'),
-              ([r.get('modelEstimate', {}).get('totalMah') for r in rows], 'UID power MODEL estimate (mAh; absent if unavailable)'),
-              ([r['battery'].get('levelPercent') for r in rows], 'SIMULATED guest battery level (%)')]
+    values = [([r['cpuPercentOneCore'] for r in rows], 'App CPU\n% of one guest core'),
+              ([r['endpoint']['bytes'] / 1048576 for r in rows], 'Media transferred\nMiB, cumulative'),
+              ([r['endpoint'].get('libraryRequests') for r in rows], 'Fixture API requests\ncumulative'),
+              ([r.get('modelEstimate', {}).get('totalMah') for r in rows], 'UID power MODEL\nmAh, if available'),
+              ([r['battery'].get('levelPercent') for r in rows], 'SIMULATED battery\nreported %')]
     starts = [(r['seconds'] / 60, r['phase']) for i, r in enumerate(rows) if i == 0 or rows[i - 1]['phase'] != r['phase']]
     for axis, (series, label) in zip(axes, values):
-        points = [(t, v) for t, v in zip(x, series) if v is not None]
-        if points:
-            axis.plot([p[0] for p in points], [p[1] for p in points], linewidth=1.1)
+        if any(v is not None for v in series):
+            # Preserve unavailable intervals and phase boundaries as gaps.
+            axis.plot(x, [float('nan') if v is None else v for v in series], linewidth=1.1, marker='.', markersize=3)
         else:
             axis.text(.5, .5, 'Unavailable — not zero', transform=axis.transAxes, ha='center')
+            axis.set_yticks([])
         axis.set_ylabel(label, fontsize=8)
         axis.grid(alpha=.2)
         for t, _ in starts:
@@ -84,6 +85,7 @@ def plot(directory, rows):
         axes[0].text(t, 1.02 + .08 * (index % 2), name, rotation=50,
                      transform=axes[0].get_xaxis_transform(), fontsize=7)
     axes[-1].set_xlabel('Elapsed cloud guest observation (minutes)')
+    axes[-1].set_ylim(-2, 102)
     figure.suptitle('Cloud activity curves — no physical energy measurement', y=.995)
     figure.tight_layout(rect=(0, 0, 1, .95))
     figure.savefig(Path(directory) / 'activity-curves.png', dpi=160)
