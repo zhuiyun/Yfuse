@@ -1,4 +1,4 @@
-name: Inspect actual account session states with isolated cloud-only data
+name: Verify persistent session navigation across twenty isolated UI states
 'on':
   push:
     branches:
@@ -9,7 +9,7 @@ permissions:
   contents: read
   actions: read
 env:
-  QA_APP_SHA: 00df952ed9b705e0a830b97fb1fce3dc7e2860d9
+  QA_APP_SHA: a1728aac808f9040ede6933df74c54cd8419bb6e
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -17,7 +17,7 @@ jobs:
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with:
-        ref: 00df952ed9b705e0a830b97fb1fce3dc7e2860d9
+        ref: a1728aac808f9040ede6933df74c54cd8419bb6e
         persist-credentials: false
         fetch-depth: 0
     - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
