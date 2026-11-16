@@ -1,11 +1,11 @@
-name: Qualify consistent file sizes and final UI power candidate
+name: Qualify evidence-based engine power diagnostics and final UI candidate
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
     paths: ['.github/workflows/qa-integrated-av-repair.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: 0642c1b24a22ffcc39a3526b2d79d0d0881abb64
+  QA_APP_SHA: 61686049a52ed23decce12621e0aba4eeae53f04
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 0642c1b24a22ffcc39a3526b2d79d0d0881abb64
+          ref: 61686049a52ed23decce12621e0aba4eeae53f04
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
