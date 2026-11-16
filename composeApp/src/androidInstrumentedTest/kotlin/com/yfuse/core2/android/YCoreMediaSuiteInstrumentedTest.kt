@@ -113,16 +113,7 @@ class YCoreMediaSuiteInstrumentedTest {
                     } finally {
                         mediaProbe.closePreparedExtractor()
                     }
-                val plan =
-                    YPlaybackPlan(
-                        route = YPlaybackRoute.NativeEnhanced,
-                        demuxPath = YDemuxPath.Enhanced,
-                        decodePath = YDecodePath.Hardware,
-                        renderPath = YRenderPath.SurfaceDirect,
-                        outputHdrType = YHdrType.Sdr,
-                        reason = "Enhanced route selected before the transport reopen",
-                        decoderName = generatedPlatformAvcDecoder(),
-                    )
+                val plan = enhancedRetryPlan()
                 ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                     val output = createSurfaceViewOutput(scenario, 320, 180)
                     val player =
@@ -150,7 +141,7 @@ class YCoreMediaSuiteInstrumentedTest {
                         player.play()
                         awaitPlayable(player, "enhanced-before-retry")
                         awaitFreshVideoOutput(player, "enhanced-after-retry") { player.retry() }
-                        assertTrue(player.state.value.diagnostics.route == YPlaybackRoute.NativeEnhanced)
+                        assertTrue(player.state.value.diagnostics.route == plan.route)
                     } finally {
                         try {
                             player.releaseAndJoin()
@@ -163,6 +154,26 @@ class YCoreMediaSuiteInstrumentedTest {
                 check(file.delete() || !file.exists())
             }
         }
+
+    private fun enhancedRetryPlan(): YPlaybackPlan {
+        val decodePath = InstrumentationRegistry.getArguments().getString("enhancedRetryDecodePath")
+        if (decodePath == "software") {
+            // Native ARM containers cannot map MediaCodec's gralloc buffers. Exercise the
+            // same transport worker with its real YCore software route on that lane; the
+            // API 35/37 emulator lanes retain the hardware plan below.
+            return checkNotNull(yCoreInternalSoftwareRecoveryPlan(YHdrType.Sdr))
+        }
+        check(decodePath == null || decodePath == "hardware") { "Unknown enhanced retry decode path" }
+        return YPlaybackPlan(
+            route = YPlaybackRoute.NativeEnhanced,
+            demuxPath = YDemuxPath.Enhanced,
+            decodePath = YDecodePath.Hardware,
+            renderPath = YRenderPath.SurfaceDirect,
+            outputHdrType = YHdrType.Sdr,
+            reason = "Enhanced route selected before the transport reopen",
+            decoderName = generatedPlatformAvcDecoder(),
+        )
+    }
 
     private fun enhancedRetryFixture(cacheDirectory: File): File {
         val supplied = InstrumentationRegistry.getArguments().getString("enhancedRetryFixture")
