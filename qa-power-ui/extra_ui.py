@@ -84,7 +84,19 @@ def main():
         record('04-person', '测试演员甲')
         connect(18197)
         ui.root('媒体库')
-        click('Cloud QA Second')
+        # The server chooser is in the library header. Retained scroll position
+        # can leave it above the viewport, and adding a server need not select it.
+        for _ in range(8):
+            tree = ui.snapshot()
+            width, height = ui.size()
+            title = ui.find(tree, ['Cloud QA Second', 'Cloud QA Library'])
+            if title is not None and bounds(title)[1] >= 40 and bounds(title)[3] < height * .85:
+                break
+            adb('shell', 'input', 'swipe', width // 2, int(height * .28),
+                width // 2, int(height * .78), 450)
+            time.sleep(.4)
+        capture(output, 'server-chooser-entry')
+        click(['Cloud QA Second', 'Cloud QA Library'], scrolls=0)
         click('浏览全部服务器')
         record('05-unified-library', '全部服务器')
     except Exception as error:

@@ -166,7 +166,10 @@ def main():
         ui.launch()
         ui.root('服务器')
         click('添加文件来源')
-        click(['WebDAV', 'WebDav'])
+        # WebDAV is already selected; the selected chip intentionally has no
+        # click action. Verify the form, then choose the fixture's HTTP scheme.
+        ui.wait(['WebDAV', 'WebDav'])
+        click('HTTP')
         field('地址', 'http://127.0.0.1:18198/dav')
         field('显示名称', 'QA-DAV')
         click('连接并添加')
