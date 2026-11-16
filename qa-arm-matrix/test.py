@@ -93,6 +93,8 @@ for idx,clip in enumerate(clips):
                 n=sum(bool(r.get('issued')) for r in rows);good=sum(bool(r.get('ok')) for r in rows);attempted+=n
                 print('BATCH',clip['name'],session,batch,'issued',n,'verified',good,flush=True)
                 save()
+                if good!=len(rows):
+                    capture_open_failure(clip,str(session)+'-batch-'+str(batch))
                 if n<8:break
             except (ValueError,subprocess.SubprocessError,RuntimeError) as e:
                 detail.setdefault('errors',[]).append(type(e).__name__);break
