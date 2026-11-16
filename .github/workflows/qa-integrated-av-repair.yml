@@ -1,11 +1,11 @@
-name: Build enhanced startup and original subtitle factory repair
+name: Qualify unchanged playback runtime with host generated retry fixture
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
     paths: ['.github/workflows/qa-integrated-av-repair.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: 1a6e6a3e3a4672f5717a0de8be5de5a995afdeb8
+  QA_APP_SHA: eff812329895ae01f7545677110ff12af96de37e
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 1a6e6a3e3a4672f5717a0de8be5de5a995afdeb8
+          ref: eff812329895ae01f7545677110ff12af96de37e
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
@@ -100,7 +100,19 @@ jobs:
           grep -Fx "app=$QA_APP_SHA" preview/provenance.txt
           adb install -r -g preview/instrumentation-target.apk
           adb install -r -g preview/regressions.apk
-          adb shell am instrument -w -r -e class 'com.yfuse.core2.android.SoftwareOutputContractInstrumentedTest,com.yfuse.feature.player.SoftFeedbackInstrumentedTest#seek_cancel_never_commits_and_release_commits_once_with_or_without_motion,com.yfuse.feature.player.BufferedScrubDecodeInstrumentedTest,com.yfuse.core2.android.YCoreMediaSuiteInstrumentedTest#enhanced_transport_retry_keeps_the_assigned_route_and_renders_again' com.yfuse.test/androidx.test.runner.AndroidJUnitRunner | tee results/contracts.txt
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+          ffmpeg -v error -y -f lavfi -i testsrc2=size=320x180:rate=10 -f lavfi -i anullsrc=r=48000:cl=mono -t 20 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac -b:a 64k -movflags +faststart "$RUNNER_TEMP/enhanced-retry.mp4"
+          sha256sum "$RUNNER_TEMP/enhanced-retry.mp4" > results/fixture.sha256
+          ffprobe -v error -show_entries stream=codec_name,codec_type,width,height:format=duration -of json "$RUNNER_TEMP/enhanced-retry.mp4" > results/fixture.json
+          jq -e '.streams | any(.codec_name=="h264" and .width==320 and .height==180)' results/fixture.json
+          jq -e '.streams | any(.codec_name=="aac")' results/fixture.json
+          adb shell mkdir -p /sdcard/Android/data/com.yfuse/files
+          adb push "$RUNNER_TEMP/enhanced-retry.mp4" /sdcard/Android/data/com.yfuse/files/enhanced-retry.mp4
+          adb shell sha256sum /sdcard/Android/data/com.yfuse/files/enhanced-retry.mp4 > results/device-fixture.sha256
+          test "$(cut -d' ' -f1 results/fixture.sha256)" = "$(tr -d '\r' < results/device-fixture.sha256 | cut -d' ' -f1)"
+          adb shell am instrument -w -r -e enhancedRetryFixture /sdcard/Android/data/com.yfuse/files/enhanced-retry.mp4 -e class 'com.yfuse.core2.android.SoftwareOutputContractInstrumentedTest,com.yfuse.feature.player.SoftFeedbackInstrumentedTest#seek_cancel_never_commits_and_release_commits_once_with_or_without_motion,com.yfuse.feature.player.BufferedScrubDecodeInstrumentedTest,com.yfuse.core2.android.YCoreMediaSuiteInstrumentedTest#enhanced_transport_retry_keeps_the_assigned_route_and_renders_again' com.yfuse.test/androidx.test.runner.AndroidJUnitRunner | tee results/contracts.txt
+          python3 qa-integrated/check-instrumentation.py results/contracts.txt 7
           grep -E 'OK \(7 tests\)' results/contracts.txt
           ! grep -E 'FAILURES|INSTRUMENTATION_FAILED|INSTRUMENTATION_ABORTED' results/contracts.txt
       - if: always()
