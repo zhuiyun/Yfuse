@@ -1,4 +1,4 @@
-name: Diagnose picture stalls in five private movie and episode cases
+name: Retest real-source video-output repairs and high-bitrate transport
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
@@ -32,7 +32,8 @@ jobs:
     env:
       QA_SHARD: ${{ matrix.shard }}
       QA_ENGINES: YCore
-      QA_PROBE_LABELS: m-008,m-012,m-028,e-023,e-026
+      QA_PROBE_LABELS: m-008,m-010,m-012,m-023,m-029,m-030,m-031,e-023,e-025,e-027
+      QA_BENCHMARK_LABELS: m-012
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 90
     steps:
@@ -62,10 +63,10 @@ jobs:
         run: |
           set -euo pipefail
           api="https://api.github.com/repos/$GITHUB_REPOSITORY"
-          build=43800491978
-          expected=15d635d0da26aa528ab5157b2585ec43b1bf9421
+          build=43804090355
+          expected=cdb53f9bd89da483dca8d2c3e50b90b7bc8f5f83
           for i in $(seq 1 260); do
-            artifact=$(curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/$build/artifacts" | jq -r '.artifacts[] | select(.name=="video-diagnostic-input" and .expired==false) | .id' | head -1)
+            artifact=$(curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/$build/artifacts" | jq -r '.artifacts[] | select(.name=="candidate-test-input" and .expired==false) | .id' | head -1)
             if [[ "$artifact" =~ ^[0-9]+$ ]]; then break; fi
             sleep 10
           done
