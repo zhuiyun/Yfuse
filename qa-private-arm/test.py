@@ -33,6 +33,7 @@ SOURCES = {}
 BODY = {}
 POLICY = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 ERROR = None
+PLAYBACK_USER_AGENT = "Emby for Android Mobile"
 
 
 def load_envelope():
@@ -80,6 +81,18 @@ def reveal():
     raise AssertionError("no progress control")
 
 
+def media_duration(tree):
+    for node in tree.iter("node"):
+        state=node.get("state","")
+        if "播放进度" not in state:continue
+        match=re.search(r"/\s*((?:\d{1,2}:)?\d{1,3}:\d\d)(?!\d)",state)
+        if match:
+            value=0
+            for part in match[1].split(":"):value=value*60+int(part)
+            if value>1:return value
+    return None
+
+
 def patch(im):
     w,h=im.size
     return im.crop((int(.17*w),int(.31*h),int(.83*w),int(.66*h))).resize((96,48)).convert("RGB")
@@ -101,10 +114,11 @@ def decode_playback(label,target,duration,max_wait=60):
             history.append({"flags":flags,"noRail":True,"elapsed":round(time.monotonic()-begin,1)})
             time.sleep(.5);continue
         pos=media_clock(tree)
+        duration=media_duration(tree) or duration
         pix=patch(screen())
         elapsed=time.monotonic()-begin
         history.append({"s":pos,"elapsed":round(elapsed,1),"contrast":round(sum(ImageStat.Stat(pix).stddev)/3,2)})
-        if pos is not None and pos<duration-1 and (target is None or target-12 <= pos <= target+elapsed+12):
+        if pos is not None and (duration<=1 or pos<duration-1) and (target is None or target-12 <= pos <= target+elapsed+12):
             if prev:
                 oldpos,oldim=prev
                 diff=sum(ImageStat.Stat(ImageChops.difference(pix,oldim)).mean)/3
@@ -112,7 +126,7 @@ def decode_playback(label,target,duration,max_wait=60):
                     speech.append({"s":pos,"pixelChange":round(diff,2)})
                     if first is None:first=(pos,elapsed)
                     if len(speech)>=2 and pos-first[0]>=1:
-                        return {"firstPos":first[0],"laterPos":pos,"secToFirst":round(first[1],2),"secToConfirm":round(elapsed,2),"changes":speech[-3:]}
+                        return {"firstPos":first[0],"laterPos":pos,"durationSeconds":duration,"secToFirst":round(first[1],2),"secToConfirm":round(elapsed,2),"changes":speech[-3:]}
             prev=(pos,pix)
         time.sleep(.8)
     measured(label+"-observation",history=history[-16:])
@@ -121,7 +135,7 @@ def decode_playback(label,target,duration,max_wait=60):
 
 
 def sample_range(media, position):
-    req=urllib.request.Request(media["location"],headers={"Range":f"bytes={position}-{position+1023}","User-Agent":"Yfuse/1.9.4","Accept-Encoding":"identity"})
+    req=urllib.request.Request(media["location"],headers={"Range":f"bytes={position}-{position+1023}","User-Agent":PLAYBACK_USER_AGENT,"Accept-Encoding":"identity"})
     try:
         with POLICY.open(req,timeout=10) as data:
             chunk=data.read(1024)
@@ -142,6 +156,9 @@ def app_events():
     keep=[]
     fields={"failurecategory","category","stage","errorcode","code","status","httpstatus","responsestatus","engine","reason","route","decoder","phase","positionms","durationms","bufferedpositionms","firstframerendered","videoready","outputgate","playbackrequested","domain","index","width","height","mime","selected"}
     knownText={"network","source","decoder","unknown","ready","failed","buffering","nativedirect","ffmpeg","mediacodec","ycore","senplayer","true","false","videodecoderconfigure","sourceopen","datasourceread","transport","engine","http","tcp","timeout","codec","ended","software","hardware","preparing","surface","video/hevc","video/avc","video/av01"}
+    fields.update({"failurestage","codecmime","codecprofile","outputallowed","bufferedms","requiredms","targetms","waitms","queuebytes","memorybudgetbytes","queuebudgetbytes","plannedbudgetbytes","queuesamples","fillscheduled","readelapsedms","lastpacketagems","packetsread","demuxthroughputbps","pendingtrackcount","endofinput","atcapacity","generation","audiorendering","videorendering","renderedframecount","decodedframecount","droppedframecount","framesrendered","framesdropped","outputgeneration","videooutputverified","audiooutputverified","deterministic"})
+    knownText.update({"nativenhanced","nativeenhanced","softwarefallback","softwarevideodecoderconfigure","softwarevideodecode","audiorender","videorender","audiodecoderconfigure","audiodecoderqueue","videodecoderqueue","demux","seek","prepare","audio/flac","audio/aac","audio/opus","video/dolby-vision","video/x-vnd.on2.vp9","video/mpeg2","video/mp4v-es"})
+
     for line in raw.splitlines():
         try:x=json.loads(line)
         except ValueError:continue
@@ -149,11 +166,16 @@ def app_events():
         if not re.fullmatch(r"[a-zA-Z_][a-zA-Z_0-9.]{0,80}",event) or not any(t in category.lower() for t in ["player","playback","transport","core2","media","decoder"]):continue
         attrs={}
         for k,v in x.get("attributes",{}).items():
-            k=k.lower();v=str(v).lower()
+            k=k.lower();raw_value=str(v);v=raw_value.lower()
             if k in fields and (re.fullmatch(r"-?\d{1,15}",v) or v in knownText):attrs[k]=v
+            if k in {"exceptiontype","origin"} and re.fullmatch(r"[a-z0-9_$.:() -]{1,200}",v):
+                attrs[k]=raw_value
+            if k in {"decoder","decoderattempts"} and re.fullmatch(r"(?:(?:c2|omx)\.[a-z0-9._-]+)(?:,(?:c2|omx)\.[a-z0-9._-]+)*",v):
+                attrs[k]=v
         # Extract only allowlisted technical categories, never log a response, stack, filename, URL or trace message.
         combined=" ".join([str(x.get("message","")),str(x.get("exception") or {}),str(x.get("attributes",{}))]).lower()
-        labels=[q for q in ["403","401","416","sslhandshakeexception","sockettimeoutexception","unknownhostexception","econnreset","connection reset","invalidresponsecode","unsupported","decoder configure","mediaserver died","codecexception","insufficient resource","permission denied","httpdatasource","connection refused"] if q in combined]
+        labels=[q for q in ["sslhandshakeexception","sockettimeoutexception","unknownhostexception","econnreset","connection reset","invalidresponsecode","unsupported","decoder configure","mediaserver died","codecexception","insufficient resource","permission denied","httpdatasource","connection refused"] if q in combined]
+        labels.extend("http"+code for code in ("401","403","416") if re.search(r"(?:http(?: status)?|response code|statuscode)\s*[:=]?\s*"+code+r"(?!\d)",combined))
         keep.append({"event":event,"time":x.get("timestamp"),"values":attrs,"hints":labels})
     return keep
 
@@ -187,7 +209,7 @@ if __name__=='__main__':
         for label,answers in pool.map(ranges,items.items()):
             groups[label]=answers
             media=items[label]
-            measured(label+'-admission',kind=media['type'],container=media['container'],size=media['size'],source=media['rangeCodes'],runner=answers)
+            measured(label+'-admission',kind=media['type'],container=media['container'],size=media['size'],durationSeconds=media['seconds'],technical=media.get('technical',{}),source=media['rangeCodes'],runner=answers)
     candidates=[k for k,positions in groups.items() if any(r['correct'] for r in positions.values())]
     controls=[next((k for k in groups if k.startswith(prefix) and k not in candidates),None) for prefix in ('m-','e-')]
     launched=candidates+[k for k in controls if k]
@@ -198,22 +220,28 @@ if __name__=='__main__':
             response=android_network(media['location'])
             measured(label+'-android-network',code=response.get('status',0))
             adb('shell','am','force-stop',PKG);since=time.time();prior={(x['time'],x['event']) for x in app_events()}
-            mime={'mkv':'x-matroska','ts':'mp2t','webm':'webm','mov':'quicktime'}.get(media['container'],'mp4')
+            mime={'mkv':'x-matroska','ts':'mp2t','mpegts':'mp2t','webm':'webm','mov':'quicktime','mp4':'mp4'}.get(media['container'],'*')
             cmd='am start -W -a android.intent.action.VIEW -n com.yfuse/com.yfuse.feature.player.ExternalPlaybackActivity -t video/'+mime+' -d '+shlex.quote(media['location'])
-            adb('shell',cmd,check=False)
             try:
+                adb('shell',cmd,check=False)
                 result=decode_playback(label,None,media['seconds']);proof=engine.engine_evidence(core,since)
+                identity_deadline=time.monotonic()+12
+                while not proof['active'] and time.monotonic()<identity_deadline:
+                    time.sleep(1)
+                    proof=engine.engine_evidence(core,since)
                 measured(label+'-opened',moving=True,identity=proof,**result)
                 if proof['active']:
                     for fraction in (.63,.21):
                         try:
+                            duration=result['durationSeconds']
+                            if duration<=1:raise AssertionError('No measured media duration for a seek')
                             r,_=reveal();left,top,right,bottom=r;y=(top+bottom)//2
                             adb('shell','input','swipe',round(left+(right-left)*(.83 if fraction<.5 else .17)),y,round(left+(right-left)*fraction),y,330)
                             measured(label+'-issued',fraction=fraction)
-                            h=decode_playback(label,media['seconds']*fraction,media['seconds'])
+                            h=decode_playback(label,duration*fraction,duration)
                             measured(label+'-confirmed',fraction=fraction,**h)
                         except (ValueError,RuntimeError,AssertionError,subprocess.TimeoutExpired): measured(label+'-unconfirmed',fraction=fraction)
             except (ValueError,RuntimeError,AssertionError,subprocess.TimeoutExpired):measured(label+'-opened',moving=False)
             events=[e for e in app_events() if (e['time'],e['event']) not in prior]
-            measured(label+'-diagnostics',total=len(events),events=[e for e in events if e['hints'] or 'fail' in e['event']][-25:])
+            measured(label+'-diagnostics',total=len(events),events=events[-100:])
             adb('shell','am','force-stop',PKG)

@@ -4,7 +4,6 @@ on:
     branches: [codex/two-engines-cloud-seek-20261113]
     paths:
       - '.github/workflows/qa-integrated-emby.yml'
-      - 'qa-private-arm/**'
 permissions:
   contents: read
   actions: read
@@ -18,7 +17,7 @@ jobs:
       - name: Build network and gesture recorder
         run: |
           mkdir qa-private-driver
-          cp qa-source-trace/Driver.java qa-volume/input-driver.java
+          python3 qa-private-arm/build_input.py
           sed 's|adb install -r driver.apk|cp driver.apk "$GITHUB_WORKSPACE/qa-private-driver/driver.apk"|' qa-source-trace/build-driver.sh > "$RUNNER_TEMP/driver.sh"
           bash "$RUNNER_TEMP/driver.sh"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
@@ -29,7 +28,7 @@ jobs:
     strategy:
       fail-fast: false
       max-parallel: 4
-      matrix: {shard: [0]}
+      matrix: {shard: [0,1,2,3]}
     env:
       QA_SHARD: ${{ matrix.shard }}
     runs-on: ubuntu-24.04-arm
@@ -61,8 +60,8 @@ jobs:
         run: |
           set -euo pipefail
           api="https://api.github.com/repos/$GITHUB_REPOSITORY"
-          build=43788137288
-          expected=6fed54460f600d46c7ebf3f7095c2724e7633d12
+          build=43797076221
+          expected=217e6115c55d52e09f772833a52bfc867f0ae8c0
           for i in $(seq 1 260); do
             artifact=$(curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/$build/artifacts" | jq -r '.artifacts[] | select(.name=="candidate-test-input" and .expired==false) | .id' | head -1)
             if [[ "$artifact" =~ ^[0-9]+$ ]]; then break; fi
@@ -94,7 +93,12 @@ jobs:
           adb shell settings put secure accessibility_interactive_ui_timeout_ms 60000
           adb shell wm dismiss-keyguard
           touch /tmp/yfuse-tree-active
-          /usr/bin/python3 qa-private-arm/gate.py
+          timeout --signal=TERM --kill-after=30s 55m /usr/bin/python3 qa-private-arm/gate.py
+      - name: Clear one-use private playback session
+        if: always()
+        run: |
+          if command -v adb >/dev/null; then timeout 15 adb shell pm clear com.yfuse || true; fi
+          rm -f "$RUNNER_TEMP/qa-private.pem" "$RUNNER_TEMP/envelope.json"
       - name: Retain numeric playback measurements
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
