@@ -1,4 +1,4 @@
-name: Full original movie and episode playback on both merged engines
+name: Recheck original movies and episodes after merged video-track recovery
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
@@ -28,7 +28,7 @@ jobs:
           api="https://api.github.com/repos/$GITHUB_REPOSITORY"
           mkdir -p preview qa-driver results
           for i in $(seq 1 240); do
-            artifacts=$(curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/43788137288/artifacts")
+            artifacts=$(curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/43815842246/artifacts")
             app=$(jq -r '.artifacts[] | select(.name=="candidate-test-input" and .expired==false) | .id' <<<"$artifacts")
             driver=$(jq -r '.artifacts[] | select(.name=="arm-input-driver" and .expired==false) | .id' <<<"$artifacts")
             if [[ "$app" =~ ^[0-9]+$ && "$driver" =~ ^[0-9]+$ ]]; then break; fi
@@ -40,7 +40,7 @@ jobs:
           unzip -q "$RUNNER_TEMP/app.zip" -d preview
           unzip -q "$RUNNER_TEMP/driver.zip" -d qa-driver
           (cd preview && sha256sum -c apk.sha256)
-          grep -Fx "app=6fed54460f600d46c7ebf3f7095c2724e7633d12" preview/provenance.txt
+          grep -Fx "app=74a3996d5cfdeaf4314f81456ef3dfca5d343b44" preview/provenance.txt
           cp preview/provenance.txt preview/apk.sha256 results/
           sudo apt-get update -qq
           sudo apt-get install -y ffmpeg python3-pil
