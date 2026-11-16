@@ -88,6 +88,24 @@ def capture(out, name, expected=None, timeout=12):
             'humanInspection': 'pending'}
 
 
+def verify_detail_clearance(tree_file, title):
+    tree = ET.parse(tree_file).getroot()
+    parents = {child: parent for parent in tree.iter() for child in parent}
+    titles = [node for node in ui.nodes(tree) if node.get('text') == title and node.get('visible') != 'false']
+    backs = [node for node in ui.nodes(tree) if '返回' in ui.labels(node) and node.get('visible') != 'false']
+    if not titles or not backs:
+        raise AssertionError('Detail title and back control must both be present')
+    target = backs[0]
+    while target is not None and target.get('clickable') != 'true':
+        target = parents.get(target)
+    if target is None:
+        raise AssertionError('Detail back control is not actionable')
+    title_box, back_box = bounds(titles[0]), bounds(target)
+    if title_box[1] < back_box[3]:
+        raise AssertionError('Detail title overlaps the top navigation: ' + repr((title_box, back_box)))
+    return {'titleBoundsPx': title_box, 'backBoundsPx': back_box, 'overlap': False}
+
+
 def failure_diagnostics(out, key):
     # Only disposable cloud profiles are used; preserve crash and focus evidence before relaunch.
     commands = {
@@ -178,6 +196,8 @@ def main():
             row['top'] = capture(out, key + '-top')
             if 'com.yfuse' not in row['top']['packages']:
                 raise AssertionError('Requested app is not the foreground screenshot subject')
+            if os.environ.get('QA_REQUIRE_DETAIL_CLEARANCE') == 'true' and name in {'movie-detail', 'long-title-detail', 'series-detail'}:
+                row['navigationClearance'] = verify_detail_clearance(out / (key + '-top.xml'), path[-1])
             width, height = ui.size()
             # Retain successive viewports so long settings pages are actually reviewed.
             previous = row['top']['treeSha256']
