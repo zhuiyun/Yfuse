@@ -1011,9 +1011,15 @@ class YCoreMediaSuiteInstrumentedTest {
         label: String,
         state: com.yfuse.core2.api.YPlayerState,
     ) {
+        // Software recovery now runs inside YCore's own FFmpeg JNI session. Require its
+        // concrete demuxer and decoder evidence instead of accepting any fallback label.
+        val internalSoftware =
+            state.diagnostics.route == YPlaybackRoute.SoftwareFallback &&
+                state.diagnostics.demuxer == "FFmpeg / libavformat" &&
+                state.diagnostics.decoder.orEmpty().contains("FFmpeg software video")
         assertTrue(
-            "$label used non-native route ${state.diagnostics.route}: ${state.diagnostics.reason}",
-            state.diagnostics.route in PURE_NATIVE_ROUTES,
+            "$label used non-YCore route ${state.diagnostics.route}: ${state.diagnostics.reason}",
+            state.diagnostics.route in PURE_NATIVE_ROUTES || internalSoftware,
         )
     }
 
