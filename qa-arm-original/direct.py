@@ -15,6 +15,25 @@ def measured(label, **detail):
     print("PUBLIC_ORIGINAL",label,json.dumps(detail),flush=True)
 
 
+def capture_failure(label):
+    if os.environ.get('QA_CAPTURE_FAILURE') != 'true':return
+    if os.environ.get('GITHUB_ACTIONS') != 'true':raise ValueError('Cloud recorder required')
+    prefix=OUT/re.sub(r'[^A-Za-z0-9_.-]', '_', label)
+    screen().save(str(prefix)+'-failed.png')
+    for name,command in [('diagnostics','cat /data/user/0/com.yfuse/no_backup/diagnostics/diagnostic-*.jsonl'),
+                         ('process','dumpsys meminfo com.yfuse')]:
+        Path(str(prefix)+'-'+name+'.txt').write_text(adb('shell',command,check=False))
+    Path(str(prefix)+'-logcat.txt').write_text(adb('logcat','-d','-v','threadtime',check=False))
+    pid=adb('shell','pidof com.yfuse',check=False).strip()
+    if pid.isdigit():
+        try:
+            adb('shell','kill -3 '+pid,check=False,timeout=10)
+            time.sleep(1)
+            Path(str(prefix)+'-native.txt').write_text(adb('shell','debuggerd -b '+pid,check=False,timeout=20))
+            Path(str(prefix)+'-java.txt').write_text(adb('shell','cat /data/anr/*',check=False,timeout=10))
+        except subprocess.SubprocessError:pass
+
+
 def media_clock(tree):
     def clock_in(s):
         match=re.search(r"(?<!\d)(?:(?:\d{1,2}:)?\d{1,3}:\d\d)(?!\d)",s)
@@ -106,7 +125,9 @@ def run(item):
             except (OSError,ValueError) as e:measured(label+'-'+key,status=getattr(e,'code',0),returned=0,exactRange=False)
     adb('shell','am','force-stop','com.yfuse')
     since=time.time()
-    seturl='am start -W -a android.intent.action.VIEW -n com.yfuse/com.yfuse.feature.player.ExternalPlaybackActivity -t '+item['mime']+' -d '+shlex.quote(url)
+    playback_url=item.get('testUrl',url)
+    if playback_url!=url and urllib.parse.urlsplit(playback_url).hostname!='127.0.0.1':raise ValueError('Only a cloud loopback control may replace the public original')
+    seturl='am start -W -a android.intent.action.VIEW -n com.yfuse/com.yfuse.feature.player.ExternalPlaybackActivity -t '+item['mime']+' -d '+shlex.quote(playback_url)
     status=adb('shell',seturl,check=False)
     if 'Exception' in status or 'Error' in status:raise RuntimeError('intent rejected')
     result=decode_playback(label,None,observed['seconds'])
@@ -127,7 +148,9 @@ def run(item):
             measured(label+'-issued',fraction=fraction)
             measured(label+'-seek',fraction=fraction,**decode_playback(label,observed['seconds']*fraction,observed['seconds']))
             confirmed+=1
-        except (AssertionError,RuntimeError,subprocess.TimeoutExpired) as e:measured(label+'-unconfirmed',fraction=fraction,reason=type(e).__name__)
+        except (AssertionError,RuntimeError,subprocess.TimeoutExpired) as e:
+            measured(label+'-unconfirmed',fraction=fraction,reason=type(e).__name__)
+            capture_failure(label+'-'+str(fraction))
     measured(label+'-complete',ok=confirmed==2)
 
 if __name__=='__main__':
