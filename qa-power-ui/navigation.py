@@ -13,6 +13,14 @@ def bounds(node):
     return values if len(values) == 4 else [0, 0, 0, 0]
 
 
+def vertical_pane(node):
+    if node.get('scrollable') != 'true' or 'HorizontalScrollView' in node.get('class', ''):
+        return False
+    # Compose exposes both LazyRow and LazyColumn as android.view.View. Directional
+    # accessibility actions distinguish a horizontal filter strip from page content.
+    return node.get('scroll-horizontal') != 'true' or node.get('scroll-vertical') == 'true'
+
+
 def system_bar_bounds(dump, width, height):
     """Exclude visible system bars even when edge-to-edge semantics extend behind them."""
     area = [0, 0, width, height]
@@ -74,8 +82,7 @@ def control(keys, scrolls=8):
                 if left >= safe_left and right <= safe_right and top >= safe_top and end <= bottom:
                     return target
         if attempt < scrolls:
-            panes = [n for n in ui.nodes(tree) if n.get('scrollable') == 'true'
-                     and 'HorizontalScrollView' not in n.get('class', '')]
+            panes = [n for n in ui.nodes(tree) if vertical_pane(n)]
             if not panes:
                 break
             pane = max(panes, key=lambda n: (bounds(n)[2] - bounds(n)[0]) *

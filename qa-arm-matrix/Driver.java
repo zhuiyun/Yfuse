@@ -28,6 +28,16 @@ public final class Driver extends Instrumentation {
         String[] keys={"text","content-desc","class","package","bounds","enabled","checked","clickable","focusable","scrollable","state"};
         Object[] vals={n.getText(),n.getContentDescription(),n.getClassName(),n.getPackageName(),"["+box.left+","+box.top+"]["+box.right+","+box.bottom+"]",n.isEnabled(),n.isChecked(),n.isClickable(),n.isFocusable(),n.isScrollable(),android.os.Build.VERSION.SDK_INT>=30?n.getStateDescription():null};
         for(int i=0;i<keys.length;i++)xml.attribute(null,keys[i],vals[i]==null?"":vals[i].toString());
+        boolean horizontal=false,vertical=false;
+        for(android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction action:n.getActionList()) {
+            int id=action.getId();
+            horizontal|=id==android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_LEFT.getId()
+                    ||id==android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_RIGHT.getId();
+            vertical|=id==android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_UP.getId()
+                    ||id==android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_DOWN.getId();
+        }
+        xml.attribute(null,"scroll-horizontal",Boolean.toString(horizontal));
+        xml.attribute(null,"scroll-vertical",Boolean.toString(vertical));
         for(int j=0;j<n.getChildCount();j++)node(n.getChild(j),xml,depth+1);
         xml.endTag(null,"node");
     }

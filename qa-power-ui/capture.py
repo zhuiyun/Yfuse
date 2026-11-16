@@ -9,7 +9,7 @@ import time
 import xml.etree.ElementTree as ET
 from library import LibraryServer
 from library_ui import connect
-from navigation import click, bounds
+from navigation import click, bounds, vertical_pane
 
 sys.path.insert(0, 'qa-arm-matrix')
 import engine
@@ -173,8 +173,7 @@ def main():
             row['scrolls'] = []
             for page in range(1, 26):
                 tree = ui.snapshot()
-                panes = [node for node in ui.nodes(tree) if node.get('scrollable') == 'true'
-                         and 'HorizontalScrollView' not in node.get('class', '')]
+                panes = [node for node in ui.nodes(tree) if vertical_pane(node)]
                 if not panes:
                     row['scrollEndObserved'] = True
                     break
