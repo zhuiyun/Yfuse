@@ -121,6 +121,7 @@ class YCoreMediaSuiteInstrumentedTest {
                         renderPath = YRenderPath.SurfaceDirect,
                         outputHdrType = YHdrType.Sdr,
                         reason = "Enhanced route selected before the transport reopen",
+                        decoderName = generatedPlatformAvcDecoder(),
                     )
                 ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                     val output = createSurfaceViewOutput(scenario, 320, 180)
@@ -178,7 +179,8 @@ class YCoreMediaSuiteInstrumentedTest {
                             )
                         val player: YPlayer =
                             when (route) {
-                                YPlaybackRoute.NativeDirect -> AndroidNativeDirectYPlayer(context, request)
+                                YPlaybackRoute.NativeDirect ->
+                                    AndroidNativeDirectYPlayer(context, request, decoderName = generatedPlatformAvcDecoder())
                                 YPlaybackRoute.NativeEnhanced ->
                                     AndroidNativeEnhancedYPlayer(
                                         context,
@@ -192,6 +194,7 @@ class YCoreMediaSuiteInstrumentedTest {
                                                 renderPath = YRenderPath.SurfaceDirect,
                                                 outputHdrType = YHdrType.Sdr,
                                                 reason = "Enhanced hardware test",
+                                                decoderName = generatedPlatformAvcDecoder(),
                                             ),
                                     )
                                 else ->

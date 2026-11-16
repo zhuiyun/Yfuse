@@ -8,6 +8,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.yfuse.core2.android.AndroidNativeDirectYPlayer
 import com.yfuse.core2.android.AndroidSurfaceVideoOutput
 import com.yfuse.core2.android.GeneratedAvcAacTestMedia
+import com.yfuse.core2.android.generatedPlatformAvcDecoder
 import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.api.YPlayerOpenRequest
 import kotlinx.coroutines.Dispatchers
@@ -64,6 +65,7 @@ class PlaybackReleaseInstrumentedTest {
                                 autoPlay = true,
                                 autoNext = false,
                             ),
+                            decoderName = generatedPlatformAvcDecoder(),
                         ).also {
                             player = it
                             assertTrue(it.setVideoOutput(AndroidSurfaceVideoOutput(owner.view.holder.surface)))

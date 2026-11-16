@@ -16,5 +16,9 @@ adb install -r -g preview/tests.apk
 adb logcat -c
 test_args=(-e notAnnotation com.yfuse.core2.android.ExternalMediaFixture)
 if [[ -n "${QA_TEST_CLASSES:-}" ]]; then test_args+=(-e class "$QA_TEST_CLASSES"); fi
+if [[ -n "${QA_PLATFORM_AVC_DECODER:-}" ]]; then
+  printf 'Explicit platform-only fixture decoder: %s\n' "$QA_PLATFORM_AVC_DECODER" | tee results/platform-decoder.txt
+  test_args+=(-e platformAvcDecoder "$QA_PLATFORM_AVC_DECODER")
+fi
 adb shell am instrument -w -r "${test_args[@]}" com.yfuse.validation.test/androidx.test.runner.AndroidJUnitRunner | tee results/instrumentation.txt
 python3 qa-integrated/check-instrumentation.py results/instrumentation.txt "${QA_MIN_TESTS:-20}"
