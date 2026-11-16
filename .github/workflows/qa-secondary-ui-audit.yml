@@ -1,4 +1,4 @@
-name: Trace unresolved large-text motion routes and encryption disclosure
+name: Verify app foreground and system-bar-safe UI navigation
 'on':
   push:
     branches:
@@ -55,20 +55,30 @@ jobs:
         path: qa-driver/
         retention-days: 7
   ui:
-    name: Native page evidence ${{ matrix.variant }}
+    name: Verified page evidence ${{ matrix.scope }} ${{ matrix.variant }}
     needs: acquire
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 110
     strategy:
       fail-fast: false
       matrix:
-        variant:
-        - light
-        - dark-large
+        include:
+        - variant: light
+          scope: secondary
+          routes: motion-theme-choice,particle-choice,dialog-animation-choice,loading-animation-choice,player-transition-choice,account-encryption-info
+        - variant: light
+          scope: primary
+          routes: appearance-motion,appearance-accessibility
+        - variant: dark-large
+          scope: secondary
+          routes: motion-theme-choice,particle-choice,dialog-animation-choice,loading-animation-choice,player-transition-choice,account-encryption-info
+        - variant: dark-large
+          scope: primary
+          routes: appearance-motion,appearance-accessibility
     env:
-      QA_UI_SCOPE: secondary
+      QA_UI_SCOPE: ${{ matrix.scope }}
       QA_UI_TRACE: true
-      QA_UI_ROUTES: motion-theme-choice,particle-choice,dialog-animation-choice,loading-animation-choice,player-transition-choice,account-encryption-info
+      QA_UI_ROUTES: ${{ matrix.routes }}
       QA_UI_VARIANT: ${{ matrix.variant }}
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -137,6 +147,6 @@ jobs:
     - if: always()
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
       with:
-        name: ui-secondary-${{ matrix.variant }}
+        name: ui-verified-${{ matrix.scope }}-${{ matrix.variant }}
         path: results/
         retention-days: 14

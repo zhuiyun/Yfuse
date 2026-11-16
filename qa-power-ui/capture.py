@@ -74,6 +74,7 @@ def capture(out, name):
                 targets.append({'boundsPx': bounds, 'labels': ui.labels(node),
                                 'enabled': node.get('enabled'), 'class': node.get('class')})
     return {'image': name + '.png', 'tree': name + '.xml', 'labels': words,
+            'packages': sorted({n.get('package') for n in ui.nodes(tree) if n.get('package')}),
             'treeSha256': hashlib.sha256(ET.tostring(tree)).hexdigest(),
             'targets': targets, 'widthPx': image.width, 'heightPx': image.height,
             'humanInspection': 'pending'}
@@ -164,13 +165,16 @@ def main():
                 control('检测升级', 10)
             time.sleep(1)
             row['top'] = capture(out, key + '-top')
+            if 'com.yfuse' not in row['top']['packages']:
+                raise AssertionError('Requested app is not the foreground screenshot subject')
             width, height = ui.size()
             # Retain successive viewports so long settings pages are actually reviewed.
             previous = row['top']['treeSha256']
             row['scrolls'] = []
             for page in range(1, 26):
                 tree = ui.snapshot()
-                panes = [node for node in ui.nodes(tree) if node.get('scrollable') == 'true']
+                panes = [node for node in ui.nodes(tree) if node.get('scrollable') == 'true'
+                         and 'HorizontalScrollView' not in node.get('class', '')]
                 if not panes:
                     row['scrollEndObserved'] = True
                     break
@@ -180,6 +184,8 @@ def main():
                     (left + right) // 2, int(top + (bottom - top) * .25), 450)
                 time.sleep(.6)
                 shot = capture(out, key + '-scroll-' + str(page))
+                if 'com.yfuse' not in shot['packages']:
+                    raise AssertionError('App left the foreground while collecting scroll evidence')
                 row['scrolls'].append(shot)
                 if shot['treeSha256'] == previous:
                     row['scrollEndObserved'] = True
