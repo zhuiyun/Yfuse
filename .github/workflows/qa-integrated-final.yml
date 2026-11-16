@@ -1,11 +1,11 @@
-name: enhanced startup and subtitle repair full two-engine cloud stability matrix
+name: Two-engine cloud seek regression after power and UI fixes
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
     paths: ['.github/workflows/qa-integrated-final.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: eff812329895ae01f7545677110ff12af96de37e
+  QA_APP_SHA: 7ab9b6b372eab29181daff32c0ff660604087b20
 jobs:
   build:
     name: Acquire the qualified identical release candidate
@@ -16,7 +16,7 @@ jobs:
         with: {persist-credentials: false}
       - name: Wait for unit and actual ARM64 qualification
         env: {API_TOKEN: "${{ github.token }}"}
-        run: bash qa-integrated/acquire-qualified-candidate.sh 43853752670 eff812329895ae01f7545677110ff12af96de37e
+        run: bash qa-integrated/acquire-qualified-candidate.sh 43868047280 7ab9b6b372eab29181daff32c0ff660604087b20
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with: {name: candidate-test-input, path: preview, retention-days: 7}
 
