@@ -112,11 +112,21 @@ def enter(name, server, core):
     elif name == 'network-failure':
         home('我的')
         server.failure = True
+        previous = server.counters()['unavailableResponses']
         open_video('http://127.0.0.1:18389/outage.mp4')
+        # This disposable loopback fixture is explicitly authorized by the test.
+        # Playback helpers acknowledge the local-link prompt, but this failure
+        # phase deliberately cannot wait for a decoded frame.
+        tree = ui.snapshot()
+        if ui.find(tree, ['打开本机或局域网中的视频？']) is not None:
+            button = ui.find(tree, ['打开', 'Open'])
+            if button is None:
+                raise AssertionError('Authorized fixture confirmation has no Open control')
+            ui.tap(button)
         deadline = time.monotonic() + 15
-        while server.counters()['unavailableResponses'] == 0 and time.monotonic() < deadline:
+        while server.counters()['unavailableResponses'] <= previous and time.monotonic() < deadline:
             time.sleep(.5)
-        if server.counters()['unavailableResponses'] == 0:
+        if server.counters()['unavailableResponses'] <= previous:
             raise AssertionError('No actual HTTP503 observed; cached playback is not a network-failure test')
     return {'entered': name}
 

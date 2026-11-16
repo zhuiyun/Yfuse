@@ -11,6 +11,7 @@ import com.yfuse.core.data.CalendarFollowStore
 import com.yfuse.core.data.CalendarReminderMode
 import com.yfuse.core.data.FollowedSeries
 import com.yfuse.launchMainActivityForInput
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -38,13 +39,19 @@ class CalendarReminderSchedulingInstrumentedTest {
             follows.unfollowAll()
             scheduleCalendarReminderWork(context, follows)
             await("Empty subscriptions remove existing work") { noReminderWork() }
-            follows.autoFollowLibrarySeries(listOf(FollowedSeries(19_000_001, "Automatic fixture")))
+            // The first fixture was explicitly dismissed; automatic discovery must
+            // not restore it. Exercise enabling a different, newly discovered show.
+            assertEquals(
+                1,
+                follows.autoFollowLibrarySeries(listOf(FollowedSeries(19_000_003, "Automatic fixture"))),
+            )
             scheduleCalendarReminderWork(context, follows)
             await("Automatic discovery does not authorize reminders") { noReminderWork() }
-            follows.setReminder(19_000_001, CalendarReminderMode.AtBroadcast)
+            follows.setReminder(19_000_003, CalendarReminderMode.AtBroadcast)
+            assertEquals(1, follows.notificationSubscriptions().size)
             scheduleCalendarReminderWork(context, follows)
             await("Explicit subscription restores work") { active(periodicName).size == 1 }
-            follows.setReminder(19_000_001, CalendarReminderMode.Off)
+            follows.setReminder(19_000_003, CalendarReminderMode.Off)
             scheduleCalendarReminderWork(context, follows)
             await("Disabling the final reminder cancels work") { noReminderWork() }
         } finally {

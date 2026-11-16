@@ -66,7 +66,7 @@ class MediaServer:
                 except (BrokenPipeError, ConnectionResetError, TimeoutError):
                     pass
                 finally:
-                    row = {'time': time.time(), 'method': self.command, 'status': status,
+                    row = {'time': time.time(), 'method': self.command, 'path': self.path, 'status': status,
                            'rangeStart': lo, 'bytes': sent, 'seconds': round(time.monotonic() - began, 3)}
                     with owner.lock, owner.output.open('a', encoding='utf-8') as stream:
                         stream.write(json.dumps(row) + '\n')
