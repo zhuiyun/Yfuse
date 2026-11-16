@@ -1,4 +1,4 @@
-name: Compare private direct Range access across cloud host types
+name: Compare provider entry redirects with server-resolved CDN edge URLs
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
@@ -12,7 +12,6 @@ jobs:
       matrix:
         include:
           - {shard: 0, host: ubuntu-24.04-arm}
-          - {shard: 1, host: ubuntu-24.04}
     runs-on: ${{ matrix.host }}
     timeout-minutes: 30
     env:

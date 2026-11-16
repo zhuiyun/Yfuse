@@ -16,17 +16,22 @@ for label, media in items.items():
     if not re.fullmatch(r"[me]-[0-9]{3}", label):
         raise SystemExit("Unexpected source label")
     positions = {"start": 0, "middle": media["size"] // 2, "end": media["size"] - 1024}
-    results = {}
-    for where, position in positions.items():
-        sample = state["sample_range"](media, position)
-        results[where] = {key: sample[key] for key in
-                          ("code", "bytesRead", "validRange", "providerCode", "providerError")
-                          if key in sample}
-        results[where]["sameBytesAsSource"] = bool(
-            sample.get("validRange") and
-            sample.get("signature") == media.get("rangeHashes", {}).get(where)
-        )
-    rows.append({"label": label, "samples": results})
+    routes = {"resolved-edge": media["location"]}
+    if media.get("providerEntry"):
+        routes["provider-entry"] = media["providerEntry"]
+    for route, location in routes.items():
+        source = dict(media, location=location)
+        results = {}
+        for where, position in positions.items():
+            sample = state["sample_range"](source, position)
+            results[where] = {key: sample[key] for key in
+                              ("code", "bytesRead", "validRange", "providerCode", "providerError", "providerHint")
+                              if key in sample}
+            results[where]["sameBytesAsSource"] = bool(
+                sample.get("validRange") and
+                sample.get("signature") == media.get("rangeHashes", {}).get(where)
+            )
+        rows.append({"label": label, "route": route, "samples": results})
 
 report = {"architecture": platform.machine(), "rows": rows}
 Path("network-results").mkdir(exist_ok=True)
