@@ -1,4 +1,4 @@
-name: Paired30minute library without carousel and search after real IME submission
+name: Paired30minute static pages after verified navigation and IME preflight
 'on':
   push:
     branches:

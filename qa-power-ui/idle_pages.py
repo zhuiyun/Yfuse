@@ -45,6 +45,7 @@ def main():
         connect()
         home('我的')
         click('外观与交互')
+        click('首页与导航')
         row = ui.grab('库页轮播图', 8)
         # Capture both states through the actual settings switch; do not silently
         # treat a missed tap as a controlled carousel-off condition.
@@ -60,6 +61,8 @@ def main():
             ui.tap(row)
         if enabled():
             raise AssertionError('Carousel did not switch off')
+        # Fail fast on the editor submission precondition before recording30minutes.
+        enter('search-idle', output)
         adb('shell', 'dumpsys', 'battery', 'unplug')
         adb('shell', 'dumpsys', 'battery', 'set', 'level', '80')
         adb('shell', 'dumpsys', 'battery', 'set', 'status', '3')
@@ -92,6 +95,10 @@ def main():
             finally:
                 recorder.finish(phases, 'incomplete')
         status = 'recorded' if all(row['status'] == 'recorded' for row in phases) else 'failed'
+    except Exception:
+        failure_diagnostics(output, 'setup-or-recording-failure')
+        capture(output, 'setup-or-recording-failure')
+        raise
     finally:
         if 'recorder' in locals():
             recorder.finish(phases, status)
