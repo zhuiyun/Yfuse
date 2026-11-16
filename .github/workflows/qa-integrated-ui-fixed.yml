@@ -1,5 +1,5 @@
 name: Verify final UI with observed animation readiness and10repeat interactions
-true:
+'on':
   push:
     branches:
     - codex/two-engines-cloud-seek-20261113
