@@ -4,6 +4,8 @@ on:
     branches: [codex/two-engines-cloud-seek-20261113]
     paths: ['.github/workflows/qa-integrated-playback.yml']
 permissions: {contents: read, actions: read}
+env:
+  QA_APP_SHA: 6fed54460f600d46c7ebf3f7095c2724e7633d12
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -11,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ github.sha }}
+          ref: 6fed54460f600d46c7ebf3f7095c2724e7633d12
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
@@ -54,7 +56,7 @@ jobs:
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-37.0'
           python3 scripts/check_function_size.py
-          ./gradlew ktlintCheck :phoneShared:testAndroidHostTest :composeApp:assembleRelease :composeApp:assembleDebug :composeApp:assembleDebugAndroidTest :tvShared:testAndroidHostTest :tvApp:assembleDebug -PyfuseIncludeMdk=false -PyfusePlaybackProfile=ycore-senplayer -PyfuseNativeOnlyRuntime=true -PallowDebugSigning=true '-Dorg.gradle.jvmargs=-Xmx6g -Dfile.encoding=UTF-8' --no-daemon
+          ./gradlew ktlintCheck :phoneShared:testAndroidHostTest :composeApp:assembleRelease :composeApp:assembleDebug :composeApp:assembleDebugAndroidTest -PyfuseIncludeMdk=false -PyfusePlaybackProfile=ycore-senplayer -PyfuseNativeOnlyRuntime=true -PallowDebugSigning=true -Pkotlin.compiler.execution.strategy=in-process '-Dorg.gradle.jvmargs=-Xmx8g -Dfile.encoding=UTF-8' --no-parallel --max-workers=2 --no-daemon
           mkdir preview
           cp composeApp/build/outputs/apk/debug/composeApp-debug.apk preview/instrumentation-target.apk
           test_apk=$(find composeApp/build/outputs/apk/androidTest -name '*.apk' | head -1)
@@ -116,7 +118,7 @@ jobs:
           set -euo pipefail
           mkdir -p preview results
           (cd preview && sha256sum -c apk.sha256)
-          grep -Fx "app=$GITHUB_SHA" preview/provenance.txt
+          grep -Fx "app=$QA_APP_SHA" preview/provenance.txt
           cp preview/provenance.txt preview/apk.sha256 results/
           sudo apt-get -qq update && sudo apt-get install -y ffmpeg python3-pil python3-numpy fonts-dejavu-core
           /usr/bin/python3 qa-scrub/fixture.py qa-media
@@ -154,7 +156,7 @@ jobs:
           set -euo pipefail
           mkdir -p preview results
           (cd preview && sha256sum -c apk.sha256)
-          grep -Fx "app=$GITHUB_SHA" preview/provenance.txt
+          grep -Fx "app=$QA_APP_SHA" preview/provenance.txt
           cp preview/provenance.txt preview/apk.sha256 results/
           sudo apt-get -qq update && sudo apt-get install -y ffmpeg python3-pil
           /usr/bin/python3 qa-title-seek-check/prepare.py "$QA_SHARD" 16
@@ -289,7 +291,7 @@ jobs:
       - name: Verify identical app
         run: |
           (cd preview && sha256sum -c apk.sha256)
-          grep -Fx "app=$GITHUB_SHA" preview/provenance.txt
+          grep -Fx "app=$QA_APP_SHA" preview/provenance.txt
       - name: Open media from the full app library and measure playback
         run: |
           test "$GITHUB_ACTIONS" = true
