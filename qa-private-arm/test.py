@@ -191,6 +191,21 @@ def android_network(url):
         return json.loads(match[1]) if match else {"driverResult":"missing"}
     finally:adb("shell",f"rm -f {p}",check=False)
 
+
+def source_probe(media):
+    # Never retain stderr or the command arguments: both may repeat the signed address.
+    try:
+        proc=subprocess.run(['ffprobe','-v','quiet','-rw_timeout','15000000','-probesize','5242880','-analyzeduration','3000000','-user_agent',PLAYBACK_USER_AGENT,'-show_entries','format=duration,size,format_name:stream=codec_type,codec_name,profile,width,height,pix_fmt,color_space,color_transfer,color_primaries,r_frame_rate,avg_frame_rate,bits_per_raw_sample:stream_side_data','-of','json',media['location']],capture_output=True,timeout=45)
+        data=json.loads(proc.stdout)
+        streams=[]
+        for stream in data.get('streams',[]):
+            clean={k:v for k,v in stream.items() if k!='side_data_list' and isinstance(v,(str,int,float))}
+            clean['sideData']=[{k:v for k,v in side.items() if isinstance(v,(int,float)) or k=='side_data_type'} for side in stream.get('side_data_list',[])]
+            streams.append(clean)
+        return {'exitCode':proc.returncode,'format':data.get('format',{}),'streams':streams}
+    except (OSError,ValueError,subprocess.SubprocessError) as exc:
+        return {'errorType':type(exc).__name__}
+
 if __name__=='__main__':
     sys.path.insert(0,'qa-arm-matrix')
     import engine
@@ -214,7 +229,12 @@ if __name__=='__main__':
     candidates=[k for k,positions in groups.items() if any(r['correct'] for r in positions.values())]
     controls=[next((k for k in groups if k.startswith(prefix) and k not in candidates),None) for prefix in ('m-','e-')]
     launched=candidates+[k for k in controls if k]
-    for core in ('YCore','SenPlayer'):
+    probe_labels=set(os.environ.get('QA_PROBE_LABELS','').split(','))
+    for label in launched:
+        if label in probe_labels:measured(label+'-format-probe',**source_probe(items[label]))
+    cores=os.environ.get('QA_ENGINES','YCore,SenPlayer').split(',')
+    if not cores or len(set(cores))!=len(cores) or any(core not in ('YCore','SenPlayer') for core in cores):raise ValueError('Invalid cloud engine selection')
+    for core in cores:
         engine.configure(core)
         for k in launched:
             media=items[k];label=core+'-'+k
