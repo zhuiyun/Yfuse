@@ -110,7 +110,12 @@ def run(item):
     status=adb('shell',seturl,check=False)
     if 'Exception' in status or 'Error' in status:raise RuntimeError('intent rejected')
     result=decode_playback(label,None,observed['seconds'])
+    measured(label+'-advancing-picture',**result)
     proof=engine_evidence(os.environ['QA_ENGINE'],since)
+    identity_deadline=time.monotonic()+12
+    while not proof['active'] and time.monotonic()<identity_deadline:
+        time.sleep(.5)
+        proof=engine_evidence(os.environ['QA_ENGINE'],since)
     measured(label+'-engine',**proof)
     if not proof['active']: raise AssertionError('no verified active engine')
     measured(label+'-opened',kind=kind,**result)
