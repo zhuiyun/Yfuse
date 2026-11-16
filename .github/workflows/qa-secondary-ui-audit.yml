@@ -8,6 +8,9 @@ name: Secondary native dialogs and configuration page visual audit
 permissions:
   contents: read
   actions: read
+env:
+  QA_APP_SHA: 7ab9b6b372eab29181daff32c0ff660604087b20
+  QA_BUILD_RUN: 43868047280
 jobs:
   acquire:
     runs-on: ubuntu-24.04
@@ -19,7 +22,7 @@ jobs:
     - name: Acquire built diagnostic baseline and retain known qualification failures
       env:
         API_TOKEN: ${{ github.token }}
-      run: bash qa-power-ui/acquire-baseline.sh 43868047280 7ab9b6b372eab29181daff32c0ff660604087b20
+      run: bash qa-power-ui/acquire-baseline.sh "$QA_BUILD_RUN" "$QA_APP_SHA"
     - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
       with:
         name: power-ui-baseline-input
@@ -87,7 +90,7 @@ jobs:
         (cd preview && grep ''composeApp-release.apk$'' apk.sha256 | sha256sum -c
         -)
 
-        grep -Fx "app=eff812329895ae01f7545677110ff12af96de37e" preview/provenance.txt
+        grep -Fx "app=$QA_APP_SHA" preview/provenance.txt
 
         cp preview/provenance.txt preview/apk.sha256 preview/baseline-build-*.json
         preview/baseline-limit.txt results/
