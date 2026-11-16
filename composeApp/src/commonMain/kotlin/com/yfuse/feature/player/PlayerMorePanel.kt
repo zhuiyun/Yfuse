@@ -161,7 +161,7 @@ internal fun MorePanel(
                 PopupMenuRow(
                     icon = AppIcons.Info,
                     title = "媒体信息",
-                    subtitle = diagnostics.playMethod.ifBlank { "实时播放诊断" },
+                    subtitle = state.playbackMethodReadoutLabel() ?: "实时播放诊断",
                     onClick = { onAdvancedPage(AdvancedPage.Media) },
                 )
                 PopupDivider()
@@ -468,10 +468,12 @@ internal fun MorePanel(
                     onClick = onOpenProblem,
                 )
                 DiagnosticRow("容器", containerLabel ?: "未知")
-                DiagnosticRow(
-                    "YCore 管线",
-                    liveDiagnostics.plannedRenderPath.ifBlank { "等待规划" },
-                )
+                if (liveDiagnostics.engine.contains("YCore", ignoreCase = true)) {
+                    DiagnosticRow(
+                        "YCore 管线",
+                        liveDiagnostics.plannedRenderPath.ifBlank { "等待规划" },
+                    )
+                }
                 DiagnosticRow("运行健康", liveDiagnostics.playbackHealth)
                 DiagnosticRow(
                     "A/V 同步",
@@ -528,7 +530,7 @@ internal fun MorePanel(
                 )
                 PopupDivider()
                 Text(
-                    "●  ${liveDiagnostics.playMethod.ifBlank { "实时播放" }}",
+                    "●  ${playback.value.playbackMethodReadoutLabel() ?: "实时播放"}",
                     style = AppTypography.caption.medium,
                     color = Color.White.copy(alpha = 0.58f),
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
