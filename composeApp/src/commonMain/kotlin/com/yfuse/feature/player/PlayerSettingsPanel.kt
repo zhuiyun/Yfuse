@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -170,6 +171,11 @@ internal fun SettingsPanel(
         // The list takes whatever height the drawer has left instead of the old fixed
         // 210dp window, which scrolled a short slot inside a mostly empty screen.
         val panelScroll = rememberScrollState()
+        // Each destination starts at its heading. Keeping the preceding page's offset
+        // hid the return control after opening a destination near the bottom of Playback.
+        LaunchedEffect(kind, advancedPage, trackPanelMode) {
+            panelScroll.scrollTo(0)
+        }
         Column(
             Modifier
                 .weight(1f, fill = false)
