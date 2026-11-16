@@ -7,6 +7,8 @@ import sys
 import time
 
 from media import MediaServer
+from library import LibraryServer
+from library_ui import connect
 from telemetry import Recorder, shell
 
 sys.path.insert(0, 'qa-arm-matrix')
@@ -17,9 +19,9 @@ from ext_run import adb, rail, screen, tap
 sys.path.insert(0, 'qa-arm-original')
 import direct
 
-PHASES = [('stopped-control', 5), ('servers-idle', 15), ('settings-idle', 15),
-          ('settings-interaction', 10), ('playing', 45), ('paused', 20), ('seeking', 15),
-          ('after-player-idle', 15), ('background-idle', 30), ('screen-off', 40),
+PHASES = [('stopped-control', 5), ('servers-idle', 15), ('library-idle', 15), ('settings-idle', 15),
+          ('settings-interaction', 10), ('playing', 35), ('paused', 20), ('seeking', 15),
+          ('after-player-idle', 15), ('background-idle', 30), ('screen-off', 35),
           ('network-failure', 20), ('recovered-playback', 10)]
 
 
@@ -78,6 +80,8 @@ def enter(name, server, core):
         adb('shell', 'am', 'force-stop', 'com.yfuse')
     elif name == 'servers-idle':
         home('服务器')
+    elif name == 'library-idle':
+        home('媒体库')
     elif name in ('settings-idle', 'settings-interaction'):
         home('我的')
     elif name in ('playing', 'seeking', 'recovered-playback'):
@@ -112,8 +116,19 @@ def main():
         '-t', '3600', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '35',
         '-c:a', 'aac', '-b:a', '64k', '-movflags', '+faststart', str(fixture)], check=True)
     server = MediaServer(fixture, out / 'http.jsonl')
+    library = LibraryServer(out / 'library-http.jsonl')
     adb('reverse', 'tcp:18389', 'tcp:18389')
+    adb('reverse', 'tcp:18196', 'tcp:18196')
     engine.configure(core)
+    try:
+        connect()
+    except Exception as error:
+        screen().save(out / 'library-setup-failure.png')
+        (out / 'setup-failure.json').write_text(json.dumps({'error': str(error),
+            'labels': ui.page_info(ui.snapshot()), 'status': 'measurement-not-started'}), encoding='utf-8')
+        server.close()
+        library.close()
+        raise
     recorder = Recorder(out)
     phases = []
     status = 'incomplete'
@@ -148,7 +163,7 @@ def main():
                         number += 1
                         next_action = time.monotonic() + 30
                         action = True
-                    recorder.capture(name, server.counters(), heavy=number % 4 == 0,
+                    recorder.capture(name, {**server.counters(), 'libraryRequests': library.requests}, heavy=number % 4 == 0,
                                      intervention=action or time.monotonic() - began < 60)
                     number += 1
                     time.sleep(min(30, max(0, duration - (time.monotonic() - began))))
@@ -169,6 +184,7 @@ def main():
         adb('shell', 'dumpsys', 'battery', 'reset', check=False)
         adb('shell', 'input', 'keyevent', '224', check=False)
         server.close()
+        library.close()
     # Recording success is not a claim that the app meets a physical energy budget.
     if status != 'recorded':
         raise SystemExit(1)

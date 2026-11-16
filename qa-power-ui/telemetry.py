@@ -125,7 +125,7 @@ class Recorder:
         (self.output / 'summary.json').write_text(json.dumps(summary, indent=2), encoding='utf-8')
         fields = ['seconds', 'phase', 'intervention', 'cpuPercentOneCore', 'batteryLevelSimulated',
                   'modelEstimatedMah', 'uiFramesSincePhaseReset', 'endpointRequests', 'endpointBytes',
-                  'collectorSeconds']
+                  'libraryRequests', 'collectorSeconds']
         with (self.output / 'curves.csv').open('w', newline='', encoding='utf-8') as stream:
             writer = csv.DictWriter(stream, fieldnames=fields)
             writer.writeheader()
@@ -135,4 +135,5 @@ class Recorder:
                     'modelEstimatedMah': row.get('modelEstimate', {}).get('totalMah'),
                     'uiFramesSincePhaseReset': row.get('uiFramesSincePhaseReset'),
                     'endpointRequests': row['endpoint']['requests'], 'endpointBytes': row['endpoint']['bytes'],
+                    'libraryRequests': row['endpoint'].get('libraryRequests'),
                     'collectorSeconds': row['collectorSeconds']})

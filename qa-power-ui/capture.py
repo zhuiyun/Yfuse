@@ -6,6 +6,8 @@ import re
 import sys
 import time
 import xml.etree.ElementTree as ET
+from library import LibraryServer
+from library_ui import connect
 
 sys.path.insert(0, 'qa-arm-matrix')
 import engine
@@ -45,6 +47,16 @@ ROUTES = [
     ('discover', '观看', ['发现']),
 ]
 
+POPULATED_ROUTES = [
+    ('populated-library', '媒体库', []),
+    ('movie-library', '媒体库', ['测试电影']),
+    ('movie-detail', '媒体库', ['测试电影', '山海之间']),
+    ('long-title-detail', '媒体库', ['测试电影', '这是一个用于检验换行与省略行为的很长电影标题：夜空下的旅程']),
+    ('series-library', '媒体库', ['测试剧集']),
+    ('series-detail', '媒体库', ['测试剧集', '城市的一天']),
+    ('saved-server', '服务器', []),
+]
+
 
 def capture(out, name):
     tree = ui.snapshot()
@@ -73,11 +85,19 @@ def main():
     adb('shell', 'cmd', 'uimode', 'night', 'yes' if variant == 'dark-large' else 'no')
     adb('shell', 'settings', 'put', 'system', 'font_scale', '1.3' if variant == 'dark-large' else '1.0')
     rows = []
-    for number, (name, tab, path) in enumerate(ROUTES, 1):
+    library = LibraryServer(out / 'fixture-requests.jsonl')
+    adb('reverse', 'tcp:18196', 'tcp:18196')
+    populated = False
+    for number, (name, tab, path) in enumerate(ROUTES + POPULATED_ROUTES, 1):
         key = '%02d-%s' % (number, name)
         row = {'step': number, 'name': name, 'tab': tab, 'route': path, 'status': 'unverified'}
         rows.append(row)
         try:
+            if number == len(ROUTES) + 1:
+                connect()
+                populated = True
+            if number > len(ROUTES) and not populated:
+                raise RuntimeError('Populated fixture sign-in was not verified')
             ui.launch()
             ui.root(tab)
             for label in path:
@@ -108,12 +128,13 @@ def main():
                 pass
         finally:
             (out / 'coverage.json').write_text(json.dumps({'variant': variant, 'routes': rows,
-                'auditComplete': False, 'limits': ['No authenticated backend or real private library in this capture.',
+                'auditComplete': False, 'limits': ['Populated library is a deterministic loopback fixture, not a real Emby acceptance test.',
                 'A screenshot and successful navigation do not establish visual or accessibility compliance.',
                 'Account-gated and external-device flows require separate coverage.']}, ensure_ascii=False, indent=2), encoding='utf-8')
             print('UI_CAPTURE', key, row['status'], flush=True)
     adb('shell', 'cmd', 'uimode', 'night', 'no')
     adb('shell', 'settings', 'put', 'system', 'font_scale', '1.0')
+    library.close()
     if not any(r['status'] == 'captured-needs-review' for r in rows):
         raise SystemExit('No valid route captures')
 

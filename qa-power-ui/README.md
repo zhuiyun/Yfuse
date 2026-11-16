@@ -27,4 +27,4 @@ This suite is a measurement tool, not an automatic declaration of low energy usa
 - Batterystats diagnostics and approximate UID power: https://developer.android.com/tools/dumpsys
 - Physical power measurement limitations: https://developer.android.com/studio/profile/power-profiler
 
-Current captures initially cover 34 native routes in light and dark/130% font configurations. They do not claim every screen: authenticated account/session, populated media, player menus, widgets, casting and secondary dialogs are added to the coverage ledger as their current-run evidence is collected.
+Current captures initially cover 34 unpopulated native routes plus seven populated-library routes in light and dark/130% font configurations. The library uses original bundled artwork and synthetic metadata through a loopback API. The 240-minute measurement schedule includes 13 phases and records fixture API polling separately from media bytes. These do not claim every screen: authenticated account/session, player menus, widgets, casting and secondary dialogs are added to the coverage ledger as their current-run evidence is collected.
