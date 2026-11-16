@@ -1023,7 +1023,9 @@ class YCoreMediaSuiteInstrumentedTest {
         val internalSoftware =
             state.diagnostics.route == YPlaybackRoute.SoftwareFallback &&
                 state.diagnostics.demuxer == "FFmpeg / libavformat" &&
-                state.diagnostics.decoder.orEmpty().contains("FFmpeg software video")
+                state.diagnostics.decoder
+                    .orEmpty()
+                    .contains("FFmpeg software video")
         assertTrue(
             "$label used non-YCore route ${state.diagnostics.route}: ${state.diagnostics.reason}",
             state.diagnostics.route in PURE_NATIVE_ROUTES || internalSoftware,
