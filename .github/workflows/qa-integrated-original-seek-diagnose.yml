@@ -1,4 +1,4 @@
-name: Diagnose first original MP4 startup failure on the current candidate
+name: Diagnose stalled YCore original ranges over origin and identical loopback bytes
 'on':
   push:
     branches:
@@ -10,7 +10,7 @@ permissions:
   actions: read
 jobs:
   diagnose:
-    name: SenPlayer original startup control ${{ matrix.path }}
+    name: YCore original range control ${{ matrix.path }}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 75
     strategy:
@@ -21,10 +21,11 @@ jobs:
         - origin
         - loopback
     env:
-      QA_ENGINE: SenPlayer
+      QA_ENGINE: YCore
       QA_ORIGINAL_PATH: ${{ matrix.path }}
       QA_CAPTURE_FAILURE: 'true'
-      QA_ORIGINAL_ID: blender-6402b77c-b61f-4a06-96ca-c8420a2becf4
+      QA_RANGE_CONTROL: 'true'
+      QA_ORIGINAL_ID: blender-8533ea43-4271-4a57-9694-e9d0b35e1aa1
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with:
@@ -33,7 +34,7 @@ jobs:
       with:
         name: candidate-test-input
         path: preview
-        run-id: 43872512692
+        run-id: 43994190617
         github-token: ${{ github.token }}
     - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
       with:
@@ -48,7 +49,7 @@ jobs:
 
         (cd preview && sha256sum -c apk.sha256)
 
-        grep -Fx "app=7ab9b6b372eab29181daff32c0ff660604087b20" preview/provenance.txt
+        grep -Fx "app=8a47d4fa983adaa222fb8b59fee380523ff54a0a" preview/provenance.txt
 
         cp preview/provenance.txt preview/apk.sha256 results/
 

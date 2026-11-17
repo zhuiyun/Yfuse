@@ -22,6 +22,10 @@ if mode not in ('origin', 'loopback'):
 os.environ['QA_CAPTURE_FAILURE'] = 'true'
 server = None
 
+if os.environ.get('QA_RANGE_CONTROL') == 'true':
+    from range_control import record
+    record(item['url'], direct.OUT / 'independent-origin-ranges.json')
+
 if mode == 'loopback':
     target = Path(os.environ['RUNNER_TEMP']) / 'public-original.media'
     subprocess.run(['curl', '--fail', '--location', '--retry', '3', '--max-time', '600',

@@ -126,7 +126,9 @@ def probe_file(url):
 def run(item):
     url=item['url'];label=item['id'];kind=item['kind']
     if urllib.parse.urlsplit(url).hostname not in ('download.blender.org','media.xiph.org','video.blender.org','images-assets.nasa.gov'):raise ValueError('unlisted source host')
-    observed=probe_file(url)
+    playback_url=item.get('testUrl',url)
+    if playback_url!=url and urllib.parse.urlsplit(playback_url).hostname!='127.0.0.1':raise ValueError('Only a cloud loopback control may replace the public original')
+    observed=probe_file(playback_url)
     measured(label+'-format',kind=kind,**observed)
     if observed['bytes']>1024:
         for key,pos in [('start',0),('middle',observed['bytes']//2),('end',observed['bytes']-1024)]:
@@ -138,8 +140,6 @@ def run(item):
             except (OSError,ValueError) as e:measured(label+'-'+key,status=getattr(e,'code',0),returned=0,exactRange=False)
     adb('shell','am','force-stop','com.yfuse')
     since=time.time()
-    playback_url=item.get('testUrl',url)
-    if playback_url!=url and urllib.parse.urlsplit(playback_url).hostname!='127.0.0.1':raise ValueError('Only a cloud loopback control may replace the public original')
     seturl='am start -W -a android.intent.action.VIEW -n com.yfuse/com.yfuse.feature.player.ExternalPlaybackActivity -t '+item['mime']+' -d '+shlex.quote(playback_url)
     status=adb('shell',seturl,check=False)
     if 'Exception' in status or 'Error' in status:raise RuntimeError('intent rejected')
