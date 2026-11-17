@@ -234,6 +234,7 @@ try:
     coordinator = Coordinator()
     passed('trusted-tls-account-coordinator')
     login('phone', coordinator)
+    playback.remove_test_history('Cloud QA Playback 44025958394', OUT, use, capture, wait_text, passed)
     login('tv', coordinator)
     television_name = cloud_remote(coordinator)
     server_sign_in(coordinator, television_name)

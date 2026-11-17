@@ -90,13 +90,21 @@ def run(coordinator, television_name, title, output, use, capture, wait_text, pa
 def remove_test_history(title, output, use, capture, wait_text, passed):
     # Stop the test receiver before removing only this run's uniquely named record.
     use('tv'); adb('shell', 'am', 'force-stop', 'com.yfuse')
-    use('phone'); ui.root('我的'); click('我的片单'); click('历史')
-    wait_text(title, 20)
+    use('phone')
+    # Close the player activity through normal activity navigation. Do not kill
+    # the signed-in process: legacy servers rotate its session ID on restoration.
+    adb('shell', 'am', 'start', '-W', '--activity-clear-top', '--activity-single-top',
+        '-n', 'com.yfuse/com.yfuse.MainActivity')
+    ui.root('我的'); click('我的片单'); click('历史')
+    wait_text('观看历史', 20)
+    from navigation import control
+    control(title, scrolls=20)
     nodes = [n for n in ui.nodes(ui.snapshot()) if n.get('text') == title]
     assert len(nodes) == 1, 'Ambiguous test history record; leave unrelated records untouched'
     x, y = ui.coords(nodes[0]); adb('shell', 'input', 'swipe', x, y, x, y, 900)
-    wait_text('移除观看记录', 15); capture('test-history-remove-confirmation')
+    suffix = title.rsplit(' ', 1)[-1]
+    wait_text('移除观看记录', 15); capture('test-history-remove-confirmation-'+suffix)
     click('移除观看记录'); time.sleep(7)
-    tree = capture('test-history-removed')
+    tree = capture('test-history-removed-'+suffix)
     assert not any(n.get('text') == title for n in ui.nodes(tree)), 'Test history remained visible'
     passed('only-run-unique-playback-history-removed')
