@@ -1,11 +1,11 @@
-name: Qualify native session audio tuning restoration
+name: Qualify lifecycle-scoped page timers and presence refresh
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
     paths: ['.github/workflows/qa-integrated-av-repair.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: 8a47d4fa983adaa222fb8b59fee380523ff54a0a
+  QA_APP_SHA: 30d6fd96b7defa4d1852e6e83c53a99131847a64
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 8a47d4fa983adaa222fb8b59fee380523ff54a0a
+          ref: 30d6fd96b7defa4d1852e6e83c53a99131847a64
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78

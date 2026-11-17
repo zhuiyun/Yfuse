@@ -1,4 +1,4 @@
-name: Verify final UI with observed animation readiness and10repeat interactions
+name: Verify page job cancellation and full UI regressions on Android12 15 17
 'on':
   push:
     branches:
@@ -9,7 +9,7 @@ permissions:
   contents: read
   actions: read
 env:
-  QA_APP_SHA: a5c9aac5027f4f9093d49982fe98c67282705d75
+  QA_APP_SHA: 30d6fd96b7defa4d1852e6e83c53a99131847a64
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -17,7 +17,7 @@ jobs:
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with:
-        ref: a5c9aac5027f4f9093d49982fe98c67282705d75
+        ref: 30d6fd96b7defa4d1852e6e83c53a99131847a64
         persist-credentials: false
         fetch-depth: 0
     - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
@@ -72,8 +72,8 @@ jobs:
         retention-days: 7
   instrumented:
     env:
-      QA_MIN_TESTS: ${{ matrix.api == 32 && 3 || 105 }}
-      QA_TEST_CLASSES: ${{ matrix.api == 32 && 'com.yfuse.feature.calendar.CalendarReminderSchedulingInstrumentedTest,com.yfuse.core.designsystem.SkeletonSweepLifecycleInstrumentedTest'
+      QA_MIN_TESTS: ${{ matrix.api == 32 && 4 || 105 }}
+      QA_TEST_CLASSES: ${{ matrix.api == 32 && 'com.yfuse.feature.calendar.CalendarReminderSchedulingInstrumentedTest,com.yfuse.core.designsystem.SkeletonSweepLifecycleInstrumentedTest,com.yfuse.core.designsystem.VisibleUiWorkInstrumentedTest'
         || '' }}
       QA_PLATFORM_AVC_DECODER: ${{ matrix.api == 37 && 'c2.android.avc.decoder' ||
         '' }}
