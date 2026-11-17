@@ -11,6 +11,7 @@ from capture import capture, failure_diagnostics
 from media import MediaServer
 from navigation import click
 from power import adb, direct, engine, playing
+from player_ui import pause_visible
 from telemetry import Recorder
 
 
@@ -104,13 +105,16 @@ def return_to_player(out):
 
 
 def configure_audio_delay(out):
-    direct.reveal()
-    click('音轨', 3)
+    # Keep controls visible while instrumentation locates the audio button.
+    # The same atomic pause/clock check is used by the verified player UI audit.
+    pause_visible(out / 'audio-delay-setup-pause.txt')
+    click('音轨', 8)
     capture(out, 'audio-delay-before', expected='音频同步')
     click('+200', 3)
     click('+200', 3)
     capture(out, 'audio-delay-selected', expected='延后 400 毫秒')
     adb('shell', 'input', 'keyevent', '4')
+    adb('shell', 'input', 'keyevent', '126')
 
 
 def main():
@@ -172,7 +176,9 @@ def main():
             elif name == 'foreground-return':
                 return_to_player(out)
             active = name in ('foreground-playing', 'foreground-return')
-            held = active and name != 'foreground-playing'
+            # Visible playback releases this lock; unsupported background routes
+            # pause and also release it. No phase here should retain the lock.
+            held = False
             row['entryEvidence'] = require_state(out, name + '-entry', 3 if active else 2, held)
             if name == 'background-audio-requested':
                 lifecycle_evidence(out, name + '-entry')

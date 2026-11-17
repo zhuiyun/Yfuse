@@ -1,4 +1,4 @@
-name: One-hour SCore400ms tuning recovery using actual media key events
+name: One-hour SCore400ms recovery with stable paused setup and foreground lock check
 'on':
   push:
     branches:
