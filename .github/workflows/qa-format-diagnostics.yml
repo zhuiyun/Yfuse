@@ -1,4 +1,4 @@
-name: Verify actual long-movie seeks after both clock layout repairs
+name: Verify long seeks and await the actual core output telemetry
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]

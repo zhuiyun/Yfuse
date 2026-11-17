@@ -33,6 +33,22 @@ def screenshot(name):
     observer.screen().save(output / (name + '.png'))
 
 
+def confirm_identity(row, started):
+    """Decoded pictures can arrive before SenPlayer's next five-second telemetry sample."""
+    first = engine.engine_evidence(core, started)
+    row['initialIdentity'] = first
+    row['identity'] = first
+    row['identityPolls'] = 1
+    matching_libraries = (first['senOriginalLibrary'] and not first['ycoreLibrary'] if core == 'SenPlayer'
+                          else first['ycoreLibrary'] and not first['senOriginalLibrary'])
+    began = time.monotonic()
+    while matching_libraries and not row['identity']['active'] and time.monotonic() - began < 12:
+        time.sleep(.5)
+        row['identity'] = engine.engine_evidence(core, started)
+        row['identityPolls'] += 1
+    row['identityWaitSeconds'] = round(time.monotonic() - began, 3)
+
+
 def seek(case, fraction, method, duration):
     rail, _ = observer.reveal()
     left, top, right, bottom = rail
@@ -81,7 +97,7 @@ for media in catalog:
             # Diagnostic continuation is recorded separately, never promoted to a 60s pass.
             try: row['lateOpen'] = observer.decode_playback(case+'-late', None, media['seconds'], max_wait=120)
             except (AssertionError, RuntimeError): pass
-        row['identity'] = engine.engine_evidence(core, started)
+        confirm_identity(row, started)
         if row.get('open') or row.get('lateOpen'):
             screenshot(case + '-opened')
             duration = (row.get('open') or row['lateOpen'])['durationSeconds']
