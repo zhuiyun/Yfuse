@@ -62,6 +62,15 @@ POPULATED_ROUTES = [
 
 def capture(out, name, expected=None, timeout=12):
     tree = ui.snapshot()
+    empty_samples = 0
+    deadline = time.monotonic() + 3
+    # UiAutomation may briefly expose no root during a scroll transition. Keep
+    # that evidence and retry only an empty tree, never a different foreground app.
+    while not list(tree.iter('node')) and time.monotonic() < deadline:
+        empty_samples += 1
+        (out / (name + '-empty-' + str(empty_samples) + '.xml')).write_bytes(ET.tostring(tree, encoding='utf-8'))
+        time.sleep(.25)
+        tree = ui.snapshot()
     if expected is not None:
         deadline = time.monotonic() + timeout
         while not (any(n.get('package') == 'com.yfuse' for n in ui.nodes(tree)) and
@@ -85,7 +94,7 @@ def capture(out, name, expected=None, timeout=12):
             'packages': sorted({n.get('package') for n in ui.nodes(tree) if n.get('package')}),
             'treeSha256': hashlib.sha256(ET.tostring(tree)).hexdigest(),
             'targets': targets, 'widthPx': image.width, 'heightPx': image.height,
-            'humanInspection': 'pending'}
+            'emptySamplesRetried': empty_samples, 'humanInspection': 'pending'}
 
 
 def surface_signature(tree):
