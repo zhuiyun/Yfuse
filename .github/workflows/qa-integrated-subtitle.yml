@@ -1,4 +1,4 @@
-name: Verify actual dual subtitles, seeking, style and recreated surfaces
+name: Verify dual subtitle images with retained caption OCR and settled controls
 'on':
   push:
     branches:

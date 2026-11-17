@@ -4,6 +4,7 @@ import http.server
 import json
 import os
 from pathlib import Path
+from PIL import Image
 import re
 import subprocess
 import sys
@@ -107,12 +108,27 @@ def select(enabled):
 
 def verify(enabled, label, words=('SUBTITLE', 'FACTORY', 'PASS')):
     observations = []
+    # Wait for the actual video viewport: transient chrome dims the subtitles underneath.
+    for _ in range(5):
+        if ui.find(ui.snapshot(), '字幕') is None: break
+        im = screen(); tap(im.width*.5, im.height*.35); time.sleep(1)
     for index in range(8):
         im = screen(); name = 'on' if enabled else 'off'
         path = out/f'subtitle-{label}-{name}-{index}.png';im.save(path)
-        text = subprocess.run(['tesseract', str(path), 'stdout', '--psm', '11', '-l', 'eng'],
-                              capture_output=True, check=True).stdout.decode().upper()
-        found = all(word in text for word in words)
+        # The generated saturated moving pattern confuses full-frame OCR. Preserve the raw
+        # image and also isolate its white caption pixels; never synthesize expected text.
+        area = im.crop((0, int(im.height*.5), im.width, im.height)).convert('RGB')
+        mask = Image.new('L', area.size)
+        mask.putdata([0 if min(rgb) > 210 else 255 for rgb in area.getdata()])
+        mask = mask.resize((mask.width*2, mask.height*2))
+        mask_path = path.with_name(path.stem+'-white-caption-mask.png'); mask.save(mask_path)
+        readings = []
+        for source, mode in [(path, '11'), (mask_path, '6')]:
+            text = subprocess.run(['tesseract', str(source), 'stdout', '--psm', mode, '-l', 'eng'],
+                                  capture_output=True, check=True).stdout.decode().upper()
+            source.with_suffix('.ocr.txt').write_text(text)
+            readings.append(text)
+        found = any(all(word in text for word in words) for text in readings)
         observations.append({'phase': label, 'enabled': enabled, 'visible': found, 'words': words})
         if found == enabled and (enabled or len(observations) >= 3 and all(not x['visible'] for x in observations[-3:])):
             checks.extend(observations);return
