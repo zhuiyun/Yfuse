@@ -233,6 +233,28 @@ def source_range_benchmark(media):
     return measurements
 
 
+def observed_seek_diagnostic(label, fraction, duration):
+    """Keep a failed raw swipe failed; record a separate refreshed input receipt and retry."""
+    reveal()
+    response = adb('shell', 'am', 'instrument', '-w', '-e', 'mode', 'observed-seek',
+                   '-e', 'fraction', fraction, 'qa.yfuse.gesture/.Driver', timeout=40)
+    match = re.search(r'INSTRUMENTATION_RESULT: observedSeek=(\{[^\n]+\})', response)
+    if not match:
+        raise AssertionError('Observed seek receipt missing')
+    receipt = json.loads(match[1])
+    # The held image stays only in the disposable emulator. Public evidence contains numbers.
+    safe = {k: receipt[k] for k in ('railLeft', 'railRight', 'endX', 'y', 'requestedFraction',
+                                   'shownFraction', 'rangeMin', 'rangeMax')}
+    if not all(isinstance(value, (int, float)) for value in safe.values()):
+        raise ValueError('Non-numeric seek receipt')
+    measured(label + '-input-diagnostic', fraction=fraction, receipt=safe)
+    try:
+        output = decode_playback(label + '-input-diagnostic', duration * fraction, duration)
+        measured(label + '-diagnostic-retry', fraction=fraction, moving=True, **output)
+    except (ValueError, RuntimeError, AssertionError, subprocess.TimeoutExpired):
+        measured(label + '-diagnostic-retry', fraction=fraction, moving=False)
+
+
 def source_probe(media):
     # Never retain stderr or the command arguments: both may repeat the signed address.
     try:
@@ -305,7 +327,12 @@ if __name__=='__main__':
                             measured(label+'-issued',fraction=fraction)
                             h=decode_playback(label,duration*fraction,duration)
                             measured(label+'-confirmed',fraction=fraction,**h)
-                        except (ValueError,RuntimeError,AssertionError,subprocess.TimeoutExpired): measured(label+'-unconfirmed',fraction=fraction)
+                        except (ValueError,RuntimeError,AssertionError,subprocess.TimeoutExpired):
+                            measured(label+'-unconfirmed',fraction=fraction)
+                            if os.environ.get('QA_OBSERVED_FAILED_SEEKS') == 'true':
+                                try: observed_seek_diagnostic(label, fraction, duration)
+                                except Exception as error:
+                                    measured(label+'-input-diagnostic-error',fraction=fraction,errorType=type(error).__name__)
             except (ValueError,RuntimeError,AssertionError,subprocess.TimeoutExpired):measured(label+'-opened',moving=False)
             events=[e for e in app_events() if (e['time'],e['event']) not in prior]
             measured(label+'-diagnostics',total=len(events),events=events[-600:])

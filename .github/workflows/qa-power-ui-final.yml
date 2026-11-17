@@ -1,4 +1,4 @@
-name: Final themed navigation candidate four-hour activity on both cores
+name: Four-hour activity after recovery and discovery contrast repair
 'on':
   push:
     branches:
@@ -9,8 +9,8 @@ permissions:
   contents: read
   actions: read
 env:
-  QA_APP_SHA: 141ed26051de24641214d34828324d71fabd115c
-  QA_BUILD_RUN: 44043238227
+  QA_APP_SHA: 38a6944632000c3edc986e094a545081198d8b79
+  QA_BUILD_RUN: 44061567801
   QA_EXPECT_NO_SUBTITLE_CONFIGURATION_ERRORS: 'true'
 jobs:
   acquire:

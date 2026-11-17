@@ -1,4 +1,4 @@
-name: Sixty private originals on final lifecycle and UI candidate
+name: Recheck sixty originals after demux software recovery repair
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
@@ -10,10 +10,13 @@ permissions:
 jobs:
   driver:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with: {persist-credentials: false}
+      - name: Require full current-candidate qualification before reserving source runners
+        env: {API_TOKEN: '${{ github.token }}'}
+        run: bash qa-integrated/acquire-qualified-candidate.sh 44061567801 38a6944632000c3edc986e094a545081198d8b79
       - name: Build network and gesture recorder
         run: |
           mkdir qa-private-driver
@@ -33,6 +36,7 @@ jobs:
       QA_SHARD: ${{ matrix.shard }}
       QA_PROBE_LABELS: m-000,m-001,m-002,m-003,m-004,m-005,m-006,m-007,m-008,m-009,m-010,m-011,m-012,m-013,m-014,m-015,m-016,m-017,m-018,m-019,m-020,m-021,m-022,m-023,m-024,m-025,m-026,m-027,m-028,m-029,m-030,m-031,e-000,e-001,e-002,e-003,e-004,e-005,e-006,e-007,e-008,e-009,e-010,e-011,e-012,e-013,e-014,e-015,e-016,e-017,e-018,e-019,e-020,e-021,e-022,e-023,e-024,e-025,e-026,e-027
       QA_OPEN_DIAGNOSTIC_SECONDS: 60
+      QA_OBSERVED_FAILED_SEEKS: 'true'
       QA_BENCHMARK_LABELS: m-029,e-027
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 240
@@ -65,8 +69,8 @@ jobs:
         run: |
           set -euo pipefail
           api="https://api.github.com/repos/$GITHUB_REPOSITORY"
-          build=44034015111
-          expected=0127f268d4fb00b4a83c08640b0803a76cfac866
+          build=44061567801
+          expected=38a6944632000c3edc986e094a545081198d8b79
           for i in $(seq 1 260); do
             artifact=$(curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/$build/artifacts" | jq -r '.artifacts[] | select(.name=="candidate-test-input" and .expired==false) | .id' | head -1)
             if [[ "$artifact" =~ ^[0-9]+$ ]]; then break; fi
