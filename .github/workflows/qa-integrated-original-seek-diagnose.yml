@@ -1,4 +1,4 @@
-name: Diagnose stalled YCore original ranges over origin and identical loopback bytes
+name: Diagnose the NASA episode DNS failure with identical origin and loopback bytes
 'on':
   push:
     branches:
@@ -25,7 +25,8 @@ jobs:
       QA_ORIGINAL_PATH: ${{ matrix.path }}
       QA_CAPTURE_FAILURE: 'true'
       QA_RANGE_CONTROL: 'true'
-      QA_ORIGINAL_ID: blender-8533ea43-4271-4a57-9694-e9d0b35e1aa1
+      QA_DNS_CONTROL: 'true'
+      QA_ORIGINAL_ID: 'nasa-jcs2022m0000xx_Space to Ground_435_220819'
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with:
@@ -34,13 +35,13 @@ jobs:
       with:
         name: candidate-test-input
         path: preview
-        run-id: 43994190617
+        run-id: 44067422996
         github-token: ${{ github.token }}
     - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
       with:
         name: arm-input-driver
         path: qa-driver
-        run-id: 43838817605
+        run-id: 44068585060
         github-token: ${{ github.token }}
     - name: Verify identical candidate and prepare original file checks
       run: 'set -euo pipefail
@@ -49,7 +50,7 @@ jobs:
 
         (cd preview && sha256sum -c apk.sha256)
 
-        grep -Fx "app=8a47d4fa983adaa222fb8b59fee380523ff54a0a" preview/provenance.txt
+        grep -Fx "app=fe814ec63fb1c035ff9fb123146e3ed3700a2b16" preview/provenance.txt
 
         cp preview/provenance.txt preview/apk.sha256 results/
 

@@ -83,6 +83,17 @@ try:
             direct.measured(sample['id']+'-incomplete', error=type(error).__name__)
             direct.capture_failure(sample['id'])
             break
+        finally:
+            if os.environ.get('QA_DNS_CONTROL') == 'true':
+                # Observe after the attempt: a DNS probe before playback would warm the cache
+                # and could hide the first-lookup failure this comparison is investigating.
+                snapshot = {
+                    'attempt': index, 'path': mode,
+                    'privateDnsMode': direct.adb('shell', 'settings', 'get', 'global', 'private_dns_mode', check=False),
+                    'privateDnsSpecifier': direct.adb('shell', 'settings', 'get', 'global', 'private_dns_specifier', check=False),
+                    'resolver': direct.adb('shell', 'dumpsys', 'dnsresolver', check=False)[:65536],
+                }
+                (direct.OUT / ('resolver-after-' + str(index) + '.json')).write_text(json.dumps(snapshot, indent=2))
         if not direct.ROWS[-1].get('ok'):
             break
     passed = sum(row['case'].endswith('-complete') and row.get('ok',False) for row in direct.ROWS)
