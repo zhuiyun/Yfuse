@@ -19,6 +19,8 @@ import features as ui
 from ext_run import adb, screen, tap
 sys.path.insert(0, 'qa-arm-original')
 import direct
+sys.path.insert(0, 'qa-power-ui')
+import background_audio as lifecycle
 
 out = Path('results'); out.mkdir(exist_ok=True)
 root = Path(os.environ['RUNNER_TEMP']) / 'subtitle-factory'
@@ -31,6 +33,9 @@ subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=si
                 '-metadata:s:s:0', 'language=eng', '-metadata:s:s:0', 'title=English',
                 '-disposition:s:0', 'default', str(root/'fixture.mkv')], check=True)
 
+subprocess.run(['ffmpeg', '-v', 'error', '-y', '-i', str(root/'fixture.mkv'),
+                '-map', '0:v', '-map', '0:a', '-c', 'copy', str(root/'no-subtitles.mkv')], check=True)
+
 class Handler(http.server.SimpleHTTPRequestHandler):
     def log_message(self, *args): pass
 
@@ -38,6 +43,7 @@ server = http.server.ThreadingHTTPServer(('127.0.0.1', 18388), functools.partial
 threading.Thread(target=server.serve_forever, daemon=True).start()
 adb('reverse', 'tcp:18388', 'tcp:18388')
 engine.configure('SenPlayer')
+adb('shell', 'cmd', 'appops', 'set', 'com.yfuse', 'PICTURE_IN_PICTURE', 'deny')
 since = time.time()
 checks = []
 
@@ -64,31 +70,65 @@ def select(enabled):
     if ui.find(tree, '字幕') is not None:
         im = screen();tap(im.width*.5, im.height*.35)
 
-def verify(enabled):
+def verify(enabled, label):
     observations = []
     for index in range(8):
         im = screen(); name = 'on' if enabled else 'off'
-        path = out/f'subtitle-{name}-{index}.png';im.save(path)
+        path = out/f'subtitle-{label}-{name}-{index}.png';im.save(path)
         text = subprocess.run(['tesseract', str(path), 'stdout', '--psm', '11', '-l', 'eng'],
                               capture_output=True, check=True).stdout.decode().upper()
         found = all(word in text for word in ('SUBTITLE', 'FACTORY', 'PASS'))
-        observations.append({'enabled': enabled, 'visible': found})
+        observations.append({'phase': label, 'enabled': enabled, 'visible': found})
         if found == enabled and (enabled or len(observations) >= 3 and all(not x['visible'] for x in observations[-3:])):
             checks.extend(observations);return
         time.sleep(.5)
     checks.extend(observations)
     raise AssertionError('Subtitle image did not match selected state')
 
+def assert_no_subtitle_errors(label):
+    raw = adb('shell', 'cat /data/user/0/com.yfuse/no_backup/diagnostics/diagnostic-*.jsonl', check=False)
+    (out/(label+'-diagnostics.txt')).write_text(raw, encoding='utf-8')
+    rows = [json.loads(line) for line in raw.splitlines() if line.startswith('{')]
+    if any(row.get('event') == 'subtitle_operation_failed' for row in rows):
+        raise AssertionError('Unexpected subtitle configuration failure in '+label)
+    return rows
+
+
+def background_and_return(label):
+    evidence = out/label
+    evidence.mkdir(exist_ok=True)
+    lifecycle.lifecycle_evidence(evidence, 'after-launch')
+    adb('shell', 'input', 'keyevent', '3')
+    time.sleep(3)
+    lifecycle.require_state(evidence, 'background-paused', 2, False)
+    lifecycle.return_to_player(evidence)
+    return assert_no_subtitle_errors(label)
+
+
 passed = False
 try:
+    adb('shell', 'am', 'start', '-W', '-a', 'android.intent.action.VIEW', '-n',
+        'com.yfuse/com.yfuse.feature.player.ExternalPlaybackActivity', '-t', 'video/x-matroska',
+        '-d', 'http://127.0.0.1:18388/no-subtitles.mkv')
+    direct.decode_playback('no-subtitle-fixture', None, 180)
+    no_sub = assert_no_subtitle_errors('no-subtitles')
+    if any(row.get('event') == 'subtitle_renderer_ready' for row in no_sub):
+        raise AssertionError('Audio/video-only file unnecessarily configured subtitle output')
+    background_and_return('no-subtitles-return')
+    checks.append({'case': 'no-subtitles-and-return', 'passed': True})
+    adb('shell', 'am', 'force-stop', 'com.yfuse')
     adb('shell', 'am', 'start', '-W', '-a', 'android.intent.action.VIEW', '-n',
         'com.yfuse/com.yfuse.feature.player.ExternalPlaybackActivity', '-t', 'video/x-matroska',
         '-d', 'http://127.0.0.1:18388/fixture.mkv')
     moving = direct.decode_playback('subtitle-fixture', None, 180)
     identity = engine.engine_evidence('SenPlayer', since)
     if not identity['active']:raise AssertionError('SenPlayer native output identity missing')
-    select(True);verify(True)
-    select(False);verify(False)
+    select(True);verify(True, 'selected')
+    select(False);verify(False, 'disabled')
+    select(True);verify(True, 'reselected')
+    background_and_return('subtitles-return')
+    verify(True, 'foreground-return')
+    checks.append({'case': 'selected-subtitles-after-return', 'passed': True})
     raw = adb('shell', 'cat /data/user/0/com.yfuse/no_backup/diagnostics/diagnostic-*.jsonl', check=False)
     (out/'subtitle-diagnostics.txt').write_text(raw)
     events = [json.loads(line).get('event') for line in raw.splitlines() if line.startswith('{')]

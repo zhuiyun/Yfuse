@@ -766,7 +766,7 @@ internal class SenPlayerVideoEngine(
             it.copy(audioTracks = audio, subtitleTracks = captions, secondarySubtitleTrackId = secondaryTrackId)
         }
         if (tracks.length() > 0) {
-            subtitles.observeSecondary(secondaryTrackId != null)
+            subtitles.observeSelection(captions.any { it.selected }, secondaryTrackId != null)
             subtitles.selectDefault(captions)
         }
     }

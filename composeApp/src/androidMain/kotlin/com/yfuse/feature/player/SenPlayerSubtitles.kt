@@ -43,6 +43,7 @@ internal class SenPlayerSubtitles(
     private val requested = mutableMapOf<Int, String>()
     private var initial: YInitialTrackSelection? = null
     private var initialPending = false
+    private var rendererActive = false
     private var secondaryActive = false
     private var applied: Pair<SenSubtitleStyle, Boolean>? = null
     var style = SenSubtitleStyle()
@@ -84,6 +85,7 @@ internal class SenPlayerSubtitles(
         sources = emptyMap()
         headersFor = { emptyMap() }
         initialPending = false
+        rendererActive = false
         secondaryActive = false
         initial = null
         applied = null
@@ -100,15 +102,26 @@ internal class SenPlayerSubtitles(
         session?.let { applyStyle(it, secondaryActive) }
     }
 
-    fun observeSecondary(active: Boolean) {
-        secondaryActive = active
-        session?.let { applyStyle(it, active) }
+    fun observeSelection(
+        primary: Boolean,
+        secondary: Boolean,
+    ) {
+        rendererActive = primary || secondary
+        secondaryActive = secondary
+        if (!rendererActive) {
+            applied = null
+            return
+        }
+        session?.let { applyStyle(it, secondary) }
     }
 
     private fun applyStyle(
         current: SenPlayerSession,
         secondary: Boolean,
     ) {
+        // An audio/video-only source has no subtitle output to configure. Keep preferences until
+        // the native track snapshot confirms a selected primary or secondary subtitle.
+        if (!rendererActive) return
         val next = style to secondary
         if (applied == next) return
         applied = next
@@ -203,8 +216,7 @@ internal class SenPlayerSubtitles(
         try {
             current.track(slot, id)
             applied = null
-            if (slot == SECONDARY) secondaryActive = id != EngineTrack.OFF
-            applyStyle(current, secondaryActive)
+            // Selection is asynchronous; configure only after the next native media snapshot.
             refresh()
         } catch (error: Exception) {
             if (!current.isUsable()) throw error
