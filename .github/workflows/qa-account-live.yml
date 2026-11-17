@@ -17,8 +17,8 @@ jobs:
         run: |
           set -euo pipefail
           umask 077
-          # Both shells share qualified source 0127f26, including the lifecycle,
-          # subtitle, carousel, TV identity and landscape inset fixes.
+          # Phone product source 0127f26 equals TV build 5276e31: their diff
+          # contains only a qualification workflow file, no app sources.
           mkdir -p "$RUNNER_TEMP/account-private-logs" results account-sealed
           sudo apt-get update -qq
           sudo apt-get install -y python3-cryptography python3-pil ffmpeg
@@ -28,7 +28,7 @@ jobs:
         run: bash qa-integrated/acquire-qualified-candidate.sh 44034015111 0127f268d4fb00b4a83c08640b0803a76cfac866
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          name: yfuse-tv-debug-0127f268d4fb00b4a83c08640b0803a76cfac866
+          name: yfuse-tv-debug-5276e310fa575a1244bb2b611d4b58020192e306
           path: tv-input
           run-id: 44034015185
           github-token: ${{ github.token }}
