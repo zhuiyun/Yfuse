@@ -83,7 +83,7 @@ def require_state(out, label, state, held):
         time.sleep(.5)
 
 
-def return_to_player(out):
+def return_to_player(out, before_play=None):
     original = (out / 'after-launch-activity.txt').read_text(encoding='utf-8')
     tasks = re.findall(r'com\.yfuse/(?:com\.yfuse)?\.feature\.player\.PlayerActivity\s+t(\d+)', original)
     if not tasks:
@@ -99,6 +99,8 @@ def return_to_player(out):
         time.sleep(.5)
     else:
         raise AssertionError('Original player did not return to the foreground')
+    if before_play is not None:
+        before_play(out)
     adb('shell', 'input', 'keyevent', '126')
     proof = direct.decode_playback('audio-foreground-return', None, 3600)
     (out / 'foreground-return-moving-picture.json').write_text(json.dumps(proof), encoding='utf-8')

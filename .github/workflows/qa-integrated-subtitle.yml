@@ -1,4 +1,4 @@
-name: Verify selected subtitles and no-track playback across background return
+name: Verify subtitle activation after focused foreground recovery
 'on':
   push:
     branches:

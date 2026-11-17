@@ -101,8 +101,28 @@ def background_and_return(label):
     adb('shell', 'input', 'keyevent', '3')
     time.sleep(3)
     lifecycle.require_state(evidence, 'background-paused', 2, False)
-    lifecycle.return_to_player(evidence)
+    lifecycle.return_to_player(evidence, before_play=wait_for_focused_player)
     return assert_no_subtitle_errors(label)
+
+
+def wait_for_focused_player(evidence):
+    # ActivityManager's resumed record precedes the app's onStart/window rotation.
+    # Keep the single media-play command, but record that its recipient is ready.
+    deadline = time.monotonic() + 20
+    stable = None
+    while time.monotonic() < deadline:
+        window = adb('shell', 'dumpsys', 'window', 'windows')
+        focused = re.search(r'mCurrentFocus[^\n]*com\.yfuse[^\n]*PlayerActivity', window)
+        size = screen().size
+        marker = (focused.group(0), size) if focused else None
+        if marker is not None and marker == stable:
+            (evidence/'before-play-window.txt').write_text(window, encoding='utf-8')
+            lifecycle.session(evidence, 'before-play')
+            screen().save(evidence/'before-play.png')
+            return
+        stable = marker
+        time.sleep(1)
+    raise AssertionError('Player window never gained stable focus before media play')
 
 
 passed = False
