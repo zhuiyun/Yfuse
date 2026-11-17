@@ -52,6 +52,7 @@ import com.yfuse.core.designsystem.RefreshThresholdHaptics
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.SkeletonHandoff
 import com.yfuse.core.designsystem.StatusBarIconStyle
+import com.yfuse.core.designsystem.VisibleUiEffect
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.ServerLayout
@@ -118,8 +119,7 @@ internal fun ServersGridScreen(component: ServersTabComponent) {
     // The ages on the cards are relative, so they go stale where nothing else does. One
     // clock for the whole grid rather than one per card.
     var nowEpochMs by remember { mutableStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(routeVisible) {
-        if (!routeVisible) return@LaunchedEffect
+    VisibleUiEffect(component, active = routeVisible) {
         nowEpochMs = System.currentTimeMillis()
         while (true) {
             delay(AGE_TICK_MS)

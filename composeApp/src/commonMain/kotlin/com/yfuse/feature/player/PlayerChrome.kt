@@ -85,6 +85,7 @@ import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.PressFeedback
+import com.yfuse.core.designsystem.VisibleUiEffect
 import com.yfuse.core.designsystem.focusBody
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.lightFeedback
@@ -244,7 +245,8 @@ internal fun PlaybackErrorOverlay(
 @Composable
 internal fun PlayerClock() {
     var now by remember { mutableStateOf(currentClockTime()) }
-    LaunchedEffect(Unit) {
+    VisibleUiEffect(Unit) {
+        now = currentClockTime()
         while (isActive) {
             val millisIntoMinute = System.currentTimeMillis() % 60_000L
             delay(60_000L - millisIntoMinute)

@@ -1,7 +1,6 @@
 package com.yfuse.feature.player
 
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -11,6 +10,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.VisibleUiEffect
 import com.yfuse.core.util.currentEpochMillis
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -34,7 +34,8 @@ internal fun PlaybackEndsAt(
     modifier: Modifier = Modifier,
 ) {
     var clock by remember { mutableStateOf(playerWallClock()) }
-    LaunchedEffect(Unit) {
+    VisibleUiEffect(Unit) {
+        clock = playerWallClock()
         while (isActive) {
             delay(MINUTE_MS - currentEpochMillis() % MINUTE_MS)
             clock = playerWallClock()

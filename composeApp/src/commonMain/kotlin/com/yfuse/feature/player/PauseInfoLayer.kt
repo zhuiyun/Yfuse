@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -31,6 +30,7 @@ import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.PlatformBackHandler
+import com.yfuse.core.designsystem.VisibleUiEffect
 import com.yfuse.core.designsystem.calmMotion
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.model.PlaybackChapter
@@ -145,7 +145,9 @@ private fun rememberPauseInfo(
 ): PauseInfo? {
     var clock by remember { mutableStateOf(playerWallClock()) }
     var nowEpochMs by remember { mutableLongStateOf(currentEpochMillis()) }
-    LaunchedEffect(Unit) {
+    VisibleUiEffect(Unit) {
+        nowEpochMs = currentEpochMillis()
+        clock = playerWallClock()
         while (isActive) {
             delay(PAUSE_INFO_MINUTE_MS - currentEpochMillis() % PAUSE_INFO_MINUTE_MS)
             nowEpochMs = currentEpochMillis()
