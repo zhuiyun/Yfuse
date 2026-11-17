@@ -1,4 +1,4 @@
-name: Verify TV identity and landscape cleanup in real cloud account handoff
+name: Use observed watch-history label then verify real cloud handoff
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]

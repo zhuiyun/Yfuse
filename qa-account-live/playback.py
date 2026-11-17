@@ -95,7 +95,7 @@ def remove_test_history(title, output, use, capture, wait_text, passed):
     # the signed-in process: legacy servers rotate its session ID on restoration.
     adb('shell', 'am', 'start', '-W', '--activity-clear-top', '--activity-single-top',
         '-n', 'com.yfuse/com.yfuse.MainActivity')
-    ui.root('我的'); click('我的片单'); click('历史')
+    ui.root('我的'); click('我的片单'); click('观看历史')
     wait_text('观看历史', 20)
     from navigation import control
     control(title, scrolls=20)
