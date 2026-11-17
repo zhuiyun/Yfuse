@@ -1,37 +1,49 @@
 name: Verify the measured phone APK and both runtime inventories
 on:
   push:
-    branches: [codex/cloud-playback-resilience-20261113]
+    branches: [codex/two-engines-cloud-seek-20261113]
     paths: ['.github/workflows/qa-measured-package.yml']
 permissions: {contents: read, actions: read}
 jobs:
   verify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with: {ref: bb06bdfa1718a7dcecb58ba727cf9c9bb3f2d86e, persist-credentials: false}
+        with: {ref: fe814ec63fb1c035ff9fb123146e3ed3700a2b16, persist-credentials: false}
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
+        with: {distribution: temurin, java-version: '17'}
       - name: Inspect the exact installed file, signature and alignment
         env: {API_TOKEN: "${{ github.token }}"}
         run: |
           set -euo pipefail
-          mkdir -p apk native evidence
+          mkdir -p native evidence
+          app_sha=fe814ec63fb1c035ff9fb123146e3ed3700a2b16
+          bash qa-integrated/acquire-qualified-candidate.sh 44067422996 "$app_sha"
           api="https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts"
-          for input in '14017387211 apk' '14016877505 native'; do
-            read -r id dir <<< "$input"
-            curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/$id/zip" -o "$RUNNER_TEMP/$dir.zip"
-            unzip -q "$RUNNER_TEMP/$dir.zip" -d "$dir"
-          done
-          (cd apk && sha256sum -c apk.sha256)
-          python3 scripts/verify-playback-package.py apk/composeApp-release.apk --ycore native/ycore-native.aar > evidence/package.json
+          native_id=$(sed -n 's/^source_artifact=//p' preview/provenance.txt)
+          [[ "$native_id" =~ ^[0-9]+$ ]]
+          curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/$native_id" > "$RUNNER_TEMP/native-metadata.json"
+          jq -e '.name=="ycore-source-8a9bb9a7b626d7c7695caf95d7a885192c101935-43803470495-1" and .expired==false and .workflow_run.id==43803470495' "$RUNNER_TEMP/native-metadata.json" >/dev/null
+          curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/$native_id/zip" -o "$RUNNER_TEMP/native.zip"
+          digest=$(jq -r .digest "$RUNNER_TEMP/native-metadata.json")
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          printf '%s  %s\n' "${digest#sha256:}" "$RUNNER_TEMP/native.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/native.zip" -d native
+          python3 scripts/verify-playback-package.py preview/composeApp-release.apk --mapping preview/mapping.txt --ycore native/ycore-native.aar > evidence/package.json
+          bash scripts/verify-release-dex.sh --mapping preview/mapping.txt preview/composeApp-release.apk > evidence/dex.txt 2>&1
           bt=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
-          "$bt/aapt" dump badging apk/composeApp-release.apk | sed -n '1p' > evidence/version
-          grep -F "name='com.yfuse'" evidence/version
-          grep -F "versionCode='348'" evidence/version
-          grep -F "versionName='1.9.6'" evidence/version
-          "$bt/apksigner" verify --verbose --print-certs apk/composeApp-release.apk > evidence/signature
-          "$bt/zipalign" -c -P 16 4 apk/composeApp-release.apk
-          cp apk/apk.sha256 apk/provenance.txt evidence/
+          "$bt/aapt" dump badging preview/composeApp-release.apk | sed -n '1p' > evidence/version.txt
+          grep -F "name='com.yfuse'" evidence/version.txt
+          grep -F "versionCode='348'" evidence/version.txt
+          grep -F "versionName='1.9.6'" evidence/version.txt
+          grep -Fx 'VERSION_CODE=348' version.properties
+          grep -Fx 'VERSION_NAME=1.9.6' version.properties
+          test "$(head -n 1 release-notes.txt)" = '1.9.6'
+          "$bt/apksigner" verify --verbose --print-certs preview/composeApp-release.apk > evidence/signature.txt
+          "$bt/zipalign" -c -P 16 4 preview/composeApp-release.apk > evidence/alignment.txt
+          cp preview/apk.sha256 preview/provenance.txt evidence/
+          printf '%s\n' 'This is the debug-signed cloud test artifact. Signature verification is not formal release-signing approval.' > evidence/signing-scope.txt
           cat evidence/package.json
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with: {name: measured-phone-package, path: evidence, retention-days: 7}
