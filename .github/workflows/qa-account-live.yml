@@ -1,4 +1,4 @@
-name: Verify deployed refresh identity and latest phone TV handoff
+name: Verify deployed creation time and refresh identity with current phone TV
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
@@ -17,20 +17,36 @@ jobs:
         run: |
           set -euo pipefail
           umask 077
-          # Phone product source 0127f26 equals TV build 5276e31: their diff
-          # contains only a qualification workflow file, no app sources.
+          # The TV source includes only later QA/backend changes; Android sources match.
+          git diff --exit-code 141ed26051de24641214d34828324d71fabd115c 129c722c64efb46e9163611eb22ee9adc188524f -- composeApp/ tvApp/ tvShared/ senplayerBridge/
           mkdir -p "$RUNNER_TEMP/account-private-logs" results account-sealed
           sudo apt-get update -qq
           sudo apt-get install -y python3-cryptography python3-pil ffmpeg
           /usr/bin/python3 qa-account-live/transport.py prepare
       - name: Acquire qualified phone build
         env: {API_TOKEN: "${{ github.token }}"}
-        run: bash qa-integrated/acquire-qualified-candidate.sh 44034015111 0127f268d4fb00b4a83c08640b0803a76cfac866
+        run: bash qa-integrated/acquire-qualified-candidate.sh 44043238227 141ed26051de24641214d34828324d71fabd115c
+      - name: Await the matching TV qualification
+        env: {API_TOKEN: "${{ github.token }}"}
+        run: |
+          python3 - <<'PY'
+          import json, os, time, urllib.request
+          url='https://api.github.com/repos/zhuiyun/Yfuse/actions/runs/44048564747'
+          request=urllib.request.Request(url,headers={'Authorization':'Bearer '+os.environ['API_TOKEN'],'Accept':'application/vnd.github+json'})
+          for attempt in range(120):
+              with urllib.request.urlopen(request,timeout=20) as response: run=json.load(response)
+              assert run['head_sha']=='129c722c64efb46e9163611eb22ee9adc188524f'
+              if run['status']=='completed':
+                  assert run['conclusion']=='success', 'Matching TV qualification failed'
+                  break
+              time.sleep(10)
+          else: raise RuntimeError('Matching TV qualification deadline')
+          PY
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          name: yfuse-tv-debug-5276e310fa575a1244bb2b611d4b58020192e306
+          name: yfuse-tv-debug-129c722c64efb46e9163611eb22ee9adc188524f
           path: tv-input
-          run-id: 44034015185
+          run-id: 44048564747
           github-token: ${{ github.token }}
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
