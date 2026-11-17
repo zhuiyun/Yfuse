@@ -18,9 +18,10 @@ class AccountRefreshRecoveryTest {
                 repeat(3) {
                     fixture.now += 60_000L
                     val previousAccess = auth.accessToken
-                    auth = service.refresh(
-                        RefreshRequest(auth.refreshToken, requestId = if (recoverable) requestId() else null),
-                    )
+                    auth =
+                        service.refresh(
+                            RefreshRequest(auth.refreshToken, requestId = if (recoverable) requestId() else null),
+                        )
                     val current = service.listSessions(auth.accessToken).sessions.single()
                     assertEquals(original.id, current.id)
                     assertEquals(original.createdAtEpochMs, current.createdAtEpochMs)
