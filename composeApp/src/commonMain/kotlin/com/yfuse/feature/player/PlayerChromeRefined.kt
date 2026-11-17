@@ -37,6 +37,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -727,14 +728,19 @@ private fun RefinedBottomBarContent(
             }
             Box(Modifier.height(44.dp), contentAlignment = Alignment.Center) {
                 RefinedTimeText(durationMs) { durationMs.coerceAtLeast(0L) / 1_000L }
-                // 结束于 sits over the duration it is counted from, clear of the rail beside it and
-                // of the keys below; while a drag looks ahead it says when that point would end.
-                PlaybackEndsAt(
-                    positionMs = shownPositionMs,
-                    durationMs = durationMs,
-                    speed = speed,
-                    modifier = Modifier.align(Alignment.TopCenter).offset(y = (-6).dp),
-                )
+                // The changing wall-clock label must not participate in the rail's measurement.
+                // Anchor its right edge to the duration's safe margin and allow it to extend left.
+                Box(
+                    Modifier.matchParentSize().offset(y = (-6).dp),
+                    contentAlignment = Alignment.TopEnd,
+                ) {
+                    PlaybackEndsAt(
+                        positionMs = shownPositionMs,
+                        durationMs = durationMs,
+                        speed = speed,
+                        modifier = Modifier.wrapContentWidth(Alignment.End, unbounded = true),
+                    )
+                }
             }
         }
 
