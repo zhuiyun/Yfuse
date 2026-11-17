@@ -41,6 +41,8 @@ on:
       - docs/third-party-licenses/**
       - scripts/tests/test_source_playback_workflow.py
       - scripts/verify-tv-*.py
+      - scripts/verify-release-dex.sh
+      - scripts/dex-verify/**
       - scripts/tests/test_verify_tv_artifact.py
   pull_request:
     paths:
@@ -77,6 +79,8 @@ on:
       - docs/third-party-licenses/**
       - scripts/tests/test_source_playback_workflow.py
       - scripts/verify-tv-*.py
+      - scripts/verify-release-dex.sh
+      - scripts/dex-verify/**
       - scripts/tests/test_verify_tv_artifact.py
 
 permissions:
@@ -172,6 +176,12 @@ jobs:
           test -s tvApp/build/outputs/apk/release/tvApp-release.apk
           python3 scripts/verify-playback-package.py tvApp/build/outputs/apk/release/tvApp-release.apk \
             --mapping tvApp/build/outputs/mapping/release/mapping.txt
+
+      - name: Cache pinned DEX verification tools
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: build/dex-verify-tools
+          key: dex-verification-${{ runner.os }}-${{ hashFiles('scripts/dex-verify/tools.sha256') }}
 
       - name: Reject DEX code ART would not verify
         if: github.ref != 'refs/heads/codex/ycore-sign-20260830'

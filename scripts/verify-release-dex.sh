@@ -13,6 +13,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TOOLS="${DEX_VERIFY_TOOLS_DIR:-$ROOT/build/dex-verify-tools}"
 MAVEN_CENTRAL="https://repo1.maven.org/maven2"
+MAVEN_CENTRAL_MIRROR="https://maven-central.storage-download.googleapis.com/maven2"
 # The checker's jars and their SHA-256; scripts/build-release-packages.ps1 reads the same list.
 CHECKSUMS="$ROOT/scripts/dex-verify/tools.sha256"
 
@@ -38,7 +39,13 @@ while read -r expected path; do
   [[ -z "$expected" || "$expected" == \#* ]] && continue
   jar="$TOOLS/${path##*/}"
   if [[ ! -f "$jar" || "$(sha256_of "$jar")" != "$expected" ]]; then
-    curl -fsSL --retry 3 --proto '=https' -o "$jar.part" "$MAVEN_CENTRAL/$path" </dev/null
+    # Hosted runners share Maven Central egress limits. Prefer the documented GCS
+    # mirror, retain a bounded upstream fallback, and verify identical pinned bytes.
+    if ! curl -fsSL --retry 3 --retry-max-time 120 --connect-timeout 15 --max-time 60 \
+      --proto '=https' --proto-redir '=https' -o "$jar.part" "$MAVEN_CENTRAL_MIRROR/$path" </dev/null; then
+      curl -fsSL --retry 3 --retry-max-time 120 --connect-timeout 15 --max-time 60 \
+        --proto '=https' --proto-redir '=https' -o "$jar.part" "$MAVEN_CENTRAL/$path" </dev/null
+    fi
     actual="$(sha256_of "$jar.part")"
     if [[ "$actual" != "$expected" ]]; then
       rm -f "$jar.part"
