@@ -1,4 +1,4 @@
-name: Verify real system bar colors and Back across app themes and rotations
+name: Verify themed system bars and Back with restored parent scroll position
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]

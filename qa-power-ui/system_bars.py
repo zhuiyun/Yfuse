@@ -65,7 +65,9 @@ def main():
                 assert brightness < 100 if theme == 'dark' else brightness > 170, \
                     'System navigation background did not match the visible app theme'
                 # The system Back key must still return to the parent settings page.
-                adb('shell', 'input', 'keyevent', '4'); ui.wait('账号与同步', 20)
+                # Back restores the parent's scroll position, so its top heading may
+                # correctly be off-screen. This row is the visible entry we opened.
+                adb('shell', 'input', 'keyevent', '4'); ui.wait('同步状态与恢复', 20)
         (output/'passed.json').write_text(json.dumps({'passed': True, 'cases': len(rows),
             'scope': 'actual three-button bar background and Back across two themes and three rotations',
             'manualReviewRequired': 'icon contrast and complete screenshots'}))
