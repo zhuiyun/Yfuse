@@ -1,0 +1,45 @@
+name: Compare enabled carousel before and after finite preview repair
+on:
+  push:
+    branches: [codex/two-engines-cloud-seek-20261113]
+    paths: [.github/workflows/qa-carousel-idle.yml]
+permissions: {contents: read, actions: read}
+jobs:
+  carousel:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {label: before, build: '44029183133', source: 9eae13fd69368ced112648e1fdee3c3946ea6e1a, settled: 'false'}
+          - {label: after, build: '44034015111', source: 0127f268d4fb00b4a83c08640b0803a76cfac866, settled: 'true'}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 100
+    env:
+      QA_EXPECT_CAROUSEL_SETTLED: ${{ matrix.settled }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - name: Acquire exact qualified product input
+        env: {API_TOKEN: '${{ github.token }}'}
+        run: bash qa-integrated/acquire-qualified-candidate.sh '${{ matrix.build }}' '${{ matrix.source }}'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: arm-input-driver, path: qa-driver, run-id: 44029183033, github-token: '${{ github.token }}'}
+      - run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y python3-pil
+          mkdir results
+          cp preview/provenance.txt preview/apk.sha256 results/
+          bash qa-arm-dual/redroid.sh
+          adb install -r -g preview/composeApp-release.apk
+          adb install -r qa-driver/driver.apk
+          adb shell wm size 720x1280
+          adb shell wm density 260
+          adb shell settings put secure immersive_mode_confirmations confirmed
+          adb shell wm dismiss-keyguard
+          touch /tmp/yfuse-tree-active
+      - name: Record preview settling and manual restart using actual pages
+        run: python3 qa-power-ui/carousel_idle.py
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: 'carousel-idle-${{ matrix.label }}', path: results/, retention-days: 10}
