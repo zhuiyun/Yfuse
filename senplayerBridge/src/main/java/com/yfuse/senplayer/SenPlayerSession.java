@@ -199,59 +199,47 @@ public final class SenPlayerSession implements AutoCloseable {
     throw new IOException("SenPlayer rejected external subtitle");
   }
 
-  /** Original Player.M packs two gi3 styles and enables the subtitle output for this source. */
+  /**
+   * The pinned runtime rejects Player.M's bulk subtitle command (-1). Its source-scoped
+   * option command accepts these settings and renders them on the original subtitle surface.
+   * Apply visibility last and propagate any rejected option; never report partial setup as ready.
+   */
   public void configureSubtitles(boolean secondary, double primaryScale, double secondaryScale,
       double primaryDelay, double secondaryDelay, String foreground, String outline, String background,
       double outlineWidth, boolean customStyle) throws Exception {
     ensureUsable();
-    rt.requirePermit();
-    Class<?> configClass = rt.loader.loadClass("hi3");
-    Object config = subtitleConfiguration(newSubtitleConfiguration(rt.loader), rt.loader.loadClass("gi3"), secondary,
-        primaryScale, secondaryScale, primaryDelay, secondaryDelay, foreground, outline, background,
-        outlineWidth, customStyle);
-    checkCode(awaitOperation(invoke("M", new Class[] {configClass, long.class}, config, source)));
-  }
-
-  /** hi3 has no declared constructor in the pinned DEX; its original factory allocates it. */
-  static Object newSubtitleConfiguration(ClassLoader loader) throws ReflectiveOperationException {
-    Class<?> styleModel = loader.loadClass("vw4");
-    Object style = styleModel.getConstructor(String.class, double.class, double.class, double.class,
-        boolean.class, boolean.class, String.class, String.class, String.class, String.class,
-        double.class, double.class).newInstance("Roboto", 40.0, 1.0, 0.0, false, false,
-            "#FFFFFFFF", "#000000FF", "#000000FF", "#00000000", 2.0, 1.0);
-    Class<?> settingsModel = loader.loadClass("ew4");
-    Object settings = settingsModel.getConstructor(styleModel, styleModel, boolean.class,
-        boolean.class, double.class, double.class, double.class, boolean.class, boolean.class,
-        boolean.class, double.class).newInstance(style, style, true, false, 0.0, Double.NaN,
-            1.0, false, true, false, 1.0);
-    return settingsModel.getMethod("c", boolean.class).invoke(settings, false);
-  }
-
-  static Object subtitleConfiguration(Object config, Class<?> styleClass, boolean secondary,
-      double primaryScale, double secondaryScale, double primaryDelay, double secondaryDelay,
-      String foreground, String outline, String background, double outlineWidth, boolean customStyle)
-      throws ReflectiveOperationException {
-    Class<?> configClass = config.getClass();
-    for (boolean second : new boolean[] {false, true}) {
-      Object style = styleClass.getConstructor().newInstance();
-      styleClass.getField("a").set(style, "Roboto");
-      styleClass.getField("b").set(style, foreground);
-      styleClass.getField("c").set(style, outline);
-      styleClass.getField("e").set(style, background);
-      styleClass.getField("g").setDouble(style, second ? secondaryScale : primaryScale);
-      styleClass.getField("i").setDouble(style, second ? secondaryDelay : primaryDelay);
-      styleClass.getField("j").setDouble(style, outlineWidth);
-      configClass.getField(second ? "b" : "a").set(config, style);
+    for (Map.Entry<String, String> option : subtitleOptions(secondary, primaryScale, secondaryScale,
+        primaryDelay, secondaryDelay, foreground, outline, background, outlineWidth, customStyle).entrySet()) {
+      command("option", new String[] {option.getKey(), option.getValue()});
     }
-    configClass.getField("c").set(config, "/system/fonts");
-    configClass.getField("d").set(config, "none");
-    configClass.getField("e").setBoolean(config, true); // visible
-    configClass.getField("f").setBoolean(config, customStyle);
-    configClass.getField("g").setBoolean(config, secondary);
-    configClass.getField("i").setBoolean(config, true); // aspect correction
-    configClass.getField("l").setDouble(config, 1.0); // HDR brightness
-    configClass.getField("m").setDouble(config, 1.0); // opacity
-    return config;
+  }
+
+  static Map<String, String> subtitleOptions(boolean secondary, double primaryScale, double secondaryScale,
+      double primaryDelay, double secondaryDelay, String foreground, String outline, String background,
+      double outlineWidth, boolean customStyle) {
+    Map<String, String> options = new LinkedHashMap<>();
+    for (boolean second : new boolean[] {false, true}) {
+      String prefix = second ? "secondary-sub-" : "sub-";
+      options.put(prefix + "font", "Roboto");
+      options.put(prefix + "font-size", "40");
+      options.put(prefix + "scale", Double.toString(second ? secondaryScale : primaryScale));
+      options.put(prefix + "delay", Double.toString(second ? secondaryDelay : primaryDelay));
+      options.put(prefix + "color", foreground);
+      options.put(prefix + "border-color", outline);
+      options.put(prefix + "back-color", background);
+      options.put(prefix + "border-size", Double.toString(outlineWidth));
+      options.put(prefix + "shadow-offset", "1.0");
+      options.put(prefix + "spacing", "0.0");
+      options.put(prefix + "italic", "no");
+      options.put(prefix + "bold", "no");
+      options.put(prefix + "ass-override", customStyle ? "force" : "no");
+    }
+    options.put("subtitle-brightness", "1.0");
+    options.put("subtitle-opacity", "1.0");
+    options.put("subtitle-hdr", "no");
+    options.put("sub-visibility", "yes");
+    options.put("secondary-sub-visibility", secondary ? "yes" : "no");
+    return options;
   }
   private void command(String command, String[] strings, double... numbers) throws Exception {
     rt.requirePermit();

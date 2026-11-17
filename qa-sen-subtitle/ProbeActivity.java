@@ -76,6 +76,21 @@ public final class ProbeActivity extends Activity implements SurfaceHolder.Callb
     for (String[] pair : new String[][] {{"subtitle-brightness","1.0"},{"subtitle-opacity","1.0"},{"subtitle-hdr","no"}})
       record(pair[0],command(player,source,"option",pair,new double[0]));
   }
+  /** hi3 has no declared constructor in the pinned DEX; its original factory allocates it. */
+  static Object newSubtitleConfiguration(ClassLoader loader) throws ReflectiveOperationException {
+    Class<?> styleModel = loader.loadClass("vw4");
+    Object style = styleModel.getConstructor(String.class, double.class, double.class, double.class,
+        boolean.class, boolean.class, String.class, String.class, String.class, String.class,
+        double.class, double.class).newInstance("Roboto", 40.0, 1.0, 0.0, false, false,
+            "#FFFFFFFF", "#000000FF", "#000000FF", "#00000000", 2.0, 1.0);
+    Class<?> settingsModel = loader.loadClass("ew4");
+    Object settings = settingsModel.getConstructor(styleModel, styleModel, boolean.class,
+        boolean.class, double.class, double.class, double.class, boolean.class, boolean.class,
+        boolean.class, double.class).newInstance(style, style, true, false, 0.0, Double.NaN,
+            1.0, false, true, false, 1.0);
+    return settingsModel.getMethod("c", boolean.class).invoke(settings, false);
+  }
+
   private void probe() {
     try {
       LinkedHashMap<String,String> options = new LinkedHashMap<>();
@@ -100,7 +115,7 @@ public final class ProbeActivity extends Activity implements SurfaceHolder.Callb
         record("bridge-configuration","accepted");
       } catch (Exception e) { record("bridge-configuration",e.getClass().getSimpleName()+": "+e.getMessage()); }
       Object player=field(session,"player"); long source=(long)field(session,"source");
-      Object config=SenPlayerSession.newSubtitleConfiguration(loader);
+      Object config=newSubtitleConfiguration(loader);
       record("original-factory-M",await(player.getClass().getMethod("M",config.getClass(),long.class).invoke(player,config,source)));
       rawConfiguration(player,source,config);
       for (String[] pair : new String[][] {{"sub-visibility","yes"},{"sub-font","Roboto"},
