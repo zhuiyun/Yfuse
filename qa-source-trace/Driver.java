@@ -93,6 +93,7 @@ public final class Driver extends Instrumentation {
                 SystemClock.sleep(28);
             }
             SystemClock.sleep(180);
+            ui.clearCache();
             android.view.accessibility.AccessibilityNodeInfo node=progressNode(ui.getRootInActiveWindow());
             deadline=SystemClock.uptimeMillis()+2000;
             while(node==null && SystemClock.uptimeMillis()<deadline){
@@ -100,9 +101,17 @@ public final class Driver extends Instrumentation {
                 node=progressNode(ui.getRootInActiveWindow());
             }
             if(node==null)throw new IllegalStateException("Held seek preview unavailable");
+            if(!node.refresh())throw new IllegalStateException("Held seek node became stale");
             android.view.accessibility.AccessibilityNodeInfo.RangeInfo range=node.getRangeInfo();
             row.put("shownFraction",range.getCurrent());
             row.put("rangeMin",range.getMin());row.put("rangeMax",range.getMax());
+            android.graphics.Bitmap held=ui.takeScreenshot();
+            if(held==null)throw new IllegalStateException("Held seek screenshot unavailable");
+            java.io.File picture=new java.io.File(getContext().getExternalFilesDir(null),"observed-seek.png");
+            try(java.io.FileOutputStream out=new java.io.FileOutputStream(picture)){
+                if(!held.compress(android.graphics.Bitmap.CompressFormat.PNG,100,out))throw new IllegalStateException("Held screenshot encoding failed");
+            }finally{held.recycle();}
+            row.put("heldScreenshot",picture.getAbsolutePath());
         } finally { touch(ui,down,MotionEvent.ACTION_UP,end,y); }
         result.putString("observedSeek",row.toString());
         result.putString("outcome","injected");

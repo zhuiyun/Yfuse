@@ -1,4 +1,4 @@
-name: Verify loaded discovery content and poster system bar contrast
+name: Verify loaded discovery after dismissing the poster contextual tip
 'on':
   push:
     branches:

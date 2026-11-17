@@ -215,6 +215,16 @@ def main():
                     if time.monotonic() >= deadline:
                         raise AssertionError('Discovery did not expose its loaded catalogue within 60 seconds')
                     time.sleep(.5)
+                tip = '按住海报可以浮起菜单，滑到选项松手即可'
+                if tip in ui.page_info(ui.snapshot()):
+                    row['posterTipBeforeDismiss'] = capture(out, key + '-poster-tip')
+                    click('知道了', 5)
+                    deadline = time.monotonic() + 5
+                    while tip in ui.page_info(ui.snapshot()):
+                        if time.monotonic() >= deadline:
+                            raise AssertionError('Poster contextual tip did not dismiss')
+                        time.sleep(.2)
+                    row['posterTipDismissed'] = True
             time.sleep(1)
             row['top'] = capture(out, key + '-top')
             if 'com.yfuse' not in row['top']['packages']:

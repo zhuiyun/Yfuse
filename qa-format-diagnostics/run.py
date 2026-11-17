@@ -41,6 +41,7 @@ def seek(case, fraction, method, duration):
         if not match: raise AssertionError('No held-preview input receipt')
         row['inputReceipt'] = json.loads(match[1])
         row['shownTargetSeconds'] = duration * row['inputReceipt']['shownFraction']
+        observer.adb('pull', row['inputReceipt']['heldScreenshot'], str(output / (case + '-held.png')))
     else:
         observer.adb('shell', 'input', 'swipe',
             round(left + (right-left) * (.83 if fraction < .5 else .17)), (top+bottom)//2,

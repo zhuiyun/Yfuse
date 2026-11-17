@@ -1,4 +1,4 @@
-name: Diagnose original media profiles with initialized held-preview driver
+name: Diagnose recovery candidate with held screenshot and longer 4K source
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
@@ -32,6 +32,11 @@ jobs:
           for item in json.loads((root/'catalog.json').read_text()):
             assert hashlib.file_digest((root/item['file']).open('rb'),'sha256').hexdigest()==item['sha256']
           PY
+      - name: Extend diagnostic duration and chapter coverage
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+          python3 qa-format-diagnostics/extend.py
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: format-fixtures-and-driver
@@ -50,7 +55,7 @@ jobs:
         with: {persist-credentials: false}
       - name: Acquire qualified current app
         env: {API_TOKEN: '${{ github.token }}'}
-        run: bash qa-integrated/acquire-qualified-candidate.sh 44043238227 141ed26051de24641214d34828324d71fabd115c
+        run: bash qa-integrated/acquire-qualified-candidate.sh 44059527675 aaf18914cf918512be27bc790bd09d866c589416
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with: {name: format-fixtures-and-driver, path: .}
       - run: |
