@@ -1,4 +1,4 @@
-name: Verify ordinary dual subtitle seeking with atomic touch and retain long-cue failure
+name: Verify ordered surface destruction preserves short and long dual subtitles
 'on':
   push:
     branches:
@@ -44,7 +44,7 @@ jobs:
     - name: Wait for qualified startup and subtitle repair
       env:
         API_TOKEN: ${{ github.token }}
-      run: bash qa-integrated/acquire-qualified-candidate.sh 44023730738 d3c58b952cb4361d4e4014f73756b16357b1b863
+      run: bash qa-integrated/acquire-qualified-candidate.sh 44032786577 c301b0adbba71c6f6b1e58c4951c28658645e314
     - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
       with:
         name: arm-input-driver
@@ -56,7 +56,7 @@ jobs:
 
         (cd preview && sha256sum -c apk.sha256)
 
-        grep -Fx "app=d3c58b952cb4361d4e4014f73756b16357b1b863" preview/provenance.txt
+        grep -Fx "app=c301b0adbba71c6f6b1e58c4951c28658645e314" preview/provenance.txt
 
         cp preview/provenance.txt preview/apk.sha256 results/
 
