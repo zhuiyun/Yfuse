@@ -84,6 +84,13 @@ public final class ProbeActivity extends Activity implements SurfaceHolder.Callb
       options.put("sub-font-provider","none"); options.put("secondary-sub-font-provider","none");
       SenPlayerSession session = new SenPlayerSession(this,video.getHolder().getSurface(),captions.getHolder().getSurface(),getWindowManager().getDefaultDisplay(),options);
       record("license-enforced-session", "created");
+      ClassLoader loader=(ClassLoader)field(field(session,"rt"),"loader");
+      Class<?> logClass=loader.loadClass("com.mlibkit.log.LogKit");
+      Object log=logClass.getConstructor(File.class,boolean.class).newInstance(new File(getFilesDir(),"native-log"),true);
+      loader.loadClass("pi").getField("b").set(null,log);
+      Class<?> callback=loader.loadClass("oi");
+      loader.loadClass("com.mplaykit.Diagnostics").getMethod("b",callback)
+          .invoke(null,callback.getConstructor(int.class).newInstance(0));
       session.resize(video.getWidth(),video.getHeight());
       session.open(getIntent().getStringExtra("url"),new LinkedHashMap<>(),0,true);
       Thread.sleep(4000);
@@ -93,10 +100,15 @@ public final class ProbeActivity extends Activity implements SurfaceHolder.Callb
         record("bridge-configuration","accepted");
       } catch (Exception e) { record("bridge-configuration",e.getClass().getSimpleName()+": "+e.getMessage()); }
       Object player=field(session,"player"); long source=(long)field(session,"source");
-      ClassLoader loader=(ClassLoader)field(field(session,"rt"),"loader");
       Object config=SenPlayerSession.newSubtitleConfiguration(loader);
       record("original-factory-M",await(player.getClass().getMethod("M",config.getClass(),long.class).invoke(player,config,source)));
       rawConfiguration(player,source,config);
+      for (String[] pair : new String[][] {{"sub-visibility","yes"},{"sub-font","Roboto"},
+          {"sub-font-size","40"},{"sub-font-provider","none"},{"sub-fonts-dir","/system/fonts"},
+          {"sub-scale","1.0"},{"secondary-sub-scale","1.0"},{"sub-ass-override","no"}})
+        record("direct-"+pair[0],command(player,source,"option",pair,new double[0]));
+      Thread.sleep(1500);
+      record("native-logs",logClass.getMethod("recent",int.class).invoke(log,150));
       record("done","true");
     } catch (Throwable e) {
       try { record("failure",e.getClass().getSimpleName()+": "+e.getMessage()); } catch (Exception ignored) {}

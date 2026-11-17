@@ -1,4 +1,4 @@
-name: Diagnose unchanged SenPlayer subtitle protocol on cloud ARM64
+name: Capture original native subtitle diagnostics and option results
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
