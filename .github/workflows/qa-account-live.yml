@@ -1,4 +1,4 @@
-name: Close identified connection notice before server transfer and playback handoff
+name: Verify TV identity and landscape cleanup in real cloud account handoff
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
@@ -17,27 +17,26 @@ jobs:
         run: |
           set -euo pipefail
           umask 077
-          # Both immutable inputs below are built from qualified 2083054. The newer
-          # subtitle-output repair has separate pending gates; do not claim this
-          # account run validates those newer player changes.
+          # Phone and TV inputs share immutable source 9eae13f, including TV
+          # identity and landscape safe insets. Qualification is awaited before use.
           mkdir -p "$RUNNER_TEMP/account-private-logs" results account-sealed
           sudo apt-get update -qq
           sudo apt-get install -y python3-cryptography python3-pil ffmpeg
           /usr/bin/python3 qa-account-live/transport.py prepare
       - name: Acquire qualified phone build
         env: {API_TOKEN: "${{ github.token }}"}
-        run: bash qa-integrated/acquire-qualified-candidate.sh 44016985196 2083054c651f8121b21645085d8e969b8ace3f4c
+        run: bash qa-integrated/acquire-qualified-candidate.sh 44029183133 9eae13fd69368ced112648e1fdee3c3946ea6e1a
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          name: yfuse-tv-debug-2083054c651f8121b21645085d8e969b8ace3f4c
+          name: yfuse-tv-debug-9eae13fd69368ced112648e1fdee3c3946ea6e1a
           path: tv-input
-          run-id: 44016901163
+          run-id: 44029075071
           github-token: ${{ github.token }}
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: arm-input-driver
           path: qa-driver
-          run-id: 43994190136
+          run-id: 44029183033
           github-token: ${{ github.token }}
       - name: Boot two isolated cloud Android devices
         run: |
