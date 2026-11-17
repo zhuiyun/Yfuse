@@ -1,11 +1,11 @@
-name: Qualify lifecycle and player margins with repeated cancellation regression
+name: Qualify selected-track subtitle repair and repeated cancellation regression
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
     paths: ['.github/workflows/qa-integrated-av-repair.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: 314acad0f713414a0ec302c6101edaeca2ff4878
+  QA_APP_SHA: 38ea61caabd217947cd6fce46f190aed77de509a
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 314acad0f713414a0ec302c6101edaeca2ff4878
+          ref: 38ea61caabd217947cd6fce46f190aed77de509a
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
