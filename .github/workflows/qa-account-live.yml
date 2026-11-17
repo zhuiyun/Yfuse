@@ -1,4 +1,4 @@
-name: Real account phone and TV consent on two cloud emulators
+name: Real account phone and TV consent with verified TV navigation
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]

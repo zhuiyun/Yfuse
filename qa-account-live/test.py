@@ -62,7 +62,7 @@ def login(role, coordinator):
         action = '登录账号'
     else:
         adb('shell', 'am', 'start', '-W', '-n', 'com.yfuse/com.yfuse.tv.TvMainActivity')
-        ui.wait('设置', 60); click('设置'); click('账号与同步')
+        ui.wait('我的与设置', 60); click('我的与设置'); click('账号与同步')
         capture('tv-login-empty')
         field('账号', value['username']); field('密码', value['password'], secret=True)
         action = '登录'
@@ -100,7 +100,12 @@ def cloud_remote(coordinator):
     use('tv'); wait_text('手机遥控中', 30); capture('tv-remotely-connected')
     passed('remote-allow-once-connected-on-both-devices')
     # Send a real key from the phone; capture the TV's resulting page transition.
-    use('phone'); click('返回', 0)
+    use('phone')
+    # The page's header also says Back; exercise the lower remote key, not navigation.
+    keys = [node for node in ui.nodes(ui.snapshot()) if node.get('text') == '返回'
+            and node.get('enabled') != 'false' and node.get('visible') != 'false']
+    assert keys, 'Visible remote Back key unavailable'
+    ui.tap(max(keys, key=lambda node: ui.coords(node)[1]))
     use('tv'); time.sleep(1); capture('tv-after-phone-back')
     assert ui.find(ui.snapshot(), '账号与同步') is not None, 'Remote Back did not return to TV settings'
     passed('phone-back-reaches-tv')
