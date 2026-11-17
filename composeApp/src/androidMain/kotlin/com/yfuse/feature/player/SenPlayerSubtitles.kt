@@ -43,6 +43,7 @@ internal class SenPlayerSubtitles(
     private val requested = mutableMapOf<Int, String>()
     private var initial: YInitialTrackSelection? = null
     private var initialPending = false
+    private var restoredSelection: Map<Int, String>? = null
     private var rendererActive = false
     private var secondaryActive = false
     private var applied: Pair<SenSubtitleStyle, Boolean>? = null
@@ -54,6 +55,7 @@ internal class SenPlayerSubtitles(
         item: PlayerMediaItem,
         userAgent: String,
         selection: YInitialTrackSelection?,
+        restored: Map<Int, String>? = null,
     ) {
         clear()
         session = current
@@ -68,6 +70,7 @@ internal class SenPlayerSubtitles(
                 }.toMap()
         initial = selection
         initialPending = true
+        restoredSelection = restored
         val custom = item.customHeaders?.values.orEmpty()
         val agent = userAgent.takeIf(String::isNotBlank)?.let { mapOf("User-Agent" to it) }.orEmpty()
         val headers = agent + embyPlaybackHeaders(item.url) { AppBuildConfig.VERSION_NAME } + custom
@@ -88,8 +91,11 @@ internal class SenPlayerSubtitles(
         rendererActive = false
         secondaryActive = false
         initial = null
+        restoredSelection = null
         applied = null
     }
+
+    fun requestedSelection(): Map<Int, String> = requested.toMap()
 
     fun surfaceChanged() {
         applied = null
@@ -227,6 +233,11 @@ internal class SenPlayerSubtitles(
     fun selectDefault(tracks: List<EngineTrack>) {
         if (!initialPending || tracks.isEmpty()) return
         initialPending = false
+        restoredSelection?.let { restored ->
+            restoredSelection = null
+            restored.forEach { (slot, id) -> select(slot, id) }
+            return
+        }
         val preference = initial?.subtitle
         val id =
             when {

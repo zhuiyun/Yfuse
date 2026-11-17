@@ -92,6 +92,9 @@ internal class SenPlayerVideoEngine(
     private var lastOutputPhase = ""
     private var loadPending = true
     private var pendingSeekMs: Long? = null
+    private var surfaceTracks: SenPlayerSurfaceTracks? = null
+    private var restoredAudioId: String? = null
+    private var requestedAudioId: String? = null
     private var mediaPoll = 0
     private val subtitleScope = CoroutineScope(SupervisorJob() + worker.asCoroutineDispatcher())
     private val subtitles = SenPlayerSubtitles(appContext, subtitleScope, { mediaPoll = 0 }, ::fail)
@@ -249,7 +252,14 @@ internal class SenPlayerVideoEngine(
                     } else {
                         val current = requireNotNull(session)
                         resetVideoEvidence(current.sourceId(), current.snapshot(), "surface_created")
-                        current.surface(view.video.holder.surface, view.subtitles.holder.surface)
+                        if (!bindSenPlayerSurface(
+                                bind = { current.surface(view.video.holder.surface, view.subtitles.holder.surface) },
+                                close = ::retireSurfaceSession,
+                            )
+                        ) {
+                            surfaceCallback.surfaceCreated(holder)
+                            return@submit
+                        }
                         subtitles.surfaceChanged()
                         boundSurfaceEpoch = epoch
                         pictureController.reset()
@@ -326,7 +336,7 @@ internal class SenPlayerVideoEngine(
             detachSenPlayerSurface(
                 pause = current::pauseForFailure,
                 detach = { current.surface(null, null) },
-                close = ::closeSession,
+                close = ::retireSurfaceSession,
             )
         ) {
             loadPending = true
@@ -350,6 +360,23 @@ internal class SenPlayerVideoEngine(
                 )
             }
         }
+    }
+
+    private fun retireSurfaceSession() {
+        if (!loadPending) {
+            queue.getOrNull(state.value.currentIndex)?.let { item ->
+                surfaceTracks =
+                    senPlayerSurfaceTracks(item.id, state.value, subtitles.requestedSelection(), requestedAudioId)
+            }
+        }
+        closeSession()
+        loadPending = true
+        mutableState.update { it.copy(playing = false, buffering = false) }
+        AppLog.info(
+            "player.senplayer",
+            "surface_session_rebuild",
+            "Original runtime rejected output reuse; preserving source position and track selections",
+        )
     }
 
     private fun loadCurrent(recoveringEarlyEnd: Boolean = false) {
@@ -403,7 +430,11 @@ internal class SenPlayerVideoEngine(
         applyPictureSettings(current)
         current.open(url, emptyMap(), if (pendingSeekMs == null) state.value.positionMs else 0, requested)
         if (released.get()) return
-        subtitles.open(current, item, customUserAgent, initialTrackSelections[item.id])
+        val restore = surfaceTracks?.takeIf { it.itemId == item.id }
+        surfaceTracks = null
+        restoredAudioId = restore?.audioId
+        requestedAudioId = restore?.audioId
+        subtitles.open(current, item, customUserAgent, initialTrackSelections[item.id], restore?.subtitles)
         resetVideoEvidence(current.sourceId(), previousOutput, "source_opened")
         current.option("speed", state.value.speed.toString())
         if (audioDelayMs != 0L) {
@@ -748,6 +779,10 @@ internal class SenPlayerVideoEngine(
                 }
             }
         val audio = ofKind("audio")
+        restoredAudioId?.takeIf { id -> id == EngineTrack.OFF || audio.any { it.id == id } }?.let { id ->
+            session?.track(0, id)
+            restoredAudioId = null
+        }
         val captions = subtitles.merge(ofKind("sub"))
         if (state.value.subtitleTracks != captions || state.value.secondarySubtitleTrackId != secondaryTrackId) {
             AppLog.info(
@@ -909,7 +944,10 @@ internal class SenPlayerVideoEngine(
     }
 
     override fun selectAudioTrack(id: String) {
-        submit { session?.track(0, id) }
+        submit {
+            session?.track(0, id)
+            requestedAudioId = id
+        }
     }
 
     override fun selectSubtitleTrack(id: String) {
