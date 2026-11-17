@@ -1,4 +1,4 @@
-name: Audit all primary and secondary phone routes after navigation fixes
+name: Review current primary and secondary pages with app themed system bars
 'on':
   push:
     branches:
@@ -9,8 +9,8 @@ permissions:
   contents: read
   actions: read
 env:
-  QA_APP_SHA: bd556cb716a2791010c0543dbd6a650be011714b
-  QA_BUILD_RUN: 43886247081
+  QA_APP_SHA: 148f364761158b586573db81414360d2c51d7128
+  QA_BUILD_RUN: 44040364387
 jobs:
   acquire:
     runs-on: ubuntu-24.04
@@ -19,10 +19,14 @@ jobs:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with:
         persist-credentials: false
-    - name: Acquire built diagnostic baseline and retain known qualification failures
+    - name: Acquire current fully qualified candidate
       env:
         API_TOKEN: ${{ github.token }}
-      run: bash qa-power-ui/acquire-baseline.sh "$QA_BUILD_RUN" "$QA_APP_SHA"
+      run: |
+        bash qa-integrated/acquire-qualified-candidate.sh "$QA_BUILD_RUN" "$QA_APP_SHA"
+        cp "$RUNNER_TEMP/qualified-build.json" preview/baseline-build-run.json
+        cp "$RUNNER_TEMP/qualified-jobs.json" preview/baseline-build-jobs.json
+        printf '%s\n' 'Qualified candidate; screenshots still need visual review.' > preview/baseline-limit.txt
     - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
       with:
         name: power-ui-baseline-input
