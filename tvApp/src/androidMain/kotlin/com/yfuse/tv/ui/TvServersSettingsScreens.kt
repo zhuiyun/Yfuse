@@ -73,29 +73,40 @@ internal fun TvServersScreen(
     val store = component.store
     val serverGridState = focusMemory.gridState("servers")
     val serverCandidates =
-        listOf(
-            FocusCandidate(
-                targetId = focusMemory.targetId("servers:actions", "servers:refresh"),
-                sectionId = "servers:actions",
-                itemStableId = "servers:refresh",
-                index = 0,
-            ),
-            FocusCandidate(
-                targetId = focusMemory.targetId("servers:actions", "servers:add"),
-                sectionId = "servers:actions",
-                itemStableId = "servers:add",
-                index = 1,
-            ),
-        ) +
-            state.servers.mapIndexed { index, server ->
-                val stableId = "servers:${server.kind.name.lowercase()}:${server.id}"
+        if (state.servers.isEmpty()) {
+            listOf(
                 FocusCandidate(
-                    targetId = focusMemory.targetId("servers:grid", stableId),
-                    sectionId = "servers:grid",
-                    itemStableId = stableId,
-                    index = index,
-                )
-            }
+                    targetId = focusMemory.targetId("servers:empty", "servers:empty:empty-action"),
+                    sectionId = "servers:empty",
+                    itemStableId = "servers:empty:empty-action",
+                    index = 0,
+                ),
+            )
+        } else {
+            listOf(
+                FocusCandidate(
+                    targetId = focusMemory.targetId("servers:actions", "servers:refresh"),
+                    sectionId = "servers:actions",
+                    itemStableId = "servers:refresh",
+                    index = 0,
+                ),
+                FocusCandidate(
+                    targetId = focusMemory.targetId("servers:actions", "servers:add"),
+                    sectionId = "servers:actions",
+                    itemStableId = "servers:add",
+                    index = 1,
+                ),
+            ) +
+                state.servers.mapIndexed { index, server ->
+                    val stableId = "servers:${server.kind.name.lowercase()}:${server.id}"
+                    FocusCandidate(
+                        targetId = focusMemory.targetId("servers:grid", stableId),
+                        sectionId = "servers:grid",
+                        itemStableId = stableId,
+                        index = index,
+                    )
+                }
+        }
     TvRestoreRouteFocusEffect(
         route = "servers",
         focusMemory = focusMemory,
@@ -134,29 +145,31 @@ internal fun TvServersScreen(
                     fontSize = TvType.caption,
                 )
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                TvActionButton(
-                    label = if (refreshing) "正在检测" else "检测连接",
-                    stableId = "servers:refresh",
-                    focusScope = "servers:actions",
-                    focusMemory = focusMemory,
-                    onClick = component::refreshAll,
-                    modifier = Modifier.width(160.dp),
-                    icon = AppIcons.Refresh,
-                )
-                TvActionButton(
-                    label = "添加服务器",
-                    stableId = "servers:add",
-                    focusScope = "servers:actions",
-                    focusMemory = focusMemory,
-                    onClick = { store.accept(ServersIntent.OpenAddDialog) },
-                    modifier = Modifier.width(180.dp),
-                    icon = AppIcons.Add,
-                    primary = true,
-                    focusRequester = contentRequester,
-                    navigationRequester = navigationRequester,
-                    returnToNavigationOnLeft = true,
-                )
+            if (state.servers.isNotEmpty()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    TvActionButton(
+                        label = if (refreshing) "正在检测" else "检测连接",
+                        stableId = "servers:refresh",
+                        focusScope = "servers:actions",
+                        focusMemory = focusMemory,
+                        onClick = component::refreshAll,
+                        modifier = Modifier.width(160.dp),
+                        icon = AppIcons.Refresh,
+                    )
+                    TvActionButton(
+                        label = "添加服务器",
+                        stableId = "servers:add",
+                        focusScope = "servers:actions",
+                        focusMemory = focusMemory,
+                        onClick = { store.accept(ServersIntent.OpenAddDialog) },
+                        modifier = Modifier.width(180.dp),
+                        icon = AppIcons.Add,
+                        primary = true,
+                        focusRequester = contentRequester,
+                        navigationRequester = navigationRequester,
+                        returnToNavigationOnLeft = true,
+                    )
+                }
             }
         }
         Spacer(Modifier.height(22.dp))
@@ -169,6 +182,7 @@ internal fun TvServersScreen(
                 onAction = { store.accept(ServersIntent.OpenAddDialog) },
                 focusScope = "servers:empty",
                 focusMemory = focusMemory,
+                focusRequester = contentRequester,
                 navigationRequester = navigationRequester,
             )
         } else {
