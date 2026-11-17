@@ -7,6 +7,7 @@ import android.graphics.Color
 import android.os.Build
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
@@ -17,11 +18,14 @@ actual fun StatusBarIconStyle(darkIcons: Boolean) {
     val view = LocalView.current
     val routeVisible = LocalRouteVisible.current
     val configuration = LocalConfiguration.current
-    val navigationDarkIcons = !LocalPalette.current.isDark
+    val palette = LocalPalette.current
+    val navigationDarkIcons = !palette.isDark
+    val navigationBackground =
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) palette.background.toArgb() else Color.TRANSPARENT
 
     // Edge-to-edge reapplies the system theme on configuration changes, even when this
     // activity and its visible route are retained. Reapply the route's foreground as well.
-    DisposableEffect(view, darkIcons, navigationDarkIcons, routeVisible, configuration) {
+    DisposableEffect(view, darkIcons, navigationDarkIcons, navigationBackground, routeVisible, configuration) {
         val window = view.context.findActivity()?.window
         if (!routeVisible || window == null) {
             onDispose {}
@@ -29,14 +33,15 @@ actual fun StatusBarIconStyle(darkIcons: Boolean) {
             val controller = WindowCompat.getInsetsController(window, view)
             controller.isAppearanceLightStatusBars = darkIcons
             // The page can use white status icons over artwork in a light app.
-            // Navigation stays over the page background and follows its palette.
+            // Navigation follows its palette, retaining contrast protection where
+            // bright artwork or cards can scroll behind the system buttons.
             controller.isAppearanceLightNavigationBars = navigationDarkIcons
-            window.navigationBarColor = Color.TRANSPARENT
+            window.navigationBarColor = navigationBackground
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 window.navigationBarDividerColor = Color.TRANSPARENT
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                window.isNavigationBarContrastEnforced = false
+                window.isNavigationBarContrastEnforced = true
             }
             // Shared-element routes keep the outgoing screen composed briefly.
             // Restoring its old value on disposal races the already-visible detail
