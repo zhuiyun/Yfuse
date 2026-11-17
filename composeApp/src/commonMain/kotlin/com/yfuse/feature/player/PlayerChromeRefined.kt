@@ -36,7 +36,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
@@ -80,6 +79,7 @@ import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
@@ -569,7 +569,7 @@ private fun RefinedBottomBarContent(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Box(Modifier.height(44.dp), contentAlignment = Alignment.Center) {
-                RefinedTimeText { shownPositionMs().coerceAtLeast(0L) / 1_000L }
+                RefinedTimeText(durationMs) { shownPositionMs().coerceAtLeast(0L) / 1_000L }
             }
             Column(Modifier.weight(1f)) {
                 val preview = trickplay
@@ -726,7 +726,7 @@ private fun RefinedBottomBarContent(
                 )
             }
             Box(Modifier.height(44.dp), contentAlignment = Alignment.Center) {
-                RefinedTimeText { durationMs.coerceAtLeast(0L) / 1_000L }
+                RefinedTimeText(durationMs) { durationMs.coerceAtLeast(0L) / 1_000L }
                 // 结束于 sits over the duration it is counted from, clear of the rail beside it and
                 // of the keys below; while a drag looks ahead it says when that point would end.
                 PlaybackEndsAt(
@@ -1112,14 +1112,36 @@ private fun RefinedSpeedControl(
  * that contains it: the readout changes once a second, and the row around it never has to.
  */
 @Composable
-private fun RefinedTimeText(seconds: () -> Long) {
+private fun RefinedTimeText(
+    durationMs: Long,
+    seconds: () -> Long,
+) {
     val latestSeconds by rememberUpdatedState(seconds)
     val label by remember { derivedStateOf { formatTime(latestSeconds() * 1_000L) } }
     val shownLabel = rememberThrottledValue(label)
-    Box(Modifier.widthIn(min = 44.dp), contentAlignment = Alignment.Center) {
+    val density = LocalDensity.current
+    val measurer = rememberTextMeasurer()
+    val style = AppTypography.caption.regular
+    val reservedWidth =
+        remember(durationMs, density, measurer, style) {
+            // RollingNumber measures separate tabular glyphs. Reserve the entire movie's
+            // clock format so crossing an hour never moves the rail beneath a held finger.
+            val clock = formatTime(durationMs.coerceAtLeast(0L))
+            val digitStyle = style.copy(fontFeatureSettings = "tnum")
+            val pixels =
+                clock.sumOf {
+                    measurer
+                        .measure(
+                            if (it.isDigit()) "8" else it.toString(),
+                            digitStyle,
+                        ).size.width
+                }
+            with(density) { (pixels + 1).toDp() }.coerceAtLeast(44.dp)
+        }
+    Box(Modifier.width(reservedWidth), contentAlignment = Alignment.Center) {
         RollingNumber(
             text = shownLabel,
-            style = AppTypography.caption.regular,
+            style = style,
             color = PlayerTokens.timeTextLandscape,
         )
     }

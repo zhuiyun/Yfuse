@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -24,6 +25,8 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -218,6 +221,108 @@ class SoftFeedbackInstrumentedTest {
             assertEquals(4, cancels.get())
             capture("seek-reduced.png")
         }
+    }
+
+    @Test(timeout = 90_000L)
+    fun long_movie_clock_never_moves_the_held_seek_rail() {
+        val duration = 12_000_000L
+        var state by mutableStateOf(
+            PlaybackTransportState(0, 8_000L, duration, 0L, 1f, PlaybackButtonState(false, false, false, false, true)),
+        )
+        var scale by mutableFloatStateOf(1f)
+        val committed = AtomicReference<Long>()
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                currentActivity = activity
+                activity.setContent {
+                    val density = LocalDensity.current.density
+                    CompositionLocalProvider(LocalDensity provides Density(density, scale)) {
+                        YfuseTheme(dark = true, accessibility = AccessibilityOptions(reduceMotion = true)) {
+                            Box(
+                                Modifier.fillMaxSize().background(Color.Black).safeDrawingPadding(),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                RefinedBottomBar(
+                                    state = state,
+                                    seekLocked = false,
+                                    onPlayPause = {},
+                                    onPrevious = {},
+                                    onNext = {},
+                                    onSeek = {
+                                        committed.set(it)
+                                        state = state.copy(positionMs = it)
+                                    },
+                                    onScrub = {},
+                                    trickplay = null,
+                                    progressMarkers = emptyList(),
+                                    hasEpisodes = false,
+                                    onOpenEpisodes = {},
+                                    hasMultipleSources = false,
+                                    onOpenSources = {},
+                                    onOpenSubtitles = {},
+                                    onOpenAudio = {},
+                                    onOpenSpeed = {},
+                                    skipSettingsAvailable = false,
+                                    onOpenSkipSettings = {},
+                                    danmakuEnabled = false,
+                                    onToggleDanmaku = {},
+                                    onOpenDanmaku = {},
+                                    artworkUrl = null,
+                                    artworkIdentity = null,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            for (fontScale in listOf(1f, 1.3f)) {
+                onMain {
+                    scale = fontScale
+                    state = state.copy(positionMs = 8_000L)
+                }
+                SystemClock.sleep(500)
+                repeat(4) { frame() }
+                for (target in listOf(.63f, .21f)) {
+                    val before = seekRailBounds()
+                    val down = SystemClock.uptimeMillis()
+                    touch(down, MotionEvent.ACTION_DOWN, before, if (target > .5f) .17f else .83f)
+                    touch(down, MotionEvent.ACTION_MOVE, before, target)
+                    SystemClock.sleep(500)
+                    repeat(4) { frame() }
+                    val held = seekRailBounds()
+                    capture("long-clock-held-$fontScale-$target.png")
+                    touch(down, MotionEvent.ACTION_UP, before, target)
+                    repeat(4) { frame() }
+                    assertEquals("Clock changed the held seek rail at font scale $fontScale", before, held)
+                    val toleranceMs = duration * 1.5 / before.width
+                    assertEquals(duration * target.toDouble(), requireNotNull(committed.get()).toDouble(), toleranceMs)
+                }
+            }
+        }
+    }
+
+    private fun seekRailBounds(): Rect {
+        fun find(node: AccessibilityNodeInfo?): Rect? {
+            if (node == null) return null
+            node.refresh()
+            if (node.stateDescription?.toString()?.startsWith("播放进度") == true && node.rangeInfo != null) {
+                val bounds = android.graphics.Rect()
+                node.getBoundsInScreen(bounds)
+                return Rect(
+                    bounds.left.toFloat(),
+                    bounds.top.toFloat(),
+                    bounds.right.toFloat(),
+                    bounds.bottom.toFloat(),
+                )
+            }
+            for (index in 0 until node.childCount) find(node.getChild(index))?.let { return it }
+            return null
+        }
+        repeat(20) {
+            find(InstrumentationRegistry.getInstrumentation().uiAutomation.rootInActiveWindow)?.let { return it }
+            frame()
+        }
+        throw AssertionError("No visible seek rail")
     }
 
     @Test(timeout = 45_000L)
