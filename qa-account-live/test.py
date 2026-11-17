@@ -87,7 +87,7 @@ def cloud_remote(coordinator):
         time.sleep(2)
     assert len(targets) == 1, 'Created cloud TV did not advertise remote control'
     name = targets[0]['name']
-    assert sum(d['name'] == name and d.get('acceptsRemote') for d in inbox['devices']) == 1, 'Ambiguous UI target; do not address another device'
+    assert sum(1 for d in inbox['devices'] if d['name'] == name and d.get('acceptsRemote', False)) == 1, 'Ambiguous UI target; do not address another device'
     use('phone'); ui.root('我的'); click('设备接力')
     wait_text('遥控 '+name); capture('phone-cloud-device-discovered')
     passed('exact-cloud-tv-discovery')

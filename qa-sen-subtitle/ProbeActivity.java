@@ -107,6 +107,13 @@ public final class ProbeActivity extends Activity implements SurfaceHolder.Callb
           {"sub-font-size","40"},{"sub-font-provider","none"},{"sub-fonts-dir","/system/fonts"},
           {"sub-scale","1.0"},{"secondary-sub-scale","1.0"},{"sub-ass-override","no"}})
         record("direct-"+pair[0],command(player,source,"option",pair,new double[0]));
+      String[][] styles={{"font","Roboto"},{"font-size","40"},{"scale","1.2"},{"delay","0.0"},
+          {"color","#FFFFFFFF"},{"border-color","#000000FF"},{"back-color","#00000000"},
+          {"border-size","2.0"},{"shadow-offset","1.0"},{"spacing","0.0"},
+          {"italic","no"},{"bold","no"},{"ass-override","no"}};
+      for (String prefix:new String[]{"sub-","secondary-sub-"})
+        for(String[] pair:styles)
+          record("style-"+prefix+pair[0],command(player,source,"option",new String[]{prefix+pair[0],pair[1]},new double[0]));
       Thread.sleep(1500);
       record("native-logs",logClass.getMethod("recent",int.class).invoke(log,150));
       record("done","true");
