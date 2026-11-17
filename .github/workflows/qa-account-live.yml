@@ -1,4 +1,4 @@
-name: Verify server transfer without unnecessary account process restart
+name: Diagnose handoff navigation and verify cross-core account playback on qualified 2083054
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
@@ -17,11 +17,12 @@ jobs:
         run: |
           set -euo pipefail
           umask 077
-          # Both shells are built from the same qualified production source.
-          git diff --exit-code 2083054c651f8121b21645085d8e969b8ace3f4c HEAD -- composeApp tvApp yfuseBackendClient watchTogetherProtocol senplayerBridge
+          # Both immutable inputs below are built from qualified 2083054. The newer
+          # subtitle-output repair has separate pending gates; do not claim this
+          # account run validates those newer player changes.
           mkdir -p "$RUNNER_TEMP/account-private-logs" results account-sealed
           sudo apt-get update -qq
-          sudo apt-get install -y python3-cryptography python3-pil
+          sudo apt-get install -y python3-cryptography python3-pil ffmpeg
           /usr/bin/python3 qa-account-live/transport.py prepare
       - name: Acquire qualified phone build
         env: {API_TOKEN: "${{ github.token }}"}

@@ -10,7 +10,7 @@ import traceback
 import xml.etree.ElementTree as ET
 
 if os.environ.get('GITHUB_ACTIONS') != 'true': raise SystemExit('Cloud runner required')
-sys.path[:0] = ['qa-functional', 'qa-power-ui']
+sys.path[:0] = ['qa-functional', 'qa-power-ui', 'qa-arm-matrix']
 import features as ui
 from ext_run import adb, screen
 from library_ui import field, connect
@@ -18,6 +18,8 @@ from library import LibraryServer
 from navigation import click
 from account import Coordinator
 from transport import credentials
+import engine
+import playback
 
 ui.pkg = 'com.yfuse'
 OUT = Path('results'); OUT.mkdir(exist_ok=True)
@@ -162,10 +164,11 @@ def cloud_remote(coordinator):
     return name
 
 
-def server_sign_in(television_name):
+def server_sign_in(coordinator, television_name):
     name = 'Cloud QA ' + os.environ['GITHUB_RUN_ID']
     fixture = LibraryServer(OUT/'fixture-api.jsonl', name=name)
     fixture.server_id = 'account-live-' + os.environ['GITHUB_RUN_ID']
+    title, media = playback.prepare(fixture, OUT)
     try:
         for role in DEVICES:
             use(role); adb('reverse', 'tcp:18196', 'tcp:18196')
@@ -175,7 +178,12 @@ def server_sign_in(television_name):
         wait_text('用手机登录', 30); click('用手机登录')
         capture('tv-waiting-for-server')
         use('phone'); ui.root('我的'); ui.wait('账号与同步', 15)
-        time.sleep(1); click('设备接力')
+        time.sleep(1); capture('phone-before-server-handoff-navigation')
+        # Resolve the visible label and inject its touch in the same UI automation
+        # session, retaining the result to diagnose the previous unchanged page.
+        result = adb('shell', 'am', 'instrument', '-w', '-e', 'mode', 'select',
+                     '-e', 'label', '设备接力', 'qa.yfuse.gesture/.Driver')
+        (OUT/'handoff-navigation-input.txt').write_text(result)
         wait_text('在线设备', 15); capture('phone-server-handoff-page')
         wait_text('登录服务器到 '+television_name, 30)
         click('登录服务器到 '+television_name)
@@ -188,7 +196,17 @@ def server_sign_in(television_name):
         click('完成')
         use('tv'); wait_text(name, 30); capture('tv-server-login-complete')
         passed('phone-server-session-saved-on-cloud-tv')
+        try:
+            playback.run(coordinator, television_name, title, OUT, use, capture, wait_text, passed)
+        finally:
+            failed = sys.exc_info()[0] is not None
+            try:
+                playback.remove_test_history(title, OUT, use, capture, wait_text, passed)
+            except Exception:
+                (OUT/'history-cleanup-failure.txt').write_text(traceback.format_exc())
+                if not failed: raise
     finally:
+        media.close()
         fixture.close()
 
 
@@ -202,12 +220,14 @@ try:
     assert remaining > 30, 'Not enough authorized time remains for safe session cleanup'
     signal.signal(signal.SIGALRM, authorization_expired)
     signal.setitimer(signal.ITIMER_REAL, remaining)
+    for role, core in [('phone', 'YCore'), ('tv', 'SenPlayer')]:
+        use(role); engine.configure(core)
     coordinator = Coordinator()
     passed('trusted-tls-account-coordinator')
     login('phone', coordinator)
     login('tv', coordinator)
     television_name = cloud_remote(coordinator)
-    server_sign_in(television_name)
+    server_sign_in(coordinator, television_name)
     success = True
 except Exception:
     (OUT/'failure.txt').write_text(traceback.format_exc(), encoding='utf-8')
@@ -221,5 +241,6 @@ finally:
     # Only fixed identifiers and booleans may be public; no UI text, account data or exceptions.
     public = Path('account-sealed'); public.mkdir(exist_ok=True)
     (public/'summary.json').write_text(json.dumps({'passed': success, 'scope': 'real-account-remote-and-server-transfer',
-        'cases': CASES, 'handoffPlaybackTested': False, 'serverSignInTested': any(c['case'] == 'phone-server-session-saved-on-cloud-tv' for c in CASES)}))
+        'cases': CASES, 'handoffPlaybackTested': any(c['case'] == 'source-pauses-only-after-tv-ready' for c in CASES),
+        'serverSignInTested': any(c['case'] == 'phone-server-session-saved-on-cloud-tv' for c in CASES)}))
 raise SystemExit(0 if success else 1)
