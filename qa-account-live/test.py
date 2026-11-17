@@ -12,7 +12,8 @@ if os.environ.get('GITHUB_ACTIONS') != 'true': raise SystemExit('Cloud runner re
 sys.path[:0] = ['qa-functional', 'qa-power-ui']
 import features as ui
 from ext_run import adb, screen
-from library_ui import field
+from library_ui import field, connect
+from library import LibraryServer
 from navigation import click
 from account import Coordinator
 from transport import credentials
@@ -62,7 +63,19 @@ def login(role, coordinator):
         action = '登录账号'
     else:
         adb('shell', 'am', 'start', '-W', '-n', 'com.yfuse/com.yfuse.tv.TvMainActivity')
-        ui.wait('我的与设置', 60); click('我的与设置'); click('账号与同步')
+        ui.wait('我的与设置', 60)
+        click('服务器')
+        tree = capture('tv-empty-servers')
+        assert len([n for n in ui.nodes(tree) if n.get('text') == '添加服务器']) == 1
+        assert ui.find(tree, '检测连接') is None
+        # From the selected rail tab, Right must place focus on the sole empty action.
+        adb('shell', 'input', 'keyevent', '22'); time.sleep(.5)
+        capture('tv-empty-add-focus')
+        adb('shell', 'input', 'keyevent', '23')
+        wait_text('主机或完整地址', 15); capture('tv-empty-add-opened-by-dpad')
+        passed('tv-empty-server-single-action-and-dpad')
+        adb('shell', 'input', 'keyevent', '4')
+        click('我的与设置'); click('账号与同步')
         capture('tv-login-empty')
         field('账号', value['username']); field('密码', value['password'], secret=True)
         action = '登录'
@@ -109,6 +122,14 @@ def cloud_remote(coordinator):
     use('tv'); time.sleep(1); capture('tv-after-phone-back')
     assert ui.find(ui.snapshot(), '账号与同步') is not None, 'Remote Back did not return to TV settings'
     passed('phone-back-reaches-tv')
+    use('phone')
+    value = 'cloud-remote-' + os.environ['GITHUB_RUN_ID']
+    field('输入文字', value)
+    use('tv'); wait_text(value, 20); capture('tv-text-from-phone')
+    assert any(n.get('class', '').endswith('EditText') and n.get('text') == value
+               for n in ui.nodes(ui.snapshot())), 'Remote text did not reach the TV editor'
+    passed('phone-text-reaches-tv-search')
+    use('phone'); field('输入文字', '')
     use('phone'); adb('shell', 'input', 'keyevent', '4')
     wait_text('设备接力'); click('遥控 '+name)
     # Allow once lasts for this TV host session, including transient phone reconnects.
@@ -126,6 +147,36 @@ def cloud_remote(coordinator):
     use('phone'); wait_text('重新连接', 30); capture('remote-refused')
     assert not any('已连接' in word for node in ui.nodes(ui.snapshot()) for word in ui.labels(node))
     passed('remote-refusal-keeps-phone-disconnected')
+    return name
+
+
+def server_sign_in(television_name):
+    name = 'Cloud QA ' + os.environ['GITHUB_RUN_ID']
+    fixture = LibraryServer(OUT/'fixture-api.jsonl', name=name)
+    fixture.server_id = 'account-live-' + os.environ['GITHUB_RUN_ID']
+    try:
+        for role in DEVICES:
+            use(role); adb('reverse', 'tcp:18196', 'tcp:18196')
+        use('phone'); connect(); capture('phone-fixture-server')
+        passed('phone-synthetic-server-login')
+        use('tv'); click('服务器'); click('添加服务器')
+        wait_text('用手机登录', 30); click('用手机登录')
+        capture('tv-waiting-for-server')
+        use('phone'); ui.root('我的'); click('设备接力')
+        wait_text('登录服务器到 '+television_name, 30)
+        click('登录服务器到 '+television_name)
+        wait_text(name, 30); click(name)
+        wait_text('发送', 30); capture('phone-server-send-confirmation')
+        use('tv'); wait_text(name, 30); capture('tv-offered-server')
+        passed('server-offer-shown-before-explicit-send')
+        use('phone'); click('发送')
+        wait_text('已登录', 45); wait_text('完成', 20); capture('phone-server-sent')
+        click('完成')
+        use('tv'); wait_text(name, 30); capture('tv-server-login-complete')
+        passed('phone-server-session-saved-on-cloud-tv')
+    finally:
+        fixture.close()
+
 
 
 success = False
@@ -134,7 +185,8 @@ try:
     passed('trusted-tls-account-coordinator')
     login('phone', coordinator)
     login('tv', coordinator)
-    cloud_remote(coordinator)
+    television_name = cloud_remote(coordinator)
+    server_sign_in(television_name)
     success = True
 except Exception:
     (OUT/'failure.txt').write_text(traceback.format_exc(), encoding='utf-8')
@@ -146,6 +198,6 @@ except Exception:
 finally:
     # Only fixed identifiers and booleans may be public; no UI text, account data or exceptions.
     public = Path('account-sealed'); public.mkdir(exist_ok=True)
-    (public/'summary.json').write_text(json.dumps({'passed': success, 'scope': 'real-account-remote-consent-pilot',
-        'cases': CASES, 'handoffPlaybackTested': False, 'serverSignInTested': False}))
+    (public/'summary.json').write_text(json.dumps({'passed': success, 'scope': 'real-account-remote-and-server-transfer',
+        'cases': CASES, 'handoffPlaybackTested': False, 'serverSignInTested': any(c['case'] == 'phone-server-session-saved-on-cloud-tv' for c in CASES)}))
 raise SystemExit(0 if success else 1)

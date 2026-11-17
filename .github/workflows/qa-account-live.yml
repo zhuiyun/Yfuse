@@ -1,4 +1,4 @@
-name: Verify session-scoped remote consent and explicit TV revocation
+name: Verify remote text, TV empty focus and server sign-in transfer
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
