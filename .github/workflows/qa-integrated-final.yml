@@ -1,11 +1,11 @@
-name: "Latest lifecycle repair: two-engine 27520 seek checks"
+name: "Recovery and contrast candidate: two-engine 27520 seek checks"
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
     paths: ['.github/workflows/qa-integrated-final.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: 0127f268d4fb00b4a83c08640b0803a76cfac866
+  QA_APP_SHA: b58ddf8060a2ccfae2d214fa3e6c544849ba6557
 jobs:
   build:
     name: Acquire the qualified identical release candidate
@@ -16,7 +16,7 @@ jobs:
         with: {persist-credentials: false}
       - name: Wait for unit and actual ARM64 qualification
         env: {API_TOKEN: "${{ github.token }}"}
-        run: bash qa-integrated/acquire-qualified-candidate.sh 44034015111 0127f268d4fb00b4a83c08640b0803a76cfac866
+        run: bash qa-integrated/acquire-qualified-candidate.sh 44062488481 b58ddf8060a2ccfae2d214fa3e6c544849ba6557
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with: {name: candidate-test-input, path: preview, retention-days: 7}
 
