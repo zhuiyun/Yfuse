@@ -898,7 +898,7 @@ internal class SqliteAccountStore private constructor(
                             """
                             UPDATE sessions
                             SET access_token_hash = ?, refresh_token_hash = ?,
-                                access_expires_at_ms = ?, refresh_expires_at_ms = ?, created_at_ms = ?,
+                                access_expires_at_ms = ?, refresh_expires_at_ms = ?,
                                 device_name = COALESCE(?, device_name), last_seen_at_ms = ?,
                                 previous_refresh_token_hash = ?
                             WHERE id = ? AND refresh_token_hash = ? AND revoked_at_ms IS NULL
@@ -907,16 +907,16 @@ internal class SqliteAccountStore private constructor(
                             // The session keeps its id across rotations: remote-control pairings,
                             // hand-offs and Trakt device flows are bound to it, and a new id on every
                             // fifteen-minute refresh used to drop the phone remote and fail them with 403.
+                            // Creation belongs to the login, not the latest token rotation.
                             statement.setBytes(1, replacement.accessTokenHash)
                             statement.setBytes(2, replacement.refreshTokenHash)
                             statement.setLong(3, replacement.accessExpiresAtEpochMs)
                             statement.setLong(4, replacement.refreshExpiresAtEpochMs)
-                            statement.setLong(5, replacement.createdAtEpochMs)
-                            statement.setString(6, replacement.deviceName)
-                            statement.setLong(7, nowEpochMs)
-                            statement.setBytes(8, currentRefreshHash)
-                            statement.setString(9, current.sessionId)
-                            statement.setBytes(10, currentRefreshHash)
+                            statement.setString(5, replacement.deviceName)
+                            statement.setLong(6, nowEpochMs)
+                            statement.setBytes(7, currentRefreshHash)
+                            statement.setString(8, current.sessionId)
+                            statement.setBytes(9, currentRefreshHash)
                             statement.executeUpdate()
                         }
                 if (changed != 1) {

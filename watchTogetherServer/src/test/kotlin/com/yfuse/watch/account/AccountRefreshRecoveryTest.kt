@@ -9,6 +9,30 @@ import kotlin.test.assertNotEquals
 
 class AccountRefreshRecoveryTest {
     @Test
+    fun repeated_refresh_keeps_login_identity_and_creation_while_updating_activity() {
+        for (recoverable in listOf(false, true)) {
+            Fixture().use { fixture ->
+                val service = fixture.service()
+                var auth = service.register(RegisterRequest("Alice", "long-password-123", deviceName = "TV"))
+                val original = service.listSessions(auth.accessToken).sessions.single()
+                repeat(3) {
+                    fixture.now += 60_000L
+                    val previousAccess = auth.accessToken
+                    auth = service.refresh(
+                        RefreshRequest(auth.refreshToken, requestId = if (recoverable) requestId() else null),
+                    )
+                    val current = service.listSessions(auth.accessToken).sessions.single()
+                    assertEquals(original.id, current.id)
+                    assertEquals(original.createdAtEpochMs, current.createdAtEpochMs)
+                    assertEquals(original.deviceName, current.deviceName)
+                    assertEquals(fixture.now, current.lastSeenAtEpochMs)
+                    assertNotEquals(previousAccess, auth.accessToken)
+                }
+            }
+        }
+    }
+
+    @Test
     fun lost_response_can_be_recovered_after_service_restart_without_extending_expiry() {
         Fixture().use { fixture ->
             val request = fixture.request()

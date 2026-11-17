@@ -80,13 +80,19 @@ class Coordinator:
         current = [item for item in self.sessions() if item['current']]
         assert len(current) == 1 and current[0]['deviceName'] == 'Yfuse QA coordinator '+RUN
         identity = (current[0]['id'], current[0]['createdAtEpochMs'])
+        observations = []
         for _ in range(3):
             refreshed = request('/api/v1/auth/refresh', {'refreshToken': self.state['auth']['refreshToken']})
             self.state['auth'] = refreshed
             self.save()
             after = [item for item in self.sessions() if item['current']]
-            assert len(after) == 1 and (after[0]['id'], after[0]['createdAtEpochMs']) == identity, \
-                'Refresh changed the active session identity'
+            observed = {'oneCurrentSession': len(after) == 1,
+                        'sameSessionId': len(after) == 1 and after[0]['id'] == identity[0],
+                        'sameCreationTime': len(after) == 1 and after[0]['createdAtEpochMs'] == identity[1]}
+            observations.append(observed)
+            (Path('results')/'refresh-identity.json').write_text(json.dumps(observations))
+            assert observed['sameSessionId'], 'Refresh changed the active session ID'
+            assert observed['sameCreationTime'], 'Refresh changed the session creation time'
         return 3
 
     def track_login(self, role, before, model, since):
