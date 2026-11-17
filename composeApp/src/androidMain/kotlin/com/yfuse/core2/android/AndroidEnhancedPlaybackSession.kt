@@ -12,6 +12,7 @@ import com.yfuse.core.logging.AppLog
 import com.yfuse.core2.api.YAudioEffect
 import com.yfuse.core2.api.YDolbyAtmosOutputMode
 import com.yfuse.core2.api.YDualDolbyEvidenceState
+import com.yfuse.core2.api.YInitialTrackSelection
 import com.yfuse.core2.api.YMediaSourceHints
 import com.yfuse.core2.api.YOutputEvidenceResetReason
 import com.yfuse.core2.api.YPlaybackException
@@ -99,6 +100,7 @@ internal class AndroidEnhancedPlaybackSession(
     private val displayPeakNits = context.yCoreDisplayPeakNits()
 
     private var plan: YPlaybackPlan? = null
+    val activePlaybackPlan: YPlaybackPlan? get() = plan
     private var sourceRemote = false
     private var openResult: YDemuxOpenResult? = null
     private var sourceVideoTrack: YDemuxTrack? = null
@@ -226,8 +228,9 @@ internal class AndroidEnhancedPlaybackSession(
         allowAudioPassthrough: Boolean = true,
         preparedDemux: AndroidPreparedEnhancedDemux? = null,
         probeBudget: AndroidProbeBudget? = null,
-        initialTrackSelection: com.yfuse.core2.api.YInitialTrackSelection? = null,
+        initialTrackSelection: YInitialTrackSelection? = null,
         diagnosticItem: com.yfuse.core2.api.YMediaItem? = null,
+        resolveSoftwareRecoveryFromDemux: Boolean = false,
         sourceFailure: (() -> YPlaybackException?)? = null,
     ): YDemuxOpenResult {
         close()
@@ -298,6 +301,15 @@ internal class AndroidEnhancedPlaybackSession(
                     stage = YPlaybackFailureStage.Demux,
                     safeDetail = "Enhanced demux contains no video track",
                 )
+        val resolvedPlan =
+            if (resolveSoftwareRecoveryFromDemux) {
+                softwareRecoveryPlanFromDemux(
+                    requireNotNull(videoTrack.video),
+                    diagnosticItem?.drmConfiguration != null,
+                )
+            } else {
+                plan
+            }
         val capabilities = capabilityProvider.current()
         val softwareAudioAvailable = (demuxer as? AndroidFfmpegDemuxer)?.softwareDecodeAvailable == true
         val audioSelection =
@@ -311,23 +323,12 @@ internal class AndroidEnhancedPlaybackSession(
                             audioPassthrough = emptySet(),
                         )
                     },
-                plan = plan,
+                plan = resolvedPlan,
                 softwareDecodeAvailable = softwareAudioAvailable,
                 preference = initialTrackSelection?.audio,
             )
         val audioTrack = audioSelection?.track
-        val initialSubtitleTrack =
-            if (initialTrackSelection?.subtitlesDisabled == true) {
-                null
-            } else {
-                result.tracks
-                    .preferredSubtitleTrack(initialTrackSelection?.subtitle)
-                    ?.takeIf {
-                        it.subtitle?.format?.let { format ->
-                            format.textOverlaySupported || demuxReadAhead.supportsSubtitleFormat(format)
-                        } == true
-                    }
-            }
+        val initialSubtitleTrack = initialSubtitleTrack(result.tracks, initialTrackSelection)
         if (expectedAudio && result.tracks.none { it.type == YDemuxTrackType.Audio && it.audio != null }) {
             throw YPlaybackException(
                 category = YPlaybackFailureCategory.Container,
@@ -362,13 +363,13 @@ internal class AndroidEnhancedPlaybackSession(
                 attributes =
                     mapOf(
                         "codec" to requireNotNull(selection.track.audio).codec.name,
-                        "plannedAudioPath" to plan.audioPath.name,
-                        "plannedSoftwareAudio" to plan.softwareAudioDecode.toString(),
+                        "plannedAudioPath" to resolvedPlan.audioPath.name,
+                        "plannedSoftwareAudio" to resolvedPlan.softwareAudioDecode.toString(),
                         "selectedAudioPath" to selection.outputPath.name,
                         "selectedSoftwareAudio" to selection.preferSoftware.toString(),
                         "softwareAudioAvailable" to softwareAudioAvailable.toString(),
-                        "videoDecodePath" to plan.decodePath.name,
-                        "inputHdr" to plan.inputHdrType.name,
+                        "videoDecodePath" to resolvedPlan.decodePath.name,
+                        "inputHdr" to resolvedPlan.inputHdrType.name,
                     ),
             )
         }
@@ -380,9 +381,9 @@ internal class AndroidEnhancedPlaybackSession(
         // A pure check of the track against the plan: reopening the same route repeats its verdict.
         val effectiveVideo =
             yVideoFormatStage("Enhanced video format validation") {
-                effectiveVideoTrack(sourceVideo, plan)
+                effectiveVideoTrack(sourceVideo, resolvedPlan)
             }
-        softwareVideoActive = plan.decodePath == YDecodePath.Software
+        softwareVideoActive = resolvedPlan.decodePath == YDecodePath.Software
         softwareAudioActive = audioSelection?.preferSoftware == true
         val softwareNode =
             if (softwareVideoActive || softwareAudioActive) {
@@ -414,7 +415,7 @@ internal class AndroidEnhancedPlaybackSession(
                 ) {
                     requireNotNull(softwareNode).configureVideo(
                         trackId = videoTrack.id,
-                        toneMapHdrToSdr = plan.softwareVideoToneMap,
+                        toneMapHdrToSdr = resolvedPlan.softwareVideoToneMap,
                     )
                     softwareVideoRenderer.geometry = effectiveVideo.geometry
                     softwareVideoRenderer.attach(surface)
@@ -442,11 +443,11 @@ internal class AndroidEnhancedPlaybackSession(
                         AndroidMediaFormatFactory.video(
                             effectiveVideo,
                             keyframeParameterSets,
-                            displayRotation = plan.route != YPlaybackRoute.GpuEnhanced,
+                            displayRotation = resolvedPlan.route != YPlaybackRoute.GpuEnhanced,
                         )
                     }
                 val decoderSurface =
-                    if (plan.route == YPlaybackRoute.GpuEnhanced) {
+                    if (resolvedPlan.route == YPlaybackRoute.GpuEnhanced) {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                             val sourcePeakNits =
                                 effectiveVideo.hdrStaticMetadata?.let { metadata ->
@@ -461,7 +462,7 @@ internal class AndroidEnhancedPlaybackSession(
                                 colorConfig =
                                     gpuColorPipelineConfig(
                                         sourceHdrType = effectiveVideo.hdrType,
-                                        outputHdrType = plan.outputHdrType,
+                                        outputHdrType = resolvedPlan.outputHdrType,
                                         bitDepth = effectiveVideo.bitDepth,
                                         staticPeakNits = sourcePeakNits,
                                         displayPeakNits = displayPeakNits,
@@ -495,12 +496,12 @@ internal class AndroidEnhancedPlaybackSession(
                         videoDecoder.configure(
                             videoFormat,
                             decoderSurface,
-                            plan.decoderName,
+                            resolvedPlan.decoderName,
                             isolateFrameTimestamps =
-                                isolateVideoTimestamps && plan.renderPath == YRenderPath.SurfaceDirect,
+                                isolateVideoTimestamps && resolvedPlan.renderPath == YRenderPath.SurfaceDirect,
                             anime4KContext =
                                 anime4KContext.takeIf {
-                                    plan.renderPath == YRenderPath.SurfaceDirect &&
+                                    resolvedPlan.renderPath == YRenderPath.SurfaceDirect &&
                                         effectiveVideo.hdrType == com.yfuse.core2.capability.YHdrType.Sdr
                                 },
                         )
@@ -510,7 +511,7 @@ internal class AndroidEnhancedPlaybackSession(
                     }
                 }
                 runtimeCapabilityKey?.let { runtimeCapabilities?.recordConfigured(it) }
-                if (plan.route != YPlaybackRoute.GpuEnhanced) attachVideoRenderEvidence()
+                if (resolvedPlan.route != YPlaybackRoute.GpuEnhanced) attachVideoRenderEvidence()
             }
             frameRateManager.attach(surface, videoFrameRateHint(effectiveVideo.frameRate))
             audioTrack?.audio?.let { format ->
@@ -581,7 +582,7 @@ internal class AndroidEnhancedPlaybackSession(
             throw throwable
         }
 
-        this.plan = plan
+        this.plan = resolvedPlan
         sourceRemote = remote
         this.openResult = result
         this.sourceVideoTrack = videoTrack
@@ -628,6 +629,18 @@ internal class AndroidEnhancedPlaybackSession(
             wallClock.seek(0L, System.nanoTime())
         }
         return result
+    }
+
+    private fun initialSubtitleTrack(
+        tracks: List<YDemuxTrack>,
+        selection: YInitialTrackSelection?,
+    ): YDemuxTrack? {
+        if (selection?.subtitlesDisabled == true) return null
+        return tracks.preferredSubtitleTrack(selection?.subtitle)?.takeIf {
+            it.subtitle?.format?.let { format ->
+                format.textOverlaySupported || demuxReadAhead.supportsSubtitleFormat(format)
+            } == true
+        }
     }
 
     private fun openWithStartupAnalysis(

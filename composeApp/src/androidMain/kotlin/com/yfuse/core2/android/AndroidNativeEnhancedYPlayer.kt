@@ -495,6 +495,19 @@ internal class AndroidNativeEnhancedYPlayer(
             return playbackPlan
         }
 
+        private suspend fun decisionForPrepare(
+            item: YMediaItem,
+            budget: AndroidProbeBudget,
+        ): YCore2RouteDecision? {
+            initialDecision.takeIf { currentIndex == request.startIndex }?.let { return it }
+            val forcedRecovery =
+                forcedPlan?.route in setOf(YPlaybackRoute.NativeEnhanced, YPlaybackRoute.SoftwareFallback)
+            // The router has already chosen this recovery graph. The fresh demux validates
+            // actual formats, HDR and Dolby identity without repeating failed platform probes.
+            if (forcedRecovery && !forceSoftwareDecode) return null
+            return routeEvaluator.evaluate(item, allowAudioPassthrough = allowAudioPassthrough, budget = budget)
+        }
+
         private suspend fun prepareCurrent(positionUs: Long) {
             rebufferTracker.discontinuity(System.nanoTime() / 1_000_000L)
             externalSubtitleSession.close()
@@ -536,21 +549,7 @@ internal class AndroidNativeEnhancedYPlayer(
             try {
                 budget.ensureActive()
                 currentCoroutineContext().ensureActive()
-                val decision =
-                    // The router chose this child's graph for this item. A transport reopen gets
-                    // a fresh demux/proxy, but must not run a competing route election in the child.
-                    initialDecision.takeIf { currentIndex == request.startIndex }
-                        ?: if (forcedPlan?.route == YPlaybackRoute.NativeEnhanced && !forceSoftwareDecode) {
-                            // session.open validates the demuxed formats and Dolby identity.
-                            // A forced enhanced recovery must not repeat the failed platform probe.
-                            null
-                        } else {
-                            routeEvaluator.evaluate(
-                                item,
-                                allowAudioPassthrough = allowAudioPassthrough,
-                                budget = budget,
-                            )
-                        }
+                val decision = decisionForPrepare(item, budget)
                 budget.ensureActive()
                 currentCoroutineContext().ensureActive()
                 val playbackPlan = resolvePlaybackPlan(item, decision)
@@ -581,6 +580,7 @@ internal class AndroidNativeEnhancedYPlayer(
                             probeBudget = budget,
                             initialTrackSelection = item.initialTrackSelection,
                             diagnosticItem = item,
+                            resolveSoftwareRecoveryFromDemux = forcedPlan?.decodePath == YDecodePath.Software,
                             sourceFailure = { proxy?.sourceFailure(item.uri) },
                         )
                     }
@@ -590,7 +590,8 @@ internal class AndroidNativeEnhancedYPlayer(
                 prepared = true
                 secondaryExternalSubtitleId = null
                 secondaryTrackId = null
-                activePlan = playbackPlan
+                val resolvedPlan = session.activePlaybackPlan ?: playbackPlan
+                activePlan = resolvedPlan
                 speed = mutableState.value.speed
                 session.setSpeed(speed)
                 session.setAudioDelayMs(audioDelayMs)
@@ -657,7 +658,7 @@ internal class AndroidNativeEnhancedYPlayer(
                         errorCategory = null,
                         diagnostics =
                             it.diagnostics.copy(
-                                route = playbackPlan.route,
+                                route = resolvedPlan.route,
                                 container = result.container.name,
                                 demuxer = "FFmpeg / libavformat",
                                 videoCodec = video?.mimeType.orEmpty(),
@@ -684,7 +685,7 @@ internal class AndroidNativeEnhancedYPlayer(
                                 dolbyAtmosOutput = false,
                                 spatialAudioOutput = false,
                                 headTrackingAvailable = false,
-                                reason = playbackPlan.reason,
+                                reason = resolvedPlan.reason,
                             ),
                     )
                 }

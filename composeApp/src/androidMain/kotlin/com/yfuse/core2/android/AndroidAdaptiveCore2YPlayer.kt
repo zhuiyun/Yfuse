@@ -1438,11 +1438,11 @@ internal class AndroidAdaptiveCore2YPlayer(
 
             if (forceSoftwareFallback) {
                 val previous = lastRouteDecision?.takeIf { it.first == item }?.second
-                if (previous != null) {
-                    videoHandoff.close()
-                    routeEvaluator.closePreparedExtractor()
-                    return createInternalSoftwareRoute(item, singleRequest, previous)
-                }
+                videoHandoff.close()
+                routeEvaluator.closePreparedExtractor()
+                // The failed platform path already spent its probe budget. The software
+                // session validates the actual demuxed track before configuring a decoder.
+                return createInternalSoftwareRoute(item, singleRequest, previous)
             }
             val warmedRoute = adoptPreloadedRoute(item, positionMs, target, tunnelAllowed)
             // A route this device already rendered for exactly this media skips the probes and
@@ -1476,11 +1476,6 @@ internal class AndroidAdaptiveCore2YPlayer(
                 lastRouteDecision = item to it
                 pendingInputHdrType = it.probe.playbackRequest.video.hdrType
                 pendingChapters = it.probe.chapters
-            }
-            if (forceSoftwareFallback) {
-                videoHandoff.close()
-                routeEvaluator.closePreparedExtractor()
-                return createInternalSoftwareRoute(item, singleRequest, decision)
             }
             if (decision == null) return createInconclusiveSourceRoute(item, singleRequest)
             recordPlannedChild(item, target, decision)
