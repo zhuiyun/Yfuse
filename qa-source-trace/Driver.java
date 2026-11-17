@@ -93,7 +93,8 @@ public final class Driver extends Instrumentation {
                 SystemClock.sleep(28);
             }
             SystemClock.sleep(180);
-            ui.clearCache();
+            // clearCache was added in API 34; the cloud playback guest also covers API 31.
+            if(android.os.Build.VERSION.SDK_INT>=34)ui.clearCache();
             android.view.accessibility.AccessibilityNodeInfo node=progressNode(ui.getRootInActiveWindow());
             deadline=SystemClock.uptimeMillis()+2000;
             while(node==null && SystemClock.uptimeMillis()<deadline){
@@ -102,6 +103,8 @@ public final class Driver extends Instrumentation {
             }
             if(node==null)throw new IllegalStateException("Held seek preview unavailable");
             if(!node.refresh())throw new IllegalStateException("Held seek node became stale");
+            android.graphics.Rect heldRail=new android.graphics.Rect();node.getBoundsInScreen(heldRail);
+            row.put("heldRailLeft",heldRail.left);row.put("heldRailRight",heldRail.right);
             android.view.accessibility.AccessibilityNodeInfo.RangeInfo range=node.getRangeInfo();
             row.put("shownFraction",range.getCurrent());
             row.put("rangeMin",range.getMin());row.put("rangeMax",range.getMax());

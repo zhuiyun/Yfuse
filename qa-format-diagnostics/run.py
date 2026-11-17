@@ -22,6 +22,10 @@ observer.OUT = output
 engine.configure(core)
 observer.adb('reverse', 'tcp:18389', 'tcp:18389')
 catalog = json.loads(Path('format-fixtures/catalog.json').read_text())
+selected = set(filter(None, os.environ.get('QA_DIAGNOSTIC_CASES', '').split(',')))
+if selected:
+    assert selected <= {item['id'] for item in catalog}
+    catalog = [item for item in catalog if item['id'] in selected]
 results = []
 
 
@@ -38,7 +42,9 @@ def seek(case, fraction, method, duration):
             '-e', 'fraction', fraction, 'qa.yfuse.gesture/.Driver', timeout=40)
         (output / (case + '-input.txt')).write_text(response)
         match = re.search(r'INSTRUMENTATION_RESULT: observedSeek=(\{[^\n]+\})', response)
-        if not match: raise AssertionError('No held-preview input receipt')
+        if not match:
+            (output / (case + '-driver-crash.txt')).write_text(observer.adb('logcat', '-d', '-b', 'crash', check=False))
+            raise AssertionError('No held-preview input receipt')
         row['inputReceipt'] = json.loads(match[1])
         row['shownTargetSeconds'] = duration * row['inputReceipt']['shownFraction']
         observer.adb('pull', row['inputReceipt']['heldScreenshot'], str(output / (case + '-held.png')))

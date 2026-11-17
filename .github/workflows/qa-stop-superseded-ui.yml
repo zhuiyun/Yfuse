@@ -1,4 +1,4 @@
-name: Retire only explicitly superseded UI and activity runs
+name: Retire runs pending long-movie seek geometry repair
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
@@ -19,10 +19,10 @@ jobs:
           import json,subprocess
           repo='zhuiyun/Yfuse'
           targets={
-            44040840128:('335b38660d8d9ba71527ab907f9a4924ee6e765e','.github/workflows/qa-system-bars.yml'),
-            44040839990:('335b38660d8d9ba71527ab907f9a4924ee6e765e','.github/workflows/qa-secondary-ui-audit.yml'),
-            44040364387:('1d770ae7eee34bcab82c007abf8b3942eb301739','.github/workflows/qa-integrated-av-repair.yml'),
-            44036346513:('6975c31c078eb61ab8613ad73528001dc2f4005a','.github/workflows/qa-power-ui-final.yml'),
+            44062748056:('842d45af1948fcf9a5b14de7bf62470c334cad27','.github/workflows/qa-integrated-private-relay.yml'),
+            44062748052:('842d45af1948fcf9a5b14de7bf62470c334cad27','.github/workflows/qa-integrated-final.yml'),
+            44062748289:('842d45af1948fcf9a5b14de7bf62470c334cad27','.github/workflows/qa-power-ui-final.yml'),
+            44062748286:('842d45af1948fcf9a5b14de7bf62470c334cad27','.github/workflows/qa-integrated-originals.yml'),
           }
           for run,(sha,path) in targets.items():
               endpoint=f'repos/{repo}/actions/runs/{run}'
@@ -33,5 +33,5 @@ jobs:
                   print(run,'already completed; preserved',data['conclusion'])
                   continue
               subprocess.run(['gh','api','--method','POST',endpoint+'/cancel'],check=True)
-              print(run,'cancel requested: replaced by protected navigation candidate')
+              print(run,'cancel requested: long-movie seek geometry requires a repaired candidate')
           PY
