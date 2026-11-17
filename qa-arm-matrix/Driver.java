@@ -221,6 +221,20 @@ public final class Driver extends Instrumentation {
         Bundle result=new Bundle();
         try {
             final UiAutomation ui=getUiAutomation();
+            if ("seekTo".equals(args.getString("mode"))) {
+                int target=Integer.parseInt(args.getString("target"));
+                int duration=Integer.parseInt(args.getString("duration"));
+                if(target<0||target>=duration)throw new IllegalArgumentException("target outside source");
+                android.graphics.Rect r=readyRail(ui);
+                if(r==null)throw new IllegalStateException("Visible stable rail unavailable");
+                int from=r.left+(int)(r.width()*(target>duration/2?.2:.8));
+                int end=r.left+(int)(r.width()*(double)target/duration),y=r.centerY();
+                long down=SystemClock.uptimeMillis();touch(ui,down,0,from,y);
+                for(int i=1;i<=12;i++){SystemClock.sleep(25);touch(ui,down,2,from+(end-from)*i/12,y);}
+                touch(ui,down,1,end,y);
+                result.putString("outcome","seek-touch-issued");result.putInt("target",target);
+                finish(-1,result);return;
+            }
             if ("playerPause".equals(args.getString("mode"))) {
                 if (readyRail(ui) == null) throw new IllegalStateException("Player controls unavailable");
                 android.view.accessibility.AccessibilityNodeInfo root = ui.getRootInActiveWindow();

@@ -186,10 +186,11 @@ def secondary_off():
 
 
 def seek_with_subtitles(fraction):
-    (left, top, right, bottom), _ = direct.reveal()
-    y = (top+bottom)//2
-    adb('shell', 'input', 'swipe', round(left+(right-left)*(.8 if fraction < .5 else .2)), y,
-        round(left+(right-left)*fraction), y, 330)
+    result = adb('shell', 'am', 'instrument', '-w', '-e', 'mode', 'seekTo',
+                 '-e', 'target', str(round(DURATION*fraction)), '-e', 'duration', str(DURATION),
+                 'qa.yfuse.gesture/.Driver')
+    (out/('seek-input-'+str(fraction)+'.txt')).write_text(result)
+    assert 'seek-touch-issued' in result, 'Stable rail touch was not issued'
     proof = direct.decode_playback('dual-seek', DURATION*fraction, DURATION)
     checks.append({'case': 'dual-subtitle-actual-seek', 'fraction': fraction, 'proof': proof})
     if ui.find(ui.snapshot(), '字幕') is not None:

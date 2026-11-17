@@ -1,11 +1,11 @@
-name: Qualify subtitle surface recreation and source track restoration
+name: Qualify explicit TV interaction and landscape page insets
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
     paths: ['.github/workflows/qa-integrated-av-repair.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: d3c58b952cb4361d4e4014f73756b16357b1b863
+  QA_APP_SHA: 9eae13fd69368ced112648e1fdee3c3946ea6e1a
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: d3c58b952cb4361d4e4014f73756b16357b1b863
+          ref: 9eae13fd69368ced112648e1fdee3c3946ea6e1a
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
