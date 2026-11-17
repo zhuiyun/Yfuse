@@ -1,4 +1,4 @@
-name: Diagnose original subtitle preroll on local Matroska cold starts
+name: Diagnose paused surface parking without reopening subtitle source
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
@@ -21,7 +21,7 @@ jobs:
     needs: build
     strategy:
       fail-fast: false
-      matrix: {preroll: [0, 90]}
+      matrix: {lifecycle: ['null', park-before, park-after]}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 25
     steps:
@@ -46,7 +46,7 @@ jobs:
           [[ "$uid" =~ ^[0-9]+$ ]]
           adb shell chown "$uid:$uid" /data/user/0/com.yfuse/files /data/user/0/com.yfuse/files/fixture.mkv
           adb shell wm dismiss-keyguard
-          adb shell am start -W -n com.yfuse/com.yfuse.senplayer.ProbeActivity --es url /data/user/0/com.yfuse/files/fixture.mkv --es preroll '${{ matrix.preroll }}'
+          adb shell am start -W -n com.yfuse/com.yfuse.senplayer.ProbeActivity --es url /data/user/0/com.yfuse/files/fixture.mkv --es lifecycle '${{ matrix.lifecycle }}'
           for i in $(seq 1 80); do
             adb shell cat /data/user/0/com.yfuse/files/probe.json > results/probe.json 2>/dev/null || true
             if grep -q '"done"\|"failure"' results/probe.json; then break; fi
@@ -57,4 +57,4 @@ jobs:
           python3 -c 'import json; rows=json.load(open("results/probe.json")); assert any(r["stage"]=="done" for r in rows)'
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        with: {name: 'subtitle-preroll-${{ matrix.preroll }}', path: results/, retention-days: 7}
+        with: {name: 'subtitle-parking-${{ matrix.lifecycle }}', path: results/, retention-days: 7}

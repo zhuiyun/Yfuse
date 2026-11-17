@@ -21,11 +21,12 @@ public final class ProbeActivity extends Activity implements SurfaceHolder.Callb
   private SurfaceView video, captions;
   private boolean started;
   private final JSONArray results = new JSONArray();
+  private FrameLayout host;
 
   public void onCreate(Bundle state) {
     super.onCreate(state);
     getWindow().addFlags(128);
-    FrameLayout host = new FrameLayout(this);
+    host = new FrameLayout(this);
     video = new SurfaceView(this);
     captions = new SurfaceView(this);
     captions.getHolder().setFormat(PixelFormat.TRANSLUCENT);
@@ -119,6 +120,8 @@ public final class ProbeActivity extends Activity implements SurfaceHolder.Callb
         session.configureSubtitles(false,1,1,0,0,"#FFFFFFFF","#000000FF","#00000000",2,false);
         record("bridge-configuration","accepted");
       } catch (Exception e) { record("bridge-configuration",e.getClass().getSimpleName()+": "+e.getMessage()); }
+      String lifecycle=getIntent().getStringExtra("lifecycle");
+      if(lifecycle!=null) { lifecycleProbe(session,lifecycle); return; }
       if(preroll!=null) {
         record("cold-start-position-ms",45000);record("preroll-seconds",preroll);
         Object nativePlayer=field(session,"player");long nativeSource=(long)field(session,"source");
@@ -153,5 +156,41 @@ public final class ProbeActivity extends Activity implements SurfaceHolder.Callb
     } catch (Throwable e) {
       try { record("failure",e.getClass().getSimpleName()+": "+e.getMessage()); } catch (Exception ignored) {}
     }
+  }
+
+  private void uiAndWait(Runnable action) throws Exception {
+    java.util.concurrent.CountDownLatch done=new java.util.concurrent.CountDownLatch(1);
+    runOnUiThread(() -> { try { action.run(); } finally { done.countDown(); } });
+    if(!done.await(10,TimeUnit.SECONDS)) throw new IllegalStateException("UI transition timed out");
+  }
+
+  private void lifecycleProbe(SenPlayerSession session,String mode) throws Exception {
+    Thread.sleep(3000);session.play(false);record("lifecycle-mode",mode);
+    android.media.ImageReader parkedVideo=android.media.ImageReader.newInstance(1,1,PixelFormat.RGBA_8888,2);
+    android.media.ImageReader parkedCaptions=android.media.ImageReader.newInstance(1,1,PixelFormat.RGBA_8888,2);
+    android.os.Handler main=new android.os.Handler(getMainLooper());
+    for(android.media.ImageReader reader:new android.media.ImageReader[]{parkedVideo,parkedCaptions})
+      reader.setOnImageAvailableListener(r -> { android.media.Image frame=r.acquireLatestImage(); if(frame!=null)frame.close(); },main);
+    if("park-before".equals(mode)) {
+      session.surface(parkedVideo.getSurface(),parkedCaptions.getSurface());record("park-before-destroy","accepted");
+    }
+    uiAndWait(() -> host.removeAllViews());Thread.sleep(1000);
+    record("old-output-invalid",!video.getHolder().getSurface().isValid() && !captions.getHolder().getSurface().isValid());
+    if("park-after".equals(mode)) {
+      session.surface(parkedVideo.getSurface(),parkedCaptions.getSurface());record("park-after-destroy","accepted");
+    } else if("null".equals(mode)) {
+      session.surface(null,null);record("null-detach","accepted");
+    }
+    Thread.sleep(1000);
+    uiAndWait(() -> {
+      video=new SurfaceView(this);captions=new SurfaceView(this);
+      captions.getHolder().setFormat(PixelFormat.TRANSLUCENT);captions.setZOrderMediaOverlay(true);
+      host.addView(video);host.addView(captions);
+    });
+    for(int i=0;i<100 && (!video.getHolder().getSurface().isValid() || !captions.getHolder().getSurface().isValid());i++)Thread.sleep(100);
+    session.surface(video.getHolder().getSurface(),captions.getHolder().getSurface());record("rebind","accepted");
+    session.resize(video.getWidth(),video.getHeight());session.play(true);Thread.sleep(4000);
+    record("after-rebind-media",session.media());record("done","true");
+    // Keep parking outputs alive until the diagnostic process exits, matching session ownership.
   }
 }
