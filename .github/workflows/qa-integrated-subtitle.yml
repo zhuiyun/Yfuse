@@ -1,4 +1,4 @@
-name: Verify dual subtitle images with retained caption OCR and settled controls
+name: Verify dual subtitles using stable player controls and actual glyph evidence
 'on':
   push:
     branches:
@@ -28,7 +28,7 @@ jobs:
       with:
         name: arm-input-driver
         path: qa-driver
-        run-id: 43838817605
+        run-id: 43994190136
         github-token: ${{ github.token }}
     - name: Verify identical candidate and prepare original file checks
       run: 'set -euo pipefail

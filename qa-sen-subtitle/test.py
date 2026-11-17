@@ -23,6 +23,7 @@ import direct
 sys.path.insert(0, 'qa-power-ui')
 import background_audio as lifecycle
 from navigation import click, bounds, vertical_pane
+from player_ui import pause_visible
 
 out = Path('results'); out.mkdir(exist_ok=True)
 root = Path(os.environ['RUNNER_TEMP']) / 'subtitle-factory'
@@ -80,12 +81,8 @@ since = time.time()
 checks = []
 
 def open_panel():
-    for _ in range(6):
-        tree = ui.snapshot()
-        node = ui.find(tree, '字幕')
-        if node is not None:
-            ui.tap(node); break
-        im = screen(); tap(im.width*.5, im.height*.35)
+    pause_visible(out/'before-subtitle-menu-pause.txt')
+    click('字幕')
     ui.wait('主字幕', 12)
 
 
@@ -101,10 +98,7 @@ def select(enabled):
         (out/'subtitle-options.json').write_text(json.dumps(ui.page_info(tree), ensure_ascii=False))
         raise AssertionError('Required native subtitle option missing')
     ui.tap(min(choices, key=lambda n: ui.coords(n)[1]))
-    if ui.find(ui.snapshot(), '主字幕') is not None:adb('shell', 'input', 'keyevent', '4')
-    tree = ui.snapshot()
-    if ui.find(tree, '字幕') is not None:
-        im = screen();tap(im.width*.5, im.height*.35)
+    close_panel()
 
 def verify(enabled, label, words=('SUBTITLE', 'FACTORY', 'PASS')):
     observations = []
@@ -137,7 +131,10 @@ def verify(enabled, label, words=('SUBTITLE', 'FACTORY', 'PASS')):
     raise AssertionError('Subtitle image did not match selected state')
 
 def close_panel():
-    adb('shell', 'input', 'keyevent', '4')
+    time.sleep(.5)
+    if any(vertical_pane(n) for n in ui.nodes(ui.snapshot())):
+        adb('shell', 'input', 'keyevent', '4'); time.sleep(.5)
+    adb('shell', 'input', 'keyevent', '126')
     if ui.find(ui.snapshot(), '字幕') is not None:
         im = screen(); tap(im.width*.5, im.height*.35)
 
