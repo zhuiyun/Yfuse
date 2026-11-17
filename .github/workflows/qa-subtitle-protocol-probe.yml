@@ -1,4 +1,4 @@
-name: Verify primary and secondary native subtitle style options
+name: Verify native dual subtitle visibility and authored-style modes
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]

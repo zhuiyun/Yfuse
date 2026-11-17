@@ -114,6 +114,10 @@ public final class ProbeActivity extends Activity implements SurfaceHolder.Callb
       for (String prefix:new String[]{"sub-","secondary-sub-"})
         for(String[] pair:styles)
           record("style-"+prefix+pair[0],command(player,source,"option",new String[]{prefix+pair[0],pair[1]},new double[0]));
+      for(String[] pair:new String[][] {{"secondary-sub-visibility","no"},{"secondary-sub-visibility","yes"},
+          {"sub-ass-override","force"},{"secondary-sub-ass-override","force"},
+          {"sub-ass-vsfilter-aspect-compat","yes"}})
+        record("mode-"+pair[0]+"-"+pair[1],command(player,source,"option",pair,new double[0]));
       Thread.sleep(1500);
       record("native-logs",logClass.getMethod("recent",int.class).invoke(log,150));
       record("done","true");
