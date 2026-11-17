@@ -173,6 +173,8 @@ public final class ProbeActivity extends Activity implements SurfaceHolder.Callb
       reader.setOnImageAvailableListener(r -> { android.media.Image frame=r.acquireLatestImage(); if(frame!=null)frame.close(); },main);
     if("park-before".equals(mode)) {
       session.surface(parkedVideo.getSurface(),parkedCaptions.getSurface());record("park-before-destroy","accepted");
+    } else if("null-before".equals(mode)) {
+      session.surface(null,null);record("null-before-destroy","accepted");
     }
     uiAndWait(() -> host.removeAllViews());Thread.sleep(1000);
     record("old-output-invalid",!video.getHolder().getSurface().isValid() && !captions.getHolder().getSurface().isValid());

@@ -1,4 +1,4 @@
-name: Diagnose paused surface parking without reopening subtitle source
+name: Verify native detach completes before Android destroys old outputs
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
@@ -21,7 +21,7 @@ jobs:
     needs: build
     strategy:
       fail-fast: false
-      matrix: {lifecycle: ['null', park-before, park-after]}
+      matrix: {lifecycle: [null-before]}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 25
     steps:
