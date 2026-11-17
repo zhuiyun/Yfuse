@@ -564,6 +564,7 @@ private fun RefinedBottomBarContent(
             .padding(top = 10.dp, bottom = 16.dp),
     ) {
         Row(
+            modifier = Modifier.padding(horizontal = 12.dp),
             verticalAlignment = Alignment.Bottom,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
