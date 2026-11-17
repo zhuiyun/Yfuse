@@ -60,6 +60,43 @@ public final class Driver extends Instrumentation {
         }
         return "";
     }
+    private android.view.accessibility.AccessibilityNodeInfo progressNode(android.view.accessibility.AccessibilityNodeInfo node) {
+        if (node == null) return null;
+        String state=String.valueOf(node.getStateDescription());
+        if (state.contains("播放进度") && node.getRangeInfo()!=null) return node;
+        for(int i=0;i<node.getChildCount();i++){
+            android.view.accessibility.AccessibilityNodeInfo found=progressNode(node.getChild(i));
+            if(found!=null)return found;
+        }
+        return null;
+    }
+    private void observedSeek(UiAutomation ui,Bundle result)throws Exception {
+        android.graphics.Rect rect=seek(ui.getRootInActiveWindow());
+        if(rect==null)throw new IllegalStateException("No visible seek rail");
+        double fraction=Double.parseDouble(args.getString("fraction"));
+        if(fraction<=0 || fraction>=1)throw new IllegalArgumentException("Seek fraction");
+        int start=(int)Math.round(rect.left+rect.width()*(fraction<.5?.83:.17));
+        int end=(int)Math.round(rect.left+rect.width()*fraction),y=rect.centerY();
+        long down=SystemClock.uptimeMillis();
+        org.json.JSONObject row=new org.json.JSONObject();
+        row.put("railLeft",rect.left);row.put("railRight",rect.right);
+        row.put("endX",end);row.put("y",y);row.put("requestedFraction",fraction);
+        touch(ui,down,MotionEvent.ACTION_DOWN,start,y);
+        try {
+            for(int i=1;i<=12;i++){
+                touch(ui,down,MotionEvent.ACTION_MOVE,start+(end-start)*i/12,y);
+                SystemClock.sleep(28);
+            }
+            SystemClock.sleep(180);
+            android.view.accessibility.AccessibilityNodeInfo node=progressNode(ui.getRootInActiveWindow());
+            if(node==null)throw new IllegalStateException("Held seek preview unavailable");
+            android.view.accessibility.AccessibilityNodeInfo.RangeInfo range=node.getRangeInfo();
+            row.put("shownFraction",range.getCurrent());
+            row.put("rangeMin",range.getMin());row.put("rangeMax",range.getMax());
+        } finally { touch(ui,down,MotionEvent.ACTION_UP,end,y); }
+        result.putString("observedSeek",row.toString());
+        result.putString("outcome","injected");
+    }
     private String command(android.view.accessibility.AccessibilityNodeInfo node) {
         if(node==null)return "";
         String value=String.valueOf(node.getContentDescription());
@@ -109,6 +146,7 @@ public final class Driver extends Instrumentation {
         Bundle result=new Bundle();
         try {
             final UiAutomation ui=getUiAutomation();
+            if("observed-seek".equals(args.getString("mode"))){observedSeek(ui,result);finish(-1,result);return;}
             if("range".equals(args.getString("mode"))){
                 org.json.JSONObject r=new org.json.JSONObject();
                 try {

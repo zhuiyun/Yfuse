@@ -8,7 +8,7 @@ import time
 
 
 class MediaServer:
-    def __init__(self, path, output, port=18389):
+    def __init__(self, path, output, port=18389, content_type='video/mp4'):
         self.path = Path(path)
         self.output = Path(output)
         self.lock = threading.Lock()
@@ -44,7 +44,7 @@ class MediaServer:
                         self.send_error(status)
                         return
                     self.send_response(status)
-                    self.send_header('Content-Type', 'video/mp4')
+                    self.send_header('Content-Type', content_type)
                     self.send_header('Accept-Ranges', 'bytes')
                     self.send_header('Content-Length', str(hi - lo + 1))
                     if match:
