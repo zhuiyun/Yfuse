@@ -148,7 +148,12 @@ def capture_hero_pages(out, key):
     for number, label in enumerate(labels, 1):
         current = next(node for node in ui.nodes(ui.snapshot()) if node.get('content-desc') == label)
         if current.get('selected') != 'true':
-            click(label, 0)
+            # A selected dot intentionally loses its click action. Autoplay can select it
+            # between snapshots; tapping its fresh, fixed bounds is still safe and idempotent.
+            left, top, right, bottom = bounds(current)
+            if current.get('visible') != 'true' or right <= left or bottom <= top:
+                raise AssertionError('Carousel control has no visible bounds')
+            adb('shell', 'input', 'tap', (left + right) // 2, (top + bottom) // 2)
         deadline = time.monotonic() + 5
         while not any(node.get('content-desc') == label and node.get('selected') == 'true'
                       for node in ui.nodes(ui.snapshot())):
