@@ -97,6 +97,11 @@ public final class ProbeActivity extends Activity implements SurfaceHolder.Callb
       options.put("hwdec","no"); options.put("sub-fonts-dir","/system/fonts");
       options.put("secondary-sub-fonts-dir","/system/fonts");
       options.put("sub-font-provider","none"); options.put("secondary-sub-font-provider","none");
+      String preroll=getIntent().getStringExtra("preroll");
+      if(preroll!=null && !"0".equals(preroll)) {
+        options.put("demuxer-mkv-subtitle-preroll","yes");
+        options.put("demuxer-mkv-subtitle-preroll-secs",preroll);
+      }
       SenPlayerSession session = new SenPlayerSession(this,video.getHolder().getSurface(),captions.getHolder().getSurface(),getWindowManager().getDefaultDisplay(),options);
       record("license-enforced-session", "created");
       ClassLoader loader=(ClassLoader)field(field(session,"rt"),"loader");
@@ -107,13 +112,22 @@ public final class ProbeActivity extends Activity implements SurfaceHolder.Callb
       loader.loadClass("com.mplaykit.Diagnostics").getMethod("b",callback)
           .invoke(null,callback.getConstructor(int.class).newInstance(0));
       session.resize(video.getWidth(),video.getHeight());
-      session.open(getIntent().getStringExtra("url"),new LinkedHashMap<>(),0,true);
+      session.open(getIntent().getStringExtra("url"),new LinkedHashMap<>(),preroll==null?0:45000,true);
       Thread.sleep(4000);
       record("media", session.media());
       try {
         session.configureSubtitles(false,1,1,0,0,"#FFFFFFFF","#000000FF","#00000000",2,false);
         record("bridge-configuration","accepted");
       } catch (Exception e) { record("bridge-configuration",e.getClass().getSimpleName()+": "+e.getMessage()); }
+      if(preroll!=null) {
+        record("cold-start-position-ms",45000);record("preroll-seconds",preroll);
+        Object nativePlayer=field(session,"player");long nativeSource=(long)field(session,"source");
+        record("preroll-option-recognition",command(nativePlayer,nativeSource,"option",
+            new String[]{"demuxer-mkv-subtitle-preroll","yes"},new double[0]));
+        Thread.sleep(3500);
+        record("native-logs",logClass.getMethod("recent",int.class).invoke(log,150));
+        record("done","true");return;
+      }
       Object player=field(session,"player"); long source=(long)field(session,"source");
       Object config=newSubtitleConfiguration(loader);
       record("original-factory-M",await(player.getClass().getMethod("M",config.getClass(),long.class).invoke(player,config,source)));
