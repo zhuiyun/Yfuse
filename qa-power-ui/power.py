@@ -210,6 +210,12 @@ def main():
                 row['status'] = 'recorded'
                 if name in ('playing', 'recovered-playback'):
                     row['endPicture'] = direct.decode_playback('power-end', None, 3600)
+                if os.environ.get('QA_EXPECT_NO_SUBTITLE_CONFIGURATION_ERRORS') == 'true':
+                    raw = adb('shell', 'cat /data/user/0/com.yfuse/no_backup/diagnostics/diagnostic-*.jsonl', check=False)
+                    (out / (name + '-subtitle-check.jsonl')).write_text(raw, encoding='utf-8')
+                    events = [json.loads(line) for line in raw.splitlines() if line.startswith('{')]
+                    if not events or any(event.get('event') == 'subtitle_operation_failed' for event in events):
+                        raise AssertionError('Audio/video-only fixture must not fail subtitle configuration')
             except Exception as error:
                 row['status'] = 'failed'
                 row['error'] = type(error).__name__ + ': ' + str(error)[:200]

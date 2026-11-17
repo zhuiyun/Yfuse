@@ -1,4 +1,4 @@
-name: Verify complete media-info cleanup across both cores and widths
+name: Verify safe player progress margins and panels on normal and large text
 'on':
   push:
     branches:
@@ -9,8 +9,8 @@ permissions:
   contents: read
   actions: read
 env:
-  QA_APP_SHA: a1728aac808f9040ede6933df74c54cd8419bb6e
-  QA_BUILD_RUN: 43928595551
+  QA_APP_SHA: 38ea61caabd217947cd6fce46f190aed77de509a
+  QA_BUILD_RUN: 44004293645
 jobs:
   acquire:
     runs-on: ubuntu-24.04
@@ -19,10 +19,14 @@ jobs:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with:
         persist-credentials: false
-    - name: Acquire built diagnostic baseline and retain known qualification failures
+    - name: Acquire the fully qualified current candidate
       env:
         API_TOKEN: ${{ github.token }}
-      run: bash qa-power-ui/acquire-baseline.sh "$QA_BUILD_RUN" "$QA_APP_SHA"
+      run: |
+        bash qa-integrated/acquire-qualified-candidate.sh "$QA_BUILD_RUN" "$QA_APP_SHA"
+        cp "$RUNNER_TEMP/qualified-build.json" preview/baseline-build-run.json
+        cp "$RUNNER_TEMP/qualified-jobs.json" preview/baseline-build-jobs.json
+        printf '%s\n' 'Host, repeated cancellation and native gates passed. Power/UI evidence alone does not authorize signing.' > preview/baseline-limit.txt
     - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
       with:
         name: power-ui-baseline-input
