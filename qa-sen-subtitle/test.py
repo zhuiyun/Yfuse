@@ -111,7 +111,9 @@ def wait_for_focused_player(evidence):
     deadline = time.monotonic() + 20
     stable = None
     while time.monotonic() < deadline:
-        window = adb('shell', 'dumpsys', 'window', 'windows')
+        # On Android 12 the focus summary is outside the `windows` subsection.
+        window = adb('shell', 'dumpsys', 'window')
+        (evidence/'focus-wait-window.txt').write_text(window, encoding='utf-8')
         focused = re.search(r'mCurrentFocus[^\n]*com\.yfuse[^\n]*PlayerActivity', window)
         size = screen().size
         marker = (focused.group(0), size) if focused else None

@@ -1,4 +1,4 @@
-name: Verify subtitle activation after focused foreground recovery
+name: Verify subtitle activation after Android window focus settles
 'on':
   push:
     branches:
