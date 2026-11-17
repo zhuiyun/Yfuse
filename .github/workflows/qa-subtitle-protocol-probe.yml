@@ -1,4 +1,4 @@
-name: Verify native dual subtitle visibility and authored-style modes
+name: Verify repaired subtitle adapter on original native runtime
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
