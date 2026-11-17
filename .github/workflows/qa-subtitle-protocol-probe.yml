@@ -1,0 +1,54 @@
+name: Diagnose unchanged SenPlayer subtitle protocol on cloud ARM64
+on:
+  push:
+    branches: [codex/two-engines-cloud-seek-20261113]
+    paths: [.github/workflows/qa-subtitle-protocol-probe.yml]
+permissions: {contents: read, actions: read}
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - name: Acquire verified original runtime assets
+        env: {API_TOKEN: "${{ github.token }}"}
+        run: bash qa-integrated/acquire-qualified-candidate.sh 44004293645 38ea61caabd217947cd6fce46f190aed77de509a
+      - run: bash qa-sen-subtitle/build-probe.sh
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: subtitle-protocol-input, path: subtitle-probe-input/, retention-days: 3}
+  probe:
+    needs: build
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: subtitle-protocol-input, path: subtitle-probe-input}
+      - run: bash qa-arm-dual/redroid.sh
+      - name: Exercise original subtitle factory and report native stage codes
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+          mkdir -p results "$RUNNER_TEMP/subtitle-media"
+          printf '1\n00:00:01,000 --> 00:01:59,000\nSUBTITLE FACTORY PASS\n' > "$RUNNER_TEMP/subtitle-media/caption.srt"
+          ffmpeg -v error -y -f lavfi -i testsrc2=size=640x360:rate=24 -f lavfi -i sine=frequency=440:sample_rate=48000 -i "$RUNNER_TEMP/subtitle-media/caption.srt" -map 0:v -map 1:a -map 2:s -t 120 -c:v libx264 -preset ultrafast -crf 28 -c:a aac -c:s srt -metadata:s:s:0 language=eng -disposition:s:0 default "$RUNNER_TEMP/subtitle-media/fixture.mkv"
+          python3 -m http.server 18388 --bind 127.0.0.1 --directory "$RUNNER_TEMP/subtitle-media" > "$RUNNER_TEMP/subtitle-http.log" 2>&1 &
+          adb reverse tcp:18388 tcp:18388
+          (cd subtitle-probe-input && sha256sum -c SHA256SUMS)
+          adb install -r -g subtitle-probe-input/probe.apk
+          adb shell wm dismiss-keyguard
+          adb shell am start -W -n com.yfuse/com.yfuse.senplayer.ProbeActivity --es url http://127.0.0.1:18388/fixture.mkv
+          for i in $(seq 1 80); do
+            adb shell cat /data/user/0/com.yfuse/files/probe.json > results/probe.json 2>/dev/null || true
+            if grep -q '"done"\|"failure"' results/probe.json; then break; fi
+            sleep 2
+          done
+          adb exec-out screencap -p > results/probe.png
+          adb logcat -d -v threadtime > results/probe-logcat.txt
+          python3 -c 'import json; rows=json.load(open("results/probe.json")); assert any(r["stage"]=="done" for r in rows)'
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: subtitle-protocol-results, path: results/, retention-days: 7}
