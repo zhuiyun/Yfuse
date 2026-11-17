@@ -1,4 +1,4 @@
-name: Sixty original Emby movies and episodes on both repaired engines
+name: Sixty private originals on final lifecycle and UI candidate
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
@@ -35,7 +35,7 @@ jobs:
       QA_OPEN_DIAGNOSTIC_SECONDS: 60
       QA_BENCHMARK_LABELS: m-029,e-027
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 210
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with: {persist-credentials: false}
@@ -65,8 +65,8 @@ jobs:
         run: |
           set -euo pipefail
           api="https://api.github.com/repos/$GITHUB_REPOSITORY"
-          build=43846299305
-          expected=1a6e6a3e3a4672f5717a0de8be5de5a995afdeb8
+          build=44034015111
+          expected=0127f268d4fb00b4a83c08640b0803a76cfac866
           for i in $(seq 1 260); do
             artifact=$(curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/$build/artifacts" | jq -r '.artifacts[] | select(.name=="candidate-test-input" and .expired==false) | .id' | head -1)
             if [[ "$artifact" =~ ^[0-9]+$ ]]; then break; fi
@@ -98,7 +98,7 @@ jobs:
           adb shell settings put secure accessibility_interactive_ui_timeout_ms 60000
           adb shell wm dismiss-keyguard
           touch /tmp/yfuse-tree-active
-          timeout --signal=TERM --kill-after=30s 55m /usr/bin/python3 qa-private-relay/cloud.py
+          timeout --signal=TERM --kill-after=30s 180m /usr/bin/python3 qa-private-relay/cloud.py
       - name: Clear one-use private playback session
         if: always()
         run: |

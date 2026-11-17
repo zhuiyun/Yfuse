@@ -1,4 +1,4 @@
-name: Lifecycle timer repair four-hour power activity and true recovery per core
+name: Final margin and lifecycle candidate four-hour activity on both cores
 'on':
   push:
     branches:
@@ -9,8 +9,9 @@ permissions:
   contents: read
   actions: read
 env:
-  QA_APP_SHA: 30d6fd96b7defa4d1852e6e83c53a99131847a64
-  QA_BUILD_RUN: 43996036740
+  QA_APP_SHA: 0127f268d4fb00b4a83c08640b0803a76cfac866
+  QA_BUILD_RUN: 44034015111
+  QA_EXPECT_NO_SUBTITLE_CONFIGURATION_ERRORS: 'true'
 jobs:
   acquire:
     runs-on: ubuntu-24.04
@@ -19,10 +20,14 @@ jobs:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with:
         persist-credentials: false
-    - name: Acquire built diagnostic baseline and retain known qualification failures
+    - name: Acquire the fully qualified current candidate
       env:
         API_TOKEN: ${{ github.token }}
-      run: bash qa-power-ui/acquire-baseline.sh "$QA_BUILD_RUN" "$QA_APP_SHA"
+      run: |
+        bash qa-integrated/acquire-qualified-candidate.sh "$QA_BUILD_RUN" "$QA_APP_SHA"
+        cp "$RUNNER_TEMP/qualified-build.json" preview/baseline-build-run.json
+        cp "$RUNNER_TEMP/qualified-jobs.json" preview/baseline-build-jobs.json
+        printf '%s\n' 'Host, repeated cancellation and native gates passed. Power/UI evidence alone does not authorize signing.' > preview/baseline-limit.txt
     - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
       with:
         name: power-ui-baseline-input
