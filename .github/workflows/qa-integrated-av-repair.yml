@@ -1,11 +1,11 @@
-name: Qualify software recovery and bright discovery caption protection
+name: Qualify stable long-movie seek geometry with old-code negative control
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
     paths: ['.github/workflows/qa-integrated-av-repair.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: b58ddf8060a2ccfae2d214fa3e6c544849ba6557
+  QA_APP_SHA: 4c41e85a551618131421abd2027422f10dc45f54
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: b58ddf8060a2ccfae2d214fa3e6c544849ba6557
+          ref: 4c41e85a551618131421abd2027422f10dc45f54
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
@@ -71,6 +71,21 @@ jobs:
           cp composeApp/build/outputs/mapping/release/mapping.txt preview/
           printf 'app=%s\nnative_built_from=%s\nsource_artifact=%s\n' "$app_sha" "$native_sha" "$artifact" > preview/provenance.txt
           (cd preview && sha256sum composeApp-release.apk > apk.sha256)
+      - name: Build unchanged prior clock layout for the device negative control
+        run: |
+          set -euo pipefail
+          path=composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerChromeRefined.kt
+          baseline=b58ddf8060a2ccfae2d214fa3e6c544849ba6557
+          cp "$path" "$RUNNER_TEMP/fixed-player-chrome.kt"
+          trap 'cp "$RUNNER_TEMP/fixed-player-chrome.kt" "$path"' EXIT
+          git show "$baseline:$path" > "$path"
+          git diff --exit-code "$baseline" -- composeApp/src/commonMain composeApp/src/androidMain phoneShared
+          ./gradlew :composeApp:assembleDebug -PyfuseIncludeMdk=false -PyfusePlaybackProfile=ycore-senplayer -PyfuseNativeOnlyRuntime=true -PallowDebugSigning=true -PyfuseBuildRevision="$baseline" -Pkotlin.compiler.execution.strategy=in-process '-Dorg.gradle.jvmargs=-Xmx8g -Dfile.encoding=UTF-8' --no-parallel --max-workers=2 --no-daemon
+          cp composeApp/build/outputs/apk/debug/composeApp-debug.apk preview/geometry-negative.apk
+          printf 'app=%s\nnegative_case=long_movie_clock_never_moves_the_held_seek_rail\n' "$baseline" > preview/geometry-negative-provenance.txt
+          cp "$RUNNER_TEMP/fixed-player-chrome.kt" "$path"
+          git diff --exit-code -- .
+          (cd preview && sha256sum geometry-negative.apk instrumentation-target.apk regressions.apk >> apk.sha256)
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with: {name: candidate-test-input, path: preview, retention-days: 7}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
@@ -125,6 +140,20 @@ jobs:
           grep -Fx "app=$QA_APP_SHA" preview/provenance.txt
           adb install -r -g preview/instrumentation-target.apk
           adb install -r -g preview/regressions.apk
+          adb install -r -g preview/geometry-negative.apk
+          adb shell am instrument -w -r -e class 'com.yfuse.feature.player.SoftFeedbackInstrumentedTest#long_movie_clock_never_moves_the_held_seek_rail' com.yfuse.test/androidx.test.runner.AndroidJUnitRunner | tee results/geometry-negative.txt
+          if python3 qa-integrated/check-instrumentation.py results/geometry-negative.txt 1; then
+            echo 'Prior clock layout unexpectedly passed the negative control'; exit 1
+          fi
+          python3 - <<'PY'
+          import json,pathlib
+          result=json.loads(pathlib.Path('results/geometry-negative.json').read_text())
+          text=pathlib.Path('results/geometry-negative.txt').read_text()
+          assert result['failed']==1 and result['completed']==0 and result['skipped']==0, result
+          assert 'Clock changed the held seek rail' in text, 'Unexpected negative-control failure'
+          PY
+          adb pull /sdcard/Android/data/com.yfuse/files/soft-feedback results/negative-soft-feedback
+          adb install -r -g preview/instrumentation-target.apk
           sudo apt-get update -qq
           sudo apt-get install -y ffmpeg
           ffmpeg -v error -y -f lavfi -i testsrc2=size=320x180:rate=10 -f lavfi -i anullsrc=r=48000:cl=mono -t 20 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac -b:a 64k -movflags +faststart "$RUNNER_TEMP/enhanced-retry.mp4"
@@ -136,10 +165,11 @@ jobs:
           adb push "$RUNNER_TEMP/enhanced-retry.mp4" /sdcard/Android/data/com.yfuse/files/enhanced-retry.mp4
           adb shell sha256sum /sdcard/Android/data/com.yfuse/files/enhanced-retry.mp4 > results/device-fixture.sha256
           test "$(cut -d' ' -f1 results/fixture.sha256)" = "$(tr -d '\r' < results/device-fixture.sha256 | cut -d' ' -f1)"
-          adb shell am instrument -w -r -e enhancedRetryDecodePath software -e enhancedRetryFixture /sdcard/Android/data/com.yfuse/files/enhanced-retry.mp4 -e class 'com.yfuse.core2.android.SoftwareOutputContractInstrumentedTest,com.yfuse.feature.player.SoftFeedbackInstrumentedTest#seek_cancel_never_commits_and_release_commits_once_with_or_without_motion,com.yfuse.feature.player.BufferedScrubDecodeInstrumentedTest,com.yfuse.core2.android.YCoreMediaSuiteInstrumentedTest#enhanced_transport_retry_keeps_the_assigned_route_and_renders_again' com.yfuse.test/androidx.test.runner.AndroidJUnitRunner | tee results/contracts.txt
-          python3 qa-integrated/check-instrumentation.py results/contracts.txt 7
-          grep -E 'OK \(7 tests\)' results/contracts.txt
+          adb shell am instrument -w -r -e enhancedRetryDecodePath software -e enhancedRetryFixture /sdcard/Android/data/com.yfuse/files/enhanced-retry.mp4 -e class 'com.yfuse.core2.android.SoftwareOutputContractInstrumentedTest,com.yfuse.feature.player.SoftFeedbackInstrumentedTest#seek_cancel_never_commits_and_release_commits_once_with_or_without_motion,com.yfuse.feature.player.SoftFeedbackInstrumentedTest#long_movie_clock_never_moves_the_held_seek_rail,com.yfuse.feature.player.BufferedScrubDecodeInstrumentedTest,com.yfuse.core2.android.YCoreMediaSuiteInstrumentedTest#enhanced_transport_retry_keeps_the_assigned_route_and_renders_again' com.yfuse.test/androidx.test.runner.AndroidJUnitRunner | tee results/contracts.txt
+          python3 qa-integrated/check-instrumentation.py results/contracts.txt 8
+          grep -E 'OK \(8 tests\)' results/contracts.txt
           ! grep -E 'FAILURES|INSTRUMENTATION_FAILED|INSTRUMENTATION_ABORTED' results/contracts.txt
+          adb pull /sdcard/Android/data/com.yfuse/files/soft-feedback results/current-soft-feedback
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with: {name: native-video-repair-contracts, path: results/, retention-days: 10}
