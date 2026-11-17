@@ -113,11 +113,22 @@ def remove_test_history(title, output, use, capture, wait_text, passed):
     x, y = ui.coords(nodes[0]); adb('shell', 'input', 'swipe', x, y, x, y, 900)
     suffix = title.rsplit(' ', 1)[-1]
     wait_text('移除观看记录', 15); capture('test-history-remove-confirmation-'+suffix)
-    click('移除观看记录'); time.sleep(7)
+    click('移除观看记录')
+    # Accessibility extends the undo notice to 60 seconds. Its disappearance,
+    # not a fixed 7-second wait, commits the pending removal in the product.
+    removed_notice = '已移除「' + title + '」的观看记录'
+    wait_text(removed_notice, 15); click(removed_notice)
+    deadline = time.monotonic()+20
+    while ui.find(ui.snapshot(), removed_notice) is not None:
+        assert time.monotonic() < deadline, 'Removal notice did not settle'
+        time.sleep(.3)
     tree = capture('test-history-removed-'+suffix)
     assert not any(n.get('text') == title for n in ui.nodes(tree)), 'Test history remained visible'
     passed('only-run-unique-playback-history-removed')
     verify_test_history_absent([title], output, use, capture, wait_text, passed, already_in_history=True)
+    ui.root('我的'); click('同步状态与恢复'); click('立即同步')
+    wait_text('个人数据已同步', 45); capture('test-history-synchronized-'+suffix)
+    passed('run-unique-history-removal-committed-and-synchronized')
 
 
 def verify_test_history_absent(titles, output, use, capture, wait_text, passed, already_in_history=False):

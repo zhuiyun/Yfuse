@@ -1,4 +1,4 @@
-name: Verify handoff against offer-time position and synchronized history absence
+name: Settle accessible undo notice and synchronize scoped history removal
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
