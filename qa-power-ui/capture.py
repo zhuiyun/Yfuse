@@ -146,22 +146,31 @@ def capture_hero_pages(out, key):
         raise AssertionError('Loaded discovery has no carousel page controls')
     captured = []
     for number, label in enumerate(labels, 1):
-        current = next(node for node in ui.nodes(ui.snapshot()) if node.get('content-desc') == label)
-        if current.get('selected') != 'true':
-            # A selected dot intentionally loses its click action. Autoplay can select it
-            # between snapshots; tapping its fresh, fixed bounds is still safe and idempotent.
-            left, top, right, bottom = bounds(current)
-            if current.get('visible') != 'true' or right <= left or bottom <= top:
-                raise AssertionError('Carousel control has no visible bounds')
-            adb('shell', 'input', 'tap', (left + right) // 2, (top + bottom) // 2)
-        deadline = time.monotonic() + 5
-        while not any(node.get('content-desc') == label and node.get('selected') == 'true'
-                      for node in ui.nodes(ui.snapshot())):
-            if time.monotonic() >= deadline:
-                raise AssertionError('Carousel selection did not settle: ' + label)
-            time.sleep(.2)
-        time.sleep(.8)
-        captured.append(capture(out, key + '-hero-' + str(number)))
+        for attempt in range(1, 4):
+            current = next(node for node in ui.nodes(ui.snapshot()) if node.get('content-desc') == label)
+            if current.get('selected') != 'true':
+                # Autoplay can select this dot between snapshots. Its bounds stay actionable
+                # even when a newly selected dot intentionally loses the click action.
+                left, top, right, bottom = bounds(current)
+                if current.get('visible') != 'true' or right <= left or bottom <= top:
+                    raise AssertionError('Carousel control has no visible bounds')
+                adb('shell', 'input', 'tap', (left + right) // 2, (top + bottom) // 2)
+            deadline = time.monotonic() + 5
+            selected = lambda tree: any(node.get('content-desc') == label and node.get('selected') == 'true'
+                                        for node in ui.nodes(tree))
+            while not selected(ui.snapshot()):
+                if time.monotonic() >= deadline:
+                    raise AssertionError('Carousel selection did not settle: ' + label)
+                time.sleep(.2)
+            time.sleep(.8)
+            name = key + '-hero-' + str(number) + '-attempt-' + str(attempt)
+            shot = capture(out, name)
+            if selected(ET.parse(out / (name + '.xml')).getroot()) and selected(ui.snapshot()):
+                shot['heroPageLabel'] = label
+                captured.append(shot)
+                break
+        else:
+            raise AssertionError('Carousel moved during all three captures: ' + label)
     return captured
 
 
