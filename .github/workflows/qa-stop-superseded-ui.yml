@@ -1,4 +1,4 @@
-name: Retire runs pending long-movie seek geometry repair
+name: Retire broad runs before the end-clock layout repair
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
@@ -19,10 +19,10 @@ jobs:
           import json,subprocess
           repo='zhuiyun/Yfuse'
           targets={
-            44062748056:('842d45af1948fcf9a5b14de7bf62470c334cad27','.github/workflows/qa-integrated-private-relay.yml'),
-            44062748052:('842d45af1948fcf9a5b14de7bf62470c334cad27','.github/workflows/qa-integrated-final.yml'),
-            44062748289:('842d45af1948fcf9a5b14de7bf62470c334cad27','.github/workflows/qa-power-ui-final.yml'),
-            44062748286:('842d45af1948fcf9a5b14de7bf62470c334cad27','.github/workflows/qa-integrated-originals.yml'),
+            44065974990:('9a25056fa24360fa2dd9668911d49de5d6a39f7f','.github/workflows/qa-integrated-private-relay.yml'),
+            44065974827:('9a25056fa24360fa2dd9668911d49de5d6a39f7f','.github/workflows/qa-integrated-final.yml'),
+            44065975329:('9a25056fa24360fa2dd9668911d49de5d6a39f7f','.github/workflows/qa-power-ui-final.yml'),
+            44065975145:('9a25056fa24360fa2dd9668911d49de5d6a39f7f','.github/workflows/qa-integrated-originals.yml'),
           }
           for run,(sha,path) in targets.items():
               endpoint=f'repos/{repo}/actions/runs/{run}'
