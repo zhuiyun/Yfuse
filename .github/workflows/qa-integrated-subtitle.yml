@@ -1,4 +1,4 @@
-name: Verify dual subtitles using stable player controls and actual glyph evidence
+name: Verify restored dual subtitles after native surface recreation
 'on':
   push:
     branches:
@@ -23,7 +23,7 @@ jobs:
     - name: Wait for qualified startup and subtitle repair
       env:
         API_TOKEN: ${{ github.token }}
-      run: bash qa-integrated/acquire-qualified-candidate.sh 44016985196 2083054c651f8121b21645085d8e969b8ace3f4c
+      run: bash qa-integrated/acquire-qualified-candidate.sh 44023730738 d3c58b952cb4361d4e4014f73756b16357b1b863
     - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
       with:
         name: arm-input-driver
@@ -37,7 +37,7 @@ jobs:
 
         (cd preview && sha256sum -c apk.sha256)
 
-        grep -Fx "app=2083054c651f8121b21645085d8e969b8ace3f4c" preview/provenance.txt
+        grep -Fx "app=d3c58b952cb4361d4e4014f73756b16357b1b863" preview/provenance.txt
 
         cp preview/provenance.txt preview/apk.sha256 results/
 
