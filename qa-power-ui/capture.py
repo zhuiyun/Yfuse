@@ -208,6 +208,13 @@ def main():
                 # About is an inline section, not a link or a separate screen.
                 from navigation import control
                 control('检测升级', 10)
+            if name == 'discover':
+                # A skeleton is valid loading UI, not evidence of the loaded page.
+                deadline = time.monotonic() + 60
+                while not any('热门' == label for label in ui.page_info(ui.snapshot())):
+                    if time.monotonic() >= deadline:
+                        raise AssertionError('Discovery did not expose its loaded catalogue within 60 seconds')
+                    time.sleep(.5)
             time.sleep(1)
             row['top'] = capture(out, key + '-top')
             if 'com.yfuse' not in row['top']['packages']:
