@@ -1,4 +1,4 @@
-name: Diagnose handoff navigation and verify cross-core account playback on qualified 2083054
+name: Close identified connection notice before server transfer and playback handoff
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]

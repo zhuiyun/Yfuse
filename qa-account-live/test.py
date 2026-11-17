@@ -179,11 +179,20 @@ def server_sign_in(coordinator, television_name):
         capture('tv-waiting-for-server')
         use('phone'); ui.root('我的'); ui.wait('账号与同步', 15)
         time.sleep(1); capture('phone-before-server-handoff-navigation')
-        # Resolve the visible label and inject its touch in the same UI automation
-        # session, retaining the result to diagnose the previous unchanged page.
-        result = adb('shell', 'am', 'instrument', '-w', '-e', 'mode', 'select',
-                     '-e', 'label', '设备接力', 'qa.yfuse.gesture/.Driver')
-        (OUT/'handoff-navigation-input.txt').write_text(result)
+        # The 60s accessibility timeout keeps the successful-connection notice
+        # over this row. Its close target covers the row centre; a tap there
+        # closes the notice instead of opening the page (retained failure proof).
+        notice_text = '已连接「' + name + '」'
+        notice = ui.find(ui.snapshot(), notice_text)
+        if notice is not None:
+            assert notice.get('clickable') == 'true'
+            ui.tap(notice)
+            deadline = time.monotonic()+10
+            while ui.find(ui.snapshot(), notice_text) is not None:
+                assert time.monotonic() < deadline, 'Connection notice did not close'
+                time.sleep(.3)
+            capture('phone-connection-notice-closed')
+        click('设备接力')
         wait_text('在线设备', 15); capture('phone-server-handoff-page')
         wait_text('登录服务器到 '+television_name, 30)
         click('登录服务器到 '+television_name)
