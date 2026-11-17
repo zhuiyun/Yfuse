@@ -1,4 +1,5 @@
 import contextlib,hashlib,json,os,re,shlex,subprocess,sys,time,urllib.parse,urllib.request,urllib.error
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from PIL import Image,ImageChops,ImageStat
 sys.path.insert(0,'qa-arm-matrix')
@@ -16,22 +17,34 @@ def measured(label, **detail):
 
 
 def capture_failure(label):
-    if os.environ.get('QA_CAPTURE_FAILURE') != 'true':return
     if os.environ.get('GITHUB_ACTIONS') != 'true':raise ValueError('Cloud recorder required')
     prefix=OUT/re.sub(r'[^A-Za-z0-9_.-]', '_', label)
-    screen().save(str(prefix)+'-failed.png')
-    for name,command in [('diagnostics','cat /data/user/0/com.yfuse/no_backup/diagnostics/diagnostic-*.jsonl'),
-                         ('process','dumpsys meminfo com.yfuse')]:
-        Path(str(prefix)+'-'+name+'.txt').write_text(adb('shell',command,check=False))
-    Path(str(prefix)+'-logcat.txt').write_text(adb('logcat','-d','-v','threadtime',check=False))
-    pid=adb('shell','pidof com.yfuse',check=False).strip()
-    if pid.isdigit():
+    receipt={'case':label,'captures':{},'requestedFlag':os.environ.get('QA_CAPTURE_FAILURE')}
+    receipt_file=Path(str(prefix)+'-capture.json')
+    def record(name, action):
+        receipt['captures'][name]='started'
+        receipt_file.write_text(json.dumps(receipt,indent=2))
         try:
-            adb('shell','kill -3 '+pid,check=False,timeout=10)
-            time.sleep(1)
-            Path(str(prefix)+'-native.txt').write_text(adb('shell','debuggerd -b '+pid,check=False,timeout=20))
-            Path(str(prefix)+'-java.txt').write_text(adb('shell','cat /data/anr/*',check=False,timeout=10))
-        except subprocess.SubprocessError:pass
+            action()
+            receipt['captures'][name]='saved'
+        except (OSError,ValueError,RuntimeError,subprocess.SubprocessError,ET.ParseError) as error:
+            receipt['captures'][name]=type(error).__name__
+        receipt_file.write_text(json.dumps(receipt,indent=2))
+    record('screen',lambda:screen().save(str(prefix)+'-failed.png'))
+    record('tree',lambda:Path(str(prefix)+'-tree.xml').write_bytes(ET.tostring(snapshot(),encoding='utf-8')))
+    for name,args in [('diagnostics',('shell','cat /data/user/0/com.yfuse/no_backup/diagnostics/diagnostic-*.jsonl')),
+                      ('process',('shell','dumpsys meminfo com.yfuse')),
+                      ('logcat',('logcat','-d','-v','threadtime'))]:
+        record(name,lambda name=name,args=args:Path(str(prefix)+'-'+name+'.txt').write_text(adb(*args,check=False,timeout=20)))
+    pid=''
+    try:pid=adb('shell','pidof com.yfuse',check=False,timeout=10).strip()
+    except (RuntimeError,subprocess.SubprocessError):pass
+    if pid.isdigit():
+        record('thread-dump-request',lambda:adb('shell','kill -3 '+pid,check=False,timeout=10))
+        time.sleep(1)
+        for name,command in [('native','debuggerd -b '+pid),('java','cat /data/anr/*')]:
+            record(name,lambda name=name,command=command:Path(str(prefix)+'-'+name+'.txt').write_text(adb('shell',command,check=False,timeout=20)))
+    print('FAILURE_CAPTURE',label,json.dumps(receipt['captures']),flush=True)
 
 
 def media_clock(tree):
