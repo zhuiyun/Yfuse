@@ -43,7 +43,9 @@ def main():
                 adb('shell', 'settings', 'put', 'system', 'user_rotation', str(rotation))
                 deadline = time.monotonic()+15
                 while time.monotonic() < deadline:
-                    width, height = ui.size()
+                    # wm size reports the natural panel dimensions after rotation.
+                    # Observe the actual compositor output instead.
+                    width, height = screen().size
                     if (width > height) == (rotation != 0): break
                     time.sleep(.3)
                 else: raise AssertionError('Requested orientation did not become visible')

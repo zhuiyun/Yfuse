@@ -1,4 +1,4 @@
-name: Verify themed system bars and Back with restored parent scroll position
+name: Verify themed system bars against actual rotated compositor output
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
