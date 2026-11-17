@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import sys
 import time
 import traceback
@@ -85,7 +86,7 @@ def login(role, coordinator):
         adb('shell', 'input', 'keyevent', '23')
         wait_text('主机或完整地址', 15); capture('tv-empty-add-opened-by-dpad')
         passed('tv-empty-server-single-action-and-dpad')
-        adb('shell', 'input', 'keyevent', '4')
+        click('取消'); wait_text('我的与设置', 15)
         click('我的与设置'); click('账号与同步')
         capture('tv-login-empty')
         field('账号', value['username']); field('密码', value['password'], secret=True)
@@ -191,7 +192,14 @@ def server_sign_in(television_name):
 
 
 success = False
+def authorization_expired(signum, frame):
+    raise TimeoutError('Authorized account-test window expired')
+
 try:
+    remaining = credentials()['expires'] - time.time() - 60
+    assert remaining > 30, 'Not enough authorized time remains for safe session cleanup'
+    signal.signal(signal.SIGALRM, authorization_expired)
+    signal.setitimer(signal.ITIMER_REAL, remaining)
     coordinator = Coordinator()
     passed('trusted-tls-account-coordinator')
     login('phone', coordinator)
@@ -207,6 +215,7 @@ except Exception:
             (OUT/(role+'-logcat.txt')).write_text(adb('logcat', '-d', '-v', 'threadtime'), encoding='utf-8')
         except Exception: pass
 finally:
+    signal.setitimer(signal.ITIMER_REAL, 0)
     # Only fixed identifiers and booleans may be public; no UI text, account data or exceptions.
     public = Path('account-sealed'); public.mkdir(exist_ok=True)
     (public/'summary.json').write_text(json.dumps({'passed': success, 'scope': 'real-account-remote-and-server-transfer',

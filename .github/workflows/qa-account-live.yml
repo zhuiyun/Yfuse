@@ -1,4 +1,4 @@
-name: Verify TV focused navigation and two-device server sign-in transfer
+name: Verify latest candidate account flows after TV dialog dismissal
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
@@ -17,20 +17,20 @@ jobs:
         run: |
           set -euo pipefail
           umask 077
-          # Shared phone/TV behavior is identical; TV adds the qualified empty-server UI repair.
-          git diff --exit-code 38ea61caabd217947cd6fce46f190aed77de509a 1e43f903dd20e38464366bbb97cc422c037ca215 -- composeApp yfuseBackendClient watchTogetherProtocol senplayerBridge
+          # Both shells are built from the same qualified production source.
+          git diff --exit-code 2083054c651f8121b21645085d8e969b8ace3f4c HEAD -- composeApp tvApp yfuseBackendClient watchTogetherProtocol senplayerBridge
           mkdir -p "$RUNNER_TEMP/account-private-logs" results account-sealed
           sudo apt-get update -qq
           sudo apt-get install -y python3-cryptography python3-pil
           /usr/bin/python3 qa-account-live/transport.py prepare
       - name: Acquire qualified phone build
         env: {API_TOKEN: "${{ github.token }}"}
-        run: bash qa-integrated/acquire-qualified-candidate.sh 44004293645 38ea61caabd217947cd6fce46f190aed77de509a
+        run: bash qa-integrated/acquire-qualified-candidate.sh 44016985196 2083054c651f8121b21645085d8e969b8ace3f4c
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          name: yfuse-tv-debug-1e43f903dd20e38464366bbb97cc422c037ca215
+          name: yfuse-tv-debug-2083054c651f8121b21645085d8e969b8ace3f4c
           path: tv-input
-          run-id: 44014593068
+          run-id: 44016901163
           github-token: ${{ github.token }}
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
