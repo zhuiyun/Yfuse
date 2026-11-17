@@ -139,6 +139,27 @@ def failure_diagnostics(out, key):
             (out / (key + '-' + label + '-unavailable.txt')).write_text(type(error).__name__)
 
 
+def capture_hero_pages(out, key):
+    labels = [node.get('content-desc', '') for node in ui.nodes(ui.snapshot())
+              if re.fullmatch(r'第 \d+ 张，共 \d+ 张', node.get('content-desc', ''))]
+    if not labels:
+        raise AssertionError('Loaded discovery has no carousel page controls')
+    captured = []
+    for number, label in enumerate(labels, 1):
+        current = next(node for node in ui.nodes(ui.snapshot()) if node.get('content-desc') == label)
+        if current.get('selected') != 'true':
+            click(label, 0)
+        deadline = time.monotonic() + 5
+        while not any(node.get('content-desc') == label and node.get('selected') == 'true'
+                      for node in ui.nodes(ui.snapshot())):
+            if time.monotonic() >= deadline:
+                raise AssertionError('Carousel selection did not settle: ' + label)
+            time.sleep(.2)
+        time.sleep(.8)
+        captured.append(capture(out, key + '-hero-' + str(number)))
+    return captured
+
+
 def main():
     engine.guard()
     ui.pkg = 'com.yfuse'
@@ -225,6 +246,8 @@ def main():
                             raise AssertionError('Poster contextual tip did not dismiss')
                         time.sleep(.2)
                     row['posterTipDismissed'] = True
+                if os.environ.get('QA_CAPTURE_HERO_PAGES') == 'true':
+                    row['heroPages'] = capture_hero_pages(out, key)
             time.sleep(1)
             row['top'] = capture(out, key + '-top')
             if 'com.yfuse' not in row['top']['packages']:
