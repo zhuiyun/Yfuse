@@ -1,4 +1,4 @@
-name: Use observed watch-history label then verify real cloud handoff
+name: Verify handoff against offer-time position and synchronized history absence
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]

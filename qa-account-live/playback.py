@@ -55,7 +55,6 @@ def run(coordinator, television_name, title, output, use, capture, wait_text, pa
     (left, top, right, bottom), _ = direct.reveal(); y = (top+bottom)//2
     adb('shell', 'input', 'swipe', round(left+(right-left)*.1), y, round(left+(right-left)*.35), y, 350)
     proof = direct.decode_playback('phone-handoff-seek', 210, 600)
-    position = proof['laterPos']
     (output/'phone-handoff-seek.json').write_text(json.dumps(proof))
     passed('phone-handoff-source-seek-confirmed')
     deadline = time.monotonic()+60
@@ -68,10 +67,20 @@ def run(coordinator, television_name, title, output, use, capture, wait_text, pa
     assert sum(1 for d in devices if d['name'] == television_name and d.get('canReceive')) == 1
     direct.reveal(); click('更多'); click('设备接力'); wait_text('接力到 '+television_name, 30)
     click('接力到 '+television_name); capture('phone-handoff-offered')
-    assert session(output, 'source-before-tv-accept')['state'] == 3, 'Source paused before receiver accepted'
+    before_accept = session(output, 'source-before-tv-accept')
+    assert before_accept['state'] == 3, 'Source paused before receiver accepted'
+    # Source keeps playing while the user navigates and the receiver confirms.
+    # Compare with the offer-time position, not the earlier seek proof.
+    position = before_accept['positionMs'] / 1000
     passed('source-keeps-playing-until-tv-accepts')
     use('tv'); wait_text('接收', 30); capture('tv-handoff-offer'); click('接收')
-    proof = direct.decode_playback('tv-handoff-output', position, 600)
+    try:
+        proof = direct.decode_playback('tv-handoff-output', position, 600)
+    except Exception:
+        capture('tv-handoff-decode-failure')
+        direct.capture_failure('tv-handoff-output')
+        session(output, 'tv-handoff-failure')
+        raise
     assert engine.engine_evidence('SenPlayer')['active'], 'TV SenPlayer native output unavailable'
     (output/'tv-handoff-decoded.json').write_text(json.dumps(proof)); capture('tv-handoff-playing')
     passed('tv-handoff-restores-position-with-advancing-picture')
@@ -108,3 +117,19 @@ def remove_test_history(title, output, use, capture, wait_text, passed):
     tree = capture('test-history-removed-'+suffix)
     assert not any(n.get('text') == title for n in ui.nodes(tree)), 'Test history remained visible'
     passed('only-run-unique-playback-history-removed')
+    verify_test_history_absent([title], output, use, capture, wait_text, passed, already_in_history=True)
+
+
+def verify_test_history_absent(titles, output, use, capture, wait_text, passed, already_in_history=False):
+    from library_ui import field
+    use('phone')
+    if not already_in_history:
+        ui.root('我的'); click('我的片单'); click('观看历史')
+    click('搜索片单')
+    for title in titles:
+        assert title.startswith('Cloud QA Playback ') and title.rsplit(' ', 1)[-1].isdigit()
+        field('搜索历史', title); ui.hide_keyboard()
+        wait_text('没有找到「' + title + '」', 25)
+        capture('test-history-absence-'+title.rsplit(' ', 1)[-1])
+    click('收起搜索')
+    passed('run-unique-history-absence-confirmed-by-full-list-search')
