@@ -16,7 +16,7 @@ jobs:
         with: {persist-credentials: false}
       - name: Require full current-candidate qualification before reserving source runners
         env: {API_TOKEN: '${{ github.token }}'}
-        run: bash qa-integrated/acquire-qualified-candidate.sh 44065322511 4c41e85a551618131421abd2027422f10dc45f54
+        run: bash qa-integrated/acquire-qualified-candidate.sh 44067422996 fe814ec63fb1c035ff9fb123146e3ed3700a2b16
       - name: Build network and gesture recorder
         run: |
           mkdir qa-private-driver
@@ -69,8 +69,8 @@ jobs:
         run: |
           set -euo pipefail
           api="https://api.github.com/repos/$GITHUB_REPOSITORY"
-          build=44065322511
-          expected=4c41e85a551618131421abd2027422f10dc45f54
+          build=44067422996
+          expected=fe814ec63fb1c035ff9fb123146e3ed3700a2b16
           for i in $(seq 1 260); do
             artifact=$(curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/$build/artifacts" | jq -r '.artifacts[] | select(.name=="candidate-test-input" and .expired==false) | .id' | head -1)
             if [[ "$artifact" =~ ^[0-9]+$ ]]; then break; fi

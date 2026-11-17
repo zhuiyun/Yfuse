@@ -1,4 +1,4 @@
-name: Verify long-movie rail geometry after fixed-width clock repair
+name: Verify actual long-movie seeks after both clock layout repairs
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
@@ -52,7 +52,7 @@ jobs:
         with: {persist-credentials: false}
       - name: Acquire qualified current app
         env: {API_TOKEN: '${{ github.token }}'}
-        run: bash qa-integrated/acquire-qualified-candidate.sh 44065322511 4c41e85a551618131421abd2027422f10dc45f54
+        run: bash qa-integrated/acquire-qualified-candidate.sh 44067422996 fe814ec63fb1c035ff9fb123146e3ed3700a2b16
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with: {name: format-fixtures-and-driver, path: .}
       - run: |

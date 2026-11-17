@@ -9,8 +9,8 @@ permissions:
   contents: read
   actions: read
 env:
-  QA_APP_SHA: 4c41e85a551618131421abd2027422f10dc45f54
-  QA_BUILD_RUN: 44065322511
+  QA_APP_SHA: fe814ec63fb1c035ff9fb123146e3ed3700a2b16
+  QA_BUILD_RUN: 44067422996
   QA_EXPECT_NO_SUBTITLE_CONFIGURATION_ERRORS: 'true'
 jobs:
   acquire:
