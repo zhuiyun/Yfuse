@@ -66,9 +66,10 @@ def submit_search(value):
     raise AssertionError('Search editor retained focus after IME submission')
 
 
-def connect(port=18196):
+def connect(port=18196, relaunch=True):
     ui.pkg = 'com.yfuse'
-    ui.launch()
+    if relaunch:
+        ui.launch()
     ui.root('服务器')
     ui.tap(ui.grab(['添加服务器', '添加'], 5))
     ui.wait(['连接到服务器', '服务器地址', '地址'])

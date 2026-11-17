@@ -60,6 +60,11 @@ class Coordinator:
 
     def save(self):
         STATE.write_text(json.dumps(self.state)); STATE.chmod(0o600)
+        # No credentials: retain exact ownership evidence inside the encrypted artifact,
+        # including when a later API error prevents automatic cleanup.
+        out = Path('results'); out.mkdir(exist_ok=True)
+        (out/'session-ownership.json').write_text(json.dumps({
+            key: self.state[key] for key in ['created', 'started', 'baseline'] if key in self.state}))
 
     def api(self, path, body=None, method=None):
         auth = self.state['auth']
@@ -83,14 +88,29 @@ class Coordinator:
         return True
 
     def cleanup(self):
+        failures = []
         for session in self.state['created'].values():
             assert session not in self.state['baseline'] and re.fullmatch(r'[A-Za-z0-9-]{16,100}', session)
             try: self.api('/api/v1/account/sessions/'+session, method='DELETE')
             except urllib.error.HTTPError as error:
-                if error.code != 404: raise
-        remaining = {s['id'] for s in self.sessions()}
-        assert not remaining.intersection(self.state['created'].values())
-        self.api('/api/v1/auth/logout', method='POST')
+                # A missing tracked ID can mean a legacy backend rotated it. Preserve
+                # that failure instead of guessing ownership of another device.
+                failures.append({'stage': 'revoke', 'id': session, 'http': error.code})
+            except Exception as error:
+                failures.append({'stage': 'revoke', 'id': session, 'type': type(error).__name__})
+        try:
+            remaining = self.sessions()
+            (Path('results')/'sessions-after-cleanup.json').write_text(json.dumps(remaining))
+            if {s['id'] for s in remaining}.intersection(self.state['created'].values()):
+                failures.append({'stage': 'verify', 'reason': 'owned-session-remains'})
+        except Exception as error:
+            failures.append({'stage': 'verify', 'type': type(error).__name__})
+        finally:
+            try: self.api('/api/v1/auth/logout', method='POST')
+            except Exception as error:
+                failures.append({'stage': 'coordinator-logout', 'type': type(error).__name__})
+        (Path('results')/'cleanup-result.json').write_text(json.dumps({'failures': failures}))
+        if failures: raise RuntimeError('Account cleanup incomplete; encrypted ownership receipt retained')
         STATE.unlink()
 
 

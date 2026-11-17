@@ -169,12 +169,14 @@ def server_sign_in(television_name):
     try:
         for role in DEVICES:
             use(role); adb('reverse', 'tcp:18196', 'tcp:18196')
-        use('phone'); connect(); capture('phone-fixture-server')
+        use('phone'); connect(relaunch=False); capture('phone-fixture-server')
         passed('phone-synthetic-server-login')
         use('tv'); click('服务器'); click('添加服务器')
         wait_text('用手机登录', 30); click('用手机登录')
         capture('tv-waiting-for-server')
-        use('phone'); ui.root('我的'); click('设备接力')
+        use('phone'); ui.root('我的'); ui.wait('账号与同步', 15)
+        time.sleep(1); click('设备接力')
+        wait_text('在线设备', 15); capture('phone-server-handoff-page')
         wait_text('登录服务器到 '+television_name, 30)
         click('登录服务器到 '+television_name)
         wait_text(name, 30); click(name)

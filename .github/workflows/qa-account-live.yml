@@ -1,4 +1,4 @@
-name: Verify latest candidate account flows after TV dialog dismissal
+name: Verify server transfer without unnecessary account process restart
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
