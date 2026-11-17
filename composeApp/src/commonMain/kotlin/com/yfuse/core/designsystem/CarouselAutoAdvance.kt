@@ -2,14 +2,14 @@ package com.yfuse.core.designsystem
 
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 
 /**
- * The hero reel's own clock: one page forward every [dwellMillis] while nothing holds it.
+ * Preview each recommendation once, then leave the page still until the next interaction.
+ * Manual swipes and indicators remain available without a continuously running idle animation.
  *
  * 首页 and 库 each used to run a private copy of this loop. It stops for 减弱动态效果, for a
  * hidden route and — which neither copy did — for a screen reader: TalkBack's touch
@@ -28,13 +28,15 @@ fun CarouselAutoAdvance(
     dwellMillis: Int = Motion.CAROUSEL_DWELL,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    val routeVisible = LocalRouteVisible.current
     val screenReader = rememberScreenReaderActive()
-    LaunchedEffect(pagerState, pageCount, held, restartKey, reduceMotion, routeVisible, screenReader) {
-        if (held || !routeVisible || reduceMotion || screenReader || pageCount <= 1) return@LaunchedEffect
+    VisibleUiEffect(
+        key = listOf(pagerState, pageCount, held, restartKey, reduceMotion, screenReader),
+        active = !held && !reduceMotion && !screenReader && pageCount > 1,
+    ) {
         advanceCarousel(
             dwellMillis = dwellMillis.toLong(),
             scrolling = { pagerState.isScrollInProgress },
+            maxTurns = pageCount - 1,
         ) {
             pagerState.animateScrollToPage(
                 page = pagerState.currentPage + 1,
@@ -55,13 +57,16 @@ fun CarouselAutoAdvance(
 internal suspend fun advanceCarousel(
     dwellMillis: Long,
     scrolling: () -> Boolean,
+    maxTurns: Int = Int.MAX_VALUE,
     advance: suspend () -> Unit,
 ) {
-    while (true) {
+    var remaining = maxTurns.coerceAtLeast(0)
+    while (remaining > 0) {
         delay(dwellMillis)
         if (scrolling()) continue
         try {
             advance()
+            remaining--
         } catch (_: CancellationException) {
             currentCoroutineContext().ensureActive()
         }
