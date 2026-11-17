@@ -30,8 +30,14 @@ root = Path(os.environ['RUNNER_TEMP']) / 'subtitle-factory'
 root.mkdir(exist_ok=True)
 DURATION = 600
 SECONDARY = ('SECONDARY', 'CLOUD', 'PASS')
-(root/'caption.srt').write_text('1\n00:00:01,000 --> 00:09:59,000\nSUBTITLE FACTORY PASS\n', encoding='utf-8')
-(root/'secondary.srt').write_text('1\n00:00:01,000 --> 00:09:59,000\nSECONDARY CLOUD PASS\n', encoding='utf-8')
+CUE_SECONDS = int(os.environ.get('QA_SUBTITLE_CUE_SECONDS', '598'))
+assert CUE_SECONDS in (2, 598)
+def stamp(seconds):
+    return f'{seconds//3600:02}:{seconds//60%60:02}:{seconds%60:02},000'
+for filename, text in [('caption.srt', 'SUBTITLE FACTORY PASS'), ('secondary.srt', 'SECONDARY CLOUD PASS')]:
+    cues = [f'{index}\n{stamp(start)} --> {stamp(min(start+CUE_SECONDS, 599))}\n{text}\n'
+            for index, start in enumerate(range(1, 599, CUE_SECONDS), 1)]
+    (root/filename).write_text('\n'.join(cues), encoding='utf-8')
 subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=24',
                 '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000', '-i', str(root/'caption.srt'), '-i', str(root/'secondary.srt'),
                 '-map', '0:v', '-map', '1:a', '-map', '2:s', '-map', '3:s', '-t', str(DURATION), '-c:v', 'libx264',
@@ -111,13 +117,17 @@ def verify(enabled, label, words=('SUBTITLE', 'FACTORY', 'PASS')):
         path = out/f'subtitle-{label}-{name}-{index}.png';im.save(path)
         # The generated saturated moving pattern confuses full-frame OCR. Preserve the raw
         # image and also isolate its white caption pixels; never synthesize expected text.
-        area = im.crop((0, int(im.height*.5), im.width, im.height)).convert('RGB')
-        mask = Image.new('L', area.size)
-        mask.putdata([0 if min(rgb) > 210 else 255 for rgb in area.getdata()])
-        mask = mask.resize((mask.width*2, mask.height*2))
-        mask_path = path.with_name(path.stem+'-white-caption-mask.png'); mask.save(mask_path)
+        sources = [(path, '11')]
+        # Primary and secondary native outputs can use opposite vertical edges.
+        for edge, (top, bottom) in [('top', (0, im.height//2)), ('bottom', (im.height//2, im.height))]:
+            area = im.crop((0, top, im.width, bottom)).convert('RGB')
+            mask = Image.new('L', area.size)
+            mask.putdata([0 if min(rgb) > 210 else 255 for rgb in area.getdata()])
+            mask = mask.resize((mask.width*2, mask.height*2))
+            mask_path = path.with_name(path.stem+'-'+edge+'-white-caption-mask.png'); mask.save(mask_path)
+            sources.append((mask_path, '6'))
         readings = []
-        for source, mode in [(path, '11'), (mask_path, '6')]:
+        for source, mode in sources:
             text = subprocess.run(['tesseract', str(source), 'stdout', '--psm', mode, '-l', 'eng'],
                                   capture_output=True, check=True).stdout.decode().upper()
             source.with_suffix('.ocr.txt').write_text(text)
@@ -128,6 +138,15 @@ def verify(enabled, label, words=('SUBTITLE', 'FACTORY', 'PASS')):
             checks.extend(observations);return
         time.sleep(.5)
     checks.extend(observations)
+    if label == 'foreground-return' and enabled:
+        # Preserve the failed restoration assertion; gather a bounded diagnostic
+        # to distinguish a retained renderer from seeking into a long subtitle cue.
+        checks.append({'case': 'foreground-subtitle-restore-failed', 'cueSeconds': CUE_SECONDS, 'passed': False})
+        try:
+            select(False); select(True); verify(True, 'diagnostic-off-on-after-return')
+            checks.append({'case': 'diagnostic-reselection-restores-glyphs', 'passed': True})
+        except Exception as error:
+            checks.append({'case': 'diagnostic-reselection-restores-glyphs', 'passed': False, 'type': type(error).__name__})
     raise AssertionError('Subtitle image did not match selected state')
 
 def close_panel():
@@ -267,7 +286,7 @@ try:
         raise AssertionError('Original subtitle configuration did not succeed')
     passed = True
 finally:
-    (out/'subtitle-results.json').write_text(json.dumps({'passed': passed, 'checks': checks,
+    (out/'subtitle-results.json').write_text(json.dumps({'passed': passed, 'checks': checks, 'cueSeconds': CUE_SECONDS,
         'fixture': 'generated two-track English and Chinese-labelled SRT, not Emby coverage'}))
     if not passed:direct.capture_failure('subtitle-factory')
     server.shutdown();server.server_close()

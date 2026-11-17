@@ -1,4 +1,4 @@
-name: Verify restored dual subtitles after native surface recreation
+name: Diagnose restored subtitle cues with ordinary and long durations
 'on':
   push:
     branches:
@@ -10,12 +10,17 @@ permissions:
   actions: read
 jobs:
   subtitles:
-    name: SenPlayer subtitle activation, off state and recreated surface
+    name: SenPlayer recreated subtitles with ${{ matrix.cue_seconds }} second cues
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 85
+    strategy:
+      fail-fast: false
+      matrix:
+        cue_seconds: [2, 598]
     env:
       QA_ENGINE: SenPlayer
       QA_CAPTURE_FAILURE: 'true'
+      QA_SUBTITLE_CUE_SECONDS: ${{ matrix.cue_seconds }}
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with:
@@ -77,6 +82,6 @@ jobs:
     - if: always()
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
       with:
-        name: sen-original-subtitle-factory
+        name: sen-original-subtitle-factory-${{ matrix.cue_seconds }}
         path: results/
         retention-days: 10
