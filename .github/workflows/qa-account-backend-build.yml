@@ -1,4 +1,4 @@
-name: Qualify account backend session identity and prepare reviewable distribution
+name: Prove and repair refresh creation time without changing session identity
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
@@ -11,10 +11,38 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: d3c58b952cb4361d4e4014f73756b16357b1b863
+          ref: a17fbab05a6a2dabe02924ab34c686366017890c
           persist-credentials: false
+          fetch-depth: 0
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
         with: {distribution: temurin, java-version: '17', cache: gradle}
+      - name: Prove the new behavior test fails on the deployed store
+        run: |
+          set -euo pipefail
+          mkdir -p backend-review
+          store=watchTogetherServer/src/main/kotlin/com/yfuse/watch/account/AccountStore.kt
+          cp "$store" "$RUNNER_TEMP/fixed-account-store.kt"
+          trap 'cp "$RUNNER_TEMP/fixed-account-store.kt" "$store"' EXIT
+          git show "d3c58b952cb4361d4e4014f73756b16357b1b863:$store" > "$store"
+          set +e
+          ./gradlew :watchTogetherServer:test --tests 'com.yfuse.watch.account.AccountRefreshRecoveryTest.repeated_refresh_keeps_login_identity_and_creation_while_updating_activity' --no-daemon > "$RUNNER_TEMP/creation-baseline.txt" 2>&1
+          result=$?
+          set -e
+          cp "$RUNNER_TEMP/fixed-account-store.kt" "$store"
+          trap - EXIT
+          test "$result" -ne 0
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          path=Path('watchTogetherServer/build/test-results/test/TEST-com.yfuse.watch.account.AccountRefreshRecoveryTest.xml')
+          root=ET.parse(path).getroot()
+          assert root.get('tests')=='1' and root.get('failures')=='1' and root.get('errors','0')=='0'
+          case=root.find('testcase')
+          assert case.get('name').startswith('repeated_refresh_keeps_login_identity_and_creation_while_updating_activity')
+          assert case.find('failure') is not None
+          Path('backend-review/expected-baseline-regression.xml').write_bytes(path.read_bytes())
+          PY
+          git diff --exit-code -- "$store"
       - name: Verify account, protocol, backend and stable refresh sessions
         run: ./gradlew :yfuseBackendClient:jvmTest :watchTogetherProtocol:jvmTest :watchTogetherServer:test :watchTogetherServer:installDist --no-daemon
       - name: Record immutable distribution receipt

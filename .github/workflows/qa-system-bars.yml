@@ -13,7 +13,7 @@ jobs:
         with: {persist-credentials: false}
       - name: Acquire exact qualified current app
         env: {API_TOKEN: '${{ github.token }}'}
-        run: bash qa-integrated/acquire-qualified-candidate.sh 44040364387 148f364761158b586573db81414360d2c51d7128
+        run: bash qa-integrated/acquire-qualified-candidate.sh 44043238227 141ed26051de24641214d34828324d71fabd115c
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with: {name: arm-input-driver, path: qa-driver, run-id: 44029183033, github-token: '${{ github.token }}'}
       - run: |
