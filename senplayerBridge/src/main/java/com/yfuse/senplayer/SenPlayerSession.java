@@ -26,7 +26,8 @@ import org.json.JSONObject;
  * A version-pinned adapter to the unmodified runtime supplied in SenPlayer.apk.
  * No decompiled class is recompiled and no native/permit/signature check is patched.
  * Construction is opt-in: it starts the original HTTPS license verifier with the real host Context.
- * Call all instance methods on the owning engine worker, never on the UI thread.
+ * Call operations on the owning worker. Cancellation/retirePendingOutput are cross-thread
+ * escape hatches; they never wait for native destruction on the UI thread.
  */
 public final class SenPlayerSession implements AutoCloseable {
   public static final String LICENSE_ENDPOINT = "https://www.senmuse.com/api/license";
@@ -341,6 +342,11 @@ public final class SenPlayerSession implements AutoCloseable {
       } catch (ReflectiveOperationException ignored) {
       }
     pauseForFailure();
+  }
+  /** Invalidate a stalled output immediately; its owning worker later joins close(). */
+  public void retirePendingOutput() throws Exception {
+    cancelPendingRead();
+    beginNativeRelease();
   }
   @Override
   public void close() throws Exception {

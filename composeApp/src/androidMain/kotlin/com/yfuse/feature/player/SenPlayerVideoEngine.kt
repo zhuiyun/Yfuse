@@ -39,10 +39,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import org.json.JSONObject
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 
 /** Opt-in, version-pinned SenPlayer runtime. Never silently substitutes another engine. */
 internal class SenPlayerVideoEngine(
@@ -76,6 +78,7 @@ internal class SenPlayerVideoEngine(
 
     @Volatile private var attached: SenPlayerSurfaceHost? = null
     private val surfaceEpoch = AtomicLong()
+    private val retiringSurfaceSession = AtomicReference<SenPlayerSession?>()
     private var pauseAtEnd = false
     private val endGate = SenPlayerEndGate()
     private var remoteEndRecovery = SenPlayerRemoteEndRecovery()
@@ -154,6 +157,8 @@ internal class SenPlayerVideoEngine(
 
     private fun fail(error: Throwable) {
         if (released.get()) return
+        val retiring = retiringSurfaceSession.get()
+        if (retiring != null && retiring === session && !retiring.isUsable()) return
         val license =
             generateSequence(error) {
                 it.cause
@@ -294,12 +299,7 @@ internal class SenPlayerVideoEngine(
             override fun surfaceDestroyed(holder: SurfaceHolder) {
                 val view = attached ?: return
                 if (!view.owns(holder)) return
-                val epoch = surfaceEpoch.incrementAndGet()
-                submit {
-                    if (attached === view && surfaceEpoch.get() == epoch) {
-                        detachNativeSurface()
-                    }
-                }
+                detachBeforeSurfaceDestroyed(view)
             }
         }
 
@@ -316,17 +316,56 @@ internal class SenPlayerVideoEngine(
     fun detach(view: SenPlayerSurfaceHost) {
         view.removeCallbacks(surfaceCallback)
         if (attached === view) {
+            detachBeforeSurfaceDestroyed(view)
             attached = null
-            val epoch = surfaceEpoch.incrementAndGet()
-            submit {
-                if (attached == null && surfaceEpoch.get() == epoch) {
-                    detachNativeSurface()
-                }
-            }
         }
     }
 
+    private fun detachBeforeSurfaceDestroyed(view: SenPlayerSurfaceHost) {
+        if (released.get()) return
+        val epoch = surfaceEpoch.incrementAndGet()
+        val detached = CountDownLatch(1)
+        submit {
+            try {
+                if (attached === view && surfaceEpoch.get() == epoch) detachNativeSurface()
+            } finally {
+                detached.countDown()
+            }
+        }
+        // Android invalidates the old Surface when this callback returns. Merely posting
+        // detach loses that race and forces a reopen that discards overlapping long cues.
+        val completed =
+            try {
+                detached.await(750, TimeUnit.MILLISECONDS)
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+                false
+            }
+        if (!completed) retireStalledSurface()
+    }
+
+    private fun retireStalledSurface() {
+        val current = session ?: return
+        retiringSurfaceSession.set(current)
+        runCatching { current.retirePendingOutput() }.onFailure {
+            AppLog.warning("player.senplayer", "surface_retirement_failed", "Native output retirement failed", it)
+        }
+        submit {
+            try {
+                if (session === current) retireSurfaceSession()
+            } finally {
+                retiringSurfaceSession.compareAndSet(current, null)
+            }
+        }
+        AppLog.warning(
+            "player.senplayer",
+            "surface_detach_timeout",
+            "Output detach exceeded its UI wait budget; session retired",
+        )
+    }
+
     private fun detachNativeSurface() {
+        if (boundSurfaceEpoch == -1L) return
         boundSurfaceEpoch = -1L
         subtitles.surfaceChanged()
         pictureController.reset()

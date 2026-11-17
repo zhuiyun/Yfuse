@@ -45,6 +45,7 @@ public final class SenPlayerSessionHostChecks {
     pauseDoesNotRequireALicense();
     timeoutRetiresInsteadOfReusingThePlayer();
     cancellationRejectsLateCompletion();
+    surfaceDeadlineRetiresWithoutWaitingForNativeDestruction();
     interruptionIsPreserved();
     ordinaryOperationFailureKeepsItsCause();
     closeReleasesOneOwnerEvenOnNativeFailure();
@@ -250,6 +251,17 @@ public final class SenPlayerSessionHostChecks {
     f.session.close();
   }
 
+  private static void surfaceDeadlineRetiresWithoutWaitingForNativeDestruction() throws Exception {
+    Fixture f = new Fixture(1);
+    f.player.deferredRelease = new CompletableFuture<>();
+    f.session.retirePendingOutput();
+    check(!f.session.isUsable() && f.session.sourceId() == 0, "surface deadline invalidates late commands");
+    check(f.player.releaseCalls == 1 && !f.player.deferredRelease.isDone(), "UI retirement does not await native destruction");
+    f.player.deferredRelease.complete(null);
+    f.session.close();
+    check(f.player.releaseCalls == 1 && f.license.closeCalls == 1, "worker joins the same release exactly once");
+  }
+
   private static void interruptionIsPreserved() throws Exception {
     Fixture f = new Fixture(1);
     CompletableFuture<Object> interrupted = new CompletableFuture<>() {
@@ -385,6 +397,7 @@ public final class SenPlayerSessionHostChecks {
     static int permitResets;
     int cancelCalls, releaseCalls, surfaceCode;
     boolean paused, releaseFailure;
+    CompletableFuture<Void> deferredRelease;
     int optionCalls;
     Object optionResult = 0;
     String optionName, optionValue;
@@ -406,6 +419,7 @@ public final class SenPlayerSessionHostChecks {
     }
     public CompletableFuture<Void> n() {
       releaseCalls++;
+      if (deferredRelease != null) return deferredRelease;
       CompletableFuture<Void> result = new CompletableFuture<>();
       if (releaseFailure) result.completeExceptionally(new IOException("native release failed"));
       else result.complete(null);
