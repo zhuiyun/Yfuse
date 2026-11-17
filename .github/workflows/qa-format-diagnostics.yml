@@ -1,4 +1,4 @@
-name: Diagnose original media profiles and long duration seek mapping
+name: Diagnose original media profiles with initialized held-preview driver
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
@@ -11,7 +11,12 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with: {persist-credentials: false}
-      - run: sudo apt-get update -qq && sudo apt-get install -y ffmpeg
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: format-fixtures-and-driver
+          run-id: 44054217920
+          github-token: ${{ github.token }}
+          path: .
       - name: Build observed gesture input
         run: |
           set -euo pipefail
@@ -19,7 +24,14 @@ jobs:
           python3 qa-private-arm/build_input.py
           sed 's|adb install -r driver.apk|cp driver.apk "$GITHUB_WORKSPACE/qa-private-driver/driver.apk"|' qa-source-trace/build-driver.sh > "$RUNNER_TEMP/driver.sh"
           bash "$RUNNER_TEMP/driver.sh"
-      - run: python3 qa-format-diagnostics/fixtures.py
+      - name: Verify unchanged synthetic sources
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,pathlib
+          root=pathlib.Path('format-fixtures')
+          for item in json.loads((root/'catalog.json').read_text()):
+            assert hashlib.file_digest((root/item['file']).open('rb'),'sha256').hexdigest()==item['sha256']
+          PY
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: format-fixtures-and-driver

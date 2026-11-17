@@ -72,6 +72,11 @@ public final class Driver extends Instrumentation {
     }
     private void observedSeek(UiAutomation ui,Bundle result)throws Exception {
         android.graphics.Rect rect=seek(ui.getRootInActiveWindow());
+        long deadline=SystemClock.uptimeMillis()+5000;
+        while(rect==null && SystemClock.uptimeMillis()<deadline){
+            SystemClock.sleep(150);
+            rect=seek(ui.getRootInActiveWindow());
+        }
         if(rect==null)throw new IllegalStateException("No visible seek rail");
         double fraction=Double.parseDouble(args.getString("fraction"));
         if(fraction<=0 || fraction>=1)throw new IllegalArgumentException("Seek fraction");
@@ -89,6 +94,11 @@ public final class Driver extends Instrumentation {
             }
             SystemClock.sleep(180);
             android.view.accessibility.AccessibilityNodeInfo node=progressNode(ui.getRootInActiveWindow());
+            deadline=SystemClock.uptimeMillis()+2000;
+            while(node==null && SystemClock.uptimeMillis()<deadline){
+                SystemClock.sleep(100);
+                node=progressNode(ui.getRootInActiveWindow());
+            }
             if(node==null)throw new IllegalStateException("Held seek preview unavailable");
             android.view.accessibility.AccessibilityNodeInfo.RangeInfo range=node.getRangeInfo();
             row.put("shownFraction",range.getCurrent());

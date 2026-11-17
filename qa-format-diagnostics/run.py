@@ -36,6 +36,7 @@ def seek(case, fraction, method, duration):
     if method == 'held-preview':
         response = observer.adb('shell', 'am', 'instrument', '-w', '-e', 'mode', 'observed-seek',
             '-e', 'fraction', fraction, 'qa.yfuse.gesture/.Driver', timeout=40)
+        (output / (case + '-input.txt')).write_text(response)
         match = re.search(r'INSTRUMENTATION_RESULT: observedSeek=(\{[^\n]+\})', response)
         if not match: raise AssertionError('No held-preview input receipt')
         row['inputReceipt'] = json.loads(match[1])
@@ -81,6 +82,7 @@ for media in catalog:
                 row['seeks'].append(seek(case+'-'+method+'-'+str(fraction), fraction, method, duration))
     except Exception as error:
         row['errorType'] = type(error).__name__
+        row['errorDetail'] = str(error)[:180]
     finally:
         row['diagnostics'] = [e for e in observer.app_events() if (e['time'], e['event']) not in prior]
         observer.adb('shell', 'am', 'force-stop', 'com.yfuse')
