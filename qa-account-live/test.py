@@ -68,8 +68,19 @@ def login(role, coordinator):
         tree = capture('tv-empty-servers')
         assert len([n for n in ui.nodes(tree) if n.get('text') == '添加服务器']) == 1
         assert ui.find(tree, '检测连接') is None
-        # From the selected rail tab, Right must place focus on the sole empty action.
+        # A touch selects a tab without retaining keyboard focus. Enter D-pad mode,
+        # then establish focus on Servers instead of assuming the first key moved it there.
         adb('shell', 'input', 'keyevent', '22'); time.sleep(.5)
+        for _ in range(6):
+            focused = [n for n in ui.nodes(ui.snapshot()) if n.get('focused') == 'true']
+            if any('服务器' in ui.labels(child) for n in focused for child in n.iter()): break
+            adb('shell', 'input', 'keyevent', '20'); time.sleep(.3)
+        else: raise AssertionError('D-pad did not focus the Servers rail tab')
+        capture('tv-servers-rail-focus')
+        adb('shell', 'input', 'keyevent', '23'); time.sleep(.5)
+        adb('shell', 'input', 'keyevent', '22'); time.sleep(1)
+        focused = [n for n in ui.nodes(ui.snapshot()) if n.get('focused') == 'true']
+        assert any('添加服务器' in ui.labels(child) for n in focused for child in n.iter()), 'Right from Servers did not focus Add'
         capture('tv-empty-add-focus')
         adb('shell', 'input', 'keyevent', '23')
         wait_text('主机或完整地址', 15); capture('tv-empty-add-opened-by-dpad')

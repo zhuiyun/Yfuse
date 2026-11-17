@@ -1,4 +1,4 @@
-name: Verify remote text, TV empty focus and server sign-in transfer
+name: Verify TV focused navigation and two-device server sign-in transfer
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
