@@ -76,6 +76,19 @@ class Coordinator:
     def sessions(self):
         return self.api('/api/v1/account/sessions')['sessions']
 
+    def verify_refresh_identity(self):
+        current = [item for item in self.sessions() if item['current']]
+        assert len(current) == 1 and current[0]['deviceName'] == 'Yfuse QA coordinator '+RUN
+        identity = (current[0]['id'], current[0]['createdAtEpochMs'])
+        for _ in range(3):
+            refreshed = request('/api/v1/auth/refresh', {'refreshToken': self.state['auth']['refreshToken']})
+            self.state['auth'] = refreshed
+            self.save()
+            after = [item for item in self.sessions() if item['current']]
+            assert len(after) == 1 and (after[0]['id'], after[0]['createdAtEpochMs']) == identity, \
+                'Refresh changed the active session identity'
+        return 3
+
     def track_login(self, role, before, model, since):
         after = self.sessions()
         found = [item for item in after if item['id'] not in before]

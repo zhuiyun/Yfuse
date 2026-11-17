@@ -233,10 +233,12 @@ try:
         use(role); engine.configure(core)
     coordinator = Coordinator()
     passed('trusted-tls-account-coordinator')
+    assert coordinator.verify_refresh_identity() == 3
+    passed('three-refreshes-preserve-session-id-and-creation-time')
     login('phone', coordinator)
-    playback.remove_test_history('Cloud QA Playback 44031892793', OUT, use, capture, wait_text, passed)
     playback.verify_test_history_absent(
-        ['Cloud QA Playback 44025958394', 'Cloud QA Playback 44031892793'],
+        ['Cloud QA Playback 44025958394', 'Cloud QA Playback 44031892793',
+         'Cloud QA Playback 44034933885'],
         OUT, use, capture, wait_text, passed)
     login('tv', coordinator)
     television_name = cloud_remote(coordinator)

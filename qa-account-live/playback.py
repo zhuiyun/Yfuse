@@ -73,7 +73,15 @@ def run(coordinator, television_name, title, output, use, capture, wait_text, pa
     # Compare with the offer-time position, not the earlier seek proof.
     position = before_accept['positionMs'] / 1000
     passed('source-keeps-playing-until-tv-accepts')
-    use('tv'); wait_text('接收', 30); capture('tv-handoff-offer'); click('接收')
+    use('tv'); wait_text('接收', 30); capture('tv-handoff-offer')
+    for _ in range(6):
+        focused = [node for node in ui.nodes(ui.snapshot()) if node.get('focused') == 'true']
+        if any('接收' in ui.labels(child) for node in focused for child in node.iter()): break
+        adb('shell', 'input', 'keyevent', '22'); time.sleep(.4)
+    else: raise AssertionError('D-pad did not focus the TV handoff Receive action')
+    capture('tv-handoff-receive-focus')
+    adb('shell', 'input', 'keyevent', '23')
+    passed('tv-handoff-accepted-with-dpad')
     try:
         proof = direct.decode_playback('tv-handoff-output', position, 600)
     except Exception:

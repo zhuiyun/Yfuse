@@ -1,4 +1,4 @@
-name: Settle accessible undo notice and synchronize scoped history removal
+name: Verify deployed refresh identity and latest phone TV handoff
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
@@ -17,20 +17,20 @@ jobs:
         run: |
           set -euo pipefail
           umask 077
-          # Phone and TV inputs share immutable source 9eae13f, including TV
-          # identity and landscape safe insets. Qualification is awaited before use.
+          # Both shells share qualified source 0127f26, including the lifecycle,
+          # subtitle, carousel, TV identity and landscape inset fixes.
           mkdir -p "$RUNNER_TEMP/account-private-logs" results account-sealed
           sudo apt-get update -qq
           sudo apt-get install -y python3-cryptography python3-pil ffmpeg
           /usr/bin/python3 qa-account-live/transport.py prepare
       - name: Acquire qualified phone build
         env: {API_TOKEN: "${{ github.token }}"}
-        run: bash qa-integrated/acquire-qualified-candidate.sh 44029183133 9eae13fd69368ced112648e1fdee3c3946ea6e1a
+        run: bash qa-integrated/acquire-qualified-candidate.sh 44034015111 0127f268d4fb00b4a83c08640b0803a76cfac866
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          name: yfuse-tv-debug-9eae13fd69368ced112648e1fdee3c3946ea6e1a
+          name: yfuse-tv-debug-0127f268d4fb00b4a83c08640b0803a76cfac866
           path: tv-input
-          run-id: 44029075071
+          run-id: 44034015185
           github-token: ${{ github.token }}
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
