@@ -349,6 +349,17 @@ fun heroReelScrim(): Brush =
         1f to HeroInk.copy(alpha = 0.42f),
     )
 
+/** Shared caption protection for both reels, including nearly white artwork. */
+fun Modifier.heroCaptionScrim(): Modifier =
+    background(
+        Brush.verticalGradient(
+            0f to Color.Transparent,
+            0.06f to Color.Black.copy(alpha = 0.62f),
+            0.80f to Color.Black.copy(alpha = 0.62f),
+            1f to Color.Transparent,
+        ),
+    )
+
 /**
  * Blend band drawn behind the lifted sheet, over a fixed [height] of page.
  *

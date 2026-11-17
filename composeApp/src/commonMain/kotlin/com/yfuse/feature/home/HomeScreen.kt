@@ -110,6 +110,7 @@ import com.yfuse.core.designsystem.carouselArtworkMotion
 import com.yfuse.core.designsystem.carouselCaptionEntry
 import com.yfuse.core.designsystem.fadeIntoPage
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.heroCaptionScrim
 import com.yfuse.core.designsystem.heroDurationLabel
 import com.yfuse.core.designsystem.heroMediaTypeLabel
 import com.yfuse.core.designsystem.heroScrollCollapse
@@ -1255,9 +1256,11 @@ private fun HeroCaption(
     Column(
         modifier
             .fillMaxWidth()
+            .heroCaptionScrim()
             .padding(
                 start = Dimens.pageHorizontal,
                 end = Dimens.pageHorizontal,
+                top = 24.dp,
                 bottom = HomeHeroContentBottom,
             ),
     ) {

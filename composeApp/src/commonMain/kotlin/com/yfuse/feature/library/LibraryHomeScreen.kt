@@ -43,7 +43,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalDensity
@@ -104,6 +103,7 @@ import com.yfuse.core.designsystem.carouselArtworkMotion
 import com.yfuse.core.designsystem.carouselCaptionEntry
 import com.yfuse.core.designsystem.fadeIntoPage
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.heroCaptionScrim
 import com.yfuse.core.designsystem.heroDurationLabel
 import com.yfuse.core.designsystem.heroMediaTypeLabel
 import com.yfuse.core.designsystem.heroScrollCollapse
@@ -891,14 +891,8 @@ private fun HeroCarousel(
             Modifier
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
-                .background(
-                    Brush.verticalGradient(
-                        0f to Color.Transparent,
-                        0.06f to Color.Black.copy(alpha = 0.62f),
-                        0.80f to Color.Black.copy(alpha = 0.62f),
-                        1f to Color.Transparent,
-                    ),
-                ).padding(
+                .heroCaptionScrim()
+                .padding(
                     start = 20.dp,
                     end = 20.dp,
                     top = 24.dp,
