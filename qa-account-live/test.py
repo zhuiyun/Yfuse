@@ -111,6 +111,16 @@ def cloud_remote(coordinator):
     passed('phone-back-reaches-tv')
     use('phone'); adb('shell', 'input', 'keyevent', '4')
     wait_text('设备接力'); click('遥控 '+name)
+    # Allow once lasts for this TV host session, including transient phone reconnects.
+    wait_text('已连接', 30); capture('remote-reconnected-with-consent')
+    use('tv'); wait_text('手机遥控中', 30)
+    assert ui.find(ui.snapshot(), '允许一次') is None, 'Existing one-session consent was lost'
+    passed('remote-reconnect-retains-one-session-consent')
+    # An explicit TV disconnect revokes that grant. Only now must reconnect ask again.
+    click('手机遥控中 · 断开')
+    use('phone'); wait_text('重新连接', 30); capture('remote-disconnected-by-tv')
+    passed('tv-disconnect-revokes-one-session-consent')
+    click('重新连接')
     wait_text('等待电视确认', 30)
     use('tv'); ui.wait('拒绝', 30); click('拒绝')
     use('phone'); wait_text('重新连接', 30); capture('remote-refused')

@@ -1,4 +1,4 @@
-name: Real account phone and TV consent with optional capability fields
+name: Verify session-scoped remote consent and explicit TV revocation
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
@@ -17,7 +17,8 @@ jobs:
         run: |
           set -euo pipefail
           umask 077
-          git diff --exit-code 38ea61caabd217947cd6fce46f190aed77de509a 0c7c55be79e109583a9863cc18344209ee79e417 -- composeApp tvApp yfuseBackendClient watchTogetherProtocol senplayerBridge
+          # Shared phone/TV behavior is identical; TV adds the qualified empty-server UI repair.
+          git diff --exit-code 38ea61caabd217947cd6fce46f190aed77de509a 1e43f903dd20e38464366bbb97cc422c037ca215 -- composeApp yfuseBackendClient watchTogetherProtocol senplayerBridge
           mkdir -p "$RUNNER_TEMP/account-private-logs" results account-sealed
           sudo apt-get update -qq
           sudo apt-get install -y python3-cryptography python3-pil
@@ -27,9 +28,9 @@ jobs:
         run: bash qa-integrated/acquire-qualified-candidate.sh 44004293645 38ea61caabd217947cd6fce46f190aed77de509a
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          name: yfuse-tv-debug-0c7c55be79e109583a9863cc18344209ee79e417
+          name: yfuse-tv-debug-1e43f903dd20e38464366bbb97cc422c037ca215
           path: tv-input
-          run-id: 44004293840
+          run-id: 44014593068
           github-token: ${{ github.token }}
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
