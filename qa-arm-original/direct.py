@@ -82,7 +82,7 @@ def patch(im):
     return im.crop((int(.17*w),int(.31*h),int(.83*w),int(.66*h))).resize((96,48)).convert("RGB")
 
 
-def decode_playback(label,target,duration,max_wait=None):
+def decode_playback(label,target,duration,max_wait=None,*,tolerance=12,picture_check=None):
     begin=time.monotonic()
     prev=None
     first=None
@@ -99,12 +99,13 @@ def decode_playback(label,target,duration,max_wait=None):
             history.append({"flags":flags,"noRail":True,"elapsed":round(time.monotonic()-begin,1)})
             time.sleep(.5);continue
         pos=media_clock(tree)
-        pix=patch(screen())
+        frame=screen()
+        pix=patch(frame)
         elapsed=time.monotonic()-begin
         history.append({"s":pos,"elapsed":round(elapsed,1),"contrast":round(sum(ImageStat.Stat(pix).stddev)/3,2)})
         if elapsed > max_wait:
             break
-        if pos is not None and pos<duration-1 and (target is None or target-12 <= pos <= target+elapsed+12):
+        if pos is not None and pos<duration-1 and (target is None or target-tolerance <= pos <= target+elapsed+tolerance):
             if prev:
                 oldpos,oldim=prev
                 diff=sum(ImageStat.Stat(ImageChops.difference(pix,oldim)).mean)/3
@@ -112,7 +113,10 @@ def decode_playback(label,target,duration,max_wait=None):
                     speech.append({"s":pos,"pixelChange":round(diff,2)})
                     if first is None:first=(pos,elapsed)
                     if len(speech)>=2 and pos-first[0]>=1:
-                        return {"firstPos":first[0],"laterPos":pos,"secToFirst":round(first[1],2),"secToConfirm":round(elapsed,2),"changes":speech[-3:]}
+                        result={"firstPos":first[0],"laterPos":pos,"secToFirst":round(first[1],2),"secToConfirm":round(elapsed,2),"changes":speech[-3:]}
+                        if picture_check is not None:
+                            result["sourcePicture"]=picture_check(frame,pos)
+                        return result
             prev=(pos,pix)
         time.sleep(.8)
     measured(label+"-observation",history=history[-16:])

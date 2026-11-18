@@ -1,0 +1,56 @@
+name: Verify 21120 touch seeks on 88 unmodified film and episode originals
+on:
+  push:
+    branches: [codex/two-engines-cloud-seek-20261113]
+    paths: [.github/workflows/qa-original-volume.yml, qa-arm-original/original_volume.py, qa-arm-original/natural_frames.py, qa-arm-original/start_volume.sh]
+permissions: {contents: read, actions: read}
+jobs:
+  input:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 85
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: arm-input-driver, path: driver, run-id: 44358745639, github-token: '${{ github.token }}'}
+      - name: Verify the qualification and retain the measured APK and input driver
+        env: {API_TOKEN: '${{ github.token }}'}
+        run: |
+          set -euo pipefail
+          bash qa-integrated/acquire-qualified-candidate.sh 44369298786 94ec647fac5132b5f3ee92e1304b98f57084e078
+          mkdir candidate
+          cp preview/composeApp-release.apk preview/apk.sha256 preview/provenance.txt driver/driver.apk candidate/
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: natural-original-input, path: candidate/, retention-days: 5}
+  pilot:
+    needs: input
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    env: {QA_STAGE: pilot}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: natural-original-input, path: candidate}
+      - run: bash qa-arm-original/start_volume.sh
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: natural-originals-pilot, path: results/original-volume/, retention-days: 10}
+  original_volume:
+    needs: pilot
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix: {shard: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21]}
+    env: {QA_STAGE: volume, QA_SHARD: '${{ matrix.shard }}'}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: natural-original-input, path: candidate}
+      - run: bash qa-arm-original/start_volume.sh
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: 'natural-originals-${{ matrix.shard }}', path: results/original-volume/, retention-days: 10}

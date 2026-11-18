@@ -35,15 +35,15 @@ def home(tab):
     ui.root(tab)
 
 
-def open_video(url='http://127.0.0.1:18389/fixture.mp4'):
+def open_video(url='http://127.0.0.1:18389/fixture.mp4', mime='video/mp4'):
     adb('shell', 'am', 'start', '-W', '-a', 'android.intent.action.VIEW', '-n',
-        'com.yfuse/com.yfuse.feature.player.ExternalPlaybackActivity', '-t', 'video/mp4',
+        'com.yfuse/com.yfuse.feature.player.ExternalPlaybackActivity', '-t', mime,
         '-d', url)
 
 
-def playing(core, url='http://127.0.0.1:18389/fixture.mp4'):
+def playing(core, url='http://127.0.0.1:18389/fixture.mp4', mime='video/mp4'):
     opened = time.time()
-    open_video(url)
+    open_video(url, mime)
     result = direct.decode_playback('power-' + core, None, 3600)
     identity = engine.engine_evidence(core, opened)
     identities = [identity]
