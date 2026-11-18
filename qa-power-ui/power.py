@@ -158,9 +158,10 @@ def main():
         server.close()
         library.close()
         raise
-    recorder = Recorder(out)
+    recorder = Recorder(out, record_thread_cpu=True)
     (out / 'conditions.json').write_text(json.dumps({
         'protocol': 2, 'batteryLevelSetpoint': 80, 'batteryIsSimulated': True,
+        'threadCpu': 'App threads sampled by Linux TID, start time and CPU ticks alongside service snapshots.',
         'chargingSetpoint': False, 'seekPattern': 'alternating18and62percent',
         'networkFailure': 'uncached outage URL must receive HTTP503 before the phase starts',
         'engineIdentity': 'same source requires native mapping/output evidence within10seconds; all attempts retained',

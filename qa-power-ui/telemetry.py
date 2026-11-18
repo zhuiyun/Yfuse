@@ -22,6 +22,23 @@ def process_stat(text):
             'startTicks': int(fields[19]), 'rssPages': int(fields[21])}
 
 
+def app_thread_ticks(processes):
+    snapshot = {}
+    for pid, process in processes.items():
+        threads = {}
+        for line in shell('cat', '/proc/' + pid + '/task/*/stat').splitlines():
+            tid, sep, suffix = line.partition(' (')
+            if not sep or not tid.isdigit():
+                continue
+            stat = process_stat(line)
+            if stat:
+                threads[tid] = {'name': suffix.rsplit(') ', 1)[0],
+                                'cpuTicks': stat['cpuTicks'], 'startTicks': stat['startTicks']}
+        if threads.get(pid, {}).get('startTicks') == process['startTicks']:
+            snapshot[pid] = threads
+    return snapshot
+
+
 def battery_fields(text):
     names = {'level': 'levelPercent', 'Charge counter': 'chargeCounterReported',
              'voltage': 'voltageReported', 'temperature': 'temperatureReported'}
@@ -52,10 +69,11 @@ def estimated_uid_power(text, uid):
 
 
 class Recorder:
-    def __init__(self, output, package='com.yfuse'):
+    def __init__(self, output, package='com.yfuse', record_thread_cpu=False):
         self.output = Path(output)
         self.output.mkdir(parents=True, exist_ok=True)
         self.package = package
+        self.record_thread_cpu = record_thread_cpu
         self.uid = int(shell('stat', '-c', '%u', '/data/user/0/' + package))
         hz = shell('getconf', 'CLK_TCK')
         self.hz = int(hz) if hz.isdigit() else None
@@ -100,6 +118,10 @@ class Recorder:
     def capture_services(self, row):
         folder = self.output / 'services' / ('%06d' % row['seconds'])
         folder.mkdir(parents=True, exist_ok=True)
+        if self.record_thread_cpu and row['processes']:
+            snapshot = app_thread_ticks(row['processes'])
+            row['threadCpuSnapshot'] = {'seconds': round(time.monotonic() - self.started, 3),
+                                        'processes': snapshot}
         commands = {'batterystats': ['batterystats', '--charged', self.package],
                     'checkin': ['batterystats', '--checkin'],
                     'frames': ['gfxinfo', self.package], 'power': ['power'],
