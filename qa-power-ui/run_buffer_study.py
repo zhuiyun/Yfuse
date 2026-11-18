@@ -8,6 +8,23 @@ import subprocess
 import sys
 
 from media import MediaServer
+from PIL import Image
+
+
+def picture_coverage(path):
+    if not path.is_file():
+        return {'captured': False, 'fullField': False}
+    bars = ((1, 0, 0), (0, 1, 0), (1, 1, 0), (0, 0, 1), (1, 0, 1), (0, 1, 1))
+    with Image.open(path) as image:
+        rgb = image.convert('RGB')
+        hits = []
+        for column, expected in enumerate(bars):
+            x = (2 * column + 1) * rgb.width // 12
+            colours = [rgb.getpixel((x, y * rgb.height // 100)) for y in (22, 30, 39, 49, 58, 66, 76, 84)]
+            hits.append(sum(all(value > 138 if bright else value < 96 for value, bright in zip(colour, expected))
+                            for colour in colours))
+    return {'captured': True, 'width': rgb.width, 'height': rgb.height, 'colourMatchesPerBar': hits,
+            'fullField': min(hits) >= 3}
 
 
 def main():
@@ -48,11 +65,15 @@ def main():
             used = server.counters()['bytes'] - traffic['bytes']
             record = results / f'sen-buffer-{transport}.json'
             windows = json.loads(record.read_text()) if record.exists() else []
+            images = {f'{index}-{kind}': picture_coverage(results / f'buffer-{transport}-{index}-{kind}.png')
+                      for index in range(4) for kind in ('display', 'surface')}
             outcomes[transport] = {
                 'instrumentationExit': exit_code, 'caseCheckExit': checked.returncode,
                 'httpBytes': used, 'recordedWindows': len(windows),
+                'pictureCoverage': images,
                 'passed': exit_code == checked.returncode == 0 and
                           (used > 0 if transport == 'http' else used == 0) and
+                          all(v['fullField'] for v in images.values()) and
                           [row['videoBufferWidth'] for row in windows] == [1280, 640, 640, 1280],
             }
             (results / 'transport-outcomes.json').write_text(json.dumps(outcomes, indent=2))

@@ -1,0 +1,63 @@
+--- a/composeApp/src/androidMain/kotlin/com/yfuse/feature/player/SenPlayerVideoEngine.kt
++++ b/composeApp/src/androidMain/kotlin/com/yfuse/feature/player/SenPlayerVideoEngine.kt
+@@ -271,7 +271,7 @@
+                         if (loadPending) loadCurrent() else current.play(requested)
+                     }
+                     if (attached === view && surfaceEpoch.get() == epoch && !released.get()) {
+-                        session?.resize(view.width.coerceAtLeast(1), view.height.coerceAtLeast(1))
++                        session?.let(view::resizeViewport)
+                     }
+                 }
+             }
+@@ -284,6 +284,7 @@
+             ) {
+                 val view = attached ?: return
+                 if (!view.owns(holder)) return
++                if (holder === view.video.holder) view.videoBufferSize = IntSize(width, height)
+                 val epoch = surfaceEpoch.get()
+                 submit {
+                     if (attached === view && surfaceEpoch.get() == epoch && view.ready && state.value.error == null) {
+@@ -291,7 +292,7 @@
+                             surfaceCallback.surfaceCreated(holder)
+                             return@submit
+                         }
+-                        session?.resize(view.video.width.coerceAtLeast(1), view.video.height.coerceAtLeast(1))
++                        session?.let(view::resizeViewport)
+                     }
+                 }
+             }
+@@ -299,6 +300,7 @@
+             override fun surfaceDestroyed(holder: SurfaceHolder) {
+                 val view = attached ?: return
+                 if (!view.owns(holder)) return
++                if (holder === view.video.holder) view.videoBufferSize = IntSize.Zero
+                 detachBeforeSurfaceDestroyed(view)
+             }
+         }
+@@ -713,7 +715,7 @@
+         current.surface(view.video.holder.surface, view.subtitles.holder.surface)
+         pictureController.reset()
+         subtitles.surfaceChanged()
+-        current.resize(view.video.width.coerceAtLeast(1), view.video.height.coerceAtLeast(1))
++        view.resizeViewport(current)
+         current.play(requested)
+         surfaceRecoveries++
+     }
+@@ -1181,6 +1183,17 @@
+         }
+     val ready: Boolean get() = video.holder.surface.isValid && subtitles.holder.surface.isValid
+
++    @Volatile var videoBufferSize = IntSize.Zero
++
++    fun resizeViewport(session: SenPlayerSession) {
++        val size = videoBufferSize
++        if (size.width > 0 && size.height > 0) {
++            session.resize(size.width, size.height)
++        } else {
++            session.resize(video.width.coerceAtLeast(1), video.height.coerceAtLeast(1))
++        }
++    }
++
+     fun owns(holder: SurfaceHolder): Boolean = holder === video.holder || holder === subtitles.holder
+
+     init {
