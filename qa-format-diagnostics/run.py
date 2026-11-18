@@ -28,10 +28,50 @@ if selected:
     assert selected <= {item['id'] for item in catalog}
     catalog = [item for item in catalog if item['id'] in selected]
 results = []
+completion_probe = os.environ.get('QA_COMPLETION_PROBE') == 'true'
 
 
 def screenshot(name):
     observer.screen().save(output / (name + '.png'))
+
+
+def native_failures(events):
+    wanted = {e['time'] for e in events if e['event'] == 'senplayer_playback_failed'}
+    failures = []
+    if not wanted:
+        return failures
+    raw = observer.adb('shell', 'cat /data/user/0/com.yfuse/no_backup/diagnostics/diagnostic-*.jsonl', check=False)
+    for line in raw.splitlines():
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if row.get('event') != 'senplayer_playback_failed' or row.get('timestamp') not in wanted:
+            continue
+        # Only public synthetic fixtures run here. Retain code and stack locations, never URLs or raw exception text.
+        exception = row.get('exception') or {}
+        stack = str(exception.get('stackTrace', ''))
+        code = re.search(r'SenPlayer command failed \((-?\d+)\)', str(exception.get('message', '')) + '\n' + stack)
+        frames = re.findall(r'(?m)^\s*at ([\w.$]+)\(([^\r\n()/:]{1,90})(?::(\d+))?\)', stack)
+        failures.append({'time': row['timestamp'], 'nativeCommandCode': int(code[1]) if code else None,
+                         'exceptionType': exception.get('type'), 'stack': frames[:12]})
+    return failures
+
+
+def natural_completion(case, launch, duration):
+    observer.adb('shell', 'am', 'force-stop', 'com.yfuse')
+    prior = {(e['time'], e['event']) for e in observer.app_events()}
+    observer.adb('shell', launch)
+    opened = observer.decode_playback(case + '-natural-open', None, duration)
+    time.sleep(max(1, duration - opened['laterPos'] + 3))
+    screenshot(case + '-natural-end')
+    tree = observer.snapshot()
+    labels = {n.get(attr, '') for n in tree.iter('node') for attr in ('text', 'content-desc', 'state')}
+    events = [e for e in observer.app_events() if (e['time'], e['event']) not in prior]
+    failed = native_failures(events)
+    ended = any('重播' in s or '播放结束' in s for s in labels) or any(e['values'].get('phase') == 'ended' for e in events)
+    return {'opened': opened, 'endClock': observer.media_clock(tree), 'ended': ended,
+            'errorVisible': any('播放遇到问题' in s or '播放失败' in s for s in labels), 'nativeFailures': failed}
 
 
 def confirm_identity(row, started):
@@ -51,14 +91,16 @@ def confirm_identity(row, started):
 
 
 def seek(case, fraction, method, duration):
-    rail, _ = observer.reveal()
+    rail, tree = observer.reveal()
     left, top, right, bottom = rail
-    row = {'fraction': fraction, 'method': method, 'rawTargetSeconds': duration * fraction}
+    row = {'fraction': fraction, 'method': method, 'rawTargetSeconds': duration * fraction,
+           'beforeClock': observer.media_clock(tree), 'beforeInputUnix': time.time()}
     short_tail = duration * (1 - fraction) <= 12
     if method == 'held-preview' or short_tail:
         mode = 'observed-seek' if method == 'held-preview' else 'short-swipe'
         response = observer.adb('shell', 'am', 'instrument', '-w', '-e', 'mode', mode,
-            '-e', 'fraction', fraction, '-e', 'shortTail', str(short_tail).lower(), 'qa.yfuse.gesture/.Driver', timeout=40)
+            '-e', 'fraction', fraction, '-e', 'shortTail', str(short_tail).lower(), '-e', 'keepTailOpen',
+            str(completion_probe).lower(), 'qa.yfuse.gesture/.Driver', timeout=40)
         (output / (case + '-input.txt')).write_text(response)
     if method == 'held-preview':
         match = re.search(r'INSTRUMENTATION_RESULT: observedSeek=(\{[^\n]+\})', response)
@@ -94,13 +136,15 @@ for media in catalog:
     row = {'case': case, 'fixture': media, 'openedWithin60Seconds': False, 'seeks': []}
     results.append(row)
     prior = set()
+    launch = None
     mime = {'mkv': 'video/x-matroska', 'ts': 'video/mp2t', 'mov': 'video/quicktime'}.get(media['file'].rsplit('.', 1)[1], 'video/mp4')
     server = MediaServer(Path('format-fixtures') / media['file'], output / (case + '-http.jsonl'), content_type=mime)
     try:
         observer.adb('shell', 'am', 'force-stop', 'com.yfuse')
         started = time.time(); prior = {(e['time'], e['event']) for e in observer.app_events()}
         url = 'http://127.0.0.1:18389/' + media['file']
-        observer.adb('shell', 'am start -W -a android.intent.action.VIEW -n com.yfuse/com.yfuse.feature.player.ExternalPlaybackActivity -t ' + mime + ' -d ' + shlex.quote(url))
+        launch = 'am start -W -a android.intent.action.VIEW -n com.yfuse/com.yfuse.feature.player.ExternalPlaybackActivity -t ' + mime + ' -d ' + shlex.quote(url)
+        observer.adb('shell', launch)
         try:
             row['open'] = observer.decode_playback(case, None, media['seconds'], max_wait=60)
             row['openedWithin60Seconds'] = True
@@ -120,12 +164,21 @@ for media in catalog:
         row['errorDetail'] = str(error)[:180]
     finally:
         row['diagnostics'] = [e for e in observer.app_events() if (e['time'], e['event']) not in prior]
+        row['nativeFailures'] = native_failures(row['diagnostics'])
+        if completion_probe and launch and row.get('open'):
+            try:
+                row['naturalCompletion'] = natural_completion(case, launch, media['seconds'])
+            except (AssertionError, RuntimeError, TimeoutError) as error:
+                row['naturalCompletion'] = {'errorType': type(error).__name__}
         observer.adb('shell', 'am', 'force-stop', 'com.yfuse')
         server.close()
         (output/'format-results.json').write_text(json.dumps(results, indent=2))
         print(case, row['openedWithin60Seconds'], sum(s.get('rawTargetConfirmed', False) for s in row['seeks']), flush=True)
 passed = all(r['openedWithin60Seconds'] and r.get('identity', {}).get('active') and len(r['seeks']) == 4
              and all(s['rawTargetConfirmed'] for s in r['seeks']) for r in results)
+if completion_probe:
+    passed = passed and all(r.get('naturalCompletion', {}).get('ended') and not r['naturalCompletion'].get('errorVisible')
+                            and not r['nativeFailures'] and not r['naturalCompletion'].get('nativeFailures') for r in results)
 (output/'summary.json').write_text(json.dumps({'passed': passed, 'core': core, 'fixtures': len(results),
     'scope': 'Synthetic diagnostic counterparts; never substitutes for failed private originals'}, indent=2))
 raise SystemExit(0 if passed else 1)

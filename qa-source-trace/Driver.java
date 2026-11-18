@@ -132,6 +132,14 @@ public final class Driver extends Instrumentation {
                         samples.put(sample);
                         previousTime = position;
                         previousPicture = picture;
+                        if (samples.length() >= 3 && !"true".equals(args.getString("keepTailOpen"))) {
+                            org.json.JSONObject first = samples.getJSONObject(samples.length() - 3);
+                            org.json.JSONObject middle = samples.getJSONObject(samples.length() - 2);
+                            double target = clockSeconds(times.group(2)) * Double.parseDouble(args.getString("fraction"));
+                            if (Math.abs(first.getInt("seconds") - target) <= 1.6 && first.getLong("elapsedMs") <= 3000
+                                    && first.getInt("seconds") < middle.getInt("seconds") && middle.getInt("seconds") < position
+                                    && middle.optDouble("pictureChange", 0) > .8 && sample.optDouble("pictureChange", 0) > .8) break;
+                        }
                     }
                 }
             }
