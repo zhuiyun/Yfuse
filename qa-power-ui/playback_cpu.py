@@ -16,7 +16,18 @@ def report_rows(report):
     return rows
 
 
-def profile():
+def symbol_rows(report):
+    rows = []
+    for line in report.splitlines():
+        match = re.match(r'^\s*(\d+(?:\.\d+)?)%\s+(\S+)\s{2,}(.+?)\s*$', line)
+        if match:
+            share, library, symbol = match.groups()
+            rows.append({'percentOfSampledAppCpu': float(share), 'library': PurePosixPath(library).name,
+                         'symbol': symbol})
+    return rows
+
+
+def profile(*, include_symbols=False):
     if os.environ.get('GITHUB_ACTIONS') != 'true' or os.environ.get('ANDROID_SERIAL') != '127.0.0.1:15555':
         raise RuntimeError('The playback CPU profile requires the disposable cloud guest')
 
@@ -58,8 +69,12 @@ def profile():
         report = shell(profiler, 'report', '-i', data, '--sort', 'comm,dso')
         rows = report_rows(report.stdout)
         samples = re.search(r'^Samples(?: recorded)?:\s*(\d+)\b', report.stdout, re.M)
-        return dict(result, status='recorded' if rows and not report.returncode else 'report-unavailable',
-                    totalSamples=int(samples[1]) if samples else None, groups=rows)
+        result.update(status='recorded' if rows and not report.returncode else 'report-unavailable',
+                      totalSamples=int(samples[1]) if samples else None, groups=rows)
+        if include_symbols:
+            by_symbol = shell(profiler, 'report', '-i', data, '--sort', 'dso,symbol')
+            result['symbols'] = symbol_rows(by_symbol.stdout) if not by_symbol.returncode else []
+        return result
     except (OSError, subprocess.SubprocessError) as error:
         return dict(result, status='profile-unavailable', errorType=type(error).__name__)
     finally:
