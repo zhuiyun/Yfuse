@@ -75,8 +75,8 @@ def window(index, core, server, clock_hz):
     report['layers'] = layers(stats)
     report['after'] = picture(label + '-after')
     report['httpBytesInWindow'] = server.counters()['bytes'] - traffic['bytes']
-    tracing = os.environ.get('QA_TRACE_MATH_CALLERS') == 'true'
-    report['sample'] = profile(include_symbols=True, trace_math_callers=tracing)
+    tracing = os.environ.get('QA_TRACE_MATH_CALLERS')
+    report['sample'] = profile(include_symbols=True, call_graph='fp' if tracing == 'true' else tracing)
     sampled_math = any(row['symbol'] == '__ieee754_powf' for row in report['sample'].get('symbols', []))
     callers = report['sample'].get('mathCallerReport', {})
     report['afterProfile'] = picture(label + '-after-profile')
