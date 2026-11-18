@@ -1,4 +1,4 @@
-name: Verify corrected EOF seeking, explicit resume and both cores across ten formats
+name: Check moving startup, boundary clocks and rewind on both cores
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
@@ -53,7 +53,7 @@ jobs:
         with: {persist-credentials: false}
       - name: Acquire qualified current app
         env: {API_TOKEN: '${{ github.token }}'}
-        run: bash qa-integrated/acquire-qualified-candidate.sh 44226221600 a15e40fc6ac0b6bf61e8a9565549ab099d192a16
+        run: bash qa-integrated/acquire-qualified-candidate.sh 44232955477 8e4c19ba415231832e0dbd632c4d0c4d4cac7e99
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with: {name: format-fixtures-and-driver, path: .}
       - run: |

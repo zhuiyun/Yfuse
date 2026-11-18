@@ -1,4 +1,4 @@
-name: Four-hour activity of both playback cores after completion and UI fixes
+name: Four-hour activity measurement of both cores on the bounded-clock candidate
 'on':
   push:
     branches:
@@ -9,8 +9,8 @@ permissions:
   contents: read
   actions: read
 env:
-  QA_APP_SHA: 031500a9ccaa48105186dde4b1848d7491004f92
-  QA_BUILD_RUN: 44230021640
+  QA_APP_SHA: 8e4c19ba415231832e0dbd632c4d0c4d4cac7e99
+  QA_BUILD_RUN: 44232955477
   QA_EXPECT_NO_SUBTITLE_CONFIGURATION_ERRORS: 'true'
 jobs:
   acquire:
