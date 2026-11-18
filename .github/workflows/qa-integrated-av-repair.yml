@@ -1,11 +1,11 @@
-name: Verify qualified HEVC base-layer output against PQ-tagged reference frames
+name: Qualify carousel artwork contrast, motion and both playback cores
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
     paths: ['.github/workflows/qa-integrated-av-repair.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: 3974deeb6686348fe194d85b30fba3d43cb65dcd
+  QA_APP_SHA: 992aef4ad202dfce7c7f4ca768bc44dd40e5da47
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 3974deeb6686348fe194d85b30fba3d43cb65dcd
+          ref: 992aef4ad202dfce7c7f4ca768bc44dd40e5da47
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
@@ -181,9 +181,9 @@ jobs:
           adb push "$RUNNER_TEMP/enhanced-retry.mp4" /sdcard/Android/data/com.yfuse/files/enhanced-retry.mp4
           adb shell sha256sum /sdcard/Android/data/com.yfuse/files/enhanced-retry.mp4 > results/device-fixture.sha256
           test "$(cut -d' ' -f1 results/fixture.sha256)" = "$(tr -d '\r' < results/device-fixture.sha256 | cut -d' ' -f1)"
-          adb shell am instrument -w -r -e enhancedRetryDecodePath software -e enhancedRetryFixture /sdcard/Android/data/com.yfuse/files/enhanced-retry.mp4 -e class 'com.yfuse.core.designsystem.HeroLiftInstrumentedTest#caption_fades_above_text_and_keeps_white_artwork_readable,com.yfuse.core2.android.SoftwareOutputContractInstrumentedTest,com.yfuse.feature.player.SoftFeedbackInstrumentedTest#seek_cancel_never_commits_and_release_commits_once_with_or_without_motion,com.yfuse.feature.player.SoftFeedbackInstrumentedTest#long_movie_clock_never_moves_the_held_seek_rail,com.yfuse.feature.player.BufferedScrubDecodeInstrumentedTest,com.yfuse.core2.android.YCoreMediaSuiteInstrumentedTest#enhanced_transport_retry_keeps_the_assigned_route_and_renders_again' com.yfuse.test/androidx.test.runner.AndroidJUnitRunner | tee results/contracts.txt
-          python3 qa-integrated/check-instrumentation.py results/contracts.txt 10
-          grep -E 'OK \(10 tests\)' results/contracts.txt
+          adb shell am instrument -w -r -e enhancedRetryDecodePath software -e enhancedRetryFixture /sdcard/Android/data/com.yfuse/files/enhanced-retry.mp4 -e class 'com.yfuse.core.designsystem.ComponentMotionInstrumentedTest#fractional_indicator_progress_redraws_without_recomposing_or_relaying_out,com.yfuse.core.designsystem.HeroLiftInstrumentedTest#caption_fades_above_text_and_keeps_white_artwork_readable,com.yfuse.core2.android.SoftwareOutputContractInstrumentedTest,com.yfuse.feature.player.SoftFeedbackInstrumentedTest#seek_cancel_never_commits_and_release_commits_once_with_or_without_motion,com.yfuse.feature.player.SoftFeedbackInstrumentedTest#long_movie_clock_never_moves_the_held_seek_rail,com.yfuse.feature.player.BufferedScrubDecodeInstrumentedTest,com.yfuse.core2.android.YCoreMediaSuiteInstrumentedTest#enhanced_transport_retry_keeps_the_assigned_route_and_renders_again' com.yfuse.test/androidx.test.runner.AndroidJUnitRunner | tee results/contracts.txt
+          python3 qa-integrated/check-instrumentation.py results/contracts.txt 11
+          grep -E 'OK \(11 tests\)' results/contracts.txt
           ! grep -E 'FAILURES|INSTRUMENTATION_FAILED|INSTRUMENTATION_ABORTED' results/contracts.txt
           adb pull /sdcard/Android/data/com.yfuse/files/soft-feedback results/current-soft-feedback
       - if: always()
