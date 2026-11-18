@@ -1,4 +1,4 @@
-name: Four-hour activity after recovery and discovery contrast repair
+name: Four-hour activity of both playback cores after completion and UI fixes
 'on':
   push:
     branches:
@@ -9,8 +9,8 @@ permissions:
   contents: read
   actions: read
 env:
-  QA_APP_SHA: fe814ec63fb1c035ff9fb123146e3ed3700a2b16
-  QA_BUILD_RUN: 44067422996
+  QA_APP_SHA: 031500a9ccaa48105186dde4b1848d7491004f92
+  QA_BUILD_RUN: 44230021640
   QA_EXPECT_NO_SUBTITLE_CONFIGURATION_ERRORS: 'true'
 jobs:
   acquire:
