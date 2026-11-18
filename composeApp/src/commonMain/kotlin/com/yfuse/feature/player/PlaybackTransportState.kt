@@ -29,7 +29,7 @@ internal data class PlaybackButtonState(
 internal fun PlaybackState.transportState(): PlaybackTransportState =
     PlaybackTransportState(
         currentIndex = currentIndex,
-        positionMs = positionMs,
+        positionMs = positionMs.coerceIn(0L, durationMs.takeIf { it > 0L } ?: Long.MAX_VALUE),
         durationMs = durationMs,
         bufferedPositionMs = bufferedPositionMs,
         bufferSnapshot = bufferSnapshot.atPlaybackPosition(positionMs, durationMs),
