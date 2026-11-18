@@ -283,7 +283,8 @@ internal fun ServersGridScreen(component: ServersTabComponent) {
                             }
                         }
 
-                        if (state.servers.isNotEmpty()) {
+                        val hasOtherServers = state.servers.any { it.id != state.defaultServerId }
+                        if (hasOtherServers) {
                             motionItem(key = "other-servers", span = { GridItemSpan(maxLineSpan) }) {
                                 OtherServersHeader(count = otherVisibleServers.size)
                             }
@@ -298,14 +299,10 @@ internal fun ServersGridScreen(component: ServersTabComponent) {
                             }
                         }
 
-                        if (state.servers.isNotEmpty() && otherVisibleServers.isEmpty()) {
+                        if (hasOtherServers && otherVisibleServers.isEmpty()) {
                             motionItem(key = "filtered-empty", span = { GridItemSpan(maxLineSpan) }) {
                                 Text(
-                                    if (state.servers.size == 1) {
-                                        "还没有其他服务器"
-                                    } else {
-                                        "没有其他符合当前筛选的服务器"
-                                    },
+                                    "没有其他符合当前筛选的服务器",
                                     style = AppTypography.body.medium,
                                     color = palette.sub2,
                                     modifier = Modifier.padding(bottom = 24.dp),
