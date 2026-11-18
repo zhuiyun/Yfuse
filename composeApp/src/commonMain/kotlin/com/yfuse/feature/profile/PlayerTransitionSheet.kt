@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.LocalAccentColors
@@ -52,6 +53,7 @@ internal fun PlayerTransitionSheet(
             Modifier
                 .fillMaxWidth()
                 .weight(1f, fill = false)
+                .zIndex(-1f)
                 .verticalScroll(rememberScrollState()),
         ) {
             if (LocalAccessibilityOptions.current.reduceMotion) {

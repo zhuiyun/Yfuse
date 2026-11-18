@@ -15,6 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.GlassDialog
@@ -43,6 +44,8 @@ internal fun ParticleLightSheet(
             Modifier
                 .fillMaxWidth()
                 .weight(1f, fill = false)
+                // A partly visible option can extend its accessibility target above the viewport.
+                .zIndex(-1f)
                 .verticalScroll(rememberScrollState()),
         ) {
             ParticleLight.entries.forEach { mode ->
