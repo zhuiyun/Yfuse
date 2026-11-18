@@ -2,12 +2,14 @@ name: Verify 21120 touch seeks on 88 unmodified film and episode originals
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
-    paths: [.github/workflows/qa-original-volume.yml, qa-arm-original/original_volume.py, qa-arm-original/natural_frames.py, qa-arm-original/start_volume.sh]
+    paths: [.github/workflows/qa-original-volume.yml, qa-arm-original/original_volume.py, qa-arm-original/natural_frames.py, qa-arm-original/start_volume.sh, qa-arm-original/prepare_volume.sh]
 permissions: {contents: read, actions: read}
+env:
+  QA_APP_SHA: fa4ffc7524fd1518680ad6e6965a7200b9255758
 jobs:
-  input:
+  driver:
     runs-on: ubuntu-24.04
-    timeout-minutes: 85
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with: {persist-credentials: false}
@@ -18,19 +20,45 @@ jobs:
           cp qa-arm-matrix/Driver.java qa-volume/input-driver.java
           sed 's|adb install -r driver.apk|cp driver.apk "$GITHUB_WORKSPACE/driver/driver.apk"|' qa-volume/build-driver.sh > "$RUNNER_TEMP/build-driver.sh"
           bash "$RUNNER_TEMP/build-driver.sh"
-      - name: Verify the qualification and retain the measured APK and input driver
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: original-seek-driver, path: driver/driver.apk, retention-days: 5}
+  input:
+    needs: driver
+    runs-on: ubuntu-24.04
+    timeout-minutes: 85
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: original-seek-driver, path: driver}
+      - name: Verify the current release candidate
+        env: {API_TOKEN: '${{ github.token }}'}
+        run: bash qa-arm-original/prepare_volume.sh 44391996767
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: natural-original-input, path: candidate/, retention-days: 5}
+  original_touch_control:
+    name: Repeat the failed original first touches with the identical earlier APK
+    needs: driver
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 100
+    env:
+      QA_STAGE: pilot
+      QA_APP_SHA: 94ec647fac5132b5f3ee92e1304b98f57084e078
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: original-seek-driver, path: driver}
+      - name: Acquire the exact APK used for the failed pilot
         env: {API_TOKEN: '${{ github.token }}'}
         run: |
           set -euo pipefail
-          bash qa-integrated/acquire-qualified-candidate.sh 44387493680 432066bc1caa59aa7f674673059859d84021dd98
-          mkdir candidate
-          cp preview/composeApp-release.apk preview/provenance.txt driver/driver.apk candidate/
-          awk '$2 == "composeApp-release.apk" { print }' preview/apk.sha256 > candidate/apk.sha256
-          test "$(wc -l < candidate/apk.sha256)" -eq 1
-          (cd driver && sha256sum driver.apk) >> candidate/apk.sha256
-          (cd candidate && sha256sum -c apk.sha256)
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        with: {name: natural-original-input, path: candidate/, retention-days: 5}
+          bash qa-arm-original/prepare_volume.sh 44369298786
+          echo '03058f533a38020fec500575a2ced18bc913bcde09934c6306cb35aa8b9d8d6a  candidate/composeApp-release.apk' | sha256sum -c -
+      - run: bash qa-arm-original/start_volume.sh
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: natural-originals-control, path: results/original-volume/, retention-days: 10}
   pilot:
     needs: input
     runs-on: ubuntu-24.04-arm

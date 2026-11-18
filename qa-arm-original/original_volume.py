@@ -71,12 +71,16 @@ def fractions(identifier, duration, count):
 
 
 def later_source_picture(reference, first_second):
-    deadline = time.monotonic() + 5
+    started = time.monotonic()
+    deadline = started + 5
     while time.monotonic() < deadline:
         _, tree = direct.reveal()
         position = direct.media_clock(tree)
         if position is not None and position > first_second:
-            return reference.compare(direct.screen(), position)
+            elapsed = time.monotonic() - started
+            picture = reference.compare(direct.screen(), position)
+            picture['secondsAfterFirstCheck'] = round(elapsed, 3)
+            return picture
         time.sleep(.2)
     return None
 
@@ -121,6 +125,11 @@ def measure_touch(index, fraction, duration, reference, case):
                 row['reason'] = 'second picture clock unavailable after a conflicting scene'
                 return row
             row['secondSourcePicture'] = second
+            second_position = second['playerSecond']
+            latest_position = out['laterPos'] + second['secondsAfterFirstCheck'] + tolerance
+            if not out['laterPos'] < second_position < duration or second_position > latest_position:
+                row['reason'] = 'second picture timestamp jumped outside the original seek observation'
+                return row
             if second['classification'] not in ('distinct-match', 'consistent-repeated-picture'):
                 row['reason'] = ('two independent pictures match a different part of the original'
                                  if second['classification'] == 'different-scene'
