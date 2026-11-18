@@ -5,7 +5,7 @@ on:
     paths: ['.github/workflows/qa-integrated-av-repair.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: 92927caeedad906743f0d82097adb41d915d6f06
+  QA_APP_SHA: 8c163b338e813f9c1ecce0ec9e25c63779bb21fe
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 92927caeedad906743f0d82097adb41d915d6f06
+          ref: 8c163b338e813f9c1ecce0ec9e25c63779bb21fe
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
@@ -100,8 +100,12 @@ jobs:
           git diff --exit-code "$hero_baseline" -- "$hero"
           git show "$dialog_baseline:$dialog" > "$dialog"
           git diff --exit-code "$dialog_baseline" -- "$dialog"
-          git show "$cast_baseline:$cast" > "$cast"
-          git diff --exit-code "$cast_baseline" -- "$cast"
+          cast_repair=432066bc1caa59aa7f674673059859d84021dd98
+          git diff "$cast_baseline" "$cast_repair" -- "$cast" > "$RUNNER_TEMP/cast-discovery-change.diff"
+          test -s "$RUNNER_TEMP/cast-discovery-change.diff"
+          git apply --reverse --check "$RUNNER_TEMP/cast-discovery-change.diff"
+          git apply --reverse "$RUNNER_TEMP/cast-discovery-change.diff"
+          git apply --check "$RUNNER_TEMP/cast-discovery-change.diff"
           git diff --exit-code "$QA_APP_SHA" -- . ":(exclude)$path" ":(exclude)$hero" ":(exclude)$dialog" ":(exclude)$cast"
           ./gradlew :composeApp:assembleDebug -PyfuseIncludeMdk=false -PyfusePlaybackProfile=ycore-senplayer -PyfuseNativeOnlyRuntime=true -PallowDebugSigning=true -PyfuseBuildRevision="$QA_APP_SHA" -Pkotlin.compiler.execution.strategy=in-process '-Dorg.gradle.jvmargs=-Xmx8g -Dfile.encoding=UTF-8' --no-parallel --max-workers=2 --no-daemon
           cp composeApp/build/outputs/apk/debug/composeApp-debug.apk preview/geometry-negative.apk
