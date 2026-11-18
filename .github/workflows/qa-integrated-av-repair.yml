@@ -1,11 +1,11 @@
-name: Qualify first-frame recovery and HDR-compatible HEVC software decoding
+name: Verify qualified HEVC base-layer output against PQ-tagged reference frames
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
     paths: ['.github/workflows/qa-integrated-av-repair.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: f80e60757f36aec83bb924fe1e6bc5d3ea7d8386
+  QA_APP_SHA: 3974deeb6686348fe194d85b30fba3d43cb65dcd
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: f80e60757f36aec83bb924fe1e6bc5d3ea7d8386
+          ref: 3974deeb6686348fe194d85b30fba3d43cb65dcd
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
