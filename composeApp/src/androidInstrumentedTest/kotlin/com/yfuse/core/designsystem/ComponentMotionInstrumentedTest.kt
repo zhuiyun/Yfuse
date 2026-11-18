@@ -229,6 +229,7 @@ private fun IndicatorProbe(
         pageCount = 5,
         selectedPage = 2,
         onPageSelected = {},
+        onArtwork = true,
         pageOffsetProvider = provider,
         modifier =
             Modifier
