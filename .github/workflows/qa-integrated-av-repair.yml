@@ -1,11 +1,11 @@
-name: Qualify end-of-media display, playback and reviewed interface changes
+name: Qualify playback and fixed accessible dialog controls
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
     paths: ['.github/workflows/qa-integrated-av-repair.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: 8e4c19ba415231832e0dbd632c4d0c4d4cac7e99
+  QA_APP_SHA: df5dd228609eaa0689a55a79260f5f9920c63fd9
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 8e4c19ba415231832e0dbd632c4d0c4d4cac7e99
+          ref: df5dd228609eaa0689a55a79260f5f9920c63fd9
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78

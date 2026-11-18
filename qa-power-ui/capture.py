@@ -124,6 +124,11 @@ def verify_detail_clearance(tree_file, title):
 
 def verify_motion_dialog(out, row, title, last_label):
     viewports = [row['top'], *row['scrolls']]
+    densities = re.findall(r'(?:Physical|Override) density:\s*(\d+)', adb('shell', 'wm', 'density'))
+    if not densities:
+        raise AssertionError('Unable to verify the 48 dp close target without display density')
+    min_close_px = (48 * int(densities[-1]) + 80) // 160
+    subtitle_ending = '播放画面保持安静' if title == '粒子光效' else '关闭时回到原处'
     expected = None
     for shot in viewports:
         tree = ET.parse(out / shot['tree']).getroot()
@@ -131,9 +136,13 @@ def verify_motion_dialog(out, row, title, last_label):
         close = [n for n in visible if n.get('content-desc') == '关闭' and n.get('class') == 'android.widget.Button'
                  and n.get('enabled') == 'true' and n.get('clickable') == 'true']
         headings = [n for n in visible if n.get('class') == 'android.widget.TextView' and n.get('text') == title]
-        if len(close) != 1 or len(headings) != 1:
-            raise AssertionError('Dialog heading or actionable close button disappeared: ' + shot['tree'])
-        position = [bounds(headings[0]), bounds(close[0])]
+        descriptions = [n for n in visible if n.get('text', '').endswith(subtitle_ending)]
+        if len(close) != 1 or len(headings) != 1 or len(descriptions) != 1:
+            raise AssertionError('Dialog title, description or actionable close button disappeared: ' + shot['tree'])
+        close_box = bounds(close[0])
+        if min(close_box[2] - close_box[0], close_box[3] - close_box[1]) < min_close_px:
+            raise AssertionError('Dialog close target smaller than 48 dp: ' + shot['tree'])
+        position = [bounds(headings[0]), close_box, bounds(descriptions[0])]
         if expected is not None and position != expected:
             raise AssertionError('Dialog header moved while scrolling: ' + shot['tree'])
         expected = position
@@ -146,7 +155,8 @@ def verify_motion_dialog(out, row, title, last_label):
         labels = {n.get('text') for n in ui.nodes(tree)}
         if {'粒子光效', '播放器进出场'} <= labels and not any(
                 n.get('content-desc') == '关闭' and n.get('visible') != 'false' for n in ui.nodes(tree)):
-            return {'viewports': len(viewports), 'headerBoundsPx': expected, 'lastOption': last_label, 'dismissed': True}
+            return {'viewports': len(viewports), 'headerBoundsPx': expected, 'minCloseTargetPx': min_close_px,
+                    'lastOption': last_label, 'dismissed': True}
         time.sleep(.25)
     raise AssertionError('Close at the end did not return to motion settings')
 
