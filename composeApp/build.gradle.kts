@@ -253,8 +253,16 @@ val verifyStandaloneYCoreArtifact by tasks.registering {
         }
         // API 2 libraries (BGRA frames) stay installable: the Kotlin bridge reads the version at
         // runtime and swaps their channels while drawing.
-        require(Regex("(?m)^ycore-software-decoder-api=[234]$").containsMatchIn(provenance)) {
-            "Standalone YCore provenance is missing ycore-software-decoder-api=2, 3 or 4"
+        val apiPrefix = "ycore-software-decoder-api="
+        val softwareApi = provenance.lineSequence().singleOrNull { it.startsWith(apiPrefix) }?.removePrefix(apiPrefix)
+        require(softwareApi in setOf("2", "3", "4", "6")) {
+            "Standalone YCore provenance requires a supported software decoder API"
+        }
+        if (softwareApi == "6") {
+            val mappingSource = "ycore-profile5-mapping-source=scripts/native/ycore_dovi_profile5.h"
+            require(mappingSource in provenance.lineSequence()) {
+                "Standalone YCore API 6 is missing its Profile 5 colour mapping source"
+            }
         }
         // GPU API 2 executors stay usable; the bridge enables API 3 additions by version.
         require(Regex("(?m)^ycore-gpu-api=[23]$").containsMatchIn(provenance)) {

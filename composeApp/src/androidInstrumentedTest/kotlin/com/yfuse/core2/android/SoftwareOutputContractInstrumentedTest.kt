@@ -37,7 +37,11 @@ class SoftwareOutputContractInstrumentedTest {
             val demux = AndroidFfmpegDemuxer()
             val track =
                 try {
-                    demux.open(YDemuxSource(file.absolutePath)).tracks.mapNotNull { it.video }.single()
+                    demux
+                        .open(YDemuxSource(file.absolutePath))
+                        .tracks
+                        .mapNotNull { it.video }
+                        .single()
                 } finally {
                     demux.close()
                 }
