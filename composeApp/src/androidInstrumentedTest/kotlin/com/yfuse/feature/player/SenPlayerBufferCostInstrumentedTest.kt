@@ -1,6 +1,7 @@
 package com.yfuse.feature.player
 
 import android.graphics.Bitmap
+import android.graphics.Rect
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -64,11 +65,16 @@ class SenPlayerBufferCostInstrumentedTest {
                 val width = if (sourceSize) 640 else 1280
                 val height = if (sourceSize) 360 else 720
                 scenario.onActivity {
-                    if (sourceSize) {
-                        host.video.holder.setFixedSize(width, height)
-                    } else {
-                        host.video.holder.setSizeFromLayout()
-                    }
+                    host.video.holder.setSizeFromLayout()
+                    host.video.pivotX = 0f
+                    host.video.pivotY = 0f
+                    host.video.scaleX = host.width.toFloat() / width
+                    host.video.scaleY = host.height.toFloat() / height
+                    host.video.layoutParams =
+                        host.video.layoutParams.apply {
+                            this.width = width
+                            this.height = height
+                        }
                 }
                 val deadline = SystemClock.elapsedRealtime() + 20_000L
                 while (SystemClock.elapsedRealtime() < deadline) {
@@ -84,18 +90,23 @@ class SenPlayerBufferCostInstrumentedTest {
 
                 fun checkGeometry() {
                     scenario.onActivity {
-                        assertEquals(1280, it.window.decorView.width)
-                        assertEquals(720, it.window.decorView.height)
-                        for (view in listOf(host.video, host.subtitles)) {
-                            assertEquals(1280, view.width)
-                            assertEquals(720, view.height)
-                        }
-                        val videoFrame = host.video.holder.surfaceFrame
-                        val subtitleFrame = host.subtitles.holder.surfaceFrame
-                        assertEquals(width, videoFrame.width())
-                        assertEquals(height, videoFrame.height())
-                        assertEquals(1280, subtitleFrame.width())
-                        assertEquals(720, subtitleFrame.height())
+                        val geometry = geometry(host, it.window.decorView)
+                        row.put("geometry", geometry)
+                        File("${evidence.path}-geometry.json").writeText(geometry.toString(2))
+                        assertEquals(1280, geometry.getInt("windowWidth"))
+                        assertEquals(720, geometry.getInt("windowHeight"))
+                        assertEquals(1280, geometry.getInt("parentWidth"))
+                        assertEquals(720, geometry.getInt("parentHeight"))
+                        assertEquals(width, geometry.getInt("videoLayoutWidth"))
+                        assertEquals(height, geometry.getInt("videoLayoutHeight"))
+                        assertEquals(width, geometry.getInt("videoBufferWidth"))
+                        assertEquals(height, geometry.getInt("videoBufferHeight"))
+                        assertEquals(1280, geometry.getInt("subtitleLayoutWidth"))
+                        assertEquals(720, geometry.getInt("subtitleLayoutHeight"))
+                        assertEquals(1280, geometry.getInt("subtitleBufferWidth"))
+                        assertEquals(720, geometry.getInt("subtitleBufferHeight"))
+                        assertEquals(geometry.getString("parentBounds"), geometry.getString("videoDisplayBounds"))
+                        assertEquals(geometry.getString("parentBounds"), geometry.getString("subtitleDisplayBounds"))
                     }
                 }
                 checkGeometry()
@@ -111,7 +122,6 @@ class SenPlayerBufferCostInstrumentedTest {
                 checkGeometry()
                 capturePictures(host.video, evidence)
                 row.put("videoBufferWidth", width).put("videoBufferHeight", height)
-                row.put("subtitleAndLayoutWidth", 1280).put("subtitleAndLayoutHeight", 720)
                 row.put("transport", transport)
                 row.put("advancingBeforeResizeSecond", playingBeforeChange.second)
                 row.put("firstPictureSecond", before.second).put("lastPictureSecond", after.second)
@@ -126,6 +136,27 @@ class SenPlayerBufferCostInstrumentedTest {
                     after.second - before.second in 28..33,
                 )
             }
+        }
+    }
+
+    private fun geometry(
+        host: SenPlayerSurfaceHost,
+        window: View,
+    ): JSONObject {
+        fun bounds(view: View): String = Rect().also { view.getGlobalVisibleRect(it) }.flattenToString()
+        val videoFrame = host.video.holder.surfaceFrame
+        val subtitleFrame = host.subtitles.holder.surfaceFrame
+        return JSONObject().apply {
+            put("windowWidth", window.width).put("windowHeight", window.height)
+            put("parentWidth", host.width).put("parentHeight", host.height)
+            put("parentBounds", bounds(host))
+            put("videoLayoutWidth", host.video.width).put("videoLayoutHeight", host.video.height)
+            put("videoBufferWidth", videoFrame.width()).put("videoBufferHeight", videoFrame.height())
+            put("videoScaleX", host.video.scaleX.toDouble()).put("videoScaleY", host.video.scaleY.toDouble())
+            put("videoDisplayBounds", bounds(host.video))
+            put("subtitleLayoutWidth", host.subtitles.width).put("subtitleLayoutHeight", host.subtitles.height)
+            put("subtitleBufferWidth", subtitleFrame.width()).put("subtitleBufferHeight", subtitleFrame.height())
+            put("subtitleDisplayBounds", bounds(host.subtitles))
         }
     }
 

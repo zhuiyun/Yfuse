@@ -60,6 +60,7 @@ def main():
             (results / f'events-{transport}.json').write_text(json.dumps(events, indent=2))
             for name in adb('shell', 'ls', device_dir).splitlines():
                 if (name == f'sen-buffer-{transport}.json' or
+                        re.fullmatch(rf'buffer-{transport}-[0-3]-geometry\.json', name) or
                         re.fullmatch(rf'buffer-{transport}-[0-3](?:-before)?-(surface|display)\.png', name)):
                     adb('pull', device_dir + '/' + name, str(results / name))
             used = server.counters()['bytes'] - traffic['bytes']
@@ -69,7 +70,7 @@ def main():
                       for index in range(4) for kind in ('display', 'surface')}
             outcomes[transport] = {
                 'instrumentationExit': exit_code, 'caseCheckExit': checked.returncode,
-                'httpBytes': used, 'recordedWindows': len(windows),
+                'httpBytes': used, 'recordedWindows': len(windows), 'layout': 'scaled-measured-video-child',
                 'pictureCoverage': images,
                 'passed': exit_code == checked.returncode == 0 and
                           (used > 0 if transport == 'http' else used == 0) and

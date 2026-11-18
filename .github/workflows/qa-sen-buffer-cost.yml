@@ -1,11 +1,11 @@
-name: Measure SenPlayer after matching the native viewport to the video buffer
+name: Measure SenPlayer by scaling a source-sized video layer on a fixed display
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
-    paths: [.github/workflows/qa-sen-buffer-cost.yml, qa-power-ui/sen_buffer_viewport.patch, qa-power-ui/prepare_buffer_clock.py, qa-power-ui/run_buffer_study.py, composeApp/src/androidInstrumentedTest/kotlin/com/yfuse/feature/player/SenPlayerBufferCostInstrumentedTest.kt]
+    paths: [.github/workflows/qa-sen-buffer-cost.yml, qa-power-ui/prepare_buffer_clock.py, qa-power-ui/run_buffer_study.py, composeApp/src/androidInstrumentedTest/kotlin/com/yfuse/feature/player/SenPlayerBufferCostInstrumentedTest.kt]
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: 2a3c4ab9624f3d35d7637729d619555db98b357b
+  QA_APP_SHA: 94ec647fac5132b5f3ee92e1304b98f57084e078
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -26,13 +26,11 @@ jobs:
           aar-sha256: 1ff5de64e7c271f845df767de3b0e7d4ca43f5de0b1e9c8745bcc46827539787
           provenance-sha256: 2461747045a9ea97105fda84e9886f46d530fca37f945289a18798ac8539b60e
           source-commit: 0f61f76626e370cd40c25c22fa0e211c12d7bd86
-      - name: Build the isolated viewport trial with the same instrumentation and fixture
+      - name: Build the candidate and the isolated video-layer measurement
         run: |
           set -euo pipefail
           git checkout --detach "$GITHUB_SHA"
           git diff --exit-code "$QA_APP_SHA" HEAD -- composeApp/src/androidMain composeApp/src/commonMain composeApp/build.gradle.kts phoneShared senplayerBridge scripts/native
-          git apply --check qa-power-ui/sen_buffer_viewport.patch
-          git apply qa-power-ui/sen_buffer_viewport.patch
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-37.0'
           ./gradlew :composeApp:assembleDebug :composeApp:assembleDebugAndroidTest -PyfuseIncludeMdk=false -PyfusePlaybackProfile=ycore-senplayer -PyfuseNativeOnlyRuntime=true -PallowDebugSigning=true -PyfuseBuildRevision="$QA_APP_SHA" -Pkotlin.compiler.execution.strategy=in-process '-Dorg.gradle.jvmargs=-Xmx8g -Dfile.encoding=UTF-8' --no-parallel --max-workers=2 --no-daemon
@@ -42,8 +40,8 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y ffmpeg
           python3 qa-power-ui/prepare_buffer_clock.py study/buffer-clock.mp4
-          cp qa-power-ui/sen_buffer_viewport.patch study/
-          (cd study && sha256sum app.apk test.apk buffer-clock.mp4 sen_buffer_viewport.patch > hashes.txt)
+          cp composeApp/src/androidInstrumentedTest/kotlin/com/yfuse/feature/player/SenPlayerBufferCostInstrumentedTest.kt qa-power-ui/run_buffer_study.py study/
+          (cd study && sha256sum app.apk test.apk buffer-clock.mp4 SenPlayerBufferCostInstrumentedTest.kt run_buffer_study.py > hashes.txt)
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with: {name: buffer-cost-input, path: study/, retention-days: 5}
   compare:
@@ -75,7 +73,7 @@ jobs:
           adb push study/buffer-clock.mp4 /sdcard/Android/data/com.yfuse/files/buffer-clock.mp4
           adb shell sha256sum /sdcard/Android/data/com.yfuse/files/buffer-clock.mp4 > results/device-source.txt
           test "$(cut -d' ' -f1 results/device-source.txt)" = "$(sha256sum study/buffer-clock.mp4 | cut -d' ' -f1)"
-          printf 'app=%s\nqa=%s\nvariant=video-buffer-viewport-trial\n' "$QA_APP_SHA" "$GITHUB_SHA" > results/provenance.txt
+          printf 'app=%s\nqa=%s\nvariant=scaled-measured-video-child\n' "$QA_APP_SHA" "$GITHUB_SHA" > results/provenance.txt
           /usr/bin/python3 qa-power-ui/run_buffer_study.py
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
