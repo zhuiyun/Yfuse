@@ -1,11 +1,11 @@
-name: Qualify detail card contrast, motion and both playback cores
+name: Qualify Profile 5 colours and seek output on ARM64 with both playback cores
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
     paths: ['.github/workflows/qa-integrated-av-repair.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: 6c05a4bd1fc78d4c324eacaf71e43c3b61c86a14
+  QA_APP_SHA: c77ab7319cc2f7fc745ee67d36e795ecb3feefaf
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 6c05a4bd1fc78d4c324eacaf71e43c3b61c86a14
+          ref: c77ab7319cc2f7fc745ee67d36e795ecb3feefaf
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
@@ -24,9 +24,9 @@ jobs:
           set -euo pipefail
           api="https://api.github.com/repos/$GITHUB_REPOSITORY"
           app_sha=$(git rev-parse HEAD)
-          native_sha=8a9bb9a7b626d7c7695caf95d7a885192c101935
-          git diff --exit-code "$native_sha" "$app_sha" -- ycore-native scripts/native scripts/native-build-download.py scripts/ycore-source-receipt.py
-          producer=43803470495
+          native_sha=0f61f76626e370cd40c25c22fa0e211c12d7bd86
+          git diff --exit-code "$native_sha" "$app_sha" -- ycore-native scripts/native 'scripts/build-ycore*.sh' scripts/verify-ycore-native.sh scripts/native-build-download.py scripts/ycore-source-receipt.py
+          producer=44324037800
           name="ycore-source-$native_sha-$producer-1"
           artifact=""
           for i in $(seq 1 135); do
@@ -35,7 +35,7 @@ jobs:
             sleep 12
           done
           test -n "$artifact"
-          curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/artifacts/$artifact" | jq -e --arg n "ycore-source-$native_sha-43803470495-1" '.name==$n and .expired==false and .workflow_run.id==43803470495' >/dev/null
+          curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/artifacts/$artifact" | jq -e --arg n "$name" --argjson run "$producer" '.name==$n and .expired==false and .workflow_run.id==$run' >/dev/null
           curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/artifacts/$artifact/zip" -o "$RUNNER_TEMP/native.zip"
           mkdir "$RUNNER_TEMP/native-in"
           unzip -q "$RUNNER_TEMP/native.zip" -d "$RUNNER_TEMP/native-in"
@@ -182,8 +182,8 @@ jobs:
           adb shell sha256sum /sdcard/Android/data/com.yfuse/files/enhanced-retry.mp4 > results/device-fixture.sha256
           test "$(cut -d' ' -f1 results/fixture.sha256)" = "$(tr -d '\r' < results/device-fixture.sha256 | cut -d' ' -f1)"
           adb shell am instrument -w -r -e enhancedRetryDecodePath software -e enhancedRetryFixture /sdcard/Android/data/com.yfuse/files/enhanced-retry.mp4 -e class 'com.yfuse.core.designsystem.ComponentMotionInstrumentedTest#fractional_indicator_progress_redraws_without_recomposing_or_relaying_out,com.yfuse.core.designsystem.HeroLiftInstrumentedTest#caption_fades_above_text_and_keeps_white_artwork_readable,com.yfuse.core2.android.SoftwareOutputContractInstrumentedTest,com.yfuse.feature.player.SoftFeedbackInstrumentedTest#seek_cancel_never_commits_and_release_commits_once_with_or_without_motion,com.yfuse.feature.player.SoftFeedbackInstrumentedTest#long_movie_clock_never_moves_the_held_seek_rail,com.yfuse.feature.player.BufferedScrubDecodeInstrumentedTest,com.yfuse.core2.android.YCoreMediaSuiteInstrumentedTest#enhanced_transport_retry_keeps_the_assigned_route_and_renders_again' com.yfuse.test/androidx.test.runner.AndroidJUnitRunner | tee results/contracts.txt
-          python3 qa-integrated/check-instrumentation.py results/contracts.txt 11
-          grep -E 'OK \(11 tests\)' results/contracts.txt
+          python3 qa-integrated/check-instrumentation.py results/contracts.txt 12
+          grep -E 'OK \(12 tests\)' results/contracts.txt
           ! grep -E 'FAILURES|INSTRUMENTATION_FAILED|INSTRUMENTATION_ABORTED' results/contracts.txt
           adb pull /sdcard/Android/data/com.yfuse/files/soft-feedback results/current-soft-feedback
       - if: always()
