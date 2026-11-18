@@ -2,7 +2,7 @@ name: Measure Profile 5 colour with both real RPU mappings and a disabled contro
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
-    paths: [.github/workflows/qa-dolby-reference.yml, qa-format-diagnostics/dolby_reference.py, composeApp/src/androidInstrumentedTest/assets/ycore/dolby-profile5-swatches.mp4.b64]
+    paths: [.github/workflows/qa-dolby-reference.yml, qa-format-diagnostics/dolby_reference.py, qa-format-diagnostics/profile5_colour_contract.cpp, scripts/native/ycore_dovi_profile5.h, scripts/native/ycore_tone_map.h, composeApp/src/androidInstrumentedTest/assets/ycore/dolby-profile5-swatches.mp4.b64]
 permissions: {contents: read}
 jobs:
   reference:
@@ -14,11 +14,12 @@ jobs:
       - name: Install the independent renderer and CPU Vulkan driver
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y ffmpeg mesa-vulkan-drivers python3-numpy
+          sudo apt-get install -y ffmpeg mesa-vulkan-drivers python3-numpy libavcodec-dev libavformat-dev libavutil-dev
       - name: Measure per-frame colour and the disabled control
         run: |
           set -euo pipefail
           mkdir -p results/dolby-reference
+          c++ -std=c++17 -O2 -Wall -Wextra -Werror -Iscripts/native qa-format-diagnostics/profile5_colour_contract.cpp -o results/profile5-colour-contract $(pkg-config --cflags --libs libavformat libavcodec libavutil)
           dpkg-query -W ffmpeg 'libplacebo*' mesa-vulkan-drivers > results/dolby-reference/packages.txt
           candidates=(/usr/share/vulkan/icd.d/lvp*json)
           test -f "${candidates[0]}"

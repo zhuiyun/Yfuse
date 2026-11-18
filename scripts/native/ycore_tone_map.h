@@ -211,6 +211,16 @@ public:
             green *= gain;
             blue *= gain;
         }
+        return display_light_to_sdr(red, green, blue);
+    }
+
+    /** Convert a normalized PQ component to linear light in units of SDR reference white. */
+    float pq_display_light(float encoded) const {
+        const float value = std::clamp(encoded, 0.f, 1.f);
+        return transfer(static_cast<uint16_t>(value * 65535.f + .5f));
+    }
+
+    RgbaPixel display_light_to_sdr(float red, float green, float blue) const {
         const float light = luminance(red, green, blue);
         if (light > 1e-9f) {
             const float scale = (1.0f + light / extended_white_squared_) / (1.0f + light);

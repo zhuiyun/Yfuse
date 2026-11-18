@@ -11,6 +11,42 @@ def output(*args):
     return subprocess.run(args, check=True, stdout=subprocess.PIPE).stdout
 
 
+def pq_to_linear(pq):
+    p = np.clip(pq, 0, 1) ** (32 / 2523)
+    return (np.maximum(p - 3424 / 4096, 0) / (2413 / 128 - (2392 / 128) * p)) ** (16384 / 2610)
+
+
+def sdr_reference(pq16, peak_pq):
+    rgb = pq_to_linear(pq16 / 65535) * (10000 / 203)
+    peak = np.maximum(1, np.clip(pq_to_linear(peak_pq / 4095) * 10000, 100, 10000) / 203)
+    luma = np.maximum(rgb @ [.2627, .6780, .0593], 0)
+    rgb *= ((1 + luma / peak**2) / (1 + luma))[:, None]
+    matrix = np.array([[1.6605, -.5876, -.0728], [-.1246, 1.1329, -.0083], [-.0182, -.1006, 1.1187]])
+    linear = np.maximum(rgb @ matrix.T, 0)
+    encoded = np.where(linear <= .0031308, 12.92 * linear, 1.055 * linear**(1/2.4) - .055)
+    return np.rint(255 * np.clip(encoded, 0, 1)).astype(int)
+
+
+def compare_native(dest, fixture, result):
+    text = output('results/profile5-colour-contract', str(fixture)).decode('ascii')
+    values = np.array([[int(v) for v in line.split()] for line in text.splitlines()])
+    assert values.shape == (48, 11)
+    expected = [(i, pts, x, y) for i, pts in enumerate(result['pts']) for x, y in result['sampleCoordinates']]
+    assert np.array_equal(values[:, :4], expected)
+    target = np.array(result['applied']['rgb16']).reshape(-1, 3)
+    peaks = values[:, 10]
+    assert np.all(peaks == 3696), 'This fixture has the same source mastering peak in both RPUs'
+    sdr = sdr_reference(target, peaks)
+    pq_distance = int(np.abs(values[:, 4:7] - target).max())
+    sdr_distance = int(np.abs(values[:, 7:10] - sdr).max())
+    # Two 10-bit input codes before tone mapping and two 8-bit display codes after it.
+    result['nativeComparison'] = {'observations': len(expected), 'peakPq': sorted(set(peaks.tolist())),
+        'maxPq16ChannelError': pq_distance, 'maxSdr8ChannelError': sdr_distance,
+        'sdr8Reference': sdr.reshape(6, 8, 3).tolist()}
+    (dest / 'reference.json').write_text(json.dumps(result, indent=2)+'\n', encoding='utf-8')
+    assert pq_distance <= 128 and sdr_distance <= 2, result['nativeComparison']
+
+
 def main():
     dest = Path('results/dolby-reference')
     dest.mkdir(parents=True, exist_ok=True)
@@ -61,7 +97,8 @@ def main():
             assert min(differences) > 256, 'Changing only the RPU must substantially change each colour pair'
         else:
             assert max(differences) <= 2, 'Identical base codes must match when RPU processing is disabled'
-    print('Six frames, three identical base pairs, 48 independent RGB reference values.')
+    compare_native(dest, fixture, result)
+    print('48 native colours and SDR swatches compared with independent Vulkan rendering.')
 
 
 if __name__ == '__main__':
