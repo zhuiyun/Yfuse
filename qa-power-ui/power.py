@@ -11,6 +11,7 @@ from media import MediaServer
 from library import LibraryServer
 from library_ui import connect
 from playback_cpu import profile
+from output_size_cpu import measure as measure_output_sizes
 from telemetry import Recorder, shell
 
 sys.path.insert(0, 'qa-arm-matrix')
@@ -241,6 +242,11 @@ def main():
                     extra['observationError'] = type(error).__name__
                 extra.update(core=core, phase='recovered-playback', outsideTimedStudy=True)
                 (out / 'playback-cpu-profile.json').write_text(json.dumps(extra, indent=2), encoding='utf-8')
+            if status == 'recorded' and os.environ.get('QA_POWER_OUTPUT_SIZE_COMPARISON') == 'true':
+                try:
+                    measure_output_sizes(out, core, playing, direct.decode_playback, screen, adb, server)
+                except (OSError, RuntimeError, AssertionError, ValueError, subprocess.SubprocessError) as error:
+                    print('OUTPUT_SIZE_COMPARISON_INCOMPLETE', type(error).__name__, flush=True)
         finally:
             adb('shell', 'dumpsys', 'battery', 'reset', check=False)
             adb('shell', 'input', 'keyevent', '224', check=False)

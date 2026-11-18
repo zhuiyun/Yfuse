@@ -82,14 +82,15 @@ def patch(im):
     return im.crop((int(.17*w),int(.31*h),int(.83*w),int(.66*h))).resize((96,48)).convert("RGB")
 
 
-def decode_playback(label,target,duration,max_wait=60):
+def decode_playback(label,target,duration,max_wait=None):
     begin=time.monotonic()
     prev=None
     first=None
     speech=[]
     laststatus=None
     history=[]
-    max_wait=50 if target is None else 38
+    if max_wait is None:
+        max_wait=50 if target is None else 38
     while time.monotonic()-begin<max_wait:
         try:r,tree=reveal()
         except AssertionError:
@@ -101,6 +102,8 @@ def decode_playback(label,target,duration,max_wait=60):
         pix=patch(screen())
         elapsed=time.monotonic()-begin
         history.append({"s":pos,"elapsed":round(elapsed,1),"contrast":round(sum(ImageStat.Stat(pix).stddev)/3,2)})
+        if elapsed > max_wait:
+            break
         if pos is not None and pos<duration-1 and (target is None or target-12 <= pos <= target+elapsed+12):
             if prev:
                 oldpos,oldim=prev

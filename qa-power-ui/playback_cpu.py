@@ -57,7 +57,7 @@ def profile():
                         exitCode=capture.returncode)
         report = shell(profiler, 'report', '-i', data, '--sort', 'comm,dso')
         rows = report_rows(report.stdout)
-        samples = re.search(r'^Samples recorded:\s*(\d+)', report.stdout, re.M)
+        samples = re.search(r'^Samples(?: recorded)?:\s*(\d+)\b', report.stdout, re.M)
         return dict(result, status='recorded' if rows and not report.returncode else 'report-unavailable',
                     totalSamples=int(samples[1]) if samples else None, groups=rows)
     except (OSError, subprocess.SubprocessError) as error:
