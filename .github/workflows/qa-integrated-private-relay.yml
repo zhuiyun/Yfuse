@@ -1,4 +1,4 @@
-name: Recheck sixty originals after demux software recovery repair
+name: Verify 32 original films and 28 episodes with both qualified cores
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
@@ -16,7 +16,7 @@ jobs:
         with: {persist-credentials: false}
       - name: Require full current-candidate qualification before reserving source runners
         env: {API_TOKEN: '${{ github.token }}'}
-        run: bash qa-integrated/acquire-qualified-candidate.sh 44067422996 fe814ec63fb1c035ff9fb123146e3ed3700a2b16
+        run: bash qa-integrated/acquire-qualified-candidate.sh 44243959207 eccef69f71873cc8f5d9aa35a07e4d63a3c4b830
       - name: Build network and gesture recorder
         run: |
           mkdir qa-private-driver
@@ -69,8 +69,8 @@ jobs:
         run: |
           set -euo pipefail
           api="https://api.github.com/repos/$GITHUB_REPOSITORY"
-          build=44067422996
-          expected=fe814ec63fb1c035ff9fb123146e3ed3700a2b16
+          build=44243959207
+          expected=eccef69f71873cc8f5d9aa35a07e4d63a3c4b830
           for i in $(seq 1 260); do
             artifact=$(curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/$build/artifacts" | jq -r '.artifacts[] | select(.name=="candidate-test-input" and .expired==false) | .id' | head -1)
             if [[ "$artifact" =~ ^[0-9]+$ ]]; then break; fi
