@@ -11,13 +11,18 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with: {persist-credentials: false}
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with: {name: arm-input-driver, path: driver, run-id: 44358745639, github-token: '${{ github.token }}'}
+      - name: Build the driver that records the rail at touch down
+        run: |
+          set -euo pipefail
+          mkdir driver
+          cp qa-arm-matrix/Driver.java qa-volume/input-driver.java
+          sed 's|adb install -r driver.apk|cp driver.apk "$GITHUB_WORKSPACE/driver/driver.apk"|' qa-volume/build-driver.sh > "$RUNNER_TEMP/build-driver.sh"
+          bash "$RUNNER_TEMP/build-driver.sh"
       - name: Verify the qualification and retain the measured APK and input driver
         env: {API_TOKEN: '${{ github.token }}'}
         run: |
           set -euo pipefail
-          bash qa-integrated/acquire-qualified-candidate.sh 44369298786 94ec647fac5132b5f3ee92e1304b98f57084e078
+          bash qa-integrated/acquire-qualified-candidate.sh 44387493680 432066bc1caa59aa7f674673059859d84021dd98
           mkdir candidate
           cp preview/composeApp-release.apk preview/provenance.txt driver/driver.apk candidate/
           awk '$2 == "composeApp-release.apk" { print }' preview/apk.sha256 > candidate/apk.sha256

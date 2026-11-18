@@ -8,7 +8,7 @@ export PATH="$RUNNER_TEMP/qa-arm-tools:$PATH"
 export OPENBLAS_NUM_THREADS=1
 mkdir -p results/original-volume
 (cd candidate && sha256sum -c apk.sha256)
-grep -Fx 'app=94ec647fac5132b5f3ee92e1304b98f57084e078' candidate/provenance.txt
+grep -Fx 'app=432066bc1caa59aa7f674673059859d84021dd98' candidate/provenance.txt
 cp candidate/apk.sha256 candidate/provenance.txt results/original-volume/
 adb install -r -g candidate/composeApp-release.apk
 adb install -r candidate/driver.apk

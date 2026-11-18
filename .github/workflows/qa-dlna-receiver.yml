@@ -5,7 +5,26 @@ on:
     paths: [.github/workflows/qa-dlna-receiver.yml, qa-power-ui/cast_receiver.py, qa-power-ui/check_cast_bridge.py]
 permissions: {contents: read, actions: read}
 jobs:
+  candidate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - name: Acquire the qualified APK
+        env: {API_TOKEN: '${{ github.token }}'}
+        run: |
+          set -euo pipefail
+          bash qa-integrated/acquire-qualified-candidate.sh 44387493680 432066bc1caa59aa7f674673059859d84021dd98
+          mkdir candidate
+          cp preview/composeApp-release.apk preview/provenance.txt candidate/
+          awk '$2 == "composeApp-release.apk" { print }' preview/apk.sha256 > candidate/apk.sha256
+          test "$(wc -l < candidate/apk.sha256)" -eq 1
+          (cd candidate && sha256sum -c apk.sha256)
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: cast-input, path: candidate/, retention-days: 5}
   cast:
+    needs: candidate
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 80
     strategy:
@@ -16,9 +35,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with: {persist-credentials: false}
-      - name: Acquire the qualified APK
-        env: {API_TOKEN: '${{ github.token }}'}
-        run: bash qa-integrated/acquire-qualified-candidate.sh 44369298786 94ec647fac5132b5f3ee92e1304b98f57084e078
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: cast-input, path: preview}
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: arm-input-driver

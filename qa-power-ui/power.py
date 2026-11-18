@@ -41,7 +41,7 @@ def open_video(url='http://127.0.0.1:18389/fixture.mp4', mime='video/mp4'):
         '-d', url)
 
 
-def playing(core, url='http://127.0.0.1:18389/fixture.mp4', mime='video/mp4'):
+def playing(core, url='http://127.0.0.1:18389/fixture.mp4', mime='video/mp4', *, hide_controls=True):
     opened = time.time()
     open_video(url, mime)
     result = direct.decode_playback('power-' + core, None, 3600)
@@ -57,7 +57,7 @@ def playing(core, url='http://127.0.0.1:18389/fixture.mp4', mime='video/mp4'):
     evidence.write_text(json.dumps({'movingPicture': result, 'identityChecks': identities}), encoding='utf-8')
     if not identity['active']:
         raise AssertionError('Requested native engine not active: ' + json.dumps(identity))
-    if rail(ui.snapshot()):
+    if hide_controls and rail(ui.snapshot()):
         image = screen()
         tap(image.width * .5, image.height * .35)
     return {'movingPicture': result, 'identity': identity}

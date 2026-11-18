@@ -218,22 +218,47 @@ public final class Driver extends Instrumentation {
         return pos>=anchor[0]+.375;
     }
 
+    private void seekTo(UiAutomation ui, Bundle result) {
+        String requestedFraction = args.getString("fraction");
+        double fraction;
+        if (requestedFraction == null) {
+            int target = Integer.parseInt(args.getString("target"));
+            int duration = Integer.parseInt(args.getString("duration"));
+            if (target < 0 || target >= duration) throw new IllegalArgumentException("target outside source");
+            fraction = (double) target / duration;
+            result.putInt("target", target);
+        } else {
+            fraction = Double.parseDouble(requestedFraction);
+            if (!(fraction > 0 && fraction < 1)) throw new IllegalArgumentException("fraction outside rail");
+        }
+        android.graphics.Rect rail = readyRail(ui);
+        if (rail == null) throw new IllegalStateException("Visible stable rail unavailable");
+        int from = rail.left + (int) (rail.width() * (fraction > 0.5 ? 0.2 : 0.8));
+        int end = rail.left + (requestedFraction == null ? (int) (rail.width() * fraction)
+                : (int) Math.round((rail.width() - 1) * fraction));
+        if (requestedFraction != null) {
+            result.putString("rail", rail.flattenToString());
+            result.putString("clockBefore", playbackState(ui.getRootInActiveWindow()));
+            result.putInt("downX", from);
+            result.putInt("upX", end);
+        }
+        int y = rail.centerY();
+        long down = SystemClock.uptimeMillis();
+        touch(ui, down, MotionEvent.ACTION_DOWN, from, y);
+        for (int i = 1; i <= 12; i++) {
+            SystemClock.sleep(25);
+            touch(ui, down, MotionEvent.ACTION_MOVE, from + (end - from) * i / 12, y);
+        }
+        touch(ui, down, MotionEvent.ACTION_UP, end, y);
+        result.putString("outcome", "seek-touch-issued");
+    }
+
     public void onStart() {
         Bundle result=new Bundle();
         try {
             final UiAutomation ui=getUiAutomation();
             if ("seekTo".equals(args.getString("mode"))) {
-                int target=Integer.parseInt(args.getString("target"));
-                int duration=Integer.parseInt(args.getString("duration"));
-                if(target<0||target>=duration)throw new IllegalArgumentException("target outside source");
-                android.graphics.Rect r=readyRail(ui);
-                if(r==null)throw new IllegalStateException("Visible stable rail unavailable");
-                int from=r.left+(int)(r.width()*(target>duration/2?.2:.8));
-                int end=r.left+(int)(r.width()*(double)target/duration),y=r.centerY();
-                long down=SystemClock.uptimeMillis();touch(ui,down,0,from,y);
-                for(int i=1;i<=12;i++){SystemClock.sleep(25);touch(ui,down,2,from+(end-from)*i/12,y);}
-                touch(ui,down,1,end,y);
-                result.putString("outcome","seek-touch-issued");result.putInt("target",target);
+                seekTo(ui, result);
                 finish(-1,result);return;
             }
             if ("playerPause".equals(args.getString("mode"))) {

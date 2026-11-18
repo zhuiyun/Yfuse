@@ -5,9 +5,11 @@ import json
 import os
 from pathlib import Path
 import random
+import re
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.request
 from urllib.parse import urlsplit
 
@@ -68,36 +70,63 @@ def fractions(identifier, duration, count):
     return [round(rng.uniform(.60, upper) if index % 2 == 0 else rng.uniform(.10, .35), 6) for index in range(count)]
 
 
+def later_source_picture(reference, first_second):
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        _, tree = direct.reveal()
+        position = direct.media_clock(tree)
+        if position is not None and position > first_second:
+            return reference.compare(direct.screen(), position)
+        time.sleep(.2)
+    return None
+
+
 def measure_touch(index, fraction, duration, reference, case):
     row = {'index': index, 'fraction': fraction, 'issued': False, 'confirmed': False}
     try:
-        (left, top, right, bottom), tree = direct.reveal()
-        previous = direct.media_clock(tree)
-        width = right - left
-        x = left + round((width - 1) * fraction)
-        y = (top + bottom) // 2
-        target = duration * (x - left) / (width - 1)
-        tolerance = max(2.25, duration / (width - 1) + 1.5)
-        row.update(beforeSecond=previous, rail=[left, top, right, bottom], releaseX=x, targetSecond=target, toleranceSeconds=tolerance)
-        start = left + round((width - 1) * (.16 if fraction > .5 else .85))
-        direct.adb('shell', 'input', 'swipe', start, y, x, y, 270)
+        reply = direct.adb('shell', 'am', 'instrument', '-w', '-e', 'mode', 'seekTo', '-e', 'fraction',
+                           str(fraction), 'qa.yfuse.gesture/.Driver')
+        fields = dict(re.findall(r'^INSTRUMENTATION_RESULT: (\w+)=([^\r\n]*)', reply, re.MULTILINE))
+        if fields.get('outcome') != 'seek-touch-issued':
+            raise AssertionError('Touch not confirmed by input driver: ' + fields.get('outcome', 'missing receipt'))
         row['issued'] = True
+        if not {'rail', 'clockBefore', 'downX', 'upX'} <= fields.keys():
+            raise ValueError('Missing on-device touch geometry')
+        left, top, right, bottom = map(int, fields['rail'].split())
+        width = right - left - 1
+        start, x = int(fields['downX']), int(fields['upX'])
+        if (width <= 0 or bottom <= top or not left <= start < right or start == x
+                or x != left + int(width * fraction + .5)):
+            raise ValueError('Touch did not end at the requested point of the visible rail')
+        clock = re.search(r'播放进度\s+((?:\d+:)?\d+:\d{2})\s*/', fields['clockBefore'])
+        previous = None
+        if clock:
+            previous = 0
+            for part in clock[1].split(':'):
+                previous = previous * 60 + int(part)
+        target = duration * (x - left) / width
+        tolerance = max(2.25, duration / width + 1.5)
+        row.update(beforeSecond=previous, rail=[left, top, right, bottom], downX=start, releaseX=x,
+                   targetSecond=target, toleranceSeconds=tolerance)
         out = direct.decode_playback(case, target, duration, max_wait=25, tolerance=tolerance,
                                      picture_check = reference.compare)
         row['output'] = out
-        row['confirmed'] = previous is not None and abs(previous - target) > tolerance + 2
-        if not row['confirmed']:
+        if previous is None or abs(previous - target) <= tolerance + 2:
             row['reason'] = 'pre-touch clock did not distinguish this gesture from continued playback'
+            return row
         if out['sourcePicture']['classification'] == 'different-scene':
             # A single screenshot may straddle a cut or a UI transition. Preserve both readings.
-            _, check_tree = direct.reveal()
-            position = direct.media_clock(check_tree)
-            if position is not None:
-                second = reference.compare(direct.screen(), position)
-                row['secondSourcePicture'] = second
-                if second['classification'] == 'different-scene':
-                    row['confirmed'] = False
-                    row['reason'] = 'two independent pictures match a different part of the original'
+            second = later_source_picture(reference, out['laterPos'])
+            if second is None:
+                row['reason'] = 'second picture clock unavailable after a conflicting scene'
+                return row
+            row['secondSourcePicture'] = second
+            if second['classification'] not in ('distinct-match', 'consistent-repeated-picture'):
+                row['reason'] = ('two independent pictures match a different part of the original'
+                                 if second['classification'] == 'different-scene'
+                                 else 'second picture could not resolve a conflicting scene')
+                return row
+        row['confirmed'] = True
     except (AssertionError, ValueError, RuntimeError, OSError, subprocess.SubprocessError) as error:
         row['reason'] = type(error).__name__ + ': ' + str(error)[:140]
     return row
@@ -120,7 +149,7 @@ def exercise(item, original, path, core, count, reference):
     try:
         for first in range(0, count, 40):
             direct.adb('shell', 'am', 'force-stop', 'com.yfuse')
-            opened = playing(core, url, item['mime'])
+            opened = playing(core, url, item['mime'], hide_controls=False)
             record['sessions'].append({'firstTouch': first, 'opened': opened})
             for index in range(first, min(first + 40, count)):
                 case = f'{label}-{core}-{index}'
