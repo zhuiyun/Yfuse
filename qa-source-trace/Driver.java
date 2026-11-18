@@ -111,6 +111,27 @@ public final class Driver extends Instrumentation {
         return difference / (3.0 * current.length);
     }
 
+    private boolean confirmedShortTail(org.json.JSONArray samples, int duration, double target) throws Exception {
+        for (int i = 0; i + 2 < samples.length(); i++) {
+            org.json.JSONObject first = samples.getJSONObject(i);
+            int firstTime = first.getInt("seconds");
+            long start = first.getLong("elapsedMs");
+            if (Math.abs(firstTime - target) > 1.6 || start > 3000 || firstTime >= duration - 1
+                    || first.getInt("durationSeconds") != duration) continue;
+            int changes = 0;
+            for (int j = i + 1; j < samples.length(); j++) {
+                org.json.JSONObject before = samples.getJSONObject(j - 1), after = samples.getJSONObject(j);
+                int now = after.getInt("seconds"), step = now - before.getInt("seconds");
+                double elapsed = (after.getLong("elapsedMs") - before.getLong("elapsedMs")) / 1000.0;
+                double total = (after.getLong("elapsedMs") - start) / 1000.0;
+                if (after.getInt("durationSeconds") != duration || now >= duration - 1 || elapsed <= 0
+                        || step <= 0 || step > elapsed + 1.2 || total > 5.5 || now - firstTime > total + 1.2) break;
+                if (after.optDouble("pictureChange", 0) > .8 && ++changes == 2) return true;
+            }
+        }
+        return false;
+    }
+
     private void observeShortTail(UiAutomation ui, Bundle result) throws Exception {
         long start = SystemClock.elapsedRealtime();
         int previousTime = -1;
@@ -132,14 +153,9 @@ public final class Driver extends Instrumentation {
                         samples.put(sample);
                         previousTime = position;
                         previousPicture = picture;
-                        if (samples.length() >= 3 && !"true".equals(args.getString("keepTailOpen"))) {
-                            org.json.JSONObject first = samples.getJSONObject(samples.length() - 3);
-                            org.json.JSONObject middle = samples.getJSONObject(samples.length() - 2);
-                            double target = clockSeconds(times.group(2)) * Double.parseDouble(args.getString("fraction"));
-                            if (Math.abs(first.getInt("seconds") - target) <= 1.6 && first.getLong("elapsedMs") <= 3000
-                                    && first.getInt("seconds") < middle.getInt("seconds") && middle.getInt("seconds") < position
-                                    && middle.optDouble("pictureChange", 0) > .8 && sample.optDouble("pictureChange", 0) > .8) break;
-                        }
+                        int duration = clockSeconds(times.group(2));
+                        if (!"true".equals(args.getString("keepTailOpen"))
+                                && confirmedShortTail(samples, duration, duration * Double.parseDouble(args.getString("fraction")))) break;
                     }
                 }
             }

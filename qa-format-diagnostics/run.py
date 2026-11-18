@@ -70,8 +70,13 @@ def natural_completion(case, launch, duration):
     events = [e for e in observer.app_events() if (e['time'], e['event']) not in prior]
     failed = native_failures(events)
     ended = any('重播' in s or '播放结束' in s for s in labels) or any(e['values'].get('phase') == 'ended' for e in events)
-    return {'opened': opened, 'endClock': observer.media_clock(tree), 'ended': ended,
-            'errorVisible': any('播放遇到问题' in s or '播放失败' in s for s in labels), 'nativeFailures': failed}
+    result = {'opened': opened, 'endClock': observer.media_clock(tree), 'ended': ended,
+              'errorVisible': any('播放遇到问题' in s or '播放失败' in s for s in labels), 'nativeFailures': failed}
+    if ended and not result['errorVisible']:
+        result['seekFromEnd'] = seek(case + '-natural-rewind', .21, 'adb-swipe', duration, known_ended=True)
+        events = [e for e in observer.app_events() if (e['time'], e['event']) not in prior]
+        result['nativeFailures'] = native_failures(events)
+    return result
 
 
 def confirm_identity(row, started):
@@ -90,11 +95,19 @@ def confirm_identity(row, started):
     row['identityWaitSeconds'] = round(time.monotonic() - began, 3)
 
 
-def seek(case, fraction, method, duration):
+def play_control(tree):
+    return next((n for n in tree.iter('node') if n.get('content-desc') == '播放'
+                 and n.get('visible') != 'false' and n.get('enabled') != 'false'), None)
+
+
+def seek(case, fraction, method, duration, known_ended=False):
     rail, tree = observer.reveal()
     left, top, right, bottom = rail
     row = {'fraction': fraction, 'method': method, 'rawTargetSeconds': duration * fraction,
            'beforeClock': observer.media_clock(tree), 'beforeInputUnix': time.time()}
+    row['fromEnded'] = known_ended or (
+        (row['beforeClock'] or 0) >= duration - 1
+        and (play_control(tree) is not None or observer.find(tree, ['重播', '播放结束']) is not None))
     short_tail = duration * (1 - fraction) <= 12
     if method == 'held-preview' or short_tail:
         mode = 'observed-seek' if method == 'held-preview' else 'short-swipe'
@@ -114,6 +127,24 @@ def seek(case, fraction, method, duration):
         observer.adb('shell', 'input', 'swipe',
             round(left + (right-left) * (.83 if fraction < .5 else .17)), (top+bottom)//2,
             round(left + (right-left) * fraction), (top+bottom)//2, 330)
+    # The completed YCore timeline clears play intent. Verify the seek actually landed
+    # while paused before tapping its normal Play control and observing moving output.
+    if row['fromEnded'] and core == 'YCore' and not short_tail:
+        deadline = time.monotonic() + 6
+        while time.monotonic() < deadline:
+            _, after = observer.reveal()
+            control = play_control(after)
+            position = observer.media_clock(after)
+            if control is not None and position is not None and abs(position - duration*fraction) <= 1.6:
+                screenshot(case + '-paused-at-requested-position')
+                row['pausedAtTargetSeconds'] = position
+                observer.tap(*observer.coords(control))
+                row['resumeTapped'] = True
+                break
+        if not row.get('resumeTapped'):
+            row['rawTargetConfirmed'] = False
+            screenshot(case + '-completed-seek-unconfirmed')
+            return row
     if short_tail:
         receipt = re.search(r'INSTRUMENTATION_RESULT: tailFrames=(\[[^\n]+\])', response)
         row['shortTailSamples'] = json.loads(receipt[1]) if receipt else []
@@ -174,10 +205,11 @@ for media in catalog:
         server.close()
         (output/'format-results.json').write_text(json.dumps(results, indent=2))
         print(case, row['openedWithin60Seconds'], sum(s.get('rawTargetConfirmed', False) for s in row['seeks']), flush=True)
-passed = all(r['openedWithin60Seconds'] and r.get('identity', {}).get('active') and len(r['seeks']) == 4
+passed = all(r['openedWithin60Seconds'] and r.get('identity', {}).get('active') and not r['nativeFailures'] and len(r['seeks']) == 4
              and all(s['rawTargetConfirmed'] for s in r['seeks']) for r in results)
 if completion_probe:
     passed = passed and all(r.get('naturalCompletion', {}).get('ended') and not r['naturalCompletion'].get('errorVisible')
+                            and r['naturalCompletion'].get('seekFromEnd', {}).get('rawTargetConfirmed')
                             and not r['nativeFailures'] and not r['naturalCompletion'].get('nativeFailures') for r in results)
 (output/'summary.json').write_text(json.dumps({'passed': passed, 'core': core, 'fixtures': len(results),
     'scope': 'Synthetic diagnostic counterparts; never substitutes for failed private originals'}, indent=2))
