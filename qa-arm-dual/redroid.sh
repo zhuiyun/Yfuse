@@ -20,10 +20,17 @@ fi
 ADB=$(command -v adb)
 if ! "$ADB" version >/dev/null 2>&1; then ADB=/usr/bin/adb; fi
 "$ADB" version
-docker pull --platform linux/arm64 docker.io/redroid/redroid:12.0.0_64only-latest
-digest=$(docker image inspect docker.io/redroid/redroid:12.0.0_64only-latest --format '{{index .RepoDigests 0}}')
-echo "Cloud Android image $digest"
-docker run -d --name qa-android --platform linux/arm64 --privileged -p 127.0.0.1:15555:5555 "$digest" androidboot.use_memfd=true androidboot.redroid_gpu_mode=guest androidboot.redroid_width=720 androidboot.redroid_height=1280 androidboot.redroid_dpi=260
+image=docker.io/redroid/redroid@sha256:a6c464bbedcf1dcb67dbf91f329fbb19bee5b50631f0ca6bda6ed7c41b0e64e2
+for attempt in 1 2 3; do
+  if docker pull --platform linux/arm64 "$image" 2>&1 | tee "$RUNNER_TEMP/android-image-pull.log"; then break; fi
+  if (( attempt == 3 )) || ! grep -Eiq 'timeout|timed out|connection reset|temporar(il)?y unavailable|bad gateway|service unavailable|gateway time.?out' "$RUNNER_TEMP/android-image-pull.log"; then
+    exit 1
+  fi
+  sleep $((attempt * 5))
+done
+test "$(docker image inspect "$image" --format '{{.Architecture}}')" = arm64
+echo "Cloud Android image $image"
+docker run -d --name qa-android --platform linux/arm64 --privileged -p 127.0.0.1:15555:5555 "$image" androidboot.use_memfd=true androidboot.redroid_gpu_mode=guest androidboot.redroid_width=720 androidboot.redroid_height=1280 androidboot.redroid_dpi=260
 for i in $(seq 1 120); do
   "$ADB" connect 127.0.0.1:15555 >/dev/null 2>&1 || true
   boot=$("$ADB" -s 127.0.0.1:15555 shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)
