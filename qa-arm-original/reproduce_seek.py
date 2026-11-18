@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import threading
@@ -11,6 +12,7 @@ if os.environ.get('GITHUB_ACTIONS') != 'true':
     raise SystemExit('Cloud runner required')
 
 import direct
+from engine import configure
 
 catalog = json.loads(Path('qa-format-originals/sources.json').read_text())
 catalog += [dict(x, mime='video/mp4') for x in json.loads(Path('qa-titles/catalog.json').read_text())]
@@ -44,7 +46,6 @@ if mode == 'loopback':
             if self.path != '/original.media':
                 self.send_error(404);return
             size = target.stat().st_size
-            import re
             match = re.fullmatch(r'bytes=(\d+)-(\d*)', self.headers.get('Range', ''))
             start = int(match[1]) if match else 0
             end = min(int(match[2]), size-1) if match and match[2] else size-1
@@ -74,9 +75,40 @@ if mode == 'loopback':
     direct.adb('reverse', 'tcp:18389', 'tcp:18389')
     item = dict(item, testUrl='http://127.0.0.1:18389/original.media')
 
+
+def cache_state():
+    directory = '/data/user/0/com.yfuse/cache/video_cache_v2'
+    command = rf'if [ -d {directory} ]; then find {directory} -type f -exec stat -c "%s %n" {{}} \; ; fi'
+    listing = direct.adb('shell', command)
+    sizes = []
+    for row in listing.splitlines():
+        count, filename = row.split(' ', 1)
+        if re.match(r'^\d+\.\d+\.\d+\.', Path(filename).name):
+            sizes.append(int(count))
+    return {'ranges': len(sizes), 'mediaBytes': sum(sizes)}
+
+
+def prepare_cache_pair(index):
+    if direct.adb('get-serialno').strip() != '127.0.0.1:15555':
+        raise RuntimeError('Cache comparisons require the local disposable Android guest')
+    fresh = index % 2 == 0
+    direct.adb('shell', 'am', 'force-stop', 'com.yfuse')
+    if fresh:
+        if direct.adb('shell', 'pm', 'clear', 'com.yfuse').strip() != 'Success':
+            raise RuntimeError('Could not reset the disposable test installation')
+        configure(os.environ['QA_ENGINE'])
+    state = cache_state()
+    if fresh and state['mediaBytes'] != 0:
+        raise RuntimeError('New comparison retained media data')
+    return {'attempt': index + 1, 'pair': index // 2 + 1, 'cleared': fresh, 'before': state}
+
+
+cache_pairs = []
+compare_cache = os.environ.get('QA_CACHE_PAIRS') == 'true'
 try:
     for index in range(12):
         sample = dict(item, id=item['id']+'-'+mode+'-'+str(index))
+        cache_case = prepare_cache_pair(index) if compare_cache else None
         try:
             direct.run(sample)
         except Exception as error:
@@ -84,6 +116,11 @@ try:
             direct.capture_failure(sample['id'])
             break
         finally:
+            if cache_case is not None:
+                cache_case['after'] = cache_state()
+                cache_case['confirmed'] = any(r['case'] == sample['id'] + '-complete' and r.get('ok') for r in direct.ROWS)
+                cache_pairs.append(cache_case)
+                (direct.OUT / 'cache-open-pairs.json').write_text(json.dumps(cache_pairs, indent=2))
             if os.environ.get('QA_DNS_CONTROL') == 'true':
                 # Observe after the attempt: a DNS probe before playback would warm the cache
                 # and could hide the first-lookup failure this comparison is investigating.

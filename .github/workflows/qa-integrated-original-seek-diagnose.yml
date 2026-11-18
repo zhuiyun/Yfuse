@@ -1,4 +1,4 @@
-name: Diagnose the NASA episode DNS failure with identical origin and loopback bytes
+name: Reopen the previously refused Blender episode on its origin and identical loopback bytes
 'on':
   push:
     branches:
@@ -10,7 +10,7 @@ permissions:
   actions: read
 jobs:
   diagnose:
-    name: YCore original range control ${{ matrix.path }}
+    name: SenPlayer original cold and retained-cache starts ${{ matrix.path }}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 75
     strategy:
@@ -21,27 +21,26 @@ jobs:
         - origin
         - loopback
     env:
-      QA_ENGINE: YCore
+      QA_ENGINE: SenPlayer
       QA_ORIGINAL_PATH: ${{ matrix.path }}
       QA_CAPTURE_FAILURE: 'true'
       QA_RANGE_CONTROL: 'true'
-      QA_DNS_CONTROL: 'true'
-      QA_ORIGINAL_ID: 'nasa-jcs2022m0000xx_Space to Ground_435_220819'
+      QA_DNS_CONTROL: 'false'
+      QA_CACHE_PAIRS: 'true'
+      QA_ORIGINAL_ID: 'blender-fb70d459-48d2-4db5-adba-813c84f9200a'
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with:
         persist-credentials: false
-    - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-      with:
-        name: candidate-test-input
-        path: preview
-        run-id: 44067422996
-        github-token: ${{ github.token }}
+    - name: Acquire the qualified read-retry candidate
+      env:
+        API_TOKEN: ${{ github.token }}
+      run: bash qa-integrated/acquire-qualified-candidate.sh 44366246881 ba340b12e150917e108403ab9b95a966abe96b62
     - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
       with:
         name: arm-input-driver
         path: qa-driver
-        run-id: 44068585060
+        run-id: 44358745639
         github-token: ${{ github.token }}
     - name: Verify identical candidate and prepare original file checks
       run: 'set -euo pipefail
@@ -50,7 +49,7 @@ jobs:
 
         (cd preview && sha256sum -c apk.sha256)
 
-        grep -Fx "app=fe814ec63fb1c035ff9fb123146e3ed3700a2b16" preview/provenance.txt
+        grep -Fx "app=ba340b12e150917e108403ab9b95a966abe96b62" preview/provenance.txt
 
         cp preview/provenance.txt preview/apk.sha256 results/
 

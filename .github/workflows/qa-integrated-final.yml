@@ -5,7 +5,7 @@ on:
     paths: ['.github/workflows/qa-integrated-final.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: 2a3c4ab9624f3d35d7637729d619555db98b357b
+  QA_APP_SHA: 94ec647fac5132b5f3ee92e1304b98f57084e078
 jobs:
   build:
     name: Acquire the qualified identical release candidate
@@ -16,7 +16,7 @@ jobs:
         with: {persist-credentials: false}
       - name: Wait for unit and actual ARM64 qualification
         env: {API_TOKEN: "${{ github.token }}"}
-        run: bash qa-integrated/acquire-qualified-candidate.sh 44349576264 2a3c4ab9624f3d35d7637729d619555db98b357b
+        run: bash qa-integrated/acquire-qualified-candidate.sh 44369298786 94ec647fac5132b5f3ee92e1304b98f57084e078
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with: {name: candidate-test-input, path: preview, retention-days: 7}
 

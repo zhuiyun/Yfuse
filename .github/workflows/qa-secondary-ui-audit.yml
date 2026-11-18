@@ -1,4 +1,4 @@
-name: Verify all pages, file information contrast and the count-only audio card
+name: Verify all pages and file information after the upstream read repair
 'on':
   push:
     branches:
@@ -9,8 +9,8 @@ permissions:
   contents: read
   actions: read
 env:
-  QA_APP_SHA: 2a3c4ab9624f3d35d7637729d619555db98b357b
-  QA_BUILD_RUN: 44349576264
+  QA_APP_SHA: 94ec647fac5132b5f3ee92e1304b98f57084e078
+  QA_BUILD_RUN: 44369298786
 jobs:
   acquire:
     runs-on: ubuntu-24.04
