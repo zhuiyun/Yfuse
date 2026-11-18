@@ -413,9 +413,18 @@ public final class SenPlayerSession implements AutoCloseable {
       throw error;
     }
   }
+  public static final class CommandRejected extends IOException {
+    public final int code;
+    public CommandRejected(int code) {
+      super("SenPlayer command failed (" + code + ")");
+      this.code = code;
+    }
+  }
   private static void checkCode(Object value) throws IOException {
-    if (!(value instanceof Number) || ((Number) value).intValue() != 0)
+    if (!(value instanceof Number))
       throw new IOException("SenPlayer command failed (" + value + ")");
+    int code = ((Number) value).intValue();
+    if (code != 0) throw new CommandRejected(code);
   }
   private static Number number(Object value, String field) throws Exception {
     return (Number) value.getClass().getField(field).get(value);

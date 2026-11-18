@@ -7,6 +7,7 @@ import com.yfuse.core2.api.YBufferRangeSource
 import com.yfuse.core2.api.YBufferSnapshot
 import com.yfuse.core2.api.YBufferedRange
 import com.yfuse.core2.api.normalizeBufferedRanges
+import com.yfuse.senplayer.SenPlayerSession
 
 internal fun PlaybackState.forSenPlayerLoad(
     sessionId: String,
@@ -110,8 +111,26 @@ internal fun senPlayerPendingSeekTarget(
 ): Long? =
     positionMs
         ?.takeIf {
-            durationMs > 0 && phase in setOf("playing", "paused", "buffering", "seeking")
+            durationMs > 0 && phase in setOf("playing", "paused", "buffering", "seeking", "ended")
         }?.let { senPlayerSeekPosition(it, durationMs) }
+
+/** Native EOF can occur between the last state poll and the seek command. */
+internal inline fun seekOrReopenCompletedSenPlayerSource(
+    ended: Boolean,
+    seek: () -> Unit,
+    sourceHasEnded: () -> Boolean,
+    reopen: () -> Unit,
+) {
+    if (!ended) {
+        try {
+            seek()
+            return
+        } catch (rejected: SenPlayerSession.CommandRejected) {
+            if (rejected.code != -2 || !sourceHasEnded()) throw rejected
+        }
+    }
+    reopen()
+}
 
 internal fun senPlayerReportedPosition(
     pendingSeekMs: Long?,

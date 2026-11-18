@@ -402,12 +402,7 @@ internal class SenPlayerVideoEngine(
     }
 
     private fun retireSurfaceSession() {
-        if (!loadPending) {
-            queue.getOrNull(state.value.currentIndex)?.let { item ->
-                surfaceTracks =
-                    senPlayerSurfaceTracks(item.id, state.value, subtitles.requestedSelection(), requestedAudioId)
-            }
-        }
+        if (!loadPending) rememberCurrentTracks()
         closeSession()
         loadPending = true
         mutableState.update { it.copy(playing = false, buffering = false) }
@@ -517,10 +512,7 @@ internal class SenPlayerVideoEngine(
         pictureDurationMs = sample.durationMs
         val target = senPlayerPendingSeekTarget(pendingSeekMs, sample.durationMs, sample.phase)
         if (target != null) {
-            beginVideoSeek(current.sourceId(), sample)
-            current.seek(target)
-            pendingSeekMs = null
-            mutableState.update { if (released.get()) it else it.copy(positionMs = target, ended = false) }
+            seekCurrentSource(current, sample, target)
             return
         }
         val ended = sample.phase == "ended"
@@ -954,24 +946,50 @@ internal class SenPlayerVideoEngine(
         submit {
             val position = senPlayerSeekPosition(positionMs, state.value.durationMs)
             remoteEndRecovery.onSeek(position)
-            val wasEnded = state.value.ended
             val current = session?.takeIf { state.value.error == null && !loadPending && state.value.durationMs > 0 }
-            mutableState.update { it.copy(positionMs = position, ended = false) }
             endGate.reset()
-            if (wasEnded && current != null) {
-                pendingSeekMs = null
-                loadCurrent()
-                return@submit
-            }
             if (current != null) {
-                beginVideoSeek(current.sourceId(), current.snapshot())
-                current.seek(position)
-                pendingSeekMs = null
+                seekCurrentSource(current, current.snapshot(), position)
             } else {
                 pendingSeekMs = position
+                mutableState.update { it.copy(positionMs = position, ended = false) }
                 // Saving intent has not moved the native source or invalidated its displayed frame.
             }
         }
+    }
+
+    private fun rememberCurrentTracks() {
+        queue.getOrNull(state.value.currentIndex)?.let { item ->
+            surfaceTracks =
+                senPlayerSurfaceTracks(item.id, state.value, subtitles.requestedSelection(), requestedAudioId)
+        }
+    }
+
+    private fun seekCurrentSource(
+        current: SenPlayerSession,
+        sample: SenPlayerSession.Snapshot,
+        position: Long,
+    ) {
+        val source = current.sourceId()
+
+        fun hasEnded(snapshot: SenPlayerSession.Snapshot): Boolean =
+            source != 0L && snapshot.source == source && snapshot.phase == "ended" && snapshot.errorCode == 0
+
+        val ended = state.value.ended || hasEnded(sample)
+        pendingSeekMs = null
+        mutableState.update { if (released.get()) it else it.copy(positionMs = position, ended = false) }
+        seekOrReopenCompletedSenPlayerSource(
+            ended = ended,
+            seek = {
+                beginVideoSeek(source, sample)
+                current.seek(position)
+            },
+            sourceHasEnded = { hasEnded(current.snapshot()) },
+            reopen = {
+                rememberCurrentTracks()
+                loadCurrent()
+            },
+        )
     }
 
     override fun setSpeed(speed: Float) {

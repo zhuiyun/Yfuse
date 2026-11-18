@@ -8,6 +8,7 @@ import com.yfuse.core2.api.YBufferRangeCoverage
 import com.yfuse.core2.api.YBufferRangeSource
 import com.yfuse.core2.api.YBufferSnapshot
 import com.yfuse.core2.api.YBufferedRange
+import com.yfuse.senplayer.SenPlayerSession
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -244,8 +245,29 @@ class SenPlayerStatePolicyTest {
         assertNull(senPlayerPendingSeekTarget(45_000, 60_000, "loading"))
         assertNull(senPlayerPendingSeekTarget(45_000, 60_000, "failed"))
         assertNull(senPlayerPendingSeekTarget(null, 60_000, "playing"))
+        assertEquals(45_000L, senPlayerPendingSeekTarget(45_000, 60_000, "ended"))
         assertEquals(45_000L, senPlayerPendingSeekTarget(45_000, 60_000, "paused"))
         assertEquals(60_000L, senPlayerPendingSeekTarget(Long.MAX_VALUE, 60_000, "playing"))
+    }
+
+    @Test
+    fun completed_source_reopens_once_even_when_the_native_seek_races_the_final_frame() {
+        var opens = 0
+        val rejected = SenPlayerSession.CommandRejected(-2)
+        seekOrReopenCompletedSenPlayerSource(true, { error("seek after EOF") }, { error("unused") }) { opens++ }
+        seekOrReopenCompletedSenPlayerSource(false, { throw rejected }, { true }) { opens++ }
+        seekOrReopenCompletedSenPlayerSource(false, {}, { error("healthy seek read another snapshot") }) { opens++ }
+        assertEquals(2, opens)
+        for (code in listOf(-2, -5)) {
+            assertFailsWith<SenPlayerSession.CommandRejected> {
+                seekOrReopenCompletedSenPlayerSource(
+                    false,
+                    { throw SenPlayerSession.CommandRejected(code) },
+                    { code != -2 },
+                    { error("reopened without a confirmed EOF seek rejection") },
+                )
+            }
+        }
     }
 
     @Test
