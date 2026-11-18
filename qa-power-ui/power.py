@@ -10,6 +10,7 @@ import xml.etree.ElementTree as ET
 from media import MediaServer
 from library import LibraryServer
 from library_ui import connect
+from playback_cpu import profile
 from telemetry import Recorder, shell
 
 sys.path.insert(0, 'qa-arm-matrix')
@@ -229,10 +230,22 @@ def main():
     finally:
         recorder.capture('final', server.counters(), heavy=True, intervention=True)
         recorder.finish(phases, status)
-        adb('shell', 'dumpsys', 'battery', 'reset', check=False)
-        adb('shell', 'input', 'keyevent', '224', check=False)
-        server.close()
-        library.close()
+        try:
+            if status == 'recorded' and os.environ.get('QA_POWER_CPU_ATTRIBUTION') == 'true':
+                extra = {'status': 'profile-unavailable'}
+                try:
+                    extra = profile()
+                    if extra['status'] == 'recorded':
+                        extra['pictureAfterSampling'] = direct.decode_playback('cpu-profile-end', None, 3600, max_wait=25)
+                except (OSError, RuntimeError, AssertionError, ValueError, subprocess.SubprocessError) as error:
+                    extra['observationError'] = type(error).__name__
+                extra.update(core=core, phase='recovered-playback', outsideTimedStudy=True)
+                (out / 'playback-cpu-profile.json').write_text(json.dumps(extra, indent=2), encoding='utf-8')
+        finally:
+            adb('shell', 'dumpsys', 'battery', 'reset', check=False)
+            adb('shell', 'input', 'keyevent', '224', check=False)
+            server.close()
+            library.close()
     # Recording success is not a claim that the app meets a physical energy budget.
     if status != 'recorded':
         raise SystemExit(1)
