@@ -4,6 +4,44 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+
+/** Main-thread requests for one renderer load. A newer gesture owns the next transport write. */
+internal class DlnaSeekCommands {
+    private val writes = Mutex()
+    var revision = 0L
+        private set
+    private var targetMs = 0L
+    private var requestedAtMs = 0L
+
+    fun select(
+        positionMs: Long,
+        nowMs: Long,
+    ): Long {
+        targetMs = positionMs
+        requestedAtMs = nowMs
+        return ++revision
+    }
+
+    fun matchesPausedClock(
+        positionMs: Long?,
+        nowMs: Long,
+        toleranceMs: Long,
+    ): Boolean {
+        if (revision == 0L || positionMs == null || nowMs < requestedAtMs) return false
+        return positionMs - targetMs in -toleranceMs..(nowMs - requestedAtMs + toleranceMs)
+    }
+
+    suspend fun <T> whenCurrent(
+        expected: Long,
+        command: suspend () -> T,
+    ): T? =
+        writes.withLock {
+            if (expected != revision) return@withLock null
+            command().takeIf { expected == revision }
+        }
+}
 
 /** A receiver address alone cannot distinguish two loads on the same device. */
 internal data class CastSessionToken(

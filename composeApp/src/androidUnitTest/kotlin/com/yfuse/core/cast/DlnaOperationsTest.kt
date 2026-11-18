@@ -1,5 +1,6 @@
 package com.yfuse.core.cast
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
@@ -17,6 +18,46 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class DlnaOperationsTest {
+    @Test
+    fun user_seek_supersedes_a_handoff_in_flight_and_an_older_queued_gesture() =
+        runTest {
+            val commands = DlnaSeekCommands()
+            val sent = mutableListOf<Int>()
+            val entered = CompletableDeferred<Unit>()
+            val received = CompletableDeferred<Unit>()
+            val handoff =
+                async {
+                    commands.whenCurrent(0L) {
+                        sent += 11
+                        entered.complete(Unit)
+                        received.await()
+                        11
+                    }
+                }
+            entered.await()
+            val forward = commands.select(60_000L, 1_000L)
+            val queued = async { commands.whenCurrent(forward) { sent.add(60) } }
+            val back = commands.select(20_000L, 2_000L)
+            val latest = async { commands.whenCurrent(back) { sent.add(20) } }
+            received.complete(Unit)
+            assertNull(handoff.await())
+            assertNull(queued.await())
+            assertEquals(true, latest.await())
+            assertNull(commands.whenCurrent(0L) { sent.add(11) })
+            assertEquals(listOf(11, 20), sent)
+        }
+
+    @Test
+    fun paused_clock_must_be_reachable_from_the_last_gesture() {
+        val commands = DlnaSeekCommands()
+        assertFalse(commands.matchesPausedClock(21_000L, 1_000L, 2_000L))
+        commands.select(20_000L, 3_000L)
+        assertTrue(commands.matchesPausedClock(21_000L, 4_500L, 2_000L))
+        assertFalse(commands.matchesPausedClock(95_000L, 4_500L, 2_000L))
+        assertFalse(commands.matchesPausedClock(11_000L, 4_500L, 2_000L))
+        assertFalse(commands.matchesPausedClock(null, 4_500L, 2_000L))
+    }
+
     @Test
     fun confirmed_seek_returns_before_an_unnecessary_failing_request() =
         runTest {

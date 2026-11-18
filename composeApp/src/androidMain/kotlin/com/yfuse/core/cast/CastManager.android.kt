@@ -109,7 +109,9 @@ private class DlnaStart(
     val startedAtMs: Long,
     var seekCapability: CastCapability,
     var seekAttempts: Int,
-)
+) {
+    val seeks = DlnaSeekCommands()
+}
 
 private enum class ActiveProtocol { Chromecast, Dlna }
 
@@ -141,6 +143,7 @@ private class AndroidCastManager(
 
     /** Set from an accepted DLNA load until its renderer shows it is playing, or fails to. */
     private var dlnaStart: DlnaStart? = null
+    private var dlnaSeeks = DlnaSeekCommands()
 
     /** False while a started renderer's clock has not been seen to move; its position is then unused. */
     private var dlnaClockTrusted = true
@@ -1343,7 +1346,11 @@ private class AndroidCastManager(
         start: DlnaStart? = null,
     ) {
         dlnaPollJob?.cancel()
-        if (start != null) dlnaStart = start
+        if (start != null) {
+            dlnaStart = start
+            dlnaSeeks = start.seeks
+        }
+        val seeks = dlnaSeeks
         val token = mutableState.value.castSessionToken()
         dlnaPollJob =
             scope.launch {
@@ -1361,9 +1368,11 @@ private class AndroidCastManager(
                             DLNA_IDLE_POLL_INTERVAL_MS
                         },
                     )
+                    val seekRevision = seeks.revision
                     val result =
                         readDlnaSessionResult(token, { mutableState.value }) { readDlnaSnapshot(target) }
                             ?: return@launch
+                    if (seekRevision != seeks.revision) continue
                     result
                         .onSuccess { snapshot ->
                             failures = 0
@@ -1378,14 +1387,15 @@ private class AndroidCastManager(
                             val pending = dlnaStart
                             if (pending == null) {
                                 releaseRelayAfterEnd(snapshot.status)
-                                if (dlnaClockWatch?.moved(snapshot.status, snapshot.positionMs) == true) {
+                                val now = monotonicNowMs()
+                                if (dlnaClockWatch?.moved(snapshot.status, snapshot.positionMs, now) == true) {
                                     dlnaClockTrusted = true
                                     dlnaClockWatch = null
                                 }
                                 mutableState.update {
                                     it.remoteUpdate(
                                         status = snapshot.status,
-                                        positionMs = snapshot.positionMs.takeIf { dlnaClockTrusted },
+                                        positionMs = confirmedDlnaPosition(snapshot),
                                         durationMs = snapshot.durationMs,
                                     )
                                 }
@@ -1405,6 +1415,9 @@ private class AndroidCastManager(
                                     if (snapshot.status == CastPlaybackStatus.Playing) {
                                         seekToStart(target, token, pending, snapshot.positionMs, maxAttempts = 1)
                                     }
+                                    if (seekRevision != seeks.revision || !token.matches(mutableState.value)) {
+                                        return@onSuccess
+                                    }
                                     mutableState.update {
                                         it.remoteUpdate(
                                             status =
@@ -1413,6 +1426,7 @@ private class AndroidCastManager(
                                                 } else {
                                                     CastPlaybackStatus.Buffering
                                                 },
+                                            positionMs = confirmedDlnaPosition(snapshot),
                                             durationMs = snapshot.durationMs,
                                         )
                                     }
@@ -1431,6 +1445,9 @@ private class AndroidCastManager(
                                             verdict.positionMs,
                                             maxAttempts = DLNA_START_SEEK_ATTEMPTS,
                                         )
+                                    }
+                                    if (seekRevision != seeks.revision || !token.matches(mutableState.value)) {
+                                        return@onSuccess
                                     }
                                     mutableState.update {
                                         it.remoteUpdate(
@@ -1483,6 +1500,7 @@ private class AndroidCastManager(
         maxAttempts: Int,
     ) {
         val targetMs = start.targetPositionMs
+        if (start.seeks.revision != 0L) return
         if (targetMs <= DLNA_SEEK_TOLERANCE_MS || start.seekAttempts >= maxAttempts) return
         if (positionMs != null && kotlin.math.abs(positionMs - targetMs) <= DLNA_SEEK_TOLERANCE_MS) return
         if (start.seekCapability != CastCapability.Supported) {
@@ -1497,15 +1515,12 @@ private class AndroidCastManager(
                 return
             }
         }
-        start.seekAttempts++
         val sent =
-            readDlnaSessionResult(token, { mutableState.value }) {
-                soap(
-                    target.avTransportUrl,
-                    "Seek",
-                    "<InstanceID>0</InstanceID><Unit>REL_TIME</Unit>" +
-                        "<Target>${formatDlnaTime(targetMs)}</Target>",
-                )
+            start.seeks.whenCurrent(0L) {
+                readDlnaSessionResult(token, { mutableState.value }) {
+                    start.seekAttempts++
+                    sendDlnaSeek(target, targetMs)
+                }
             } ?: return
         sent
             .onSuccess {
@@ -1616,7 +1631,7 @@ private class AndroidCastManager(
                                 } else {
                                     snapshot.status
                                 },
-                            positionMs = snapshot.positionMs.takeIf { !starting && dlnaClockTrusted },
+                            positionMs = confirmedDlnaPosition(snapshot),
                             durationMs = snapshot.durationMs,
                         )
                     }
@@ -1626,42 +1641,69 @@ private class AndroidCastManager(
                 }.isSuccess
         }
 
+    private fun confirmedDlnaPosition(snapshot: DlnaSnapshot): Long? {
+        if (dlnaStart == null && dlnaClockTrusted) return snapshot.positionMs
+        if (snapshot.status != CastPlaybackStatus.Paused) return null
+        return snapshot.positionMs.takeIf { dlnaSeeks.matchesPausedClock(it, monotonicNowMs(), DLNA_SEEK_TOLERANCE_MS) }
+    }
+
+    private suspend fun sendDlnaSeek(
+        target: DlnaTarget,
+        positionMs: Long,
+    ) = soap(
+        target.avTransportUrl,
+        "Seek",
+        "<InstanceID>0</InstanceID><Unit>REL_TIME</Unit><Target>${formatDlnaTime(positionMs)}</Target>",
+    )
+
     private suspend fun seekDlna(positionMs: Long): Boolean =
         withContext(Dispatchers.Main.immediate) {
             val target = activeDlnaTarget() ?: return@withContext false
             val token = mutableState.value.castSessionToken()
-            val capability =
+            val seeks = dlnaSeeks
+            val targetPosition = positionMs.coerceAtLeast(0L)
+            val revision = seeks.select(targetPosition, monotonicNowMs())
+            val capabilityResult =
                 readDlnaSessionResult(token, { mutableState.value }) {
                     when (mutableState.value.capabilities.seek) {
                         CastCapability.Unknown -> queryDlnaSeekCapability(target)
                         else -> mutableState.value.capabilities.seek
                     }
-                }?.getOrThrow() ?: return@withContext false
+                } ?: return@withContext false
+            if (seeks.revision != revision) return@withContext false
+            val capability =
+                capabilityResult.getOrElse { error ->
+                    AppLog.warning("cast", "dlna_command_failed", "DLNA seek capability unavailable", error)
+                    mutableState.update { it.commandFailed(dlnaNoResponse("跳转")) }
+                    return@withContext false
+                }
             mutableState.update { it.copy(capabilities = it.capabilities.copy(seek = capability)) }
             if (capability != CastCapability.Supported) {
                 mutableState.update { it.copy(error = "此 DLNA 设备未确认支持跳转") }
                 return@withContext false
             }
-            val targetPosition = positionMs.coerceAtLeast(0L)
             val previousStatus = mutableState.value.status
             val result =
-                readDlnaSessionResult(token, { mutableState.value }) {
-                    soap(
-                        target.avTransportUrl,
-                        "Seek",
-                        "<InstanceID>0</InstanceID><Unit>REL_TIME</Unit>" +
-                            "<Target>${formatDlnaTime(targetPosition)}</Target>",
-                    )
-                    awaitDlnaConfirmation(
-                        attempts = DLNA_CONFIRM_ATTEMPTS,
-                        delayMs = DLNA_CONFIRM_DELAY_MS,
-                        read = { readDlnaSnapshot(target) },
-                        accepted = { snapshot ->
-                            snapshot.positionMs?.let { actual ->
-                                kotlin.math.abs(actual - targetPosition) <= DLNA_SEEK_TOLERANCE_MS
-                            } == true
-                        },
-                    ) ?: error("设备未确认跳转位置")
+                seeks.whenCurrent(revision) {
+                    readDlnaSessionResult(token, { mutableState.value }) {
+                        sendDlnaSeek(target, targetPosition)
+                        AppLog.info(
+                            category = "cast",
+                            event = "dlna_user_seek_sent",
+                            message = "DLNA renderer accepted the viewer's seek command",
+                            attributes = mapOf("targetMs" to targetPosition.toString()),
+                        )
+                        awaitDlnaConfirmation(
+                            attempts = DLNA_CONFIRM_ATTEMPTS,
+                            delayMs = DLNA_CONFIRM_DELAY_MS,
+                            read = { readDlnaSnapshot(target) },
+                            accepted = { snapshot ->
+                                snapshot.positionMs?.let { actual ->
+                                    kotlin.math.abs(actual - targetPosition) <= DLNA_SEEK_TOLERANCE_MS
+                                } == true
+                            },
+                        ) ?: error("设备未确认跳转位置")
+                    }
                 } ?: return@withContext false
             result
                 .onSuccess { snapshot ->
@@ -1672,7 +1714,7 @@ private class AndroidCastManager(
                             status =
                                 snapshot.status.takeUnless { value -> value == CastPlaybackStatus.Error }
                                     ?: previousStatus,
-                            positionMs = snapshot.positionMs.takeIf { starting == null && dlnaClockTrusted },
+                            positionMs = snapshot.positionMs,
                             durationMs = snapshot.durationMs,
                         )
                     }
