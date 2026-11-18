@@ -1,4 +1,4 @@
-name: Four-hour recording and output-size comparison on the detail card candidate
+name: Four-hour recording and output-size comparison on the Profile 5 candidate
 'on':
   push:
     branches:
@@ -9,8 +9,8 @@ permissions:
   contents: read
   actions: read
 env:
-  QA_APP_SHA: 6c05a4bd1fc78d4c324eacaf71e43c3b61c86a14
-  QA_BUILD_RUN: 44309572364
+  QA_APP_SHA: c77ab7319cc2f7fc745ee67d36e795ecb3feefaf
+  QA_BUILD_RUN: 44327313913
   QA_EXPECT_NO_SUBTITLE_CONFIGURATION_ERRORS: 'true'
   QA_POWER_CPU_ATTRIBUTION: 'true'
   QA_POWER_OUTPUT_SIZE_COMPARISON: 'true'
@@ -27,6 +27,7 @@ jobs:
         API_TOKEN: ${{ github.token }}
       run: |
         bash qa-integrated/acquire-qualified-candidate.sh "$QA_BUILD_RUN" "$QA_APP_SHA"
+        python3 qa-power-ui/output_size_cpu.py preview/mapping.txt > preview/power-surface-type.txt
         cp "$RUNNER_TEMP/qualified-build.json" preview/baseline-build-run.json
         cp "$RUNNER_TEMP/qualified-jobs.json" preview/baseline-build-jobs.json
         printf '%s\n' 'Host, repeated cancellation and native gates passed. Power/UI evidence alone does not authorize signing.' > preview/baseline-limit.txt
@@ -38,6 +39,8 @@ jobs:
           preview/provenance.txt
 
           preview/apk.sha256
+
+          preview/power-surface-type.txt
 
           preview/baseline-build-run.json
 

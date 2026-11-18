@@ -10,7 +10,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with: {ref: 6c05a4bd1fc78d4c324eacaf71e43c3b61c86a14, persist-credentials: false}
+        with: {ref: c77ab7319cc2f7fc745ee67d36e795ecb3feefaf, persist-credentials: false}
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
         with: {distribution: temurin, java-version: '17'}
       - name: Inspect the exact installed file, signature and alignment
@@ -18,13 +18,13 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p native evidence
-          app_sha=6c05a4bd1fc78d4c324eacaf71e43c3b61c86a14
-          bash qa-integrated/acquire-qualified-candidate.sh 44309572364 "$app_sha"
+          app_sha=c77ab7319cc2f7fc745ee67d36e795ecb3feefaf
+          bash qa-integrated/acquire-qualified-candidate.sh 44327313913 "$app_sha"
           api="https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts"
           native_id=$(sed -n 's/^source_artifact=//p' preview/provenance.txt)
           [[ "$native_id" =~ ^[0-9]+$ ]]
           curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/$native_id" > "$RUNNER_TEMP/native-metadata.json"
-          jq -e '.name=="ycore-source-8a9bb9a7b626d7c7695caf95d7a885192c101935-43803470495-1" and .expired==false and .workflow_run.id==43803470495' "$RUNNER_TEMP/native-metadata.json" >/dev/null
+          jq -e '.name=="ycore-source-0f61f76626e370cd40c25c22fa0e211c12d7bd86-44324037800-1" and .expired==false and .workflow_run.id==44324037800' "$RUNNER_TEMP/native-metadata.json" >/dev/null
           curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/$native_id/zip" -o "$RUNNER_TEMP/native.zip"
           digest=$(jq -r .digest "$RUNNER_TEMP/native-metadata.json")
           [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]

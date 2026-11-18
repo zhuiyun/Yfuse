@@ -24,6 +24,11 @@ jobs:
           python3 qa-private-arm/build_input.py
           sed 's|adb install -r driver.apk|cp driver.apk "$GITHUB_WORKSPACE/qa-private-driver/driver.apk"|' qa-source-trace/build-driver.sh > "$RUNNER_TEMP/driver.sh"
           bash "$RUNNER_TEMP/driver.sh"
+      - name: Add the public Profile 5 fixture with verified per-frame RPU
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+          python3 qa-format-diagnostics/profile5_fixture.py
       - name: Verify unchanged synthetic sources
         run: |
           python3 - <<'PY'
@@ -46,14 +51,14 @@ jobs:
     timeout-minutes: 90
     env:
       QA_ENGINE: '${{ matrix.core }}'
-      QA_DIAGNOSTIC_CASES: ${{ matrix.profile == 'completion' && 'avc-cropped,avc-transport,prores-4444,hevc-4k' || 'long-avc,avc-cropped,hevc-main,hevc-main10,prores-4444,avc-transport,hevc-4k,hevc-4k-60s,long-gop,long-gop-chapter' }}
+      QA_DIAGNOSTIC_CASES: ${{ matrix.profile == 'completion' && 'avc-cropped,avc-transport,prores-4444,hevc-4k' || 'long-avc,avc-cropped,hevc-main,hevc-main10,prores-4444,avc-transport,hevc-4k,hevc-4k-60s,long-gop,long-gop-chapter,dolby-profile5-sdr' }}
       QA_COMPLETION_PROBE: ${{ matrix.profile == 'completion' && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with: {persist-credentials: false}
       - name: Acquire qualified current app
         env: {API_TOKEN: '${{ github.token }}'}
-        run: bash qa-integrated/acquire-qualified-candidate.sh 44286858056 3974deeb6686348fe194d85b30fba3d43cb65dcd
+        run: bash qa-integrated/acquire-qualified-candidate.sh 44327313913 c77ab7319cc2f7fc745ee67d36e795ecb3feefaf
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with: {name: format-fixtures-and-driver, path: .}
       - run: |

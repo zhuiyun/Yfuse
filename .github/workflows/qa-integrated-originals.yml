@@ -14,7 +14,7 @@ jobs:
         with: {persist-credentials: false}
       - name: Wait for unit and actual ARM64 qualification
         env: {API_TOKEN: "${{ github.token }}"}
-        run: bash qa-integrated/acquire-qualified-candidate.sh 44286858056 3974deeb6686348fe194d85b30fba3d43cb65dcd
+        run: bash qa-integrated/acquire-qualified-candidate.sh 44327313913 c77ab7319cc2f7fc745ee67d36e795ecb3feefaf
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with: {name: candidate-test-input, path: preview, retention-days: 7}
   originals:
@@ -44,7 +44,7 @@ jobs:
           set -euo pipefail
           mkdir -p results
           (cd preview && sha256sum -c apk.sha256)
-          grep -Fx "app=3974deeb6686348fe194d85b30fba3d43cb65dcd" preview/provenance.txt
+          grep -Fx "app=c77ab7319cc2f7fc745ee67d36e795ecb3feefaf" preview/provenance.txt
           cp preview/provenance.txt preview/apk.sha256 results/
           sudo apt-get update -qq
           sudo apt-get install -y ffmpeg python3-pil

@@ -9,8 +9,8 @@ permissions:
   contents: read
   actions: read
 env:
-  QA_APP_SHA: 6c05a4bd1fc78d4c324eacaf71e43c3b61c86a14
-  QA_BUILD_RUN: 44309572364
+  QA_APP_SHA: c77ab7319cc2f7fc745ee67d36e795ecb3feefaf
+  QA_BUILD_RUN: 44327313913
 jobs:
   acquire:
     runs-on: ubuntu-24.04

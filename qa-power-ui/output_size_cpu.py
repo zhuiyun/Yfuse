@@ -10,9 +10,19 @@ from telemetry import process_stat, shell
 
 PROCESSES = ('com.yfuse', 'surfaceflinger', 'media.swcodec', 'media.codec')
 SIZES = ((720, 1280, 260), (360, 640, 130), (360, 640, 130), (720, 1280, 260))
+YCORE_SURFACE = 'com.yfuse.feature.player.Core2SurfaceView'
 
 
-def player_surfaces(dump):
+def mapped_surface_name(mapping):
+    pattern = re.compile(re.escape(YCORE_SURFACE) + r' -> ([\w.$]+):')
+    with Path(mapping).open(encoding='utf-8') as stream:
+        names = {match[1] for line in stream if (match := pattern.fullmatch(line.rstrip()))}
+    if len(names) != 1:
+        raise ValueError('Expected a unique YCore SurfaceView class in the selected APK mapping')
+    return names.pop()
+
+
+def player_surfaces(dump, mapped_name=None):
     """Return actual laid-out SurfaceView sizes in the visible external player."""
     sizes = set()
     for section in re.split(r'(?m)^\s*ACTIVITY ', dump)[1:]:
@@ -21,7 +31,8 @@ def player_surfaces(dump):
         if component != 'com.yfuse/.feature.player.PlayerActivity' and component != 'com.yfuse/com.yfuse.feature.player.PlayerActivity':
             continue
         for line in section.splitlines():
-            if 'SurfaceView{' not in line:
+            view = re.match(r'\s*([\w.$]+)\{', line)
+            if not view or view[1] not in {'android.view.SurfaceView', YCORE_SURFACE, mapped_name}:
                 continue
             bounds = re.search(r' (-?\d+),(-?\d+)-(-?\d+),(-?\d+)(?=[\s}])', line)
             if bounds:
@@ -63,6 +74,8 @@ def measure(out, core, playing, observe, screen, adb, server):
         target.write_text(json.dumps(result, indent=2), encoding='utf-8')
 
     try:
+        name_file = Path('preview/power-surface-type.txt')
+        mapped_name = name_file.read_text(encoding='utf-8').strip() if name_file.is_file() else None
         clock_hz = int(shell('getconf', 'CLK_TCK'))
         if clock_hz <= 0:
             raise ValueError('Invalid clock frequency')
@@ -75,7 +88,7 @@ def measure(out, core, playing, observe, screen, adb, server):
             row['start'] = playing(core, f'http://127.0.0.1:18389/size-{index}.mp4')
             time.sleep(5)
             row['screenshotSize'] = screen().size
-            row['surfaceViewSizes'] = player_surfaces(shell('dumpsys', 'activity', 'top'))
+            row['surfaceViewSizes'] = player_surfaces(shell('dumpsys', 'activity', 'top'), mapped_name)
             row['reportedDisplay'] = shell('wm', 'size')
             row['reportedDensity'] = shell('wm', 'density')
             row['httpBefore'] = server.counters()
@@ -107,3 +120,10 @@ def measure(out, core, playing, observe, screen, adb, server):
             adb('shell', 'wm', 'density', '260')
         finally:
             save()
+
+
+if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser(description='Extract the playback surface class from a qualified APK mapping')
+    parser.add_argument('mapping')
+    print(mapped_surface_name(parser.parse_args().mapping))
