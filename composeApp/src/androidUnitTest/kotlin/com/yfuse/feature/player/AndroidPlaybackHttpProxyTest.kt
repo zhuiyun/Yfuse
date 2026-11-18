@@ -5,6 +5,8 @@ import com.yfuse.core.playback.shouldProxyPlaybackNetworkUrl
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import okhttp3.Request
+import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.SocketPolicy
@@ -16,6 +18,7 @@ import java.net.URI
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -26,6 +29,34 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class AndroidPlaybackHttpProxyTest {
+    @Test
+    fun an_exhausted_stream_refusal_is_network_evidence_until_the_same_source_reads_successfully() {
+        val attempts = AtomicInteger()
+        val client =
+            OkHttpClient
+                .Builder()
+                .addInterceptor { chain ->
+                    if (attempts.incrementAndGet() <= 2) throw IOException("stream was reset: REFUSED_STREAM")
+                    Response
+                        .Builder()
+                        .request(chain.request())
+                        .protocol(Protocol.HTTP_1_1)
+                        .code(200)
+                        .message("OK")
+                        .body("available".toResponseBody())
+                        .build()
+                }.build()
+        AndroidPlaybackHttpProxy(null, "evidence-test", 0, upstreamClient = client).use { proxy ->
+            val local = proxy.localUrl("http://127.0.0.1:1/episode.mp4")
+            assertTrue(readRawProxyResponse(local).first.startsWith("HTTP/1.1 502"))
+            assertTrue(proxy.sourceFailureEvidence.refusedRead)
+            assertNull(proxy.sourceFailureEvidence.httpStatus)
+            assertEquals("available", readProxyBody(local))
+            assertFalse(proxy.sourceFailureEvidence.refusedRead)
+            assertEquals(3, attempts.get())
+        }
+    }
+
     @Test
     fun refused_http2_media_range_opens_again_with_identical_bytes_and_headers() {
         MockWebServer().use { upstream ->
@@ -157,7 +188,7 @@ class AndroidPlaybackHttpProxyTest {
             upstream.start()
             AndroidPlaybackHttpProxy(context = null, userAgent = "proxy-test", videoCacheBytes = 0).use { proxy ->
                 assertEquals(denied, readProxyBody(proxy.localUrl(upstream.url("/movie.m3u8").toString()), 403))
-                assertEquals(403, proxy.terminalHttpFailureStatus)
+                assertEquals(403, proxy.sourceFailureEvidence.httpStatus)
             }
         }
     }
@@ -192,14 +223,14 @@ class AndroidPlaybackHttpProxyTest {
                 val oldSource = upstream.url("/old").toString()
                 val oldRoute = proxy.localUrl(oldSource)
                 assertEquals("denied", readProxyBody(oldRoute, 403))
-                assertEquals(403, proxy.terminalHttpFailureStatus)
+                assertEquals(403, proxy.sourceFailureEvidence.httpStatus)
                 val current = proxy.localUrl(upstream.url("/next").toString())
-                assertNull(proxy.terminalHttpFailureStatus)
+                assertNull(proxy.sourceFailureEvidence.httpStatus)
                 assertEquals("movie bytes", readProxyBody(current))
                 assertEquals("late denial", readProxyBody(oldRoute, 403))
-                assertNull(proxy.terminalHttpFailureStatus)
+                assertNull(proxy.sourceFailureEvidence.httpStatus)
                 assertEquals("fresh denial", readProxyBody(proxy.localUrl(oldSource), 403))
-                assertEquals(403, proxy.terminalHttpFailureStatus)
+                assertEquals(403, proxy.sourceFailureEvidence.httpStatus)
             }
         }
     }
@@ -214,7 +245,7 @@ class AndroidPlaybackHttpProxyTest {
                 val manifest = readProxyBody(proxy.localUrl(upstream.url("/movie.m3u8").toString()))
                 val segment = manifest.lineSequence().first { it.startsWith("http://127.0.0.1:") }
                 assertEquals("denied", readProxyBody(segment, 403))
-                assertEquals(403, proxy.terminalHttpFailureStatus)
+                assertEquals(403, proxy.sourceFailureEvidence.httpStatus)
             }
         }
     }

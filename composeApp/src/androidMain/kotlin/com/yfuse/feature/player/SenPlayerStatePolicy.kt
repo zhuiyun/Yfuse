@@ -60,7 +60,10 @@ internal data class SenPlayerSourceFailure(
 )
 
 /** An upstream rejection is not evidence that the installed native engine is unavailable. */
-internal fun senPlayerSourceFailure(httpStatus: Int?): SenPlayerSourceFailure? =
+internal fun senPlayerSourceFailure(
+    httpStatus: Int?,
+    refusedRead: Boolean = false,
+): SenPlayerSourceFailure? =
     when (httpStatus) {
         401, 403 ->
             SenPlayerSourceFailure(
@@ -72,7 +75,7 @@ internal fun senPlayerSourceFailure(httpStatus: Int?): SenPlayerSourceFailure? =
                 PlaybackFailureKind.Network,
                 "片源地址已失效（HTTP $httpStatus），请刷新播放地址。",
             )
-        else -> null
+        else -> if (refusedRead) SenPlayerSourceFailure(PlaybackFailureKind.Network, "片源服务器暂未接受视频读取请求，请稍后重试。") else null
     }
 
 internal fun PlaybackState.forSenPlayerFailure(

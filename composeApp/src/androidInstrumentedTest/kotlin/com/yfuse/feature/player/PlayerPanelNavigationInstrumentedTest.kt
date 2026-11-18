@@ -23,6 +23,29 @@ import java.io.File
 class PlayerPanelNavigationInstrumentedTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
 
+    @Test
+    fun refused_media_read_shows_the_network_stage_and_retry_advice() {
+        val failures = PlaybackProxyFailureState()
+        failures.recordRefusedRead(failures.beginSource())
+        val evidence = failures.snapshot()
+        val reason = requireNotNull(senPlayerSourceFailure(evidence.httpStatus, evidence.refusedRead))
+        val state = PlaybackState().forSenPlayerFailure(reason.message, reason.kind)
+        launchMainActivityForInput().use { scenario ->
+            scenario.onActivity { activity ->
+                activity.setContent {
+                    YfuseTheme(dark = true, accessibility = AccessibilityOptions(reduceMotion = true)) {
+                        PlaybackProblemDialog(remember { mutableStateOf(state) }, onDismiss = {})
+                    }
+                }
+            }
+            await("Source read failure and retry advice are visible") {
+                find("连接与读取") != null && find("检查服务器可达性与下载速度，再重试当前片源。") != null
+            }
+            assertTrue(find("阶段未确定") == null)
+            capture("source-read-refused")
+        }
+    }
+
     @Test(timeout = 120_000L)
     fun scrolled_playback_destinations_open_at_heading_and_return_remains_reachable() {
         launchMainActivityForInput().use { scenario ->

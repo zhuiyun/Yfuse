@@ -18,6 +18,32 @@ import kotlin.test.assertTrue
 
 class SenPlayerStatePolicyTest {
     @Test
+    fun only_a_refusal_from_the_current_source_explains_a_network_failure() {
+        val failures = PlaybackProxyFailureState()
+        val previous = failures.beginSource()
+        val current = failures.beginSource()
+        failures.recordRefusedRead(previous)
+        assertFalse(failures.snapshot().refusedRead)
+        failures.recordRefusedRead(current)
+        failures.clearRefusedRead(previous)
+        val refused = failures.snapshot()
+        val reason = requireNotNull(senPlayerSourceFailure(refused.httpStatus, refused.refusedRead))
+        assertEquals(PlaybackFailureKind.Network, reason.kind)
+        assertTrue(reason.message.contains("片源服务器"))
+        val state = PlaybackState().forSenPlayerFailure(reason.message, reason.kind)
+        assertEquals("连接与读取", explainPlaybackProblem(state).stage)
+        failures.recordHttpStatus(current, 403)
+        failures.recordRefusedRead(current)
+        failures.clearRefusedRead(current)
+        val denied = failures.snapshot()
+        assertFalse(denied.refusedRead)
+        assertEquals(
+            PlaybackFailureKind.Authorization,
+            senPlayerSourceFailure(denied.httpStatus, denied.refusedRead)?.kind,
+        )
+    }
+
+    @Test
     fun upstream_rejection_does_not_label_the_native_engine_unavailable() {
         val failure = requireNotNull(senPlayerSourceFailure(403))
         assertEquals(PlaybackFailureKind.Authorization, failure.kind)

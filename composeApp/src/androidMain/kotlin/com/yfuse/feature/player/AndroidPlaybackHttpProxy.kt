@@ -61,7 +61,7 @@ internal class AndroidPlaybackHttpProxy(
     private val routes = PlaybackProxyRoutes()
     private val sourceFailures = PlaybackProxyFailureState()
 
-    val terminalHttpFailureStatus: Int? get() = sourceFailures.terminalHttpStatus()
+    val sourceFailureEvidence: PlaybackProxyFailureState.Evidence get() = sourceFailures.snapshot()
 
     private val cookieManager = CookieManager(null, CookiePolicy.ACCEPT_ALL)
     private val httpClient =
@@ -368,6 +368,7 @@ internal class AndroidPlaybackHttpProxy(
                     dataSource = cacheFactory.createDataSource()
                 }) { dataSource.open(dataSpec) }
             request.ensureOpen()
+            sourceFailures.clearRefusedRead(route.sourceGeneration)
             val responseHeaders = dataSource.responseHeaders
             runCatching { cookieManager.put(upstreamUri, responseHeaders) }
 
@@ -430,6 +431,11 @@ internal class AndroidPlaybackHttpProxy(
             }
         } catch (error: Exception) {
             if (request.isCancelled) return
+            if (!responseStarted &&
+                error.isRefusedPlaybackStream()
+            ) {
+                sourceFailures.recordRefusedRead(route.sourceGeneration)
+            }
             AppLog.warning(
                 category = "player.network",
                 event = "cache_proxy_failed",
@@ -550,6 +556,12 @@ internal class AndroidPlaybackHttpProxy(
             }
         } catch (error: Exception) {
             if (request.isCancelled) return
+            if (method == "GET" &&
+                !responseStarted &&
+                error.isRefusedPlaybackStream()
+            ) {
+                sourceFailures.recordRefusedRead(route.sourceGeneration)
+            }
             AppLog.warning(
                 category = "player.network",
                 event = "platform_proxy_failed",

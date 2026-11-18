@@ -38,13 +38,14 @@ internal inline fun <T> openPlaybackRead(
     try {
         open()
     } catch (error: IOException) {
-        // Media3 can wrap OkHttp's internal stream error in an ExecutionException.
-        val refused =
-            generateSequence<Throwable>(error) { it.cause }.any {
-                it is IOException &&
-                    it.message == "stream was reset: REFUSED_STREAM"
-            }
-        if (!refused) throw error
+        if (!error.isRefusedPlaybackStream()) throw error
         prepareRetry()
         open()
+    }
+
+// Media3 can wrap OkHttp's internal stream error in an ExecutionException.
+internal fun Throwable.isRefusedPlaybackStream(): Boolean =
+    generateSequence(this) { it.cause }.take(12).any {
+        it is IOException &&
+            it.message == "stream was reset: REFUSED_STREAM"
     }

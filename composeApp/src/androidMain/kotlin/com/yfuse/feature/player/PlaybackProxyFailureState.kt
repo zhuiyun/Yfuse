@@ -2,13 +2,18 @@ package com.yfuse.feature.player
 
 /** Late requests from a retired movie must not mark the next movie as inaccessible. */
 internal class PlaybackProxyFailureState {
+    data class Evidence(
+        val httpStatus: Int? = null,
+        val refusedRead: Boolean = false,
+    )
+
     private var generation = 0L
-    private var status: Int? = null
+    private var evidence = Evidence()
 
     @Synchronized
     fun beginSource(): Long {
         generation++
-        status = null
+        evidence = Evidence()
         return generation
     }
 
@@ -17,11 +22,24 @@ internal class PlaybackProxyFailureState {
         sourceGeneration: Long,
         httpStatus: Int,
     ) {
-        if (sourceGeneration == generation && httpStatus in setOf(401, 403, 404, 410)) {
-            status = httpStatus
+        if (sourceGeneration != generation) return
+        if (httpStatus in setOf(401, 403, 404, 410)) {
+            evidence = Evidence(httpStatus = httpStatus)
+        } else if (httpStatus in 200..299) {
+            clearRefusedRead(sourceGeneration)
         }
     }
 
     @Synchronized
-    fun terminalHttpStatus(): Int? = status
+    fun recordRefusedRead(sourceGeneration: Long) {
+        if (sourceGeneration == generation && evidence.httpStatus == null) evidence = Evidence(refusedRead = true)
+    }
+
+    @Synchronized
+    fun clearRefusedRead(sourceGeneration: Long) {
+        if (sourceGeneration == generation && evidence.refusedRead) evidence = Evidence()
+    }
+
+    @Synchronized
+    fun snapshot(): Evidence = evidence
 }

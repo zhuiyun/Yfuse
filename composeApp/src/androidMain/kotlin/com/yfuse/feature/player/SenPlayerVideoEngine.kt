@@ -163,8 +163,9 @@ internal class SenPlayerVideoEngine(
             generateSequence(error) {
                 it.cause
             }.take(8).filterIsInstance<SenPlayerSession.LicenseUnavailable>().firstOrNull()
-        val httpStatus = proxy?.terminalHttpFailureStatus
-        val sourceFailure = senPlayerSourceFailure(httpStatus)
+        val evidence = proxy?.sourceFailureEvidence
+        val httpStatus = evidence?.httpStatus
+        val sourceFailure = senPlayerSourceFailure(httpStatus, refusedRead = evidence?.refusedRead == true)
         val failureKind =
             if (license !=
                 null
