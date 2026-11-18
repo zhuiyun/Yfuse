@@ -1,11 +1,11 @@
-name: Qualify completed-source seeking and pinned motion dialog headers
+name: Qualify playback and the reviewed motion, series and server pages
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
     paths: ['.github/workflows/qa-integrated-av-repair.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: a15e40fc6ac0b6bf61e8a9565549ab099d192a16
+  QA_APP_SHA: 031500a9ccaa48105186dde4b1848d7491004f92
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: a15e40fc6ac0b6bf61e8a9565549ab099d192a16
+          ref: 031500a9ccaa48105186dde4b1848d7491004f92
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78

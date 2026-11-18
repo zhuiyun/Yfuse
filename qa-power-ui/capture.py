@@ -333,6 +333,15 @@ def main():
             if name in {'particle-choice', 'player-transition-choice'}:
                 last = '细微光尘 · 海报边缘' if name == 'particle-choice' else '完成'
                 row['motionDialog'] = verify_motion_dialog(out, row, path[-1], last)
+            if name in {'series-detail', 'saved-server'}:
+                labels = {label for shot in [row['top'], *row['scrolls']] for label in shot['labels']}
+                if name == 'series-detail':
+                    expected = {'第1集 · 清晨之后', '第2集 · 清晨之后'}
+                    if not expected <= labels or any(re.search(r'第(\d+)集\s*·\s*第\s*\1\s*集', label) for label in labels):
+                        raise AssertionError('Episode cards must show the source title with each episode number once')
+                elif not {'Cloud QA Library', '添加文件来源'} <= labels or {'其他服务器', '还没有其他服务器'} & labels:
+                    raise AssertionError('Single-server screen contains an unused group or lost a source action')
+                row['fixtureLabelsVerified'] = True
             row['status'] = 'captured-needs-review'
         except Exception as error:
             row['status'] = 'capture-blocked'
