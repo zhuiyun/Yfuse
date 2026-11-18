@@ -23,6 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -39,6 +40,7 @@ import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.DolbyChip
 import com.yfuse.core.designsystem.GlassLift
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.Palette
 import com.yfuse.core.designsystem.RecommendBadge
 import com.yfuse.core.designsystem.SectionHeader
 import com.yfuse.core.designsystem.contentColorForSurface
@@ -48,6 +50,7 @@ import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.motionItemsIndexed
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberTouchTargetFocus
+import com.yfuse.core.designsystem.resolveArtworkPagePalette
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.designsystem.touchTarget
@@ -225,6 +228,7 @@ internal fun MediaInfoSection(
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalPalette.current
+    val cardPalette = remember(palette) { mediaInfoCardPalette(palette) }
     Column(modifier) {
         SectionHeader("媒体信息", Modifier.padding(horizontal = Dimens.pageHorizontal))
         // Two cards fill the width, as in the reference; a third and beyond (a release with
@@ -238,6 +242,7 @@ internal fun MediaInfoSection(
                 version.video?.let { video ->
                     motionItem(key = "video") {
                         SpecCard(
+                            palette = cardPalette,
                             icon = AppIcons.Play,
                             title = "视频",
                             width = cardWidth,
@@ -265,6 +270,7 @@ internal fun MediaInfoSection(
                 }
                 motionItemsIndexed(version.audioTracks) { index, audio ->
                     SpecCard(
+                        palette = cardPalette,
                         icon = AppIcons.Volume,
                         title = if (version.audioTracks.size > 1) "音频 ${index + 1}" else "音频",
                         width = cardWidth,
@@ -298,26 +304,18 @@ internal fun MediaInfoSection(
                     .padding(top = 10.dp)
                     .padding(horizontal = Dimens.pageHorizontal)
                     .fillMaxWidth()
-                    .solidGlass(
-                        shape = AppShapes.card,
-                        fill =
-                            if (palette.isDark) {
-                                Color.White.copy(alpha = 0.05f)
-                            } else {
-                                Color.White.copy(alpha = 0.32f)
-                            },
-                        border = palette.border,
-                    ).padding(horizontal = 12.dp, vertical = 11.dp),
+                    .mediaInfoSurface(cardPalette)
+                    .padding(horizontal = 12.dp, vertical = 11.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 version.path?.let { path ->
-                    Text(path, style = AppTypography.caption.regular, color = palette.sub2)
+                    Text(path, style = AppTypography.caption.regular, color = cardPalette.sub2)
                 }
                 if (footer.isNotEmpty()) {
                     Text(
                         footer.joinToString(" · "),
                         style = AppTypography.caption.medium,
-                        color = palette.sub2,
+                        color = cardPalette.sub2,
                     )
                 }
             }
@@ -325,34 +323,29 @@ internal fun MediaInfoSection(
     }
 }
 
+/** These static readouts share a solid poster-tinted surface and its matching text colours. */
+internal fun mediaInfoCardPalette(page: Palette): Palette {
+    val tint = Color.White.copy(alpha = if (page.isDark) 0.06f else 0.36f)
+    return resolveArtworkPagePalette(tint.compositeOver(page.background))
+}
+
+private fun Modifier.mediaInfoSurface(palette: Palette): Modifier =
+    background(palette.background, AppShapes.card).border(Dimens.hairline, palette.border, AppShapes.card)
+
 /** One stream's specification, as a fixed-width card of label/value rows. */
 @Composable
 private fun SpecCard(
+    palette: Palette,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
     width: Dp,
     rows: List<Pair<String, String>>,
 ) {
-    val palette = LocalPalette.current
-    val edge =
-        if (palette.isDark) {
-            Color.White.copy(alpha = 0.16f)
-        } else {
-            Color.White.copy(alpha = 0.30f)
-        }
     Column(
         Modifier
             .width(width)
-            .solidGlass(
-                shape = AppShapes.card,
-                fill =
-                    if (palette.isDark) {
-                        Color.White.copy(alpha = 0.06f)
-                    } else {
-                        Color.White.copy(alpha = 0.36f)
-                    },
-                border = edge,
-            ).padding(horizontal = 13.dp, vertical = 12.dp),
+            .mediaInfoSurface(palette)
+            .padding(horizontal = 13.dp, vertical = 12.dp),
     ) {
         Row(
             Modifier.fillMaxWidth(),

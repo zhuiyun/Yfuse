@@ -1,11 +1,24 @@
 package com.yfuse.feature.detail
 
 import androidx.compose.ui.graphics.Color
+import com.yfuse.core.designsystem.resolveArtworkPagePalette
 import kotlin.test.Test
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class DetailStateColorsTest {
+    @Test
+    fun media_info_text_uses_the_painted_card_colour_for_every_poster() {
+        val observed = listOf(Color(0xFF584F41), Color(0xFF79654A), Color(0xFFB3AB9E))
+        val greys = (0..255 step 5).map { Color(it, it, it) }
+        for (background in observed + greys) {
+            val card = mediaInfoCardPalette(resolveArtworkPagePalette(background))
+            for (ink in listOf(card.text, card.sub, card.sub2, card.body)) {
+                assertTrue(detailContrastRatio(ink, card.background) >= 4.5f)
+            }
+        }
+    }
+
     @Test
     fun low_contrast_dynamic_accent_is_darkened_for_light_detail_background() {
         val background = Color(0xFF9E98B2)

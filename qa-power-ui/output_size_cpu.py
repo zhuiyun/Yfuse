@@ -16,7 +16,9 @@ def player_surfaces(dump):
     """Return actual laid-out SurfaceView sizes in the visible external player."""
     sizes = set()
     for section in re.split(r'(?m)^\s*ACTIVITY ', dump)[1:]:
-        if 'com.yfuse' not in section.splitlines()[0] or 'ExternalPlaybackActivity' not in section.splitlines()[0]:
+        # The exported ExternalPlaybackActivity hands the item to PlayerActivity and finishes.
+        component = section.splitlines()[0].split()[0]
+        if component != 'com.yfuse/.feature.player.PlayerActivity' and component != 'com.yfuse/com.yfuse.feature.player.PlayerActivity':
             continue
         for line in section.splitlines():
             if 'SurfaceView{' not in line:
