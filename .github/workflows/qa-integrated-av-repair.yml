@@ -1,11 +1,11 @@
-name: Qualify HTTP/2 media retry, cached bytes and seek output on ARM64
+name: Qualify playback diagnostic contrast, HTTP range retry and seek output on ARM64
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
     paths: ['.github/workflows/qa-integrated-av-repair.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: 94ec647fac5132b5f3ee92e1304b98f57084e078
+  QA_APP_SHA: 8cdb127108db020a0e78153c77cc070af0816e07
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 94ec647fac5132b5f3ee92e1304b98f57084e078
+          ref: 8cdb127108db020a0e78153c77cc070af0816e07
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
@@ -71,28 +71,34 @@ jobs:
           cp composeApp/build/outputs/mapping/release/mapping.txt preview/
           printf 'app=%s\nnative_built_from=%s\nsource_artifact=%s\n' "$app_sha" "$native_sha" "$artifact" > preview/provenance.txt
           (cd preview && sha256sum composeApp-release.apk > apk.sha256)
-      - name: Restore the earlier clock layout and caption scrim for device negative controls
+      - name: Rebuild the three previous UI states for device negative controls
         run: |
           set -euo pipefail
           path=composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerChromeRefined.kt
           baseline=b58ddf8060a2ccfae2d214fa3e6c544849ba6557
           hero=composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Hero.kt
           hero_baseline=df5dd228609eaa0689a55a79260f5f9920c63fd9
+          dialog=composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlaybackProblemDialog.kt
+          dialog_baseline=94ec647fac5132b5f3ee92e1304b98f57084e078
+          cp "$dialog" "$RUNNER_TEMP/fixed-problem-dialog.kt"
           cp "$path" "$RUNNER_TEMP/fixed-player-chrome.kt"
           cp "$hero" "$RUNNER_TEMP/fixed-hero.kt"
           restore_fixed_files() {
             cp "$RUNNER_TEMP/fixed-player-chrome.kt" "$path"
             cp "$RUNNER_TEMP/fixed-hero.kt" "$hero"
+            cp "$RUNNER_TEMP/fixed-problem-dialog.kt" "$dialog"
           }
           trap restore_fixed_files EXIT
           git show "$baseline:$path" > "$path"
           git diff --exit-code "$baseline" -- "$path"
           git show "$hero_baseline:$hero" > "$hero"
           git diff --exit-code "$hero_baseline" -- "$hero"
-          git diff --exit-code "$QA_APP_SHA" -- . ":(exclude)$path" ":(exclude)$hero"
+          git show "$dialog_baseline:$dialog" > "$dialog"
+          git diff --exit-code "$dialog_baseline" -- "$dialog"
+          git diff --exit-code "$QA_APP_SHA" -- . ":(exclude)$path" ":(exclude)$hero" ":(exclude)$dialog"
           ./gradlew :composeApp:assembleDebug -PyfuseIncludeMdk=false -PyfusePlaybackProfile=ycore-senplayer -PyfuseNativeOnlyRuntime=true -PallowDebugSigning=true -PyfuseBuildRevision="$QA_APP_SHA" -Pkotlin.compiler.execution.strategy=in-process '-Dorg.gradle.jvmargs=-Xmx8g -Dfile.encoding=UTF-8' --no-parallel --max-workers=2 --no-daemon
           cp composeApp/build/outputs/apk/debug/composeApp-debug.apk preview/geometry-negative.apk
-          printf 'app=%s\nclock_layout_from=%s\ncaption_scrim_from=%s\n' "$QA_APP_SHA" "$baseline" "$hero_baseline" > preview/geometry-negative-provenance.txt
+          printf 'app=%s\nclock_layout_from=%s\ncaption_scrim_from=%s\nproblem_dialog_from=%s\n' "$QA_APP_SHA" "$baseline" "$hero_baseline" "$dialog_baseline" > preview/geometry-negative-provenance.txt
           restore_fixed_files
           git diff --exit-code -- .
           (cd preview && sha256sum geometry-negative.apk instrumentation-target.apk regressions.apk >> apk.sha256)
@@ -168,6 +174,14 @@ jobs:
           fi
           jq -e '.failed==1 and .completed==0 and .skipped==0' results/caption-negative.json
           grep -F 'Caption fade is too abrupt' results/caption-negative.txt
+          adb shell am instrument -w -r -e class 'com.yfuse.feature.player.PlayerPanelNavigationInstrumentedTest#playback_problem_captions_are_readable_on_bright_and_dark_pictures' com.yfuse.test/androidx.test.runner.AndroidJUnitRunner | tee results/diagnostic-contrast-negative.txt
+          adb pull /sdcard/Android/data/com.yfuse/files/problem-contrast results/prior-problem-contrast
+          if python3 qa-integrated/check-instrumentation.py results/diagnostic-contrast-negative.txt 1; then
+            echo 'Previous diagnostic palette unexpectedly passed the contrast control'; exit 1
+          fi
+          jq -e '.failed==1 and .completed==0 and .skipped==0' results/diagnostic-contrast-negative.json
+          grep -F 'Playback diagnostic captions below 4.5:1' results/diagnostic-contrast-negative.txt
+          adb shell mv /sdcard/Android/data/com.yfuse/files/problem-contrast /sdcard/Android/data/com.yfuse/files/problem-contrast-prior
           adb pull /sdcard/Android/data/com.yfuse/files/soft-feedback results/negative-soft-feedback
           adb install -r -g preview/instrumentation-target.apk
           sudo apt-get update -qq
@@ -181,11 +195,15 @@ jobs:
           adb push "$RUNNER_TEMP/enhanced-retry.mp4" /sdcard/Android/data/com.yfuse/files/enhanced-retry.mp4
           adb shell sha256sum /sdcard/Android/data/com.yfuse/files/enhanced-retry.mp4 > results/device-fixture.sha256
           test "$(cut -d' ' -f1 results/fixture.sha256)" = "$(tr -d '\r' < results/device-fixture.sha256 | cut -d' ' -f1)"
-          adb shell am instrument -w -r -e enhancedRetryDecodePath software -e enhancedRetryFixture /sdcard/Android/data/com.yfuse/files/enhanced-retry.mp4 -e class 'com.yfuse.core.designsystem.ComponentMotionInstrumentedTest#fractional_indicator_progress_redraws_without_recomposing_or_relaying_out,com.yfuse.core.designsystem.HeroLiftInstrumentedTest#caption_fades_above_text_and_keeps_white_artwork_readable,com.yfuse.core2.android.SoftwareOutputContractInstrumentedTest,com.yfuse.feature.player.SoftFeedbackInstrumentedTest#seek_cancel_never_commits_and_release_commits_once_with_or_without_motion,com.yfuse.feature.player.SoftFeedbackInstrumentedTest#long_movie_clock_never_moves_the_held_seek_rail,com.yfuse.feature.player.BufferedScrubDecodeInstrumentedTest,com.yfuse.core2.android.YCoreMediaSuiteInstrumentedTest#enhanced_transport_retry_keeps_the_assigned_route_and_renders_again,com.yfuse.feature.player.PlayerPanelNavigationInstrumentedTest#refused_media_read_shows_the_network_stage_and_retry_advice' com.yfuse.test/androidx.test.runner.AndroidJUnitRunner | tee results/contracts.txt
-          python3 qa-integrated/check-instrumentation.py results/contracts.txt 14
-          grep -E 'OK \(14 tests\)' results/contracts.txt
+          adb shell am instrument -w -r -e enhancedRetryDecodePath software -e enhancedRetryFixture /sdcard/Android/data/com.yfuse/files/enhanced-retry.mp4 -e class 'com.yfuse.core.designsystem.ComponentMotionInstrumentedTest#fractional_indicator_progress_redraws_without_recomposing_or_relaying_out,com.yfuse.core.designsystem.HeroLiftInstrumentedTest#caption_fades_above_text_and_keeps_white_artwork_readable,com.yfuse.core2.android.SoftwareOutputContractInstrumentedTest,com.yfuse.feature.player.SoftFeedbackInstrumentedTest#seek_cancel_never_commits_and_release_commits_once_with_or_without_motion,com.yfuse.feature.player.SoftFeedbackInstrumentedTest#long_movie_clock_never_moves_the_held_seek_rail,com.yfuse.feature.player.BufferedScrubDecodeInstrumentedTest,com.yfuse.core2.android.YCoreMediaSuiteInstrumentedTest#enhanced_transport_retry_keeps_the_assigned_route_and_renders_again,com.yfuse.feature.player.PlayerPanelNavigationInstrumentedTest#refused_media_read_shows_the_network_stage_and_retry_advice,com.yfuse.feature.player.PlayerPanelNavigationInstrumentedTest#playback_problem_captions_are_readable_on_bright_and_dark_pictures' com.yfuse.test/androidx.test.runner.AndroidJUnitRunner | tee results/contracts.txt
+          adb pull /sdcard/Android/data/com.yfuse/files/problem-contrast results/current-problem-contrast
+          python3 qa-integrated/check-instrumentation.py results/contracts.txt 15
+          grep -E 'OK \(15 tests\)' results/contracts.txt
           grep -F 'test=refusedSourceReadReopensAtSameOffsetAndCommitsOnlyReturnedBytes' results/contracts.txt
           grep -F 'test=refused_media_read_shows_the_network_stage_and_retry_advice' results/contracts.txt
+          grep -F 'test=playback_problem_captions_are_readable_on_bright_and_dark_pictures' results/contracts.txt
+          jq -e 'length==40 and all(.contrast>=4.5)' results/current-problem-contrast/measurements.json
+          jq -e 'length==40 and any(.contrast<4.5)' results/prior-problem-contrast/measurements.json
           adb pull /sdcard/Android/data/com.yfuse/files/player-panel-evidence/source-read-refused.png results/source-read-refused.png
           ! grep -E 'FAILURES|INSTRUMENTATION_FAILED|INSTRUMENTATION_ABORTED' results/contracts.txt
           adb pull /sdcard/Android/data/com.yfuse/files/soft-feedback results/current-soft-feedback
