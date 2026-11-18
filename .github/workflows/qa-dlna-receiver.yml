@@ -11,37 +11,13 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with: {persist-credentials: false}
-      - name: Download the recorded ARM64 device results
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: native-video-repair-contracts
-          run-id: 44391996767
-          github-token: ${{ github.token }}
-          path: contracts
-      - name: Require the fixed device discovery and its failing old control
-        run: python3 qa-integrated/check-cast-contract.py contracts > cast-qualification.json
-      - name: Download the very same candidate used in the device results
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: candidate-test-input
-          run-id: 44391996767
-          github-token: ${{ github.token }}
-          path: preview
-      - name: Verify the build and both immutable artifact identities for this receiver study
+      - name: Acquire the qualified APK
         env: {API_TOKEN: '${{ github.token }}'}
         run: |
           set -euo pipefail
-          run=44391996767
-          api="https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$run"
-          curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/jobs?per_page=100" | jq -e '[.jobs[] | select(.name=="build") | .conclusion]==["success"]' >/dev/null
-          curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/artifacts?per_page=100" > "$RUNNER_TEMP/cast-artifacts.json"
-          jq -e '[.artifacts[] | select(.name=="native-video-repair-contracts" and .expired==false) | [.id,.digest,.workflow_run.id]]==[[14471538540,"sha256:813ef007a2083fc835cae15c81db32f8f99ba00eac71573c5215d263ff48ebe1",44391996767]]' "$RUNNER_TEMP/cast-artifacts.json" >/dev/null
-          jq -e '[.artifacts[] | select(.name=="candidate-test-input" and .expired==false) | [.id,.digest,.workflow_run.id]]==[[14470445966,"sha256:8bdf2f580ae6d7650efafcadaa85710129b8204054ab4392e0922cff1d59a4ab",44391996767]]' "$RUNNER_TEMP/cast-artifacts.json" >/dev/null
-          (cd preview && sha256sum -c apk.sha256)
-          grep -Fx 'app=fa4ffc7524fd1518680ad6e6965a7200b9255758' preview/provenance.txt
-          grep -Fx 'cast_discovery_from=8cdb127108db020a0e78153c77cc070af0816e07' preview/geometry-negative-provenance.txt
+          bash qa-integrated/acquire-qualified-candidate.sh 44407282317 8c163b338e813f9c1ecce0ec9e25c63779bb21fe
           mkdir candidate
-          cp preview/composeApp-release.apk preview/provenance.txt cast-qualification.json candidate/
+          cp preview/composeApp-release.apk preview/provenance.txt candidate/
           awk '$2 == "composeApp-release.apk" { print }' preview/apk.sha256 > candidate/apk.sha256
           test "$(wc -l < candidate/apk.sha256)" -eq 1
           (cd candidate && sha256sum -c apk.sha256)
@@ -120,7 +96,7 @@ jobs:
         run: |
           set -euo pipefail
           (cd preview && sha256sum -c apk.sha256)
-          cp preview/provenance.txt preview/apk.sha256 preview/cast-qualification.json results/cast/
+          cp preview/provenance.txt preview/apk.sha256 results/cast/
           adb install -r -g preview/composeApp-release.apk
           adb install -r driver/driver.apk
           adb shell wm size 720x1280

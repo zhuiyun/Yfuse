@@ -147,11 +147,21 @@ def save_cast_diagnostics():
             continue
         if row.get('category') != 'cast':
             continue
-        attributes = row.get('attributes') or {}
+        attributes = {k.lower(): v for k, v in (row.get('attributes') or {}).items()}
         events.append({'event': row.get('event'), 'timestamp': row.get('timestamp'), 'attributes':
-                       {k: v for k, v in attributes.items() if k in ('state', 'status', 'positionMs', 'startPositionMs',
-                         'targetMs', 'fromMs', 'attempt', 'seekAttempts', 'seekedBeforePlay', 'failure')}})
+                       {k: v for k, v in attributes.items() if k in ('state', 'status', 'positionms', 'startpositionms',
+                         'targetms', 'fromms', 'attempt', 'seekattempts', 'seekedbeforeplay', 'failure')}})
     (OUT / 'cast-events.json').write_text(json.dumps(events, indent=2))
+    return events
+
+
+def manual_seek_order(events):
+    operations = [event for event in events if event['event'] in ('dlna_start_seek', 'dlna_user_seek_sent')]
+    commands = [i for i, event in enumerate(operations) if event['event'] == 'dlna_user_seek_sent']
+    targets = [int(operations[i]['attributes']['targetms']) for i in commands]
+    ordered = len(targets) == 2 and all(abs(value - target) <= 2_000 for value, target in zip(targets, (60_480, 20_160)))
+    return {'confirmedTargetsMs': targets, 'initialSeekAfterUserCommand': bool(commands and
+            any(event['event'] == 'dlna_start_seek' for event in operations[commands[0]+1:])), 'matchesTouches': ordered}
 
 
 def exercise(core, url, frames, server, recorder, evidence):
@@ -181,6 +191,7 @@ def exercise(core, url, frames, server, recorder, evidence):
         raise AssertionError('Resume control missing on phone')
     ui.tap(control)
     evidence['resumed'] = moving(frames, 'resumed', after=evidence['receiverPause']['frame'])
+    evidence['continuity'] = continuity(evidence)
     cast_panel()
     click('停止投屏')
     cast_panel()
@@ -219,7 +230,9 @@ def main():
         evidence['bytesDeliveredToReceiver'] = sum(row['bytes'] for row in received)
         if evidence['bytesDeliveredToReceiver'] <= 0:
             raise AssertionError('No original media bytes recorded at the receiver')
-        evidence['continuity'] = continuity(evidence)
+        evidence['manualSeekOrder'] = manual_seek_order(save_cast_diagnostics())
+        if not evidence['manualSeekOrder']['matchesTouches'] or evidence['manualSeekOrder']['initialSeekAfterUserCommand']:
+            raise AssertionError('Handoff and user seek order failed: ' + str(evidence['manualSeekOrder']))
         if not all(evidence['continuity'].values()):
             raise AssertionError('Receiver continuity failed: ' + str(evidence['continuity']))
         evidence['passed'] = True
