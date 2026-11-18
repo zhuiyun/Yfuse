@@ -10,7 +10,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with: {ref: c77ab7319cc2f7fc745ee67d36e795ecb3feefaf, persist-credentials: false}
+        with: {ref: 2a3c4ab9624f3d35d7637729d619555db98b357b, persist-credentials: false}
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
         with: {distribution: temurin, java-version: '17'}
       - name: Inspect the exact installed file, signature and alignment
@@ -18,8 +18,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p native evidence
-          app_sha=c77ab7319cc2f7fc745ee67d36e795ecb3feefaf
-          bash qa-integrated/acquire-qualified-candidate.sh 44327313913 "$app_sha"
+          app_sha=2a3c4ab9624f3d35d7637729d619555db98b357b
+          bash qa-integrated/acquire-qualified-candidate.sh 44349576264 "$app_sha"
           api="https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts"
           native_id=$(sed -n 's/^source_artifact=//p' preview/provenance.txt)
           [[ "$native_id" =~ ^[0-9]+$ ]]
