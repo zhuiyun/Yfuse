@@ -129,7 +129,7 @@ internal class AndroidNativeDirectYPlayer(
                 diagnostics = it.diagnostics.copy(renderedFrameRate = null),
             )
         }
-        submit(Command.Prepare)
+        submit(Command.Prepare())
     }
 
     override fun setVideoOutput(output: YVideoOutput?): Boolean {
@@ -308,17 +308,20 @@ internal class AndroidNativeDirectYPlayer(
 
     override fun currentPositionMs(): Long = mutableState.value.positionMs
 
-    override fun retry() {
+    override fun retry() = retryAt(null)
+
+    internal fun retryAt(positionMs: Long?) {
         if (sessionControl.released) return
         activeSession?.abortPendingReads()
         mutableState.updateState {
             it.copy(
                 phase = YPlaybackPhase.Preparing,
+                positionMs = positionMs ?: it.positionMs,
                 error = null,
                 buffering = it.playbackRequested,
             )
         }
-        submit(Command.Prepare)
+        submit(Command.Prepare(positionMs))
     }
 
     override val releaseCompleted: Boolean get() = worker.isCompleted && cleanupCompleted
@@ -546,7 +549,9 @@ internal class AndroidNativeDirectYPlayer(
             val result: AndroidExternalSubtitleSession.Completion,
         ) : Command
 
-        data object Prepare : Command
+        data class Prepare(
+            val positionMs: Long? = null,
+        ) : Command
 
         data object Play : Command
 

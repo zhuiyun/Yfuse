@@ -7,6 +7,32 @@ import kotlin.test.assertEquals
 
 class YPlaybackRecoveryPolicyTest {
     @Test
+    fun `an explicit output rejection before the first frame changes the decoder`() {
+        for (route in listOf(YPlaybackRoute.NativeDirect, YPlaybackRoute.NativeEnhanced, YPlaybackRoute.GpuEnhanced)) {
+            val failed =
+                context(route, YPlaybackFailureCategory.Decoder, attempts = 0)
+                    .copy(platformDecoderOutputRejected = true, videoOutputPreviouslyVerified = false)
+            assertEquals(YPlaybackRecoveryAction.FallbackToSoftware, YPlaybackRecoveryPolicy.decide(failed))
+            assertEquals(
+                YPlaybackRecoveryAction.RetrySameRoute,
+                YPlaybackRecoveryPolicy.decide(failed.copy(videoOutputPreviouslyVerified = true)),
+            )
+            assertEquals(
+                YPlaybackRecoveryAction.RetrySameRoute,
+                YPlaybackRecoveryPolicy.decide(failed.copy(platformDecoderOutputRejected = false)),
+            )
+            assertEquals(
+                YPlaybackRecoveryAction.RetrySameRoute,
+                YPlaybackRecoveryPolicy.decide(failed.copy(protectedContent = true)),
+            )
+            assertEquals(
+                YPlaybackRecoveryAction.RetrySameRoute,
+                YPlaybackRecoveryPolicy.decide(failed.copy(softwareFallbackAvailable = false)),
+            )
+        }
+    }
+
+    @Test
     fun `transient native codec failure gets one same-route rebuild`() {
         val first =
             context(

@@ -1578,6 +1578,7 @@ internal class AndroidAdaptiveCore2YPlayer(
             /** What the latest failure of this child tells the recovery decision. */
             var attemptDeterministic = false
             var platformDecoderOutputRejected = false
+            private var hasPresentedVideo = false
             var attemptRanOutOfTime = false
             val networkRecoveryWindow = AndroidNetworkRecoveryWindow()
             val learningStartPositionMs = next.currentPositionMs() + (attachedTarget?.presentationOffsetMs ?: 0L)
@@ -1675,7 +1676,10 @@ internal class AndroidAdaptiveCore2YPlayer(
                     activeProbeBudget?.let(probes::complete)
                     keptRouteFailure = null
                 }
-                if (localChildState.diagnostics.videoOutputVerified) verifiedRouteSuspicion.onVideoOutput()
+                if (localChildState.diagnostics.videoOutputVerified) {
+                    hasPresentedVideo = true
+                    verifiedRouteSuspicion.onVideoOutput()
+                }
                 if (activeChild !== next) return
                 val reportedChildState = presentedChildState(next, localChildState, attachedTarget)
                 if (queueNextPeriod(localChildState)) return
@@ -1941,7 +1945,12 @@ internal class AndroidAdaptiveCore2YPlayer(
                     verifiedRouteSuspicion.onFailure(category)
                     val reportedFailure =
                         if (prematureEnd) null else (next as? YPlaybackFailureReporter)?.lastPlaybackFailure
-                    attemptDeterministic = (reportedFailure as? YPlaybackException)?.deterministic == true
+                    val typedFailure = reportedFailure as? YPlaybackException
+                    // No registered candidate can appear by reopening the same decoder profile.
+                    val configurationFailure = typedFailure?.cause as? YVideoDecoderConfigurationException
+                    attemptDeterministic =
+                        typedFailure?.deterministic == true ||
+                        configurationFailure?.failures?.isEmpty() == true
                     platformDecoderOutputRejected =
                         generateSequence(reportedFailure) { it.cause }
                             .take(16)
@@ -2018,6 +2027,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                                 softwareFallbackAttempted = childSoftwareFallbackAttempted,
                                 deterministic = attemptDeterministic,
                                 platformDecoderOutputRejected = platformDecoderOutputRejected,
+                                videoOutputPreviouslyVerified = hasPresentedVideo,
                                 softwareFallbackAvailable =
                                     yCoreSoftwareRecoveryAvailable(
                                         protectedContent = failedItem.drmConfiguration != null,
@@ -2031,6 +2041,10 @@ internal class AndroidAdaptiveCore2YPlayer(
                     // Every recovery attempt gets time to run, except after an attempt
                     // that failed only because the start ran out of time.
                     val renewProbeBudget = !attemptRanOutOfTime
+                    // The audio or wall clock may run several seconds before the very first video
+                    // frame. Carry the requested start/seek into recovery until a picture exists.
+                    val recoveryPositionMs =
+                        if (hasPresentedVideo || childAudioOnly) childState.positionMs else pendingPositionMs
                     when (action) {
                         YPlaybackRecoveryAction.RetrySameRoute -> {
                             sameRouteRecoveryAttempts[recoveryKey] =
@@ -2039,7 +2053,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                             commands.trySend(
                                 Command.RecoverSameRoute(
                                     index = childIndex(),
-                                    positionMs = childState.positionMs,
+                                    positionMs = recoveryPositionMs,
                                     route = childState.diagnostics.route,
                                     renewProbeBudget = renewProbeBudget,
                                 ),
@@ -2050,7 +2064,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                             commands.trySend(
                                 Command.FallbackFromTunnel(
                                     index = childIndex(),
-                                    positionMs = childState.positionMs,
+                                    positionMs = recoveryPositionMs,
                                     renewProbeBudget = renewProbeBudget,
                                 ),
                             )
@@ -2060,7 +2074,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                             commands.trySend(
                                 Command.FallbackToEnhanced(
                                     index = childIndex(),
-                                    positionMs = childState.positionMs,
+                                    positionMs = recoveryPositionMs,
                                     renewProbeBudget = renewProbeBudget,
                                 ),
                             )
@@ -2070,7 +2084,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                             commands.trySend(
                                 Command.FallbackToSoftware(
                                     index = childIndex(),
-                                    positionMs = childState.positionMs,
+                                    positionMs = recoveryPositionMs,
                                     renewProbeBudget = renewProbeBudget,
                                 ),
                             )
@@ -2605,10 +2619,19 @@ internal class AndroidAdaptiveCore2YPlayer(
                     // guarantees releaseMedia() finishes before the same decoder is
                     // configured again; rebuilding here allowed the replacement
                     // child to race the outgoing MediaCodec release on OEM devices.
-                    if (active is AndroidNativeEnhancedYPlayer) {
-                        active.retryWithProbeBudget(activeProbeBudget)
-                    } else {
-                        checkNotNull(active).retry()
+                    val localPositionMs =
+                        (command.positionMs - (adaptiveTarget?.presentationOffsetMs ?: 0L))
+                            .coerceAtLeast(
+                                0L,
+                            )
+                    when (active) {
+                        is AndroidNativeEnhancedYPlayer ->
+                            active.retryWithProbeBudget(
+                                activeProbeBudget,
+                                localPositionMs,
+                            )
+                        is AndroidNativeDirectYPlayer -> active.retryAt(localPositionMs)
+                        else -> checkNotNull(active).retry()
                     }
                     // Ended/failed children may have cleared their own play intent.
                     // Restore the router's latest user intent after serialized prepare.

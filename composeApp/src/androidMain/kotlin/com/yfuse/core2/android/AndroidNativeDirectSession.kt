@@ -265,7 +265,10 @@ internal class AndroidNativeDirectSession(
     fun handle(command: Command) {
         abortIfReleased()
         when (command) {
-            Command.Prepare -> prepareCurrent(mutableState.value.positionMs * MICROS_PER_MILLISECOND)
+            is Command.Prepare ->
+                prepareCurrent(
+                    (command.positionMs ?: mutableState.value.positionMs) * MICROS_PER_MILLISECOND,
+                )
             Command.Play -> startPlayback()
             Command.Pause -> pausePlayback()
             is Command.Seek -> {

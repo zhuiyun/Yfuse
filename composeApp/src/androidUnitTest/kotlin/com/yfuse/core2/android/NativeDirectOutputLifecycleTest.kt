@@ -66,7 +66,7 @@ class NativeDirectOutputLifecycleTest {
     fun suspension_commands_remain_ordered_across_prepare_item_switch_and_surface_attachment() {
         val suspendVideo = AndroidNativeDirectYPlayer.Command.SetVideoSuspended(true)
         val restoreVideo = AndroidNativeDirectYPlayer.Command.SetVideoSuspended(false)
-        val prepare = AndroidNativeDirectYPlayer.Command.Prepare
+        val prepare = AndroidNativeDirectYPlayer.Command.Prepare()
         val nextItem = AndroidNativeDirectYPlayer.Command.SelectItem(1)
         val detached = AndroidNativeDirectYPlayer.Command.SetVideoOutput(null)
         assertEquals(

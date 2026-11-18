@@ -40,7 +40,7 @@ class PlaybackTrackRestoreTest {
     @Test
     fun persisted_track_identity_round_trips_without_engine_local_id() {
         val remembered =
-            EngineTrack("mpv-17", " 简体中文 ", "zho", true, " srt ")
+            EngineTrack("track-17", " 简体中文 ", "zho", true, " srt ")
                 .toRememberedPlaybackTrack()
 
         assertEquals(RememberedPlaybackTrack("zho", "简体中文", "srt"), remembered)

@@ -145,6 +145,17 @@ class YCoreMediaSuiteInstrumentedTest {
                         awaitPlayable(player, "enhanced-before-retry")
                         awaitFreshVideoOutput(player, "enhanced-after-retry") { player.retry() }
                         assertTrue(player.state.value.diagnostics.route == plan.route)
+                        val targetMs = player.state.value.durationMs / 2
+                        assertTrue("Fixture needs a measurable midpoint", targetMs > 0L)
+                        val resumed =
+                            awaitFreshVideoOutput(player, "enhanced-after-positioned-retry") {
+                                player.retryWithProbeBudget(null, targetMs)
+                                player.play()
+                            }
+                        assertTrue(
+                            "Requested restart at $targetMs ms, got ${resumed.positionMs} ms",
+                            resumed.positionMs in (targetMs - 250L)..(targetMs + 2_000L),
+                        )
                     } finally {
                         try {
                             player.releaseAndJoin()

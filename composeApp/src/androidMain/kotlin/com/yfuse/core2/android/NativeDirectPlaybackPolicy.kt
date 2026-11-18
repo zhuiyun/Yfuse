@@ -200,10 +200,12 @@ internal fun coalesceNativeDirectCommands(
 ): List<AndroidNativeDirectYPlayer.Command> =
     commands.fold(mutableListOf()) { result, command ->
         val previous = result.lastOrNull()
-        if (previous != null && previous.canBeReplacedBy(command)) {
-            result[result.lastIndex] = command
-        } else {
-            result += command
+        when {
+            previous is AndroidNativeDirectYPlayer.Command.Prepare &&
+                command is AndroidNativeDirectYPlayer.Command.Prepare ->
+                result[result.lastIndex] = command.copy(positionMs = command.positionMs ?: previous.positionMs)
+            previous != null && previous.canBeReplacedBy(command) -> result[result.lastIndex] = command
+            else -> result += command
         }
         result
     }
@@ -225,7 +227,7 @@ private fun AndroidNativeDirectYPlayer.Command.canBeReplacedBy(next: AndroidNati
         is AndroidNativeDirectYPlayer.Command.SelectSubtitleTrack ->
             next is AndroidNativeDirectYPlayer.Command.SelectSubtitleTrack && secondary == next.secondary
         is AndroidNativeDirectYPlayer.Command.SelectItem -> next is AndroidNativeDirectYPlayer.Command.SelectItem
-        AndroidNativeDirectYPlayer.Command.Prepare -> next == AndroidNativeDirectYPlayer.Command.Prepare
+        is AndroidNativeDirectYPlayer.Command.Prepare -> false
         AndroidNativeDirectYPlayer.Command.Play -> next == AndroidNativeDirectYPlayer.Command.Play
         AndroidNativeDirectYPlayer.Command.Pause -> next == AndroidNativeDirectYPlayer.Command.Pause
     }

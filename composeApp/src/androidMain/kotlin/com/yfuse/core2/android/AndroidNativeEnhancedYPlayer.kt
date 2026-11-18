@@ -153,9 +153,12 @@ internal class AndroidNativeEnhancedYPlayer(
 
     @Volatile private var pendingProbeBudget: AndroidProbeBudget? = initialProbeBudget
 
-    fun retryWithProbeBudget(budget: AndroidProbeBudget?) {
+    fun retryWithProbeBudget(
+        budget: AndroidProbeBudget?,
+        positionMs: Long? = null,
+    ) {
         pendingProbeBudget = budget
-        retry()
+        retryAt(positionMs)
     }
 
     override val releaseCompleted: Boolean get() = worker.isCompleted && (!workerStarted || cleanupCompleted)
@@ -185,7 +188,7 @@ internal class AndroidNativeEnhancedYPlayer(
                 diagnostics = it.diagnostics.copy(renderedFrameRate = null),
             )
         }
-        submit(Command.Prepare)
+        submit(Command.Prepare())
     }
 
     override fun setVideoOutput(output: YVideoOutput?): Boolean {
@@ -352,17 +355,20 @@ internal class AndroidNativeEnhancedYPlayer(
 
     override fun currentPositionMs(): Long = mutableState.value.positionMs
 
-    override fun retry() {
+    override fun retry() = retryAt(null)
+
+    private fun retryAt(positionMs: Long?) {
         if (released) return
         mutableState.updateState {
             it.copy(
                 phase = YPlaybackPhase.Preparing,
+                positionMs = positionMs ?: it.positionMs,
                 error = null,
                 errorCategory = null,
                 buffering = it.playbackRequested,
             )
         }
-        submit(Command.Prepare)
+        submit(Command.Prepare(positionMs))
     }
 
     override fun release() {
@@ -1002,9 +1008,10 @@ internal class AndroidNativeEnhancedYPlayer(
                     for (command in coalesceNativeEnhancedCommands(pendingCommands)) {
                         try {
                             when (command) {
-                                Command.Prepare -> {
+                                is Command.Prepare -> {
                                     preparationRequested = true
-                                    prepareCurrent(mutableState.value.positionMs * MICROS_PER_MILLISECOND)
+                                    val startMs = command.positionMs ?: mutableState.value.positionMs
+                                    prepareCurrent(startMs * MICROS_PER_MILLISECOND)
                                 }
                                 Command.Play -> {
                                     if (mutableState.value.phase == YPlaybackPhase.Failed) continue
@@ -1225,7 +1232,9 @@ internal class AndroidNativeEnhancedYPlayer(
             val result: AndroidExternalSubtitleSession.Completion,
         ) : Command
 
-        data object Prepare : Command
+        data class Prepare(
+            val positionMs: Long? = null,
+        ) : Command
 
         data object Play : Command
 
@@ -1301,10 +1310,12 @@ internal fun coalesceNativeEnhancedCommands(
 ): List<AndroidNativeEnhancedYPlayer.Command> =
     commands.fold(mutableListOf()) { result, command ->
         val previous = result.lastOrNull()
-        if (previous != null && previous.canBeReplacedBy(command)) {
-            result[result.lastIndex] = command
-        } else {
-            result += command
+        when {
+            previous is AndroidNativeEnhancedYPlayer.Command.Prepare &&
+                command is AndroidNativeEnhancedYPlayer.Command.Prepare ->
+                result[result.lastIndex] = command.copy(positionMs = command.positionMs ?: previous.positionMs)
+            previous != null && previous.canBeReplacedBy(command) -> result[result.lastIndex] = command
+            else -> result += command
         }
         result
     }
@@ -1326,7 +1337,7 @@ private fun AndroidNativeEnhancedYPlayer.Command.canBeReplacedBy(next: AndroidNa
         is AndroidNativeEnhancedYPlayer.Command.SelectSubtitleTrack ->
             next is AndroidNativeEnhancedYPlayer.Command.SelectSubtitleTrack && secondary == next.secondary
         is AndroidNativeEnhancedYPlayer.Command.SelectItem -> next is AndroidNativeEnhancedYPlayer.Command.SelectItem
-        AndroidNativeEnhancedYPlayer.Command.Prepare -> next == AndroidNativeEnhancedYPlayer.Command.Prepare
+        is AndroidNativeEnhancedYPlayer.Command.Prepare -> false
         AndroidNativeEnhancedYPlayer.Command.Play -> next == AndroidNativeEnhancedYPlayer.Command.Play
         AndroidNativeEnhancedYPlayer.Command.Pause -> next == AndroidNativeEnhancedYPlayer.Command.Pause
     }

@@ -51,7 +51,7 @@ class PlayerItemEndTest {
         assertFalse(playbackStoppedAtItemEnd(endOfFirstOfTwo().copy(currentIndex = 1)))
     }
 
-    /** ExoPlayer after pauseAtEndOfMediaItems stopped it: paused on the final frame of item 0 of 2. */
+    /** A two-item queue paused on the final frame of its first item. */
     private fun endOfFirstOfTwo() =
         PlaybackState(
             playing = false,

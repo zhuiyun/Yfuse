@@ -84,8 +84,8 @@ class PlaybackTruthTest {
         val viewer = item.withForcedServerTranscode("任意说明", byViewer = true)
         val device = item.withForcedServerTranscode(VIEWER_TRANSCODE_REASON)
 
-        assertTrue(initialPlaybackDiagnostics("Exo", "硬件", viewer).viewerRequestedTranscode)
-        assertFalse(initialPlaybackDiagnostics("Exo", "硬件", device).viewerRequestedTranscode)
+        assertTrue(initialPlaybackDiagnostics("YCore", "硬件", viewer).viewerRequestedTranscode)
+        assertFalse(initialPlaybackDiagnostics("YCore", "硬件", device).viewerRequestedTranscode)
     }
 
     @Test
@@ -301,7 +301,7 @@ class PlaybackTruthTest {
         assertEquals(
             PlaybackMethod.DirectPlay.label,
             initialPlaybackDiagnostics(
-                engine = "libmpv",
+                engine = "SenPlayer",
                 decoder = "自动",
                 item = item,
             ).playMethod,

@@ -1149,6 +1149,13 @@ internal class AndroidEnhancedPlaybackSession(
                 message = "Retrying Enhanced hardware decoder with original media timestamps",
             )
             true
+        } catch (failure: VideoCodecOutputStateException) {
+            throw YPlaybackException(
+                category = YPlaybackFailureCategory.Decoder,
+                stage = YPlaybackFailureStage.VideoDecoderQueue,
+                safeDetail = "Enhanced video decoder rejected output",
+                cause = failure,
+            )
         } catch (failure: YPlaybackException) {
             if (!recoverAudioDecoderFailure(failure)) throw failure
             true

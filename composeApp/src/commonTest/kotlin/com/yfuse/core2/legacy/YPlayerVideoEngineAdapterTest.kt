@@ -289,7 +289,7 @@ class YPlayerVideoEngineAdapterTest {
     }
 
     @Test
-    fun `Core2 presentation controls are acknowledged without a false MPV fallback`() {
+    fun `Core2 acknowledges supported subtitle controls and rejects audio delay`() {
         val engine = YPlayerVideoEngineAdapter(FakeYPlayer())
 
         assertTrue(engine.supportsSubtitleOffset)

@@ -63,7 +63,7 @@ class PlaybackRenderEvidenceTest {
     fun a_new_load_attempt_starts_from_the_evidence_every_engine_wrote_inline() {
         val previous = playing.outputEvidence
         for (api in listOf(PlaybackVideoRenderApi.MediaCodecSurface, PlaybackVideoRenderApi.OpenGl)) {
-            // Exo (MediaCodecSurface) and mpv (OpenGl): retry, item change, transcode switch.
+            // A retry, item change or transcode switch starts a new output session.
             assertEquals(
                 previous.nextSession().copy(
                     videoConfidence = PlaybackEvidenceConfidence.Requested,
@@ -83,7 +83,7 @@ class PlaybackRenderEvidenceTest {
                 PlaybackOutputEvidence().nextLoadAttempt(api),
             )
         }
-        // MDK, which cannot see its audio sink.
+        // The route has no evidence from its audio sink.
         assertEquals(
             previous.nextSession().copy(
                 videoConfidence = PlaybackEvidenceConfidence.Requested,

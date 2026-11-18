@@ -41,7 +41,7 @@ class NativePlaybackFailureTest {
     @Test
     fun mediacodec_copy_without_a_decoder_surface_does_not_interrupt_successful_gpu_playback() {
         // Captured on the S10: this decoder warning was followed by successful codec start,
-        // hardware copy decoding, and MPV's first video frame. Recovering the VO restarted
+        // hardware copy decoding, and the first video frame. Recreating video output restarted
         // the decoder and replayed the same harmless warning until fallback was triggered.
         for (codec in listOf("h264", "hevc")) {
             val warning = "$codec" + "_mediacodec: Both surface and native_window are NULL"

@@ -6,6 +6,26 @@ import kotlin.test.assertIs
 
 class NativeDirectCommandPolicyTest {
     @Test
+    fun repeated_preparation_retains_only_the_latest_explicit_restart_position() {
+        val directStart = AndroidNativeDirectYPlayer.Command.Prepare(6_000L)
+        val directTarget = AndroidNativeDirectYPlayer.Command.Prepare(0L)
+        assertEquals(
+            listOf(directTarget),
+            coalesceNativeDirectCommands(
+                listOf(directStart, directTarget, AndroidNativeDirectYPlayer.Command.Prepare()),
+            ),
+        )
+        val enhancedStart = AndroidNativeEnhancedYPlayer.Command.Prepare(0L)
+        val enhancedTarget = AndroidNativeEnhancedYPlayer.Command.Prepare(48_000L)
+        assertEquals(
+            listOf(enhancedTarget),
+            coalesceNativeEnhancedCommands(
+                listOf(enhancedStart, enhancedTarget, AndroidNativeEnhancedYPlayer.Command.Prepare()),
+            ),
+        )
+    }
+
+    @Test
     fun primary_and_secondary_selections_survive_the_same_worker_batch() {
         val primary = AndroidNativeDirectYPlayer.Command.SelectSubtitleTrack(1, null)
         val secondary = AndroidNativeDirectYPlayer.Command.SelectSubtitleTrack(2, null, secondary = true)
@@ -47,8 +67,8 @@ class NativeDirectCommandPolicyTest {
         val compacted =
             coalesceNativeDirectCommands(
                 listOf(
-                    AndroidNativeDirectYPlayer.Command.Prepare,
-                    AndroidNativeDirectYPlayer.Command.Prepare,
+                    AndroidNativeDirectYPlayer.Command.Prepare(),
+                    AndroidNativeDirectYPlayer.Command.Prepare(),
                     AndroidNativeDirectYPlayer.Command.SetVideoOutput(null),
                     AndroidNativeDirectYPlayer.Command.SetVideoOutput(null),
                     AndroidNativeDirectYPlayer.Command.Seek(1_000_000L),
@@ -62,7 +82,7 @@ class NativeDirectCommandPolicyTest {
 
         assertEquals(
             listOf(
-                AndroidNativeDirectYPlayer.Command.Prepare,
+                AndroidNativeDirectYPlayer.Command.Prepare(),
                 AndroidNativeDirectYPlayer.Command.SetVideoOutput(null),
                 AndroidNativeDirectYPlayer.Command.Seek(2_000_000L),
                 AndroidNativeDirectYPlayer.Command.Pause,
