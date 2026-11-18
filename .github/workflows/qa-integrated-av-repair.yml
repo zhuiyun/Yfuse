@@ -1,11 +1,11 @@
-name: Qualify stable seek geometry including the estimated end clock
+name: Qualify completed-source seeking and pinned motion dialog headers
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
     paths: ['.github/workflows/qa-integrated-av-repair.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: fe814ec63fb1c035ff9fb123146e3ed3700a2b16
+  QA_APP_SHA: a15e40fc6ac0b6bf61e8a9565549ab099d192a16
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: fe814ec63fb1c035ff9fb123146e3ed3700a2b16
+          ref: a15e40fc6ac0b6bf61e8a9565549ab099d192a16
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
@@ -71,7 +71,7 @@ jobs:
           cp composeApp/build/outputs/mapping/release/mapping.txt preview/
           printf 'app=%s\nnative_built_from=%s\nsource_artifact=%s\n' "$app_sha" "$native_sha" "$artifact" > preview/provenance.txt
           (cd preview && sha256sum composeApp-release.apk > apk.sha256)
-      - name: Build unchanged prior clock layout for the device negative control
+      - name: Reintroduce only the previous clock layout for the device negative control
         run: |
           set -euo pipefail
           path=composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerChromeRefined.kt
@@ -79,10 +79,11 @@ jobs:
           cp "$path" "$RUNNER_TEMP/fixed-player-chrome.kt"
           trap 'cp "$RUNNER_TEMP/fixed-player-chrome.kt" "$path"' EXIT
           git show "$baseline:$path" > "$path"
-          git diff --exit-code "$baseline" -- composeApp/src/commonMain composeApp/src/androidMain phoneShared
-          ./gradlew :composeApp:assembleDebug -PyfuseIncludeMdk=false -PyfusePlaybackProfile=ycore-senplayer -PyfuseNativeOnlyRuntime=true -PallowDebugSigning=true -PyfuseBuildRevision="$baseline" -Pkotlin.compiler.execution.strategy=in-process '-Dorg.gradle.jvmargs=-Xmx8g -Dfile.encoding=UTF-8' --no-parallel --max-workers=2 --no-daemon
+          git diff --exit-code "$baseline" -- "$path"
+          git diff --exit-code "$QA_APP_SHA" -- . ":(exclude)$path"
+          ./gradlew :composeApp:assembleDebug -PyfuseIncludeMdk=false -PyfusePlaybackProfile=ycore-senplayer -PyfuseNativeOnlyRuntime=true -PallowDebugSigning=true -PyfuseBuildRevision="$QA_APP_SHA" -Pkotlin.compiler.execution.strategy=in-process '-Dorg.gradle.jvmargs=-Xmx8g -Dfile.encoding=UTF-8' --no-parallel --max-workers=2 --no-daemon
           cp composeApp/build/outputs/apk/debug/composeApp-debug.apk preview/geometry-negative.apk
-          printf 'app=%s\nnegative_case=long_movie_clock_never_moves_the_held_seek_rail\n' "$baseline" > preview/geometry-negative-provenance.txt
+          printf 'app=%s\nclock_layout_from=%s\nnegative_case=long_movie_clock_never_moves_the_held_seek_rail\n' "$QA_APP_SHA" "$baseline" > preview/geometry-negative-provenance.txt
           cp "$RUNNER_TEMP/fixed-player-chrome.kt" "$path"
           git diff --exit-code -- .
           (cd preview && sha256sum geometry-negative.apk instrumentation-target.apk regressions.apk >> apk.sha256)

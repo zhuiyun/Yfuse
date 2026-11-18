@@ -32,16 +32,17 @@ public final class Driver extends Instrumentation {
         xml.attribute(null,"visible",Boolean.toString(n.isVisibleToUser()));
         xml.attribute(null,"selected",Boolean.toString(n.isSelected()));
         xml.attribute(null,"focused",Boolean.toString(n.isFocused()));
-        boolean horizontal=false,vertical=false;
+        boolean horizontal=false,vertical=false,down=false;
         for(android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction action:n.getActionList()) {
             int id=action.getId();
             horizontal|=id==android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_LEFT.getId()
                     ||id==android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_RIGHT.getId();
-            vertical|=id==android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_UP.getId()
-                    ||id==android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_DOWN.getId();
+            down|=id==android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_DOWN.getId();
+            vertical|=id==android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_UP.getId() || down;
         }
         xml.attribute(null,"scroll-horizontal",Boolean.toString(horizontal));
         xml.attribute(null,"scroll-vertical",Boolean.toString(vertical));
+        if(vertical)xml.attribute(null,"scroll-down",Boolean.toString(down));
         for(int j=0;j<n.getChildCount();j++)node(n.getChild(j),xml,depth+1);
         xml.endTag(null,"node");
     }

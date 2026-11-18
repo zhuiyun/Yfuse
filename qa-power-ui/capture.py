@@ -122,6 +122,35 @@ def verify_detail_clearance(tree_file, title):
     return {'titleBoundsPx': title_box, 'backBoundsPx': back_box, 'overlap': False}
 
 
+def verify_motion_dialog(out, row, title, last_label):
+    viewports = [row['top'], *row['scrolls']]
+    expected = None
+    for shot in viewports:
+        tree = ET.parse(out / shot['tree']).getroot()
+        visible = [n for n in ui.nodes(tree) if n.get('visible') != 'false']
+        close = [n for n in visible if n.get('content-desc') == '关闭' and n.get('class') == 'android.widget.Button'
+                 and n.get('enabled') == 'true' and n.get('clickable') == 'true']
+        headings = [n for n in visible if n.get('class') == 'android.widget.TextView' and n.get('text') == title]
+        if len(close) != 1 or len(headings) != 1:
+            raise AssertionError('Dialog heading or actionable close button disappeared: ' + shot['tree'])
+        position = [bounds(headings[0]), bounds(close[0])]
+        if expected is not None and position != expected:
+            raise AssertionError('Dialog header moved while scrolling: ' + shot['tree'])
+        expected = position
+    if not any(n.get('text') == last_label for n in visible):
+        raise AssertionError('Last dialog option was not reached')
+    ui.tap(close[0])
+    deadline = time.monotonic() + 6
+    while time.monotonic() < deadline:
+        tree = ui.snapshot()
+        labels = {n.get('text') for n in ui.nodes(tree)}
+        if {'粒子光效', '播放器进出场'} <= labels and not any(
+                n.get('content-desc') == '关闭' and n.get('visible') != 'false' for n in ui.nodes(tree)):
+            return {'viewports': len(viewports), 'headerBoundsPx': expected, 'lastOption': last_label, 'dismissed': True}
+        time.sleep(.25)
+    raise AssertionError('Close at the end did not return to motion settings')
+
+
 def failure_diagnostics(out, key):
     # Only disposable cloud profiles are used; preserve crash and focus evidence before relaunch.
     commands = {
@@ -268,31 +297,42 @@ def main():
                 raise AssertionError('Requested app is not the foreground screenshot subject')
             if os.environ.get('QA_REQUIRE_DETAIL_CLEARANCE') == 'true' and name in {'movie-detail', 'long-title-detail', 'series-detail'}:
                 row['navigationClearance'] = verify_detail_clearance(out / (key + '-top.xml'), path[-1])
-            width, height = ui.size()
             # Retain successive viewports so long settings pages are actually reviewed.
             previous = row['top']['treeSha256']
             row['scrolls'] = []
-            for page in range(1, 26):
+            row['scrollEndObserved'] = False
+            scroll_deadline = time.monotonic() + 240
+            while time.monotonic() < scroll_deadline:
                 tree = ui.snapshot()
+                if not any(n.get('package') == 'com.yfuse' for n in ui.nodes(tree)):
+                    raise AssertionError('No foreground application tree while checking scroll extent')
                 panes = [node for node in ui.nodes(tree) if vertical_pane(node)]
                 if not panes:
                     row['scrollEndObserved'] = True
                     break
                 pane = max(panes, key=lambda node: (bounds(node)[2] - bounds(node)[0]) * (bounds(node)[3] - bounds(node)[1]))
+                can_scroll_down = pane.get('scroll-down')
+                if can_scroll_down == 'false':
+                    row['scrollEndObserved'] = True
+                    break
                 left, top, right, bottom = bounds(pane)
                 adb('shell', 'input', 'swipe', (left + right) // 2, int(top + (bottom - top) * .82),
                     (left + right) // 2, int(top + (bottom - top) * .25), 450)
                 time.sleep(.6)
-                shot = capture(out, key + '-scroll-' + str(page))
+                shot = capture(out, key + '-scroll-' + str(len(row['scrolls']) + 1))
                 if 'com.yfuse' not in shot['packages']:
                     raise AssertionError('App left the foreground while collecting scroll evidence')
                 row['scrolls'].append(shot)
                 if shot['treeSha256'] == previous:
-                    row['scrollEndObserved'] = True
-                    break
+                    if can_scroll_down is None:
+                        row['scrollEndObserved'] = True
+                        break
                 previous = shot['treeSha256']
             else:
-                row['scrollEndObserved'] = False
+                raise AssertionError('Scroll end was not observed within the route time budget')
+            if name in {'particle-choice', 'player-transition-choice'}:
+                last = '细微光尘 · 海报边缘' if name == 'particle-choice' else '完成'
+                row['motionDialog'] = verify_motion_dialog(out, row, path[-1], last)
             row['status'] = 'captured-needs-review'
         except Exception as error:
             row['status'] = 'capture-blocked'
