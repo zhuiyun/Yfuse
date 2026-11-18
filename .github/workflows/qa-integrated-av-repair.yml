@@ -5,7 +5,7 @@ on:
     paths: ['.github/workflows/qa-integrated-av-repair.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: fa4ffc7524fd1518680ad6e6965a7200b9255758
+  QA_APP_SHA: 43e8b321703dc287ad117e806834711cf57cea78
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: fa4ffc7524fd1518680ad6e6965a7200b9255758
+          ref: 43e8b321703dc287ad117e806834711cf57cea78
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
@@ -59,6 +59,7 @@ jobs:
           mkdir -p "$host_checks"
           javac -cp "$ANDROID_HOME/platforms/android-37.0/android.jar" -d "$host_checks" senplayerBridge/src/main/java/com/yfuse/senplayer/SenPlayerSession.java senplayerBridge/src/hostTest/java/com/yfuse/senplayer/SenPlayerSessionHostChecks.java
           java -cp "$host_checks:$ANDROID_HOME/platforms/android-37.0/android.jar" com.yfuse.senplayer.SenPlayerSessionHostChecks
+          python3 qa-integrated/check-playback-source.py
           python3 scripts/check_function_size.py
           ./gradlew ktlintCheck --continue --no-parallel --max-workers=2 --no-daemon
           ./gradlew :phoneShared:testAndroidHostTest :composeApp:assembleRelease :composeApp:assembleDebug :composeApp:assembleDebugAndroidTest -PyfuseIncludeMdk=false -PyfusePlaybackProfile=ycore-senplayer -PyfuseNativeOnlyRuntime=true -PallowDebugSigning=true -PyfuseBuildRevision="$app_sha" -Pkotlin.compiler.execution.strategy=in-process '-Dorg.gradle.jvmargs=-Xmx8g -Dfile.encoding=UTF-8' --no-parallel --max-workers=2 --no-daemon
