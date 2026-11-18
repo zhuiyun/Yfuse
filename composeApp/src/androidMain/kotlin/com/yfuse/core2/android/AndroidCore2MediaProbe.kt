@@ -840,7 +840,18 @@ internal class AndroidCore2RouteEvaluator(
             }
         // Dolby routing is authoritative, not a diagnostic decoration. A profile/display/decoder
         // mismatch must not fall through to the generic HEVC planner and produce a green picture.
-        if (dolbyDecision is YDolbyVisionRouteDecision.Unsupported) return null
+        if (dolbyDecision is YDolbyVisionRouteDecision.Unsupported) {
+            if (!request.enhancedDemuxSupported ||
+                item.drmConfiguration != null ||
+                request.video.secureDecodeRequired ||
+                request.video.codec != YVideoCodec.H265 ||
+                request.video.hdrType != YHdrType.DolbyVision
+            ) {
+                return null
+            }
+            val basePlan = yCoreInternalSoftwareRecoveryPlan(YHdrType.DolbyVision, resolved.dolbyVisionConfig)
+            return basePlan?.let { YCore2RouteDecision(normalizedProbe, it) }
+        }
         var plan = strategy.plan(request, capabilities)
         val unseenRuntimeKey = runtimeVideoCapabilityKey(request, plan)
         if (

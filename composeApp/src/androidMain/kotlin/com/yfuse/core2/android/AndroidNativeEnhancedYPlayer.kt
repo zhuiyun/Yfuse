@@ -492,6 +492,7 @@ internal class AndroidNativeEnhancedYPlayer(
                     requiredYCoreSoftwarePlan(
                         probedVideo = decision?.probe?.playbackRequest?.video,
                         protectedContent = item.drmConfiguration != null,
+                        dolbyConfig = decision?.probe?.dolbyVisionConfig,
                     )
                 } else {
                     forcedPlan ?: decision?.plan
@@ -586,7 +587,7 @@ internal class AndroidNativeEnhancedYPlayer(
                             probeBudget = budget,
                             initialTrackSelection = item.initialTrackSelection,
                             diagnosticItem = item,
-                            resolveSoftwareRecoveryFromDemux = forcedPlan?.decodePath == YDecodePath.Software,
+                            resolveSoftwareRecoveryFromDemux = playbackPlan.decodePath == YDecodePath.Software,
                             sourceFailure = { proxy?.sourceFailure(item.uri) },
                         )
                     }

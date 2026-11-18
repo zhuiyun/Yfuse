@@ -163,10 +163,7 @@ object YBitstream {
         if (from == to) return data
         val units = scan(data, codec, from)
         require(units.isNotEmpty()) { "Encoded access unit contains no NAL units" }
-        return when (to) {
-            YSamplePacking.AnnexB -> units.toAnnexB(data)
-            is YSamplePacking.LengthPrefixed -> units.toLengthPrefixed(data, to.lengthBytes)
-        }
+        return units.pack(data, to)
     }
 
     fun parameterSets(
@@ -386,6 +383,15 @@ private fun nalType(
         }
     }
 }
+
+internal fun List<YNalUnitSpan>.pack(
+    source: ByteArray,
+    packing: YSamplePacking,
+): ByteArray =
+    when (packing) {
+        YSamplePacking.AnnexB -> toAnnexB(source)
+        is YSamplePacking.LengthPrefixed -> toLengthPrefixed(source, packing.lengthBytes)
+    }
 
 private fun List<YNalUnitSpan>.toAnnexB(source: ByteArray): ByteArray {
     val total = sumOf { ANNEX_B_PREFIX.size + it.length }

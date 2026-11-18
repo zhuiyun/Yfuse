@@ -14,6 +14,7 @@ import com.yfuse.feature.json
 import com.yfuse.feature.testRegistry
 import com.yfuse.feature.testRepo
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.first
@@ -24,6 +25,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withTimeout
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.coroutines.ContinuationInterceptor
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -420,7 +422,9 @@ class PlayerStoreTest {
     @Test
     fun episode_loads_series_queue_and_resume_position() =
         runBlocking {
-            // Negotiation resumes from Dispatchers.Default. Keep its catalog deadline on real time.
+            // Run store callbacks and observation on this one event loop even when negotiation
+            // returns from Dispatchers.Default. The five-second deadline uses the same real clock.
+            Dispatchers.setMain(coroutineContext[ContinuationInterceptor] as CoroutineDispatcher)
             val registry =
                 testRegistry().apply {
                     addOrUpdate(SavedServer("id", "http://host:8096", "server", "u1", "user", "tok"))
@@ -456,21 +460,24 @@ class PlayerStoreTest {
                     startPositionTicks = 25_000_000L,
                 ).create()
 
-            val state = withTimeout(5_000L) { store.states.first { !it.loading && !it.enrichmentPending } }
+            try {
+                val state = withTimeout(5_000L) { store.states.first { !it.loading && !it.enrichmentPending } }
 
-            assertEquals(listOf("e1", "e2"), state.items.map { it.id })
-            assertEquals(listOf(2, 2), state.items.map { it.seasonNumber })
-            assertEquals(listOf(1, 2), state.items.map { it.episodeNumber })
-            assertTrue(
-                state.items.all {
-                    it.posterUrl ==
-                        "http://host:8096/Items/s1/Images/Primary?tag=series-poster&" +
-                        "maxHeight=360&quality=85&format=webp&api_key=tok&ApiKey=tok"
-                },
-            )
-            assertEquals(1, state.startIndex)
-            assertEquals(2_500L, state.startPositionMs)
-            store.dispose()
+                assertEquals(listOf("e1", "e2"), state.items.map { it.id })
+                assertEquals(listOf(2, 2), state.items.map { it.seasonNumber })
+                assertEquals(listOf(1, 2), state.items.map { it.episodeNumber })
+                assertTrue(
+                    state.items.all {
+                        it.posterUrl ==
+                            "http://host:8096/Items/s1/Images/Primary?tag=series-poster&" +
+                            "maxHeight=360&quality=85&format=webp&api_key=tok&ApiKey=tok"
+                    },
+                )
+                assertEquals(1, state.startIndex)
+                assertEquals(2_500L, state.startPositionMs)
+            } finally {
+                store.dispose()
+            }
         }
 
     @Test

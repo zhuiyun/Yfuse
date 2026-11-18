@@ -3,6 +3,10 @@ package com.yfuse.core2.android
 import android.util.Base64
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.yfuse.core2.bitstream.YSamplePacking
+import com.yfuse.core2.capability.YHdrType
+import com.yfuse.core2.demux.YDemuxSource
+import com.yfuse.core2.dolby.dolbyVisionHevcBaseLayerSample
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -10,10 +14,75 @@ import org.junit.runner.RunWith
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.security.MessageDigest
 
 /** Real bundled JNI, including buffer-growth retries and an EOF with a second field pending. */
 @RunWith(AndroidJUnit4::class)
 class SoftwareOutputContractInstrumentedTest {
+    @Test
+    fun compatible_base_keeps_all_six_tone_mapped_pictures_and_timestamps() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val file = File.createTempFile("hdr-base-", ".mp4", instrumentation.targetContext.cacheDir)
+        try {
+            val encoded =
+                instrumentation.context.assets
+                    .open(
+                        "ycore/hdr10-compatible-base.mp4.b64",
+                    ).use { it.readBytes() }
+            file.writeBytes(Base64.decode(encoded, Base64.DEFAULT))
+            val demux = AndroidFfmpegDemuxer()
+            val track =
+                try {
+                    demux
+                        .open(YDemuxSource(file.absolutePath))
+                        .tracks
+                        .mapNotNull { it.video }
+                        .single()
+                } finally {
+                    demux.close()
+                }
+            val packing = requireNotNull(track.samplePacking)
+            assertEquals(YSamplePacking.LengthPrefixed(4), packing)
+            assertEquals(8, track.dolbyVisionConfig?.profile)
+            val plan = softwareRecoveryPlanFromDemux(track, protectedContent = false)
+            assertTrue(plan.usesHdrFallback && plan.softwareVideoToneMap)
+            assertEquals(YHdrType.Hdr10, plan.inputHdrType)
+            assertEquals(YHdrType.Sdr, plan.outputHdrType)
+            val reference = toneMappedPictures(file) { it }
+            // The generated movie has an HDR10 base. Each second-pass access unit also contains
+            // one synthetic enhancement NAL; its payload must never reach the base decoder.
+            val enhancement = byteArrayOf(0, 0, 0, 3, 126, 1, 85)
+            val filtered =
+                toneMappedPictures(file) { dolbyVisionHevcBaseLayerSample(it + enhancement, packing, packing) }
+            assertEquals(6, reference.size)
+            assertTrue(reference.map { it.second }.distinct().size > 1)
+            assertTrue(reference.zipWithNext().all { (a, b) -> a.first < b.first })
+            assertEquals(reference, filtered)
+        } finally {
+            file.delete()
+        }
+    }
+
+    private fun toneMappedPictures(
+        file: File,
+        packetTransform: (ByteArray) -> ByteArray,
+    ): List<Pair<Long, List<Byte>>> {
+        val handle = FfmpegNativeBridge.open(file.absolutePath, emptyMap())
+        try {
+            FfmpegNativeBridge.selectTracks(handle, intArrayOf(0))
+            FfmpegNativeBridge.configureSoftwareDecoder(handle, 0, true)
+            return buildList {
+                decode(handle, video = true, packetTransform = packetTransform) { metadata, data ->
+                    val bytes = ByteArray(metadata[1].toInt())
+                    data.duplicate().apply { position(0) }.get(bytes)
+                    add(metadata[2] to MessageDigest.getInstance("SHA-256").digest(bytes).toList())
+                }
+            }
+        } finally {
+            FfmpegNativeBridge.close(handle)
+        }
+    }
+
     @Test
     fun interlaced_video_delivers_both_fields_with_monotonic_timestamps() {
         for ((fixture, fieldDurationUs) in listOf("top25" to 20_000L, "bottom30" to 16_683L)) {
@@ -140,6 +209,7 @@ class SoftwareOutputContractInstrumentedTest {
         video: Boolean,
         minimumPresentationTimeUs: Long = Long.MIN_VALUE,
         skipped: (LongArray, ByteBuffer) -> Unit = { _, _ -> error("Unexpected discarded frame") },
+        packetTransform: (ByteArray) -> ByteArray = { it },
         output: (LongArray, ByteBuffer) -> Unit,
     ) {
         val packetBuffer = ByteBuffer.allocateDirect(65536)
@@ -173,7 +243,7 @@ class SoftwareOutputContractInstrumentedTest {
                 val data = ByteArray(packet[2].toInt())
                 packetBuffer.position(0)
                 packetBuffer.get(data)
-                check(FfmpegNativeBridge.sendSoftwarePacket(handle, 0, data, packet[3], packet[4]))
+                check(FfmpegNativeBridge.sendSoftwarePacket(handle, 0, packetTransform(data), packet[3], packet[4]))
             }
         }
         error("Software decoder did not reach EOF")

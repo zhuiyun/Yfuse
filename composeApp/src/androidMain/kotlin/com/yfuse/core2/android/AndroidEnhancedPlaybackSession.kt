@@ -1466,6 +1466,15 @@ internal class AndroidEnhancedPlaybackSession(
         }
 
         val videoTrack = requireNotNull(sourceVideoTrack)
+        if (sample.trackId == videoTrack.id &&
+            plan?.usesHdrFallback == true &&
+            preparedVideoAccessUnit(sample).data.isEmpty()
+        ) {
+            // Enhancement-only packets have no picture in the compatible base. Passing an empty
+            // packet to FFmpeg would signal end of stream.
+            videoAccessUnits.queued(sample)
+            return true
+        }
         val queued =
             when (sample.trackId) {
                 videoTrack.id -> {
@@ -1602,7 +1611,8 @@ internal class AndroidEnhancedPlaybackSession(
                 requireNotNull(sourceTrack.samplePacking) {
                     "Dolby HEVC fallback requires known NAL packing"
                 }
-            return dolbyVisionHevcBaseLayerSample(data, packing)
+            val decoderPacking = if (softwareVideoActive) packing else YSamplePacking.AnnexB
+            return dolbyVisionHevcBaseLayerSample(data, packing, decoderPacking)
         }
         return normalizeVideoSampleForMediaCodec(data, sourceTrack)
     }

@@ -40,6 +40,7 @@ import com.yfuse.core2.api.trackSelectionSkipReason
 import com.yfuse.core2.capability.YAudioOutputPath
 import com.yfuse.core2.capability.YContainer
 import com.yfuse.core2.capability.YHdrType
+import com.yfuse.core2.dolby.YDolbyVisionConfig
 import com.yfuse.core2.learning.YPlaybackLearningEngine
 import com.yfuse.core2.learning.YPlaybackLearningKey
 import com.yfuse.core2.learning.YPlaybackObservation
@@ -1144,8 +1145,9 @@ internal class AndroidAdaptiveCore2YPlayer(
                     ?.video
                     ?.hdrType
                     ?: item.hintedHdrType()
-            val plan = yCoreInternalSoftwareRecoveryPlan(inputHdrType)
-            if (plan == null || !yCoreSoftwarePlanExecutable(plan)) {
+            val config = decision?.probe?.dolbyVisionConfig
+            val plan = yCoreInternalSoftwareRecoveryPlan(inputHdrType, config)
+            if (plan == null || !yCoreSoftwarePlanExecutable(plan, config)) {
                 AppLog.warning(
                     category = "player.core2",
                     event = "internal_route_unavailable",
@@ -1178,6 +1180,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                 allowAudioPassthrough = false,
                 frameRateSwitchMode = frameRateSwitchMode,
                 forcedPlan = plan,
+                requireDolbyVisionIdentity = plan.usesHdrFallback,
                 preferredRemoteBufferTargetUs = preferredRemoteBufferTargetUs,
             )
         }
@@ -1258,7 +1261,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                     !decision.audioOnly &&
                     plan.demuxPath == YDemuxPath.Enhanced &&
                     item.drmConfiguration == null &&
-                    yCoreSoftwarePlanExecutable(plan) ->
+                    yCoreSoftwarePlanExecutable(plan, decision.probe.dolbyVisionConfig) ->
                     AndroidNativeEnhancedYPlayer(
                         context = context,
                         request = singleRequest,
@@ -1268,9 +1271,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                         allowAudioPassthrough = false,
                         frameRateSwitchMode = frameRateSwitchMode,
                         forcedPlan = plan,
-                        // Only hardware video decode reaches here with Dolby Vision (see the
-                        // guard); the demux must then still prove the Dolby configuration.
-                        requireDolbyVisionIdentity = plan.inputHdrType == YHdrType.DolbyVision,
+                        requireDolbyVisionIdentity = plan.inputHdrType == YHdrType.DolbyVision || plan.usesHdrFallback,
                         preferredRemoteBufferTargetUs = preferredRemoteBufferTargetUs,
                     )
                 plan.route == YPlaybackRoute.GpuEnhanced -> {
@@ -2032,6 +2033,12 @@ internal class AndroidAdaptiveCore2YPlayer(
                                     yCoreSoftwareRecoveryAvailable(
                                         protectedContent = failedItem.drmConfiguration != null,
                                         inputHdrType = childInputHdrType,
+                                        dolbyConfig =
+                                            lastRouteDecision
+                                                ?.takeIf { it.first == failedItem }
+                                                ?.second
+                                                ?.probe
+                                                ?.dolbyVisionConfig,
                                     ),
                             ),
                         )
@@ -3107,14 +3114,15 @@ internal fun yCoreUnavailableError(
 
 /**
  * Whether FallbackToSoftware has a route to build for this input (see createInternalSoftwareRoute).
- * Dolby Vision and protected input have no software recovery: YCore never decodes them in software.
+ * Protected input and Dolby sources without a confirmed compatible base cannot use this path.
  */
 internal fun yCoreSoftwareRecoveryAvailable(
     protectedContent: Boolean,
     inputHdrType: YHdrType,
+    dolbyConfig: YDolbyVisionConfig? = null,
 ): Boolean =
     !protectedContent &&
-        yCoreInternalSoftwareRecoveryPlan(inputHdrType) != null
+        yCoreInternalSoftwareRecoveryPlan(inputHdrType, dolbyConfig) != null
 
 private fun AndroidProbeBudget.remainingMsOrZero(): Long =
     try {
@@ -3212,20 +3220,24 @@ internal fun yCoreInternalEnhancedRecoveryPlan(
         reason = "YCore internal enhanced demux and MediaCodec recovery",
     )
 
-internal fun yCoreInternalSoftwareRecoveryPlan(inputHdrType: YHdrType): YPlaybackPlan? {
-    if (inputHdrType == YHdrType.DolbyVision) return null
+internal fun yCoreInternalSoftwareRecoveryPlan(
+    inputHdrType: YHdrType,
+    dolbyConfig: YDolbyVisionConfig? = null,
+): YPlaybackPlan? {
+    val compatibleBase = dolbyConfig?.takeIf { it.profile == 7 || it.profile == 8 }?.compatibleBaseHdr
+    val decodeHdr = if (inputHdrType == YHdrType.DolbyVision) compatibleBase ?: return null else inputHdrType
     return YPlaybackPlan(
         route = YPlaybackRoute.SoftwareFallback,
         demuxPath = YDemuxPath.Enhanced,
         decodePath = YDecodePath.Software,
         renderPath = YRenderPath.Gpu,
         outputHdrType = YHdrType.Sdr,
-        inputHdrType = inputHdrType,
+        inputHdrType = decodeHdr,
         nativeAudio = false,
         audioPath = YAudioOutputPath.DecodePcm,
         softwareAudioDecode = true,
-        softwareVideoToneMap = inputHdrType != YHdrType.Sdr,
-        usesHdrFallback = false,
+        softwareVideoToneMap = decodeHdr != YHdrType.Sdr,
+        usesHdrFallback = inputHdrType == YHdrType.DolbyVision,
         reason = "YCore internal FFmpeg software decode recovery",
     )
 }
@@ -3247,8 +3259,11 @@ private fun YMediaItem.hintedHdrType(): YHdrType {
     }
 }
 
-private fun yCoreSoftwarePlanExecutable(plan: YPlaybackPlan): Boolean {
-    if (!yCoreSoftwarePlanPassesDolbyGuard(plan)) return false
+private fun yCoreSoftwarePlanExecutable(
+    plan: YPlaybackPlan,
+    dolbyConfig: YDolbyVisionConfig? = null,
+): Boolean {
+    if (!yCoreSoftwarePlanPassesDolbyGuard(plan, dolbyConfig)) return false
     return runCatching {
         AndroidFfmpegDemuxer().let { demuxer ->
             demuxer.available && demuxer.softwareDecodeAvailable
@@ -3257,15 +3272,19 @@ private fun yCoreSoftwarePlanExecutable(plan: YPlaybackPlan): Boolean {
 }
 
 /**
- * The Dolby Vision and HDR-fallback guard protects FFmpeg video decode only, which would decode the
- * Dolby base layer into a wrong picture. A plan whose video stays on a platform decoder is labelled
- * SoftwareFallback only because its audio is decoded in software, and the guard refused exactly
- * that in 1.0.83 (internal_route_unavailable dolbyguard=true for a hardware-decoded DV P5 plan).
+ * FFmpeg can decode a verified HEVC compatible base and present it as SDR. Raw Dolby pixels
+ * require their own color transform. A hardware video decoder with software audio follows the
+ * platform's Dolby path, independently of this check.
  */
-internal fun yCoreSoftwarePlanPassesDolbyGuard(plan: YPlaybackPlan): Boolean =
-    plan.decodePath != YDecodePath.Software ||
-        !(
-            plan.usesHdrFallback ||
-                plan.inputHdrType == YHdrType.DolbyVision ||
-                plan.outputHdrType == YHdrType.DolbyVision
-        )
+internal fun yCoreSoftwarePlanPassesDolbyGuard(
+    plan: YPlaybackPlan,
+    dolbyConfig: YDolbyVisionConfig? = null,
+): Boolean {
+    if (plan.decodePath != YDecodePath.Software) return true
+    if (plan.inputHdrType == YHdrType.DolbyVision || plan.outputHdrType == YHdrType.DolbyVision) return false
+    if (!plan.usesHdrFallback) return true
+    return dolbyConfig?.profile in setOf(7, 8) &&
+        dolbyConfig?.compatibleBaseHdr == plan.inputHdrType &&
+        plan.outputHdrType == YHdrType.Sdr &&
+        plan.softwareVideoToneMap == (plan.inputHdrType != YHdrType.Sdr)
+}
