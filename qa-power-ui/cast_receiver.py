@@ -46,18 +46,23 @@ def clock_second(pixels):
     return second if second is not None and second < 96 and row(10) == second else None
 
 
+def read_picture(path):
+    try:
+        data = path.read_bytes()
+    except FileNotFoundError:
+        return None
+    if len(data) != 160 * 90 * 3:
+        return None
+    picture = Image.frombytes('RGB', (160, 90), data)
+    second = clock_second(picture)
+    return (int(path.stem.split('-')[-1]), second, picture) if second is not None else None
+
+
 def latest_picture(frames):
     for path in sorted(frames.glob('frame-*.rgb'), reverse=True):
-        try:
-            data = path.read_bytes()
-        except FileNotFoundError:
-            continue
-        if len(data) != 160 * 90 * 3:
-            continue
-        picture = Image.frombytes('RGB', (160, 90), data)
-        second = clock_second(picture)
-        if second is not None:
-            return int(path.stem.split('-')[-1]), second, picture
+        result = read_picture(path)
+        if result is not None:
+            return result
     return None
 
 
@@ -78,6 +83,30 @@ def moving(frames, label, *, target=None, after=-1):
                             'firstObservedAfterSeconds': round(first[2], 3)}
         time.sleep(.15)
     raise AssertionError('No advancing decoded receiver timecode for ' + label)
+
+
+def resumed_picture(frames, paused_frame, started):
+    # The renderer writes one frame per second. Inspect every new index in order,
+    # including a transient frame if the receiver jumped before the corrective seek.
+    timeline = []
+    index = paused_frame + 1
+    while time.monotonic() - started < 35:
+        result = read_picture(frames / f'frame-{index:08d}.rgb')
+        if result is None:
+            time.sleep(.06)
+            continue
+        _, second, picture = result
+        timeline.append({'frame': index, 'second': second, 'observedAfterSeconds': round(time.monotonic()-started, 3)})
+        if len(timeline) == 1:
+            picture.save(OUT / 'first-resumed-receiver.png')
+        elif second != timeline[0]['second']:
+            picture.save(OUT / 'resumed-receiver.png')
+            first = timeline[0]
+            return {'firstFrame': first['frame'], 'firstSecond': first['second'],
+                    'frame': index, 'second': second, 'firstObservedAfterSeconds': first['observedAfterSeconds'],
+                    'allDecodedFrames': timeline}
+        index += 1
+    raise AssertionError('Could not read every new timecode from the first resumed receiver frame')
 
 
 def stable_picture(frames):
@@ -150,7 +179,7 @@ def save_cast_diagnostics():
         attributes = {k.lower(): v for k, v in (row.get('attributes') or {}).items()}
         events.append({'event': row.get('event'), 'timestamp': row.get('timestamp'), 'attributes':
                        {k: v for k, v in attributes.items() if k in ('state', 'status', 'positionms', 'startpositionms',
-                         'targetms', 'fromms', 'attempt', 'seekattempts', 'seekedbeforeplay', 'failure')}})
+                         'targetms', 'fromms', 'attempt', 'seekattempts', 'seekedbeforeplay', 'failure', 'revision')}})
     (OUT / 'cast-events.json').write_text(json.dumps(events, indent=2))
     return events
 
@@ -189,8 +218,9 @@ def exercise(core, url, frames, server, recorder, evidence):
     control = ui.find(tree, ['播放', '继续播放', 'Play', 'Resume'])
     if control is None:
         raise AssertionError('Resume control missing on phone')
+    resume_started = time.monotonic()
     ui.tap(control)
-    evidence['resumed'] = moving(frames, 'resumed', after=evidence['receiverPause']['frame'])
+    evidence['resumed'] = resumed_picture(frames, evidence['receiverPause']['frame'], resume_started)
     evidence['continuity'] = continuity(evidence)
     cast_panel()
     click('停止投屏')

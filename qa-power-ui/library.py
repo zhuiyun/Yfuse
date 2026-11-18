@@ -46,6 +46,9 @@ class LibraryServer:
             def do_GET(self):
                 self.serve()
 
+            def do_HEAD(self):
+                self.serve()
+
             def do_POST(self):
                 length = min(int(self.headers.get('Content-Length', '0')), 1_000_000)
                 if length:
@@ -59,7 +62,11 @@ class LibraryServer:
                 parsed = urlparse(self.path)
                 path = parsed.path.removeprefix('/emby')
                 query = parse_qs(parsed.query)
-                status = 503 if owner.failure else 200
+                parts = path.strip('/').split('/')
+                media = (self.command in ('GET', 'HEAD') and len(parts) >= 3
+                         and parts[0].lower() == 'videos' and parts[1] in owner.items
+                         and parts[2].split('.')[0].lower() in ('stream', 'original'))
+                status = 503 if owner.failure else 307 if media else 200
                 with owner.lock, owner.output.open('a', encoding='utf-8') as log:
                     owner.requests += 1
                     # No headers, query parameters, credentials or user text are logged.
@@ -67,6 +74,12 @@ class LibraryServer:
                                           'route': path, 'status': status}) + '\n')
                 if owner.failure:
                     self.send_error(503)
+                    return
+                if media:
+                    self.send_response(307)
+                    self.send_header('Location', 'http://127.0.0.1:18389/fixture.mp4')
+                    self.send_header('Content-Length', '0')
+                    self.end_headers()
                     return
                 if '/Images/' in path:
                     asset = Path('composeApp/src/androidMain/assets/widget-preview/lake.webp')
@@ -113,7 +126,8 @@ class LibraryServer:
                 self.send_header('Content-Length', str(len(data)))
                 self.end_headers()
                 try:
-                    self.wfile.write(data)
+                    if self.command != 'HEAD':
+                        self.wfile.write(data)
                 except (BrokenPipeError, ConnectionResetError):
                     pass
 
@@ -135,7 +149,8 @@ class LibraryServer:
                 'Protocol': 'Http', 'RunTimeTicks': 36_000_000_000,
                 'SupportsDirectPlay': True, 'SupportsDirectStream': True,
                 'DirectStreamUrl': 'http://127.0.0.1:18389/fixture.mp4',
-                'MediaStreams': [{'Index': 0, 'Type': 'Video', 'Codec': 'h264', 'Width': 640, 'Height': 360},
+                'MediaStreams': [{'Index': 0, 'Type': 'Video', 'Codec': 'h264', 'Width': 640, 'Height': 360,
+                                  'AspectRatio': '16:9', 'VideoRange': 'SDR', 'BitDepth': 8},
                                  {'Index': 1, 'Type': 'Audio', 'Codec': 'aac', 'Channels': 1}]}
 
     def close(self):

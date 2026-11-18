@@ -1,4 +1,5 @@
 """Four-hour per-core activity baseline on a disposable cloud ARM64 Android guest."""
+from datetime import datetime
 import json
 import os
 from pathlib import Path
@@ -41,9 +42,16 @@ def open_video(url='http://127.0.0.1:18389/fixture.mp4', mime='video/mp4'):
         '-d', url)
 
 
-def playing(core, url='http://127.0.0.1:18389/fixture.mp4', mime='video/mp4', *, hide_controls=True):
+def playing(core, url='http://127.0.0.1:18389/fixture.mp4', mime='video/mp4', *, hide_controls=True, from_library=False):
     opened = time.time()
-    open_video(url, mime)
+    if from_library:
+        from navigation import click
+        home('媒体库')
+        click('测试电影')
+        click('山海之间')
+        click('播放')
+    else:
+        open_video(url, mime)
     result = direct.decode_playback('power-' + core, None, 3600)
     identity = engine.engine_evidence(core, opened)
     identities = [identity]
@@ -60,7 +68,21 @@ def playing(core, url='http://127.0.0.1:18389/fixture.mp4', mime='video/mp4', *,
     if hide_controls and rail(ui.snapshot()):
         image = screen()
         tap(image.width * .5, image.height * .35)
-    return {'movingPicture': result, 'identity': identity}
+    entry = {'movingPicture': result, 'identity': identity}
+    if from_library:
+        entry['source'] = 'normal library detail and PlaybackInfo'
+        if core == 'SenPlayer':
+            lines = adb('shell', 'cat /data/user/0/com.yfuse/no_backup/diagnostics/diagnostic-*.jsonl').splitlines()
+            events = [json.loads(line) for line in lines if line.startswith('{')]
+            geometry = [e['attributes'] for e in events if e.get('event') == 'video_buffer_configured'
+                        and datetime.fromisoformat(e['timestamp'].replace('Z', '+00:00')).timestamp() >= opened-3]
+            fields = ('bufferwidth', 'bufferheight', 'windowwidth', 'windowheight', 'subtitlewidth', 'subtitleheight')
+            sizes = [[int(g[k]) for k in fields] for g in geometry]
+            entry['surfaceDimensions'] = sizes
+            if [640, 360, 1280, 720, 1280, 720] not in sizes:
+                (Path('results') / 'library-size-entry.json').write_text(json.dumps(entry))
+                raise AssertionError('Library playback did not bind the expected video and subtitle sizes')
+    return entry
 
 
 def pause():
@@ -101,7 +123,9 @@ def enter(name, server, core):
         home('我的')
     elif name in ('playing', 'seeking', 'recovered-playback'):
         server.failure = False
-        return playing(core, 'http://127.0.0.1:18389/outage.mp4') if name == 'recovered-playback' else playing(core)
+        if name == 'recovered-playback':
+            return playing(core, 'http://127.0.0.1:18389/outage.mp4')
+        return playing(core, from_library=os.environ.get('QA_POWER_LIBRARY_PLAYBACK') == 'true')
     elif name == 'paused':
         return pause()
     elif name == 'after-player-idle':
