@@ -1380,7 +1380,7 @@ dependencies {
     implementation(libs.androidx.camera.camera2)
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
-    // YCore shares the Media3 cache/data-source utilities, not the ExoPlayer engine.
+    // YCore uses the shared Media3 cache and data-source utilities.
     implementation(libs.media3.common)
     implementation(libs.media3.database)
     implementation(libs.media3.datasource)
