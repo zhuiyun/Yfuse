@@ -76,7 +76,9 @@ def main():
                 'passed': exit_code == checked.returncode == 0 and
                           (used > 0 if transport == 'http' else used == 0) and
                           all(v['fullField'] for v in images.values()) and
-                          (variant != 'source-sized-before-first-surface' or
+                          (variant != 'library-metadata-before-playback' or
+                           [row.get('libraryMetadata') for row in windows] == [False, True, True, False]) and
+                          (variant not in ('source-sized-before-first-surface', 'library-metadata-before-playback') or
                            [row.get('sourceSizedFromCreation') for row in windows] == [False, True, True, False]) and
                           [row['videoBufferWidth'] for row in windows] == [1280, 640, 640, 1280],
             }
