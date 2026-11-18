@@ -18,6 +18,8 @@ jobs:
       - name: Select the verified source commit of the native artifact
         run: git checkout --detach 0f61f76626e370cd40c25c22fa0e211c12d7bd86
       - uses: ./.github/actions/prepare-source-playback
+        env:
+          SOURCE_COMMIT: 0f61f76626e370cd40c25c22fa0e211c12d7bd86
         with:
           artifact-id: '14436971516'
           run-id: '44324037800'
