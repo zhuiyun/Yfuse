@@ -24,6 +24,7 @@ import com.yfuse.core.playback.shouldProxyPlaybackNetworkUrl
 import com.yfuse.core.playback.writeResponseBodyWithWatchdog
 import com.yfuse.core2.android.BufferedScrubMedia
 import com.yfuse.core2.network.YTransportCredentials
+import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import java.io.Closeable
@@ -55,6 +56,7 @@ internal class AndroidPlaybackHttpProxy(
     videoCacheBytes: Long,
     private val connectionAdmission: PlaybackProxyAdmission = PlaybackProxyAdmission(),
     private val headerTimeoutMs: Long = PLAYBACK_PROXY_HEADER_TIMEOUT_MS,
+    private val upstreamClient: OkHttpClient = PlaybackHttpDataSource.client,
 ) : Closeable {
     private val routes = PlaybackProxyRoutes()
     private val sourceFailures = PlaybackProxyFailureState()
@@ -63,7 +65,7 @@ internal class AndroidPlaybackHttpProxy(
 
     private val cookieManager = CookieManager(null, CookiePolicy.ACCEPT_ALL)
     private val httpClient =
-        PlaybackHttpDataSource.client
+        upstreamClient
             .newBuilder()
             .connectTimeout(UPSTREAM_CONNECT_TIMEOUT_MS.toLong(), TimeUnit.MILLISECONDS)
             .readTimeout(UPSTREAM_READ_TIMEOUT_MS.toLong(), TimeUnit.MILLISECONDS)
@@ -337,15 +339,15 @@ internal class AndroidPlaybackHttpProxy(
                     ?.let { put("Cookie", it.joinToString("; ")) }
             }
         val upstreamFactory =
-            PlaybackHttpDataSource.factory(userAgent)
-        val dataSource =
+            PlaybackHttpDataSource.factory(userAgent, upstreamClient)
+        val cacheFactory =
             CacheDataSource
                 .Factory()
                 .setCache(requireNotNull(cacheHandle).cache)
                 .setCacheKeyFactory(SecureMediaCacheKeyFactory)
                 .setUpstreamDataSourceFactory(upstreamFactory)
                 .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
-                .createDataSource()
+        var dataSource = cacheFactory.createDataSource()
         var responseStarted = false
         try {
             val start = range?.start ?: 0L
@@ -359,7 +361,12 @@ internal class AndroidPlaybackHttpProxy(
                     .setLength(requestedLength)
                     .setHttpRequestHeaders(requestProperties)
                     .build()
-            val openedLength = dataSource.open(dataSpec)
+            val openedLength =
+                openPlaybackRead(prepareRetry = {
+                    dataSource.close()
+                    request.ensureOpen()
+                    dataSource = cacheFactory.createDataSource()
+                }) { dataSource.open(dataSpec) }
             request.ensureOpen()
             val responseHeaders = dataSource.responseHeaders
             runCatching { cookieManager.put(upstreamUri, responseHeaders) }
@@ -456,12 +463,19 @@ internal class AndroidPlaybackHttpProxy(
         FORWARDED_REQUEST_HEADERS.forEach { name ->
             requestHeaders[name.lowercase()]?.let { builder.header(name, it) }
         }
-        val call = httpClient.newCall(builder.build())
+        var call = httpClient.newCall(builder.build())
         var responseStarted = false
         try {
-            request.attachUpstreamCancellation(call::cancel)
-            request.ensureOpen()
-            call.execute().use { connection ->
+            val response =
+                openPlaybackRead(prepareRetry = {
+                    request.ensureOpen()
+                    call = call.clone()
+                }) {
+                    request.attachUpstreamCancellation(call::cancel)
+                    request.ensureOpen()
+                    call.execute()
+                }
+            response.use { connection ->
                 val status = connection.code
                 request.ensureOpen()
                 if (method == "GET") sourceFailures.recordHttpStatus(route.sourceGeneration, status)

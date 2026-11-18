@@ -2,24 +2,107 @@ package com.yfuse.feature.player
 
 import com.yfuse.core.playback.rewritePlaybackHlsManifest
 import com.yfuse.core.playback.shouldProxyPlaybackNetworkUrl
+import okhttp3.OkHttpClient
+import okhttp3.Protocol
+import okhttp3.Request
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.SocketPolicy
 import okio.Buffer
+import java.io.IOException
 import java.net.Socket
 import java.net.SocketTimeoutException
 import java.net.URI
+import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class AndroidPlaybackHttpProxyTest {
+    @Test
+    fun refused_http2_media_range_opens_again_with_identical_bytes_and_headers() {
+        MockWebServer().use { upstream ->
+            upstream.protocols = listOf(Protocol.H2_PRIOR_KNOWLEDGE)
+
+            fun refuse() = MockResponse().setHttp2ErrorCode(7).setSocketPolicy(SocketPolicy.RESET_STREAM_AT_START)
+            upstream.enqueue(refuse())
+            upstream.enqueue(refuse())
+            upstream.enqueue(
+                MockResponse().setResponseCode(206).setHeader("Content-Range", "bytes 7-9/10").setBody("789"),
+            )
+            upstream.start()
+            val client =
+                OkHttpClient
+                    .Builder()
+                    .protocols(
+                        listOf(Protocol.H2_PRIOR_KNOWLEDGE),
+                    ).retryOnConnectionFailure(false)
+                    .build()
+            val request =
+                Request
+                    .Builder()
+                    .url(upstream.url("/episode"))
+                    .header("Range", "bytes=7-9")
+                    .build()
+
+            fun open() = client.newCall(request).execute()
+            assertFailsWith<IOException> { open().use { error("A refused stream produced a response") } }
+            AndroidPlaybackHttpProxy(null, "range-test", 0, upstreamClient = client).use { proxy ->
+                val (headers, body) =
+                    readRawProxyResponse(
+                        proxy.localUrl(request.url.toString()),
+                        "Range: bytes=7-9\r\n",
+                    )
+                assertTrue(headers.startsWith("HTTP/1.1 206"))
+                assertTrue(headers.contains("Content-Range: bytes 7-9/10", ignoreCase = true))
+                assertContentEquals("789".toByteArray(), body)
+            }
+            assertEquals(3, upstream.requestCount)
+            // MockWebServer records refused streams without parsing their request headers.
+            repeat(2) { assertNotNull(upstream.takeRequest(2, TimeUnit.SECONDS)) }
+            assertEquals("bytes=7-9", upstream.takeRequest(2, TimeUnit.SECONDS)?.getHeader("Range"))
+        }
+    }
+
+    @Test
+    fun cached_refusal_retries_once_and_respects_cancellation_and_other_errors() {
+        fun refused() = IOException("Open failed", ExecutionException(IOException("stream was reset: REFUSED_STREAM")))
+        var opens = 0
+        var retries = 0
+        assertFailsWith<IOException> {
+            openPlaybackRead(prepareRetry = { retries++ }) {
+                opens++
+                throw refused()
+            }
+        }
+        assertEquals(2, opens)
+        assertEquals(1, retries)
+        opens = 0
+        val cancelled =
+            assertFailsWith<IOException> {
+                openPlaybackRead(prepareRetry = { throw IOException("Playback proxy request closed") }) {
+                    opens++
+                    throw refused()
+                }
+            }
+        assertEquals("Playback proxy request closed", cancelled.message)
+        assertEquals(1, opens)
+        for (message in listOf("HTTP 403", "stream was reset: CANCEL", "certificate rejected")) {
+            val error =
+                assertFailsWith<IOException> {
+                    openPlaybackRead(prepareRetry = { error("Unexpected retry") }) { throw IOException(message) }
+                }
+            assertEquals(message, error.message)
+        }
+    }
+
     @Test
     fun large_binary_behind_a_playlist_url_keeps_every_byte_despite_misleading_mime() {
         val media = ByteArray(4 * 1024 * 1024 + 17) { (it % 251).toByte() }

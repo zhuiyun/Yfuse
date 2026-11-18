@@ -9,6 +9,9 @@ import com.yfuse.core2.android.BufferedScrubMedia
 import com.yfuse.core2.api.YBufferRangeCoverage
 import com.yfuse.core2.api.YBufferSnapshot
 import com.yfuse.core2.api.YBufferedRange
+import okhttp3.Protocol
+import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -17,9 +20,75 @@ import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.IOException
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.UUID
+import java.util.concurrent.CopyOnWriteArrayList
 
 @RunWith(AndroidJUnit4::class)
 class BufferedScrubDecodeInstrumentedTest {
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    @Test
+    fun refusedSourceReadReopensAtSameOffsetAndCommitsOnlyReturnedBytes() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val url = "http://127.0.0.1:1/${UUID.randomUUID()}/episode.mp4"
+        val key = secureMediaCacheKeyForUrl(url)
+        val limit = 8L * 1024 * 1024
+        val ranges = CopyOnWriteArrayList<String>()
+        val expected = byteArrayOf(31, 41, 59, 26)
+        val client =
+            PlaybackHttpDataSource.client
+                .newBuilder()
+                .addInterceptor { chain ->
+                    val request = chain.request()
+                    ranges.add(request.header("Range").orEmpty())
+                    if (ranges.size == 1) throw IOException("stream was reset: REFUSED_STREAM")
+                    Response
+                        .Builder()
+                        .request(request)
+                        .protocol(Protocol.HTTP_2)
+                        .code(206)
+                        .message("Partial Content")
+                        .header("Content-Range", "bytes 3-6/16")
+                        .header("Content-Length", "4")
+                        .body(expected.toResponseBody())
+                        .build()
+                }.build()
+        AndroidPlaybackHttpProxy(context, "cache-range-test", limit, upstreamClient = client).use { proxy ->
+            val local = URL(proxy.localUrl(url, cacheable = true))
+
+            fun readRange(): ByteArray {
+                val connection = local.openConnection() as HttpURLConnection
+                return try {
+                    connection.connectTimeout = 5_000
+                    connection.readTimeout = 5_000
+                    connection.setRequestProperty("Range", "bytes=3-6")
+                    assertEquals(206, connection.responseCode)
+                    connection.inputStream.use { it.readBytes() }
+                } finally {
+                    connection.disconnect()
+                }
+            }
+            requireNotNull(VideoCachePool.acquire(context, limit)).use { handle ->
+                try {
+                    assertArrayEquals(expected, readRange())
+                    val deadline = android.os.SystemClock.elapsedRealtime() + 2_000
+                    while (!handle.cache.isCached(key, 3L, 4L) && android.os.SystemClock.elapsedRealtime() < deadline) {
+                        Thread.sleep(20)
+                    }
+                    assertTrue(handle.cache.isCached(key, 3L, 4L))
+                    assertFalse(handle.cache.isCached(key, 2L, 1L))
+                    assertFalse(handle.cache.isCached(key, 7L, 1L))
+                    assertArrayEquals(expected, readRange())
+                    assertEquals(listOf("bytes=3-6", "bytes=3-6"), ranges.toList())
+                } finally {
+                    handle.cache.removeResource(key)
+                }
+            }
+        }
+    }
+
     @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     @Test
     fun latePreviewReadsOnlyCommittedSenPlayerCacheSpans() {
