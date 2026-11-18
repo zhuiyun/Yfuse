@@ -1,11 +1,11 @@
-name: Qualify playback, accessible dialogs and artwork caption contrast
+name: Qualify first-frame decoder recovery and playback resume positions
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
     paths: ['.github/workflows/qa-integrated-av-repair.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: eccef69f71873cc8f5d9aa35a07e4d63a3c4b830
+  QA_APP_SHA: a33be7bb3380fbacbc8dfe4ce5734a6ab1152e82
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: eccef69f71873cc8f5d9aa35a07e4d63a3c4b830
+          ref: a33be7bb3380fbacbc8dfe4ce5734a6ab1152e82
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78

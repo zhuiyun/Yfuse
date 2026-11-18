@@ -170,6 +170,8 @@ def app_events():
     fields.update({"failurestage","codecmime","codecprofile","outputallowed","bufferedms","requiredms","targetms","waitms","queuebytes","memorybudgetbytes","queuebudgetbytes","plannedbudgetbytes","queuesamples","fillscheduled","readelapsedms","lastpacketagems","packetsread","demuxthroughputbps","pendingtrackcount","endofinput","atcapacity","generation","audiorendering","videorendering","renderedframecount","decodedframecount","droppedframecount","framesrendered","framesdropped","outputgeneration","videooutputverified","audiooutputverified","deterministic"})
     fields.update({"renderedframes","droppedframes","lastvideoms","softwarevideo","pendingvideoframe"})
     fields.update({"elapsedms","remainingms","attempt","itemindex"})
+    fields.update({"nativeerrorcode","failurekind","sourcekept","candidatelimit","candidatecount","limitms","reservedms","outcome"})
+    knownText.update({"authorization","drm","container","renderer","audiosink","license","network","format","playback","completed","deadline","busy","yielded","cancelled_or_deadline"})
     knownText.update({"nativenhanced","nativeenhanced","softwarefallback","softwarevideodecoderconfigure","softwarevideodecode","audiorender","videorender","audiodecoderconfigure","audiodecoderqueue","videodecoderqueue","demux","seek","prepare","audio/flac","audio/aac","audio/opus","video/dolby-vision","video/x-vnd.on2.vp9","video/mpeg2","video/mp4v-es"})
 
     for line in raw.splitlines():
@@ -295,6 +297,7 @@ if __name__=='__main__':
     launched=candidates+[k for k in controls if k]
     probe_labels=set(os.environ.get('QA_PROBE_LABELS','').split(','))
     benchmark_labels=set(os.environ.get('QA_BENCHMARK_LABELS','').split(','))
+    late_open_labels=set(os.environ.get('QA_LATE_OPEN_LABELS','').split(','))
     for label in launched:
         if label in probe_labels:measured(label+'-format-probe',**source_probe(items[label]))
         if label in benchmark_labels:measured(label+'-range-benchmark',samples=source_range_benchmark(items[label]))
@@ -333,7 +336,15 @@ if __name__=='__main__':
                                 try: observed_seek_diagnostic(label, fraction, duration)
                                 except Exception as error:
                                     measured(label+'-input-diagnostic-error',fraction=fraction,errorType=type(error).__name__)
-            except (ValueError,RuntimeError,AssertionError,subprocess.TimeoutExpired):measured(label+'-opened',moving=False)
+            except (ValueError,RuntimeError,AssertionError,subprocess.TimeoutExpired):
+                measured(label+'-opened',moving=False)
+                if k in late_open_labels:
+                    try:
+                        late=decode_playback(label+'-late',None,media['seconds'],max_wait=40)
+                        proof=engine.engine_evidence(core,since)
+                        measured(label+'-late-open',moving=True,identity=proof,**late)
+                    except (ValueError,RuntimeError,AssertionError,subprocess.TimeoutExpired):
+                        measured(label+'-late-open',moving=False)
             events=[e for e in app_events() if (e['time'],e['event']) not in prior]
             measured(label+'-diagnostics',total=len(events),events=events[-600:])
             adb('shell','am','force-stop',PKG)
