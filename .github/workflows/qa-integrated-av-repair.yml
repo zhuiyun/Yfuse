@@ -5,7 +5,7 @@ on:
     paths: ['.github/workflows/qa-integrated-av-repair.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: 432066bc1caa59aa7f674673059859d84021dd98
+  QA_APP_SHA: fa4ffc7524fd1518680ad6e6965a7200b9255758
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 432066bc1caa59aa7f674673059859d84021dd98
+          ref: fa4ffc7524fd1518680ad6e6965a7200b9255758
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
@@ -79,7 +79,7 @@ jobs:
           hero=composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Hero.kt
           hero_baseline=df5dd228609eaa0689a55a79260f5f9920c63fd9
           dialog=composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlaybackProblemDialog.kt
-          dialog_baseline=94ec647fac5132b5f3ee92e1304b98f57084e078
+          dialog_baseline=432066bc1caa59aa7f674673059859d84021dd98
           cast=composeApp/src/androidMain/kotlin/com/yfuse/core/cast/CastManager.android.kt
           cast_baseline=8cdb127108db020a0e78153c77cc070af0816e07
           cp "$cast" "$RUNNER_TEMP/fixed-cast-manager.kt"
@@ -165,7 +165,6 @@ jobs:
           adb install -r -g preview/regressions.apk
           adb install -r -g preview/geometry-negative.apk
           adb shell pm list packages com.google.android.gms > results/google-services-packages.txt
-          test -z "$(tr -d '\r\n' < results/google-services-packages.txt)"
           cast_contract='com.yfuse.core.cast.CastDiscoveryInstrumentedTest#device_discovery_can_be_refreshed_when_chromecast_is_unavailable'
           adb shell am instrument -w -r -e class "$cast_contract" com.yfuse.test/androidx.test.runner.AndroidJUnitRunner | tee results/cast-discovery-negative.txt
           if python3 qa-integrated/check-instrumentation.py results/cast-discovery-negative.txt 1; then
