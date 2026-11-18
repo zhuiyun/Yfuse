@@ -1,0 +1,79 @@
+name: Cast a moving timecode to an independent DLNA renderer and return to both cores
+on:
+  push:
+    branches: [codex/two-engines-cloud-seek-20261113]
+    paths: [.github/workflows/qa-dlna-receiver.yml, qa-power-ui/cast_receiver.py]
+permissions: {contents: read, actions: read}
+jobs:
+  cast:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 80
+    strategy:
+      fail-fast: false
+      matrix: {engine: [YCore, SenPlayer]}
+    env:
+      QA_ENGINE: ${{ matrix.engine }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - name: Acquire the qualified APK
+        env: {API_TOKEN: '${{ github.token }}'}
+        run: bash qa-integrated/acquire-qualified-candidate.sh 44369298786 94ec647fac5132b5f3ee92e1304b98f57084e078
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: arm-input-driver
+          path: driver
+          run-id: 44358745639
+          github-token: '${{ github.token }}'
+      - run: bash qa-arm-dual/redroid.sh
+      - name: Start the receiver on the private Docker bridge
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg python3-pil
+          mkdir -p "$RUNNER_TEMP/cast-frames" results/cast
+          docker pull --platform linux/arm64 ubuntu:24.04
+          docker image inspect ubuntu:24.04 --format '{{index .RepoDigests 0}}' > results/cast/receiver-image.txt
+          docker run -d --name qa-receiver --platform linux/arm64 --network bridge --volume "$RUNNER_TEMP/cast-frames:/frames" ubuntu:24.04 bash -ec '
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update -qq
+            apt-get install -y --no-install-recommends gmediarender gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-libav
+            dpkg-query -W gmediarender gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-libav > /frames/versions.txt
+            gmediarender --help-all > /tmp/receiver-help.txt
+            grep -q -- "--gstout-videopipe" /tmp/receiver-help.txt
+            if grep -q -- "--interface-name" /tmp/receiver-help.txt; then
+              binding="--interface-name=eth0"
+            else
+              binding="--ip-address=$(hostname -I | cut -d" " -f1)"
+            fi
+            touch /frames/ready
+            exec gmediarender "$binding" --friendly-name="Yfuse QA Renderer" --gstout-audiosink=fakesink --logfile=stderr --gstout-videopipe="videorate ! video/x-raw,framerate=1/1 ! videoconvert ! videoscale ! video/x-raw,format=RGB,width=160,height=90 ! multifilesink location=/frames/frame-%08d.rgb max-files=12 sync=true"'
+          for i in $(seq 1 160); do
+            if test -f "$RUNNER_TEMP/cast-frames/ready"; then break; fi
+            test "$(docker inspect qa-receiver --format '{{.State.Running}}')" = true
+            sleep 3
+          done
+          test -f "$RUNNER_TEMP/cast-frames/ready"
+          cp "$RUNNER_TEMP/cast-frames/versions.txt" results/cast/
+      - name: Discover, connect, seek, pause, resume and stop through the installed app
+        run: |
+          set -euo pipefail
+          (cd preview && sha256sum -c apk.sha256)
+          cp preview/provenance.txt preview/apk.sha256 results/cast/
+          adb install -r -g preview/composeApp-release.apk
+          adb install -r driver/driver.apk
+          adb shell wm size 720x1280
+          adb shell wm density 260
+          adb shell settings put secure immersive_mode_confirmations confirmed
+          adb shell settings put secure accessibility_interactive_ui_timeout_ms 60000
+          adb shell wm dismiss-keyguard
+          touch /tmp/yfuse-tree-active
+          /usr/bin/python3 qa-power-ui/cast_receiver.py
+      - name: Retain the temporary receiver diagnostics
+        if: always()
+        run: |
+          mkdir -p results/cast
+          docker logs --tail 400 qa-receiver > results/cast/receiver-log.txt 2>&1 || true
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: 'dlna-receiver-${{ matrix.engine }}', path: results/cast/, retention-days: 10}

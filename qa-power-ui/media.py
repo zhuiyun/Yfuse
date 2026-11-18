@@ -8,7 +8,7 @@ import time
 
 
 class MediaServer:
-    def __init__(self, path, output, port=18389, content_type='video/mp4'):
+    def __init__(self, path, output, port=18389, content_type='video/mp4', *, bridge_address=None):
         self.path = Path(path)
         self.output = Path(output)
         self.lock = threading.Lock()
@@ -68,10 +68,12 @@ class MediaServer:
                 finally:
                     row = {'time': time.time(), 'method': self.command, 'path': self.path, 'status': status,
                            'rangeStart': lo, 'bytes': sent, 'seconds': round(time.monotonic() - began, 3)}
+                    if bridge_address is not None:
+                        row['peer'] = self.client_address[0]
                     with owner.lock, owner.output.open('a', encoding='utf-8') as stream:
                         stream.write(json.dumps(row) + '\n')
 
-        self.server = ThreadingHTTPServer(('127.0.0.1', port), Handler)
+        self.server = ThreadingHTTPServer((bridge_address or '127.0.0.1', port), Handler)
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
 
     def counters(self):
