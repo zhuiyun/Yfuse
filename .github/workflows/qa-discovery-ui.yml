@@ -1,4 +1,4 @@
-name: Verify eight discovery posters and library artwork in both themes
+name: Check selected carousel marks on eight discovery posters and library artwork
 'on':
   push:
     branches:
@@ -9,8 +9,8 @@ permissions:
   contents: read
   actions: read
 env:
-  QA_APP_SHA: 3974deeb6686348fe194d85b30fba3d43cb65dcd
-  QA_BUILD_RUN: 44286858056
+  QA_APP_SHA: 992aef4ad202dfce7c7f4ca768bc44dd40e5da47
+  QA_BUILD_RUN: 44295250106
 jobs:
   acquire:
     runs-on: ubuntu-24.04
@@ -143,6 +143,8 @@ jobs:
         '
     - name: Capture current native pages and all reachable scroll states
       run: /usr/bin/python3 qa-power-ui/capture.py
+    - name: Verify contrast of the selected indicator on every photographed poster
+      run: /usr/bin/python3 qa-power-ui/check_hero_indicators.py results/ui --output results/ui/indicator-contrast.json
     - if: always()
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
       with:
