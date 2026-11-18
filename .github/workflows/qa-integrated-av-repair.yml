@@ -1,11 +1,11 @@
-name: Qualify Profile 5 colours and seek output on ARM64 with both playback cores
+name: Qualify audio detail cards, Profile 5 colours and seek output on ARM64
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
     paths: ['.github/workflows/qa-integrated-av-repair.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: c77ab7319cc2f7fc745ee67d36e795ecb3feefaf
+  QA_APP_SHA: 2a3c4ab9624f3d35d7637729d619555db98b357b
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: c77ab7319cc2f7fc745ee67d36e795ecb3feefaf
+          ref: 2a3c4ab9624f3d35d7637729d619555db98b357b
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
