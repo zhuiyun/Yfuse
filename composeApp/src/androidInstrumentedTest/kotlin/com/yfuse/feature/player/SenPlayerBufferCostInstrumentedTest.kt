@@ -36,9 +36,16 @@ class SenPlayerBufferCostInstrumentedTest {
         val directory = requireNotNull(context.getExternalFilesDir(null))
         val fixture = File(directory, "buffer-clock.mp4")
         assertTrue(fixture.isFile)
+        val transport = args.getString("senBufferTransport", "file")
+        val url =
+            when (transport) {
+                "file" -> Uri.fromFile(fixture).toString()
+                "http" -> "http://127.0.0.1:18389/buffer-clock.mp4"
+                else -> error("Unknown clock fixture transport")
+            }
         val windows = JSONArray()
-        for (sourceSize in listOf(false, true, true, false)) {
-            val item = externalPlaybackItem(Uri.fromFile(fixture).toString(), "合成功耗样本", "video/mp4")
+        for ((index, sourceSize) in listOf(false, true, true, false).withIndex()) {
+            val item = externalPlaybackItem(url, "合成功耗样本", "video/mp4")
             val intent =
                 PlayerActivity.intent(
                     context,
@@ -51,6 +58,9 @@ class SenPlayerBufferCostInstrumentedTest {
                 )
             ActivityScenario.launch<PlayerActivity>(intent).use { scenario ->
                 val host = waitForHost(scenario)
+                val evidence = File(directory, "buffer-$transport-$index")
+                val initial = awaitClock(host.video, File("${evidence.path}-before"))
+                val playingBeforeChange = awaitClock(host.video, File("${evidence.path}-before"), initial.second)
                 val width = if (sourceSize) 640 else 1280
                 val height = if (sourceSize) 360 else 720
                 scenario.onActivity {
@@ -89,25 +99,32 @@ class SenPlayerBufferCostInstrumentedTest {
                     }
                 }
                 checkGeometry()
-                val first = awaitClock(host.video)
+                val first = awaitClock(host.video, evidence)
                 SystemClock.sleep(4_000)
-                val before = awaitClock(host.video, first)
+                val before = awaitClock(host.video, evidence, first.second)
                 val start = SystemClock.elapsedRealtime()
                 val cpuStart = Process.getElapsedCpuTime()
                 SystemClock.sleep(30_000)
                 val cpu = Process.getElapsedCpuTime() - cpuStart
                 val elapsed = SystemClock.elapsedRealtime() - start
-                val after = awaitClock(host.video, before)
+                val after = awaitClock(host.video, evidence, before.second)
                 checkGeometry()
+                capturePictures(host.video, evidence)
                 row.put("videoBufferWidth", width).put("videoBufferHeight", height)
                 row.put("subtitleAndLayoutWidth", 1280).put("subtitleAndLayoutHeight", 720)
-                row.put("firstPictureSecond", before).put("lastPictureSecond", after)
+                row.put("transport", transport)
+                row.put("advancingBeforeResizeSecond", playingBeforeChange.second)
+                row.put("firstPictureSecond", before.second).put("lastPictureSecond", after.second)
+                row.put("firstPictureSource", before.observer).put("lastPictureSource", after.observer)
                 row.put("elapsedMs", elapsed)
                 row.put("appCpuMs", cpu)
                 row.put("percentOfOneCore", 100.0 * cpu / elapsed)
                 windows.put(row)
-                File(directory, "sen-buffer-study.json").writeText(windows.toString(2))
-                assertTrue("Picture clock must advance throughout the window: $row", after - before in 28..33)
+                File(directory, "sen-buffer-$transport.json").writeText(windows.toString(2))
+                assertTrue(
+                    "Picture clock must advance throughout the window: $row",
+                    after.second - before.second in 28..33,
+                )
             }
         }
     }
@@ -131,22 +148,67 @@ class SenPlayerBufferCostInstrumentedTest {
         return null
     }
 
+    private data class Picture(
+        val second: Int,
+        val observer: String,
+    )
+
     private fun awaitClock(
         video: SurfaceView,
+        evidence: File,
         previous: Int = -1,
-    ): Int {
-        val deadline = SystemClock.elapsedRealtime() + 20_000
-        while (SystemClock.elapsedRealtime() < deadline) {
-            val clock = pictureClock(video)
-            if (clock != null && clock > previous) return clock
-            SystemClock.sleep(120)
+    ): Picture {
+        val deadline = SystemClock.elapsedRealtime() + 45_000
+        var lastCopyCode = PixelCopy.ERROR_UNKNOWN
+        val bitmap = Bitmap.createBitmap(160, 90, Bitmap.Config.ARGB_8888)
+        try {
+            while (SystemClock.elapsedRealtime() < deadline) {
+                lastCopyCode = copyVideo(video, bitmap)
+                if (lastCopyCode == PixelCopy.SUCCESS) {
+                    readClock(bitmap)?.takeIf { it > previous }?.let { return Picture(it, "video-surface") }
+                }
+                val display = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+                if (display != null) {
+                    try {
+                        if (display.width == 1280 && display.height == 720) {
+                            readClock(display)?.takeIf { it > previous }?.let { return Picture(it, "display") }
+                        }
+                    } finally {
+                        display.recycle()
+                    }
+                }
+                SystemClock.sleep(200)
+            }
+            capturePictures(video, evidence)
+        } finally {
+            bitmap.recycle()
         }
-        error("No independent advancing video clock after $previous")
+        error("No independent picture clock after $previous (last PixelCopy code $lastCopyCode)")
     }
 
-    private fun pictureClock(video: SurfaceView): Int? {
-        val done = CountDownLatch(1)
+    private fun capturePictures(
+        video: SurfaceView,
+        evidence: File,
+    ) {
         val bitmap = Bitmap.createBitmap(160, 90, Bitmap.Config.ARGB_8888)
+        try {
+            if (copyVideo(video, bitmap) == PixelCopy.SUCCESS) savePicture(bitmap, File("${evidence.path}-surface.png"))
+        } finally {
+            bitmap.recycle()
+        }
+        val display = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot() ?: return
+        try {
+            savePicture(display, File("${evidence.path}-display.png"))
+        } finally {
+            display.recycle()
+        }
+    }
+
+    private fun copyVideo(
+        video: SurfaceView,
+        bitmap: Bitmap,
+    ): Int {
+        val done = CountDownLatch(1)
         var result = PixelCopy.ERROR_UNKNOWN
         PixelCopy.request(
             video,
@@ -158,18 +220,45 @@ class SenPlayerBufferCostInstrumentedTest {
             Handler(Looper.getMainLooper()),
         )
         check(done.await(5, TimeUnit.SECONDS)) { "Timed out copying a SenPlayer picture" }
-        return try {
-            fun red(x: Int) = bitmap.getPixel(x, 9) shr 16 and 255
-            if (result != PixelCopy.SUCCESS || red(4) < 180 || red(12) > 65) return null
-            var clock = 0
-            for (bit in 0 until 7) {
-                val value = red(20 + 8 * bit)
-                if (value in 66..179) return null
-                if (value >= 180) clock = clock or (1 shl bit)
+        return result
+    }
+
+    private fun readClock(bitmap: Bitmap): Int? {
+        fun white(
+            x: Int,
+            y: Int,
+        ): Boolean? {
+            val colour = bitmap.getPixel(x * bitmap.width / 160, y * bitmap.height / 90)
+            val r = colour shr 16 and 255
+            val g = colour shr 8 and 255
+            val b = colour and 255
+            return when {
+                minOf(r, g, b) >= 180 -> true
+                maxOf(r, g, b) <= 65 -> false
+                else -> null
             }
-            clock
-        } finally {
-            bitmap.recycle()
+        }
+
+        fun row(y: Int): Int? {
+            if (white(4, y) != true || white(12, y) != false) return null
+            var second = 0
+            for (bit in 0 until 7) {
+                val bright = white(20 + 8 * bit, y) ?: return null
+                if (bright) second = second or (1 shl bit)
+            }
+            return second
+        }
+
+        val second = row(8) ?: return null
+        return second.takeIf { it < 96 && it == row(10) }
+    }
+
+    private fun savePicture(
+        bitmap: Bitmap,
+        file: File,
+    ) {
+        file.outputStream().use { stream ->
+            check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream))
         }
     }
 }

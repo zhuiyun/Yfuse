@@ -2,10 +2,10 @@ name: Measure SenPlayer video buffer cost at a fixed display size
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
-    paths: [.github/workflows/qa-sen-buffer-cost.yml, qa-power-ui/prepare_buffer_clock.py, composeApp/src/androidInstrumentedTest/kotlin/com/yfuse/feature/player/SenPlayerBufferCostInstrumentedTest.kt]
+    paths: [.github/workflows/qa-sen-buffer-cost.yml, qa-power-ui/prepare_buffer_clock.py, qa-power-ui/run_buffer_study.py, composeApp/src/androidInstrumentedTest/kotlin/com/yfuse/feature/player/SenPlayerBufferCostInstrumentedTest.kt]
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: c77ab7319cc2f7fc745ee67d36e795ecb3feefaf
+  QA_APP_SHA: 2a3c4ab9624f3d35d7637729d619555db98b357b
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -53,9 +53,11 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with: {name: buffer-cost-input, path: study}
       - run: bash qa-arm-dual/redroid.sh
-      - name: Measure four 30-second windows on the same native ARM64 cloud guest
+      - name: Compare file and HTTP playback at both buffer sizes on one ARM64 cloud guest
         run: |
           set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y python3-pil python3-cryptography
           (cd study && sha256sum -c hashes.txt)
           mkdir -p results
           cp study/hashes.txt results/
@@ -71,11 +73,7 @@ jobs:
           adb shell sha256sum /sdcard/Android/data/com.yfuse/files/buffer-clock.mp4 > results/device-source.txt
           test "$(cut -d' ' -f1 results/device-source.txt)" = "$(sha256sum study/buffer-clock.mp4 | cut -d' ' -f1)"
           printf 'app=%s\nqa=%s\n' "$QA_APP_SHA" "$GITHUB_SHA" > results/provenance.txt
-          adb shell am instrument -w -r -e senBufferStudy true -e class com.yfuse.feature.player.SenPlayerBufferCostInstrumentedTest com.yfuse.test/androidx.test.runner.AndroidJUnitRunner | tee results/instrumentation.txt
-          python3 qa-integrated/check-instrumentation.py results/instrumentation.txt 1
-          adb pull /sdcard/Android/data/com.yfuse/files/sen-buffer-study.json results/
-      - if: always()
-        run: adb pull /sdcard/Android/data/com.yfuse/files/sen-buffer-study.json results/ || true
+          /usr/bin/python3 qa-power-ui/run_buffer_study.py
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with: {name: buffer-cost-observations, path: results/, retention-days: 10}
