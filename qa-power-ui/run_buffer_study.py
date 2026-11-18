@@ -37,6 +37,7 @@ def main():
     results = Path('results')
     device_dir = '/sdcard/Android/data/com.yfuse/files'
     server = MediaServer(Path('study/buffer-clock.mp4'), results / 'clock-http.jsonl')
+    variant = os.environ.get('QA_BUFFER_VARIANT', 'scaled-measured-video-child')
     outcomes = {}
     try:
         adb('reverse', 'tcp:18389', 'tcp:18389')
@@ -70,11 +71,13 @@ def main():
                       for index in range(4) for kind in ('display', 'surface')}
             outcomes[transport] = {
                 'instrumentationExit': exit_code, 'caseCheckExit': checked.returncode,
-                'httpBytes': used, 'recordedWindows': len(windows), 'layout': 'scaled-measured-video-child',
+                'httpBytes': used, 'recordedWindows': len(windows), 'layout': variant,
                 'pictureCoverage': images,
                 'passed': exit_code == checked.returncode == 0 and
                           (used > 0 if transport == 'http' else used == 0) and
                           all(v['fullField'] for v in images.values()) and
+                          (variant != 'source-sized-before-first-surface' or
+                           [row.get('sourceSizedFromCreation') for row in windows] == [False, True, True, False]) and
                           [row['videoBufferWidth'] for row in windows] == [1280, 640, 640, 1280],
             }
             (results / 'transport-outcomes.json').write_text(json.dumps(outcomes, indent=2))

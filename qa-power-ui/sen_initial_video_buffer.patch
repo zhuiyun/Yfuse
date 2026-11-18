@@ -1,0 +1,112 @@
+--- a/composeApp/src/androidMain/kotlin/com/yfuse/feature/player/SenPlayerVideoEngine.kt
++++ b/composeApp/src/androidMain/kotlin/com/yfuse/feature/player/SenPlayerVideoEngine.kt
+@@ -251,6 +251,7 @@
+                             created.close()
+                             return@submit
+                         }
++                        if (view.initialVideoSize != null) view.resizeForSurface(created, view.width, view.height)
+                         session = created
+                         boundSurfaceEpoch = epoch
+                         proxy = AndroidPlaybackHttpProxy(appContext, customUserAgent, videoCacheBytes)
+@@ -272,7 +273,7 @@
+                         if (loadPending) loadCurrent() else current.play(requested)
+                     }
+                     if (attached === view && surfaceEpoch.get() == epoch && !released.get()) {
+-                        session?.resize(view.width.coerceAtLeast(1), view.height.coerceAtLeast(1))
++                        session?.let { view.resizeForSurface(it, view.width, view.height) }
+                     }
+                 }
+             }
+@@ -292,7 +293,7 @@
+                             surfaceCallback.surfaceCreated(holder)
+                             return@submit
+                         }
+-                        session?.resize(view.video.width.coerceAtLeast(1), view.video.height.coerceAtLeast(1))
++                        session?.let { view.resizeForSurface(it, view.video.width, view.video.height) }
+                     }
+                 }
+             }
+@@ -714,7 +715,7 @@
+         current.surface(view.video.holder.surface, view.subtitles.holder.surface)
+         pictureController.reset()
+         subtitles.surfaceChanged()
+-        current.resize(view.video.width.coerceAtLeast(1), view.video.height.coerceAtLeast(1))
++        view.resizeForSurface(current, view.video.width, view.video.height)
+         current.play(requested)
+         surfaceRecoveries++
+     }
+@@ -1174,7 +1175,15 @@
+ internal class SenPlayerSurfaceHost(
+     context: Context,
+ ) : FrameLayout(context) {
+-    val video = SurfaceView(context)
++    val initialVideoSize =
++        if (java.io.File(context.noBackupFilesDir, "qa-source-sized-on-create").isFile) IntSize(640, 360) else null
++    val video = SurfaceView(context).apply {
++        initialVideoSize?.let { holder.setFixedSize(it.width, it.height) }
++    }
++
++    fun resizeForSurface(session: SenPlayerSession, width: Int, height: Int) {
++        session.resize(initialVideoSize?.width ?: width.coerceAtLeast(1), initialVideoSize?.height ?: height.coerceAtLeast(1))
++    }
+     val subtitles =
+         SurfaceView(context).apply {
+             holder.setFormat(PixelFormat.TRANSLUCENT)
+--- a/composeApp/src/androidInstrumentedTest/kotlin/com/yfuse/feature/player/SenPlayerBufferCostInstrumentedTest.kt
++++ b/composeApp/src/androidInstrumentedTest/kotlin/com/yfuse/feature/player/SenPlayerBufferCostInstrumentedTest.kt
+@@ -46,6 +46,11 @@
+             }
+         val windows = JSONArray()
+         for ((index, sourceSize) in listOf(false, true, true, false).withIndex()) {
++            val width = if (sourceSize) 640 else 1280
++            val height = if (sourceSize) 360 else 720
++            val beforeCreation = File(context.noBackupFilesDir, "qa-source-sized-on-create")
++            if (sourceSize) beforeCreation.writeText("640x360") else beforeCreation.delete()
++            check(beforeCreation.isFile == sourceSize)
+             val item = externalPlaybackItem(url, "合成功耗样本", "video/mp4")
+             val intent =
+                 PlayerActivity.intent(
+@@ -60,22 +65,7 @@
+             ActivityScenario.launch<PlayerActivity>(intent).use { scenario ->
+                 val host = waitForHost(scenario)
+                 val evidence = File(directory, "buffer-$transport-$index")
+-                val initial = awaitClock(host.video, File("${evidence.path}-before"))
+-                val playingBeforeChange = awaitClock(host.video, File("${evidence.path}-before"), initial.second)
+-                val width = if (sourceSize) 640 else 1280
+-                val height = if (sourceSize) 360 else 720
+-                scenario.onActivity {
+-                    host.video.holder.setSizeFromLayout()
+-                    host.video.pivotX = 0f
+-                    host.video.pivotY = 0f
+-                    host.video.scaleX = host.width.toFloat() / width
+-                    host.video.scaleY = host.height.toFloat() / height
+-                    host.video.layoutParams =
+-                        host.video.layoutParams.apply {
+-                            this.width = width
+-                            this.height = height
+-                        }
+-                }
++                check((host.initialVideoSize != null) == sourceSize)
+                 val deadline = SystemClock.elapsedRealtime() + 20_000L
+                 while (SystemClock.elapsedRealtime() < deadline) {
+                     var ready = false
+@@ -97,8 +87,8 @@
+                         assertEquals(720, geometry.getInt("windowHeight"))
+                         assertEquals(1280, geometry.getInt("parentWidth"))
+                         assertEquals(720, geometry.getInt("parentHeight"))
+-                        assertEquals(width, geometry.getInt("videoLayoutWidth"))
+-                        assertEquals(height, geometry.getInt("videoLayoutHeight"))
++                        assertEquals(1280, geometry.getInt("videoLayoutWidth"))
++                        assertEquals(720, geometry.getInt("videoLayoutHeight"))
+                         assertEquals(width, geometry.getInt("videoBufferWidth"))
+                         assertEquals(height, geometry.getInt("videoBufferHeight"))
+                         assertEquals(1280, geometry.getInt("subtitleLayoutWidth"))
+@@ -123,7 +113,7 @@
+                 capturePictures(host.video, evidence)
+                 row.put("videoBufferWidth", width).put("videoBufferHeight", height)
+                 row.put("transport", transport)
+-                row.put("advancingBeforeResizeSecond", playingBeforeChange.second)
++                row.put("selectedBeforeCreation", true).put("sourceSizedFromCreation", sourceSize)
+                 row.put("firstPictureSecond", before.second).put("lastPictureSecond", after.second)
+                 row.put("firstPictureSource", before.observer).put("lastPictureSource", after.observer)
+                 row.put("elapsedMs", elapsed)
