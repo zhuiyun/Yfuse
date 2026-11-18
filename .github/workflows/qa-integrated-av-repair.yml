@@ -1,11 +1,11 @@
-name: Qualify first-frame decoder recovery and playback resume positions
+name: Qualify first-frame recovery and HDR-compatible HEVC software decoding
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
     paths: ['.github/workflows/qa-integrated-av-repair.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: a33be7bb3380fbacbc8dfe4ce5734a6ab1152e82
+  QA_APP_SHA: f80e60757f36aec83bb924fe1e6bc5d3ea7d8386
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: a33be7bb3380fbacbc8dfe4ce5734a6ab1152e82
+          ref: f80e60757f36aec83bb924fe1e6bc5d3ea7d8386
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
@@ -117,7 +117,7 @@ jobs:
           printf '%s\n' 'allprojects { tasks.withType(Test).configureEach { outputs.upToDateWhen { false } } }' > "$RUNNER_TEMP/repeat-probe.gradle"
           for round in $(seq 1 20); do
             mkdir -p "probe-repeats/$round"
-            ./gradlew :phoneShared:testAndroidHostTest --tests 'com.yfuse.core2.android.AndroidMetadataProbeStageTest' --tests 'com.yfuse.core2.android.AndroidProbeBudgetTest' -I "$RUNNER_TEMP/repeat-probe.gradle" -PyfuseIncludeMdk=false -PyfusePlaybackProfile=ycore-senplayer -PyfuseNativeOnlyRuntime=true -PallowDebugSigning=true -PyfuseBuildRevision="$QA_APP_SHA" -Pkotlin.compiler.execution.strategy=in-process '-Dorg.gradle.jvmargs=-Xmx8g -Dfile.encoding=UTF-8' --no-parallel --max-workers=2 --daemon 2>&1 | tee "probe-repeats/$round/gradle.txt"
+            ./gradlew :phoneShared:testAndroidHostTest --tests 'com.yfuse.core2.android.AndroidMetadataProbeStageTest' --tests 'com.yfuse.core2.android.AndroidProbeBudgetTest' --tests 'com.yfuse.feature.player.PlayerStoreTest.episode_loads_series_queue_and_resume_position' -I "$RUNNER_TEMP/repeat-probe.gradle" -PyfuseIncludeMdk=false -PyfusePlaybackProfile=ycore-senplayer -PyfuseNativeOnlyRuntime=true -PallowDebugSigning=true -PyfuseBuildRevision="$QA_APP_SHA" -Pkotlin.compiler.execution.strategy=in-process '-Dorg.gradle.jvmargs=-Xmx8g -Dfile.encoding=UTF-8' --no-parallel --max-workers=2 --daemon 2>&1 | tee "probe-repeats/$round/gradle.txt"
             cp phoneShared/build/test-results/testAndroidHostTest/TEST-*.xml "probe-repeats/$round/"
           done
       - if: always()
@@ -182,8 +182,8 @@ jobs:
           adb shell sha256sum /sdcard/Android/data/com.yfuse/files/enhanced-retry.mp4 > results/device-fixture.sha256
           test "$(cut -d' ' -f1 results/fixture.sha256)" = "$(tr -d '\r' < results/device-fixture.sha256 | cut -d' ' -f1)"
           adb shell am instrument -w -r -e enhancedRetryDecodePath software -e enhancedRetryFixture /sdcard/Android/data/com.yfuse/files/enhanced-retry.mp4 -e class 'com.yfuse.core.designsystem.HeroLiftInstrumentedTest#caption_fades_above_text_and_keeps_white_artwork_readable,com.yfuse.core2.android.SoftwareOutputContractInstrumentedTest,com.yfuse.feature.player.SoftFeedbackInstrumentedTest#seek_cancel_never_commits_and_release_commits_once_with_or_without_motion,com.yfuse.feature.player.SoftFeedbackInstrumentedTest#long_movie_clock_never_moves_the_held_seek_rail,com.yfuse.feature.player.BufferedScrubDecodeInstrumentedTest,com.yfuse.core2.android.YCoreMediaSuiteInstrumentedTest#enhanced_transport_retry_keeps_the_assigned_route_and_renders_again' com.yfuse.test/androidx.test.runner.AndroidJUnitRunner | tee results/contracts.txt
-          python3 qa-integrated/check-instrumentation.py results/contracts.txt 9
-          grep -E 'OK \(9 tests\)' results/contracts.txt
+          python3 qa-integrated/check-instrumentation.py results/contracts.txt 10
+          grep -E 'OK \(10 tests\)' results/contracts.txt
           ! grep -E 'FAILURES|INSTRUMENTATION_FAILED|INSTRUMENTATION_ABORTED' results/contracts.txt
           adb pull /sdcard/Android/data/com.yfuse/files/soft-feedback results/current-soft-feedback
       - if: always()
