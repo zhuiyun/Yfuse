@@ -5,7 +5,7 @@ on:
     paths: ['.github/workflows/qa-integrated-av-repair.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: 43e8b321703dc287ad117e806834711cf57cea78
+  QA_APP_SHA: 92927caeedad906743f0d82097adb41d915d6f06
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 43e8b321703dc287ad117e806834711cf57cea78
+          ref: 92927caeedad906743f0d82097adb41d915d6f06
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
@@ -219,8 +219,8 @@ jobs:
           grep -F 'test=refusedSourceReadReopensAtSameOffsetAndCommitsOnlyReturnedBytes' results/contracts.txt
           grep -F 'test=refused_media_read_shows_the_network_stage_and_retry_advice' results/contracts.txt
           grep -F 'test=playback_problem_captions_are_readable_on_bright_and_dark_pictures' results/contracts.txt
-          jq -e 'length==40 and all(.contrast>=4.5)' results/current-problem-contrast/measurements.json
-          jq -e 'length==40 and any(.contrast<4.5)' results/prior-problem-contrast/measurements.json
+          jq -e 'length==45 and all(.contrast>=4.5 and .settledContrast>=4.5)' results/current-problem-contrast/measurements.json
+          jq -e 'length==45 and any(.contrast<4.5 or .settledContrast<4.5)' results/prior-problem-contrast/measurements.json
           adb pull /sdcard/Android/data/com.yfuse/files/player-panel-evidence/source-read-refused.png results/source-read-refused.png
           ! grep -E 'FAILURES|INSTRUMENTATION_FAILED|INSTRUMENTATION_ABORTED' results/contracts.txt
           adb pull /sdcard/Android/data/com.yfuse/files/soft-feedback results/current-soft-feedback
