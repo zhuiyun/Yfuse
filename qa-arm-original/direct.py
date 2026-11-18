@@ -117,18 +117,58 @@ def decode_playback(label,target,duration,max_wait=60):
 
 
 
-def probe_file(url):
-    q=subprocess.run(["ffprobe","-v","error","-rw_timeout","15000000","-probesize","8388608","-analyzeduration","5000000","-show_entries","format=size,duration,format_name:stream=codec_type,codec_name,width,height,channels","-of","json",url],capture_output=True,timeout=42)
-    if q.returncode:raise ValueError("ffprobe rejected this source")
-    data=json.loads(q.stdout)
-    return dict(bytes=int(data['format'].get('size',0)),seconds=round(float(data['format']['duration'])),container=data['format']['format_name'],tracks=data['streams'])
+def probe_response(url):
+    request = urllib.request.Request(url, headers={'Range': 'bytes=0-1023', 'Accept-Encoding': 'identity'})
+    try:
+        with urllib.request.urlopen(request, timeout=12) as response:
+            prefix = response.read(1024)
+            return {'status': response.status, 'range': response.headers.get('Content-Range'),
+                    'type': response.headers.get_content_type(), 'bytes': len(prefix),
+                    'prefixSha256': hashlib.sha256(prefix).hexdigest()}
+    except urllib.error.HTTPError as error:
+        return {'status': error.code}
+    except OSError as error:
+        return {'error': type(error).__name__}
+
+
+def probe_file(url, label):
+    command = ['ffprobe', '-v', 'error', '-rw_timeout', '15000000', '-probesize', '8388608',
+               '-analyzeduration', '5000000', '-show_entries',
+               'format=size,duration,format_name:stream=codec_type,codec_name,width,height,channels',
+               '-of', 'json', url]
+    for attempt in (1, 2):
+        try:
+            probe = subprocess.run(command, capture_output=True, timeout=42)
+        except subprocess.TimeoutExpired:
+            diagnostic = 'process timed out'
+        else:
+            if probe.returncode == 0:
+                try:
+                    data = json.loads(probe.stdout)
+                    fmt = data['format']
+                    return dict(bytes=int(fmt.get('size', 0)), seconds=round(float(fmt['duration'])),
+                                container=fmt['format_name'], tracks=data['streams'])
+                except (KeyError, ValueError):
+                    measured(label + '-probe-attempt', attempt=attempt, reason='invalid format fields')
+                    raise
+            # Strip addresses even when a public source redirects. Keep the ffprobe
+            # diagnostic separately from the independent bounded GET.
+            diagnostic = re.sub(r'https?://\S+', '[source]', probe.stderr.decode(errors='replace')).strip()[-400:]
+        evidence = probe_response(url)
+        measured(label + '-probe-attempt', attempt=attempt, reason=diagnostic, http=evidence)
+        status = evidence.get('status')
+        transient = status in (500, 502, 503, 504) or status is None or bool(re.search(
+            r'timed? ?out|connection reset|temporar|failed to resolve|5\d\d server', diagnostic, re.I))
+        if attempt == 2 or not transient or status in (401, 403, 404, 429):
+            raise ValueError('Public original source probe failed')
+        time.sleep(2)
 
 def run(item):
     url=item['url'];label=item['id'];kind=item['kind']
     if urllib.parse.urlsplit(url).hostname not in ('download.blender.org','media.xiph.org','video.blender.org','images-assets.nasa.gov'):raise ValueError('unlisted source host')
     playback_url=item.get('testUrl',url)
     if playback_url!=url and urllib.parse.urlsplit(playback_url).hostname!='127.0.0.1':raise ValueError('Only a cloud loopback control may replace the public original')
-    observed=probe_file(playback_url)
+    observed=probe_file(playback_url,label)
     measured(label+'-format',kind=kind,**observed)
     if observed['bytes']>1024:
         for key,pos in [('start',0),('middle',observed['bytes']//2),('end',observed['bytes']-1024)]:

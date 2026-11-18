@@ -1,4 +1,4 @@
-name: Recheck the original YCore NASA group after the DNS control
+name: Recheck the original Sintel group on both cores and retain source probe responses
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
@@ -13,8 +13,8 @@ jobs:
       fail-fast: false
       max-parallel: 8
       matrix:
-        shard: [4]
-        engine: [YCore]
+        shard: [0]
+        engine: [YCore, SenPlayer]
     env:
       QA_ENGINE: ${{ matrix.engine }}
       QA_SHARD: ${{ matrix.shard }}
@@ -25,22 +25,17 @@ jobs:
         env: {API_TOKEN: "${{ github.token }}"}
         run: |
           set -euo pipefail
+          bash qa-integrated/acquire-qualified-candidate.sh 44243959207 eccef69f71873cc8f5d9aa35a07e4d63a3c4b830
           api="https://api.github.com/repos/$GITHUB_REPOSITORY"
-          mkdir -p preview qa-driver results
-          for i in $(seq 1 240); do
-            artifacts=$(curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/44068585060/artifacts")
-            app=$(jq -r '.artifacts[] | select(.name=="candidate-test-input" and .expired==false) | .id' <<<"$artifacts")
-            driver=$(jq -r '.artifacts[] | select(.name=="arm-input-driver" and .expired==false) | .id' <<<"$artifacts")
-            if [[ "$app" =~ ^[0-9]+$ && "$driver" =~ ^[0-9]+$ ]]; then break; fi
-            sleep 10
-          done
-          test -n "$app" && test -n "$driver"
-          curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/artifacts/$app/zip" -o "$RUNNER_TEMP/app.zip"
-          curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/artifacts/$driver/zip" -o "$RUNNER_TEMP/driver.zip"
-          unzip -q "$RUNNER_TEMP/app.zip" -d preview
+          mkdir -p qa-driver results
+          artifacts=$(curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/44246033227/artifacts?per_page=100")
+          driver=$(jq -er '.artifacts[] | select(.name=="arm-input-driver" and .expired==false) | .id' <<<"$artifacts")
+          [[ "$driver" =~ ^[0-9]+$ ]]
+          curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/artifacts/$driver/zip" -o "$RUNNER_TEMP/driver.zip"
+          hash=$(jq -er --arg id "$driver" '.artifacts[] | select((.id|tostring)==$id) | .digest' <<<"$artifacts")
+          test "$hash" = "sha256:$(sha256sum "$RUNNER_TEMP/driver.zip" | cut -d' ' -f1)"
           unzip -q "$RUNNER_TEMP/driver.zip" -d qa-driver
-          (cd preview && sha256sum -c apk.sha256)
-          grep -Fx "app=fe814ec63fb1c035ff9fb123146e3ed3700a2b16" preview/provenance.txt
+          grep -Fx '841069db7ad03836c62d59318b0a55c4a29d3a3b66e02b48338f7122b276f3e6  composeApp-release.apk' preview/apk.sha256
           cp preview/provenance.txt preview/apk.sha256 results/
           sudo apt-get update -qq
           sudo apt-get install -y ffmpeg python3-pil
