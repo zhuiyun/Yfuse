@@ -58,11 +58,34 @@ def native_failures(events):
     return failures
 
 
+def observe_open(case, launch, duration, evidence):
+    started = time.monotonic()
+    observer.adb('shell', launch)
+    if duration <= 32:
+        response = observer.adb('shell', 'am', 'instrument', '-w', '-e', 'mode', 'observe-open',
+                                'qa.yfuse.gesture/.Driver', timeout=18)
+        receipt = re.search(r'INSTRUMENTATION_RESULT: tailFrames=(\[[^\n]+\])', response)
+        evidence['openingFrames'] = json.loads(receipt[1]) if receipt else []
+        result = confirm_short_tail(evidence['openingFrames'], None, duration)
+        if result:
+            result['wallSecondsFromLaunch'] = round(time.monotonic() - started, 3)
+            if result['wallSecondsFromLaunch'] <= 60:
+                return result
+    remaining = 60 - (time.monotonic() - started)
+    if remaining <= 0:
+        raise AssertionError('No verified output within the original 60-second launch window')
+    result = observer.decode_playback(case, None, duration, max_wait=remaining)
+    result['wallSecondsFromLaunch'] = round(time.monotonic() - started, 3)
+    if result['wallSecondsFromLaunch'] > 60:
+        raise AssertionError('Moving output was first confirmed after the launch deadline')
+    return result
+
+
 def natural_completion(case, launch, duration):
     observer.adb('shell', 'am', 'force-stop', 'com.yfuse')
     prior = {(e['time'], e['event']) for e in observer.app_events()}
-    observer.adb('shell', launch)
-    opened = observer.decode_playback(case + '-natural-open', None, duration)
+    evidence = {}
+    opened = observe_open(case + '-natural-open', launch, duration, evidence)
     time.sleep(max(1, duration - opened['laterPos'] + 3))
     screenshot(case + '-natural-end')
     tree = observer.snapshot()
@@ -70,7 +93,7 @@ def natural_completion(case, launch, duration):
     events = [e for e in observer.app_events() if (e['time'], e['event']) not in prior]
     failed = native_failures(events)
     ended = any('重播' in s or '播放结束' in s for s in labels) or any(e['values'].get('phase') == 'ended' for e in events)
-    result = {'opened': opened, 'endClock': observer.media_clock(tree), 'ended': ended,
+    result = {**evidence, 'opened': opened, 'endClock': observer.media_clock(tree), 'ended': ended,
               'errorVisible': any('播放遇到问题' in s or '播放失败' in s for s in labels), 'nativeFailures': failed}
     if ended and not result['errorVisible']:
         result['seekFromEnd'] = seek(case + '-natural-rewind', .21, 'adb-swipe', duration, known_ended=True)
@@ -105,6 +128,7 @@ def seek(case, fraction, method, duration, known_ended=False):
     left, top, right, bottom = rail
     row = {'fraction': fraction, 'method': method, 'rawTargetSeconds': duration * fraction,
            'beforeClock': observer.media_clock(tree), 'beforeInputUnix': time.time()}
+    row['clockWithinDuration'] = row['beforeClock'] is not None and 0 <= row['beforeClock'] <= duration
     row['fromEnded'] = known_ended or (
         (row['beforeClock'] or 0) >= duration - 1
         and (play_control(tree) is not None or observer.find(tree, ['重播', '播放结束']) is not None))
@@ -129,25 +153,34 @@ def seek(case, fraction, method, duration, known_ended=False):
             round(left + (right-left) * fraction), (top+bottom)//2, 330)
     # The completed YCore timeline clears play intent. Verify the seek actually landed
     # while paused before tapping its normal Play control and observing moving output.
-    if row['fromEnded'] and core == 'YCore' and not short_tail:
+    boundary = row['beforeClock'] is not None and row['beforeClock'] >= duration - 1
+    if (row['fromEnded'] or boundary) and core == 'YCore' and not short_tail:
         deadline = time.monotonic() + 6
         while time.monotonic() < deadline:
             _, after = observer.reveal()
             control = play_control(after)
             position = observer.media_clock(after)
             if control is not None and position is not None and abs(position - duration*fraction) <= 1.6:
+                time.sleep(.7)
+                _, after = observer.reveal()
+                control = play_control(after)
+                if control is None or observer.media_clock(after) != position:
+                    continue
                 screenshot(case + '-paused-at-requested-position')
                 row['pausedAtTargetSeconds'] = position
                 observer.tap(*observer.coords(control))
                 row['resumeTapped'] = True
                 break
-        if not row.get('resumeTapped'):
+            if not row['fromEnded'] and observer.find(after, ['暂停']) is not None:
+                break
+        if row['fromEnded'] and not row.get('resumeTapped'):
             row['rawTargetConfirmed'] = False
             screenshot(case + '-completed-seek-unconfirmed')
             return row
     if short_tail:
         receipt = re.search(r'INSTRUMENTATION_RESULT: tailFrames=(\[[^\n]+\])', response)
         row['shortTailSamples'] = json.loads(receipt[1]) if receipt else []
+        row['clockWithinDuration'] &= all(0 <= sample['seconds'] <= duration for sample in row['shortTailSamples'])
         row['output'] = confirm_short_tail(row['shortTailSamples'], duration * fraction, duration)
         row['rawTargetConfirmed'] = row['output'] is not None
         if not row['rawTargetConfirmed']:
@@ -174,10 +207,9 @@ for media in catalog:
         observer.adb('shell', 'am', 'force-stop', 'com.yfuse')
         started = time.time(); prior = {(e['time'], e['event']) for e in observer.app_events()}
         url = 'http://127.0.0.1:18389/' + media['file']
-        launch = 'am start -W -a android.intent.action.VIEW -n com.yfuse/com.yfuse.feature.player.ExternalPlaybackActivity -t ' + mime + ' -d ' + shlex.quote(url)
-        observer.adb('shell', launch)
+        launch = 'am start -a android.intent.action.VIEW -n com.yfuse/com.yfuse.feature.player.ExternalPlaybackActivity -t ' + mime + ' -d ' + shlex.quote(url)
         try:
-            row['open'] = observer.decode_playback(case, None, media['seconds'], max_wait=60)
+            row['open'] = observe_open(case, launch, media['seconds'], row)
             row['openedWithin60Seconds'] = True
         except (AssertionError, RuntimeError):
             screenshot(case + '-60s')
@@ -206,10 +238,11 @@ for media in catalog:
         (output/'format-results.json').write_text(json.dumps(results, indent=2))
         print(case, row['openedWithin60Seconds'], sum(s.get('rawTargetConfirmed', False) for s in row['seeks']), flush=True)
 passed = all(r['openedWithin60Seconds'] and r.get('identity', {}).get('active') and not r['nativeFailures'] and len(r['seeks']) == 4
-             and all(s['rawTargetConfirmed'] for s in r['seeks']) for r in results)
+             and all(s['rawTargetConfirmed'] and s['clockWithinDuration'] for s in r['seeks']) for r in results)
 if completion_probe:
     passed = passed and all(r.get('naturalCompletion', {}).get('ended') and not r['naturalCompletion'].get('errorVisible')
                             and r['naturalCompletion'].get('seekFromEnd', {}).get('rawTargetConfirmed')
+                            and r['naturalCompletion']['seekFromEnd'].get('clockWithinDuration')
                             and not r['nativeFailures'] and not r['naturalCompletion'].get('nativeFailures') for r in results)
 (output/'summary.json').write_text(json.dumps({'passed': passed, 'core': core, 'fixtures': len(results),
     'scope': 'Synthetic diagnostic counterparts; never substitutes for failed private originals'}, indent=2))

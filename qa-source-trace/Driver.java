@@ -116,8 +116,8 @@ public final class Driver extends Instrumentation {
             org.json.JSONObject first = samples.getJSONObject(i);
             int firstTime = first.getInt("seconds");
             long start = first.getLong("elapsedMs");
-            if (Math.abs(firstTime - target) > 1.6 || start > 3000 || firstTime >= duration - 1
-                    || first.getInt("durationSeconds") != duration) continue;
+            if (!Double.isNaN(target) && (Math.abs(firstTime - target) > 1.6 || start > 3000)) continue;
+            if (firstTime >= duration - 1 || first.getInt("durationSeconds") != duration) continue;
             int changes = 0;
             for (int j = i + 1; j < samples.length(); j++) {
                 org.json.JSONObject before = samples.getJSONObject(j - 1), after = samples.getJSONObject(j);
@@ -134,6 +134,7 @@ public final class Driver extends Instrumentation {
 
     private void observeShortTail(UiAutomation ui, Bundle result) throws Exception {
         long start = SystemClock.elapsedRealtime();
+        boolean opening = "observe-open".equals(args.getString("mode"));
         int previousTime = -1;
         int[] previousPicture = null;
         org.json.JSONArray samples = new org.json.JSONArray();
@@ -155,7 +156,8 @@ public final class Driver extends Instrumentation {
                         previousPicture = picture;
                         int duration = clockSeconds(times.group(2));
                         if (!"true".equals(args.getString("keepTailOpen"))
-                                && confirmedShortTail(samples, duration, duration * Double.parseDouble(args.getString("fraction")))) break;
+                                && confirmedShortTail(samples, duration, opening ? Double.NaN
+                                    : duration * Double.parseDouble(args.getString("fraction")))) break;
                     }
                 }
             }
@@ -272,6 +274,11 @@ public final class Driver extends Instrumentation {
         Bundle result=new Bundle();
         try {
             final UiAutomation ui=getUiAutomation();
+            if ("observe-open".equals(args.getString("mode"))) {
+                observeShortTail(ui, result);
+                finish(-1, result);
+                return;
+            }
             if("observed-seek".equals(args.getString("mode")) || "short-swipe".equals(args.getString("mode"))){observedSeek(ui,result);finish(-1,result);return;}
             if("range".equals(args.getString("mode"))){
                 org.json.JSONObject r=new org.json.JSONObject();

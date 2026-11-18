@@ -4,8 +4,9 @@
 def confirm(samples, target, duration):
     for index in range(len(samples) - 2):
         first = samples[index]
-        if (first['elapsedMs'] > 3000 or abs(first['seconds'] - target) > 1.6
-                or first['durationSeconds'] != duration or first['seconds'] >= duration - 1):
+        if target is not None and (first['elapsedMs'] > 3000 or abs(first['seconds'] - target) > 1.6):
+            continue
+        if first['durationSeconds'] != duration or first['seconds'] >= duration - 1:
             continue
         changes = []
         for before, after in zip(samples[index:], samples[index + 1:]):
