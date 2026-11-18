@@ -1,5 +1,6 @@
 package com.yfuse.core2.android
 
+import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.capability.YContainer
 import com.yfuse.core2.demux.YCompressedSample
 import com.yfuse.core2.demux.YDemuxOpenResult
@@ -476,6 +477,41 @@ class AndroidDemuxReadAheadNodeTest {
         } finally {
             node.release()
         }
+    }
+
+    @Test
+    fun surface_reopen_restores_only_same_item_active_matching_text_tracks() {
+        val item = YMediaItem(id = "film", uri = "file:///film.mkv")
+        val primary = subtitle(2, YSubtitleFormat.Srt).copy(language = "en")
+        val secondary = subtitle(3, YSubtitleFormat.Srt).copy(language = "zh")
+        val source = YDemuxOpenResult(YContainer.Matroska, tracks = listOf(primary, secondary))
+        val text = YCompressedSample(primary.id, "a".encodeToByteArray(), 1_000_000L, durationUs = 598_000_000L)
+        val translation = text.copy(trackId = secondary.id, data = "b".encodeToByteArray())
+        val old =
+            EmbeddedTextPacketHistory().apply {
+                reset(source)
+                remember(text)
+                remember(translation)
+                remember(text.copy(presentationTimeUs = 10_000L, durationUs = 500_000L))
+            }
+        val checkpoint = requireNotNull(old.checkpoint(item, source.tracks, 34_147_000L))
+        old.reset()
+        val reopened = EmbeddedTextPacketHistory().apply { reset(source) }
+        checkpoint.restore(item.copy(), source.tracks, reopened)
+        assertTrue(reopened.activeAt(primary.id, 35_000_000L).isEmpty())
+        checkpoint.restore(item, listOf(primary.copy(language = "fr"), secondary.copy()), reopened)
+        assertTrue(reopened.activeAt(primary.id, 35_000_000L).isEmpty())
+        assertEquals(listOf(translation), reopened.activeAt(secondary.id, 35_000_000L))
+
+        reopened.reset(source)
+        checkpoint.restore(item, source.tracks, reopened)
+        assertEquals(listOf(text), reopened.activeAt(primary.id, 395_000_000L))
+        assertEquals(listOf(translation), reopened.activeAt(secondary.id, 395_000_000L))
+        assertTrue(reopened.activeAt(primary.id, 10_000L).isEmpty())
+        assertTrue(reopened.activeAt(secondary.id, 599_000_000L).isEmpty())
+        reopened.reset(source.copy(container = YContainer.Unknown))
+        checkpoint.restore(item, source.tracks, reopened)
+        assertTrue(reopened.activeAt(primary.id, 35_000_000L).isEmpty())
     }
 
     @Test

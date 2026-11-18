@@ -1068,7 +1068,7 @@ internal class AndroidNativeEnhancedYPlayer(
                                             } else {
                                                 mutableState.value.positionMs * MICROS_PER_MILLISECOND
                                             }
-                                        session.close()
+                                        session.closeForSurfaceChange(position)
                                         prepared = false
                                         mutableState.updateState {
                                             it.copy(
@@ -1086,7 +1086,7 @@ internal class AndroidNativeEnhancedYPlayer(
                                         runCatching { session.setOutputSurface(next) }
                                             .onFailure {
                                                 val position = session.snapshot().positionUs
-                                                session.close()
+                                                session.closeForSurfaceChange(position)
                                                 prepared = false
                                                 prepareCurrent(position)
                                             }

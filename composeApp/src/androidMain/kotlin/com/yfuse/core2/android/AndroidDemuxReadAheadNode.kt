@@ -1,5 +1,6 @@
 package com.yfuse.core2.android
 
+import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.demux.YCompressedSample
 import com.yfuse.core2.demux.YDemuxOpenResult
 import com.yfuse.core2.demux.YDemuxSource
@@ -204,6 +205,20 @@ internal class AndroidDemuxReadAheadNode(
 
     fun supportsSubtitleFormat(format: YSubtitleFormat): Boolean =
         (delegate as? YSubtitlePacketDecoder)?.supportsSubtitleFormat(format) == true
+
+    fun textForSurfaceLoss(
+        item: YMediaItem,
+        tracks: List<YDemuxTrack>,
+        positionUs: Long,
+    ): SurfaceSubtitleCheckpoint? = synchronized(monitor) { textHistory.checkpoint(item, tracks, positionUs) }
+
+    fun restoreSurfaceText(
+        checkpoint: SurfaceSubtitleCheckpoint,
+        item: YMediaItem?,
+        tracks: List<YDemuxTrack>,
+    ) {
+        synchronized(monitor) { checkpoint.restore(item, tracks, textHistory) }
+    }
 
     fun retainedTextAt(
         track: YDemuxTrack?,

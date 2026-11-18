@@ -107,6 +107,7 @@ internal class AndroidEnhancedPlaybackSession(
     private var audioTrack: YDemuxTrack? = null
     private var subtitleTrack: YDemuxTrack? = null
     private val subtitleCues = YSubtitleCueBuffer()
+    private var surfaceSubtitles: SurfaceSubtitleCheckpoint? = null
     private var secondarySubtitleTrack: YDemuxTrack? = null
     private val secondarySubtitleCues = YSubtitleCueBuffer()
     private var audioOutputPath = YAudioOutputPath.None
@@ -232,12 +233,7 @@ internal class AndroidEnhancedPlaybackSession(
         resolveSoftwareRecoveryFromDemux: Boolean = false,
         sourceFailure: (() -> YPlaybackException?)? = null,
     ): YDemuxOpenResult {
-        close()
-        this.diagnosticItem = diagnosticItem
-        diagnosticSequence = 0L
-        lastBufferDiagnosticNs = 0L
-        lastDiagnosticOutputAllowed = null
-        bufferWaitMonitor.reset()
+        val savedSubtitles = resetForOpen(diagnosticItem)
         val adoptedOpen =
             if (preparedDemux != null) {
                 demuxReadAhead.release()
@@ -293,6 +289,7 @@ internal class AndroidEnhancedPlaybackSession(
                     adoptedOpen ?: openWithStartupAnalysis(source, probeBudget)
                 }
             }
+        savedSubtitles?.let { demuxReadAhead.restoreSurfaceText(it, diagnosticItem, result.tracks) }
         val videoTrack =
             result.tracks.firstOrNull { it.type == YDemuxTrackType.Video && it.video != null }
                 ?: throw YPlaybackException(
@@ -629,6 +626,18 @@ internal class AndroidEnhancedPlaybackSession(
             wallClock.seek(0L, System.nanoTime())
         }
         return result
+    }
+
+    private fun resetForOpen(item: com.yfuse.core2.api.YMediaItem?): SurfaceSubtitleCheckpoint? {
+        val savedSubtitles = surfaceSubtitles
+        surfaceSubtitles = null
+        close()
+        diagnosticItem = item
+        diagnosticSequence = 0L
+        lastBufferDiagnosticNs = 0L
+        lastDiagnosticOutputAllowed = null
+        bufferWaitMonitor.reset()
+        return savedSubtitles
     }
 
     private fun initialSubtitleTrack(
@@ -1376,6 +1385,16 @@ internal class AndroidEnhancedPlaybackSession(
         (demuxer as? AndroidFfmpegDemuxer)?.clearProbeDeadline()
     }
 
+    fun closeForSurfaceChange(positionUs: Long) {
+        if (prepared) {
+            surfaceSubtitles =
+                diagnosticItem?.let { item ->
+                    demuxReadAhead.textForSurfaceLoss(item, openResult?.tracks.orEmpty(), positionUs)
+                }
+        }
+        close()
+    }
+
     fun close() {
         renderedFrameRateSampler.reset()
         cancelPendingRead()
@@ -1438,6 +1457,7 @@ internal class AndroidEnhancedPlaybackSession(
     }
 
     fun release() {
+        surfaceSubtitles = null
         close()
         demuxReadAhead.release()
     }
