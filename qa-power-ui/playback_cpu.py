@@ -27,7 +27,7 @@ def symbol_rows(report):
     return rows
 
 
-def profile(*, include_symbols=False):
+def profile(*, include_symbols=False, trace_math_callers=False):
     if os.environ.get('GITHUB_ACTIONS') != 'true' or os.environ.get('ANDROID_SERIAL') != '127.0.0.1:15555':
         raise RuntimeError('The playback CPU profile requires the disposable cloud guest')
 
@@ -59,7 +59,8 @@ def profile(*, include_symbols=False):
             if not source or run('push', str(source), binary).returncode or shell('chmod', '700', binary).returncode:
                 return dict(result, status='android-simpleperf-unavailable')
             profiler = binary
-        capture = shell(profiler, 'record', '-e', result['event'], '-f', str(result['frequencyHz']),
+        stack_option = ['--call-graph', 'fp'] if trace_math_callers else []
+        capture = shell(profiler, 'record', *stack_option, '-e', result['event'], '-f', str(result['frequencyHz']),
                         '-p', pid, '--duration', str(result['durationSeconds']), '-o', data, timeout=40)
         if capture.returncode:
             cause = capture.stderr + capture.stdout
@@ -74,6 +75,11 @@ def profile(*, include_symbols=False):
         if include_symbols:
             by_symbol = shell(profiler, 'report', '-i', data, '--sort', 'dso,symbol')
             result['symbols'] = symbol_rows(by_symbol.stdout) if not by_symbol.returncode else []
+        if trace_math_callers:
+            graph = shell(profiler, 'report', '-i', data, '--sort', 'dso,symbol', '--symbols', '__ieee754_powf',
+                          '-g', 'callee', '--full-callgraph', '--max-stack', '24', '--percent-limit', '1')
+            result['mathCallerReport'] = {'method': 'frame-pointer call graph', 'exitCode': graph.returncode,
+                                          'lines': graph.stdout.splitlines()[:320]}
         return result
     except (OSError, subprocess.SubprocessError) as error:
         return dict(result, status='profile-unavailable', errorType=type(error).__name__)

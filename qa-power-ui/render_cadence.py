@@ -75,14 +75,19 @@ def window(index, core, server, clock_hz):
     report['layers'] = layers(stats)
     report['after'] = picture(label + '-after')
     report['httpBytesInWindow'] = server.counters()['bytes'] - traffic['bytes']
-    report['sample'] = profile(include_symbols=True)
+    tracing = os.environ.get('QA_TRACE_MATH_CALLERS') == 'true'
+    report['sample'] = profile(include_symbols=True, trace_math_callers=tracing)
+    sampled_math = any(row['symbol'] == '__ieee754_powf' for row in report['sample'].get('symbols', []))
+    callers = report['sample'].get('mathCallerReport', {})
     report['afterProfile'] = picture(label + '-after-profile')
     complete = (report['started']['identity']['engine'] == core and report['started']['identity']['active']
                 and abs(report['after']['second'] - report['before']['second'] - report['elapsedSeconds']) <= 4
                 and report['afterProfile']['second'] - report['after']['second'] >= 16
                 and report['cpuPercentOneCore']['com.yfuse'] is not None and report['cpuPercentOneCore']['surfaceflinger'] is not None
                 and any(v.get('totalFrames', 0) >= 120 and v.get('averageFPS', 0) > 0 for v in report['layers'])
-                and report['sample']['status'] == 'recorded' and report['sample']['symbols'])
+                and report['sample']['status'] == 'recorded' and report['sample']['symbols']
+                and (not tracing or not sampled_math or
+                     (callers.get('exitCode') == 0 and any('__ieee754_powf' in line for line in callers['lines']))))
     report['complete'] = bool(complete)
     return report
 
@@ -96,7 +101,11 @@ def main():
     create(fixture)
     server = MediaServer(fixture, OUT / 'media.jsonl')
     adb('reverse', 'tcp:18389', 'tcp:18389')
-    result = {'fixtureSha256': hashlib.sha256(fixture.read_bytes()).hexdigest(), 'contentFps': 24, 'windows': []}
+    graphics = adb('shell', 'dumpsys', 'SurfaceFlinger')
+    result = {'fixtureSha256': hashlib.sha256(fixture.read_bytes()).hexdigest(), 'contentFps': 24, 'windows': [],
+              'graphics': {'renderer': [s.strip() for s in graphics.splitlines() if re.match(r'^\s*GLES:', s)],
+                           'egl': adb('shell', 'getprop', 'ro.hardware.egl').strip(),
+                           'vulkan': adb('shell', 'getprop', 'ro.hardware.vulkan').strip()}}
     clock_hz = int(adb('shell', 'getconf', 'CLK_TCK'))
     assert clock_hz > 0
     try:

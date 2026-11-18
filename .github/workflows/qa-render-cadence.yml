@@ -1,4 +1,4 @@
-name: Compare full-size video presentations and CPU symbols on one Android guest
+name: Trace the math callers during fixed-screen playback on one cloud guest
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
@@ -8,6 +8,7 @@ jobs:
   compare:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 45
+    env: {QA_TRACE_MATH_CALLERS: 'true'}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with: {persist-credentials: false}
