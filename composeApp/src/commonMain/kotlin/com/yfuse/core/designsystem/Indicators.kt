@@ -43,9 +43,8 @@ private const val CAROUSEL_DOT_IN_FLIGHT = 0.05f
 /**
  * Shared hero pagination with one fixed 48dp tab target per visual dot.
  *
- * The dots used to be fixed white because they sat on the darkest part of a scrim. They now
- * sit in the strip where the artwork has already dissolved into the page — see
- * [Modifier.fadeIntoPage] — so their ink is the page's, not the artwork's.
+ * On a fading poster the pixels behind each tab still depend on the artwork.
+ * A dark rim keeps the light marks distinguishable across the row.
  *
  * There is no pause control any more. It existed to undo an auto-advance that every
  * interaction already suspends on its own, and it was a permanently visible second state
@@ -149,15 +148,23 @@ private fun HeroPageDots(
                                     weight
                             ).toPx()
                         val height = HeroPageIndicatorDefaults.dotHeight.toPx()
+                        val origin = Offset((size.width - width) / 2f, (size.height - height) / 2f)
                         val color =
                             if (onArtwork) {
-                                Color.White.copy(alpha = 0.34f + 0.60f * weight)
+                                val rim = 1.dp.toPx()
+                                drawRoundRect(
+                                    color = Color.Black.copy(alpha = 0.72f),
+                                    topLeft = Offset(origin.x - rim, origin.y - rim),
+                                    size = Size(width + 2 * rim, height + 2 * rim),
+                                    cornerRadius = CornerRadius(height / 2f + rim),
+                                )
+                                Color.White.copy(alpha = 0.62f + 0.34f * weight)
                             } else {
                                 palette.text.copy(alpha = 0.28f + 0.54f * weight)
                             }
                         drawRoundRect(
                             color = color,
-                            topLeft = Offset((size.width - width) / 2f, (size.height - height) / 2f),
+                            topLeft = origin,
                             size = Size(width, height),
                             cornerRadius = CornerRadius(height / 2f),
                         )
