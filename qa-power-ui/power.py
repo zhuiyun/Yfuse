@@ -71,6 +71,8 @@ def playing(core, url='http://127.0.0.1:18389/fixture.mp4', mime='video/mp4', *,
     entry = {'movingPicture': result, 'identity': identity}
     if from_library:
         entry['source'] = 'normal library detail and PlaybackInfo'
+        entry['openedAt'] = opened
+        entry['processId'] = adb('shell', 'pidof', 'com.yfuse').strip()
         if core == 'SenPlayer':
             lines = adb('shell', 'cat /data/user/0/com.yfuse/no_backup/diagnostics/diagnostic-*.jsonl').splitlines()
             events = [json.loads(line) for line in lines if line.startswith('{')]
@@ -103,6 +105,33 @@ def pause():
     return {'positionBefore': first, 'positionAfter': second}
 
 
+def resume_library(core, phases):
+    playing_row = next(row for row in phases if row['phase'] == 'playing')
+    paused_row = next(row for row in phases if row['phase'] == 'paused')
+    if any(r['status'] != 'recorded' for r in (playing_row, paused_row)):
+        raise AssertionError('The same library playback and pause must complete before a seek')
+    entry = playing_row['entryEvidence']
+    pid = adb('shell', 'pidof', 'com.yfuse').strip()
+    if not pid.isdigit() or pid != entry['processId']:
+        raise AssertionError('Library player process changed during the pause')
+    _, tree = direct.reveal()
+    position = direct.media_clock(tree)
+    play = ui.find(tree, ['播放', 'Play'])
+    anchor = paused_row['entryEvidence']['positionAfter']
+    if play is None or position is None or abs(position - anchor) > 1:
+        raise AssertionError('Paused library player and its original position are required')
+    ui.tap(play)
+    moving = direct.decode_playback('power-library-resume', anchor, 3600, tolerance=2)
+    identity = engine.engine_evidence(core, entry['openedAt'])
+    if not identity['active']:
+        raise AssertionError('Resumed library playback lost its native engine')
+    proof = {'source': entry['source'], 'processId': pid, 'pausedPosition': anchor,
+             'continuedLibrarySession': True, 'identity': identity, 'movingPicture': moving}
+    if 'surfaceDimensions' in entry:
+        proof['surfaceDimensions'] = entry['surfaceDimensions']
+    return proof
+
+
 def seek(index):
     bounds, _ = direct.reveal()
     fraction = .18 if index % 2 else .62
@@ -112,7 +141,7 @@ def seek(index):
     return direct.decode_playback('power-seek', 3600 * fraction, 3600)
 
 
-def enter(name, server, core):
+def enter(name, server, core, phases):
     if name == 'stopped-control':
         adb('shell', 'am', 'force-stop', 'com.yfuse')
     elif name == 'servers-idle':
@@ -125,7 +154,10 @@ def enter(name, server, core):
         server.failure = False
         if name == 'recovered-playback':
             return playing(core, 'http://127.0.0.1:18389/outage.mp4')
-        return playing(core, from_library=os.environ.get('QA_POWER_LIBRARY_PLAYBACK') == 'true')
+        from_library = os.environ.get('QA_POWER_LIBRARY_PLAYBACK') == 'true'
+        if name == 'seeking' and from_library:
+            return resume_library(core, phases)
+        return playing(core, from_library=from_library)
     elif name == 'paused':
         return pause()
     elif name == 'after-player-idle':
@@ -209,7 +241,7 @@ def main():
             phases.append(row)
             print('POWER_PHASE', core, name, duration, flush=True)
             try:
-                row['entryEvidence'] = enter(name, server, core)
+                row['entryEvidence'] = enter(name, server, core, phases)
                 adb('shell', 'dumpsys', 'gfxinfo', 'com.yfuse', 'reset')
                 screen().save(out / (name + '-entry.png'))
                 began = time.monotonic()

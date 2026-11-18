@@ -1,4 +1,4 @@
-name: Four-hour recording and output-size comparison after the source read repairs
+name: Four-hour library playback, pause and seek on the same player session
 'on':
   push:
     branches:
