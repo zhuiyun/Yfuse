@@ -1,6 +1,5 @@
 package com.yfuse.core.designsystem
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.height
@@ -14,6 +13,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -350,16 +350,30 @@ fun heroReelScrim(): Brush =
         1f to HeroInk.copy(alpha = 0.42f),
     )
 
-/** Shared caption protection for both reels, including nearly white artwork. */
+/** Feather above the measured caption without moving its text or its actions. */
 fun Modifier.heroCaptionScrim(): Modifier =
-    background(
-        Brush.verticalGradient(
-            0f to Color.Transparent,
-            0.06f to Color.Black.copy(alpha = 0.62f),
-            0.80f to Color.Black.copy(alpha = 0.62f),
-            1f to Color.Transparent,
-        ),
-    )
+    drawWithCache {
+        if (size.height == 0f) return@drawWithCache onDrawBehind {}
+        val lead = minOf(72.dp.toPx(), size.height / 2f)
+        val height = size.height + lead
+        val solidStart = (lead + size.height * 0.06f) / height
+        val solidEnd = (lead + size.height * 0.80f) / height
+        val ink = Color.Black.copy(alpha = 0.62f)
+        val brush =
+            Brush.verticalGradient(
+                0f to Color.Transparent,
+                solidStart * 0.25f to Color.Black.copy(alpha = 0.06f),
+                solidStart * 0.72f to Color.Black.copy(alpha = 0.48f),
+                solidStart to ink,
+                solidEnd to ink,
+                1f to Color.Transparent,
+                startY = -lead,
+                endY = size.height,
+            )
+        val origin = Offset(0f, -lead)
+        val area = Size(size.width, height)
+        onDrawBehind { drawRect(brush, topLeft = origin, size = area) }
+    }
 
 /**
  * Blend band drawn behind the lifted sheet, over a fixed [height] of page.
