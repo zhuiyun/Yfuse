@@ -2,6 +2,7 @@
 import base64
 import concurrent.futures
 import datetime
+import http.client
 import ipaddress
 import json
 import os
@@ -11,6 +12,7 @@ import signal
 import ssl
 import sys
 import tempfile
+import urllib.parse
 from collections import Counter
 
 from cryptography import x509
@@ -38,6 +40,56 @@ def temporary_certificate(host, lifetime):
                    .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(key.public_key()), False)
                    .sign(key, hashes.SHA256()))
     return key, certificate.public_bytes(serialization.Encoding.PEM).decode()
+
+
+def catalog_identity(item):
+    source = (item.get("MediaSources") or [{}])[0]
+    ticks = source.get("RunTimeTicks") or item.get("RunTimeTicks") or 0
+    return int(source.get("Size") or 0), int(ticks) // 10_000_000, source.get("Container") or "mkv"
+
+
+def select_sources(resolver, labels, reference):
+    selected = {}
+    if reference is not None and set(reference) != labels:
+        raise ValueError("The reference must identify every requested source")
+    for kind, prefix in (("Movie", "m-"), ("Episode", "e-")):
+        catalog = resolver["candidates"](kind)
+        if reference is None:
+            for index, item in enumerate(resolver["choose"](catalog, 20)):
+                label = prefix + str(index).zfill(3)
+                if label in labels:
+                    selected[label] = item
+            continue
+        by_identity = {}
+        for item in catalog:
+            by_identity.setdefault(catalog_identity(item), []).append(item)
+        for label in sorted(labels):
+            if not label.startswith(prefix):
+                continue
+            entry = reference[label]
+            matches = by_identity.get((entry["bytes"], entry["seconds"], entry["container"]), [])
+            if entry["kind"] != kind or len(matches) != 1:
+                raise ValueError("A reference source is absent or ambiguous in the current catalog")
+            selected[label] = matches[0]
+    if set(selected) != labels or len({item["Id"] for item in selected.values()}) != len(labels):
+        raise ValueError("The requested source selection changed")
+    return list(selected.items())
+
+
+def close_emby_session(resolver):
+    root = urllib.parse.urlsplit(resolver["ROOT"])
+    if root.scheme != "http" or root.hostname != "127.0.0.1":
+        raise ValueError("Expected the server-local Emby API")
+    api = http.client.HTTPConnection(root.hostname, root.port, timeout=15)
+    try:
+        api.request("POST", root.path.rstrip("/") + "/Sessions/Logout", body=b"{}", headers={
+            "X-Emby-Authorization": resolver["AUTH"], "X-Emby-Token": resolver["TOKEN"],
+            "Content-Type": "application/json",
+        })
+        if api.getresponse().status not in (200, 204):
+            raise ValueError("The source session did not log out")
+    finally:
+        api.close()
 
 
 def run(config):
@@ -69,33 +121,28 @@ def run(config):
         })
         resolver["TOKEN"] = login["AccessToken"]
         resolver["USER"] = login["User"]["Id"]
-        selected = []
         STAGE = "server-inventory"
-        for kind in ("Movie", "Episode"):
-            rows = resolver["choose"](resolver["candidates"](kind), 20)
-            selected.extend((("m-" if kind == "Movie" else "e-") + str(index).zfill(3), item)
-                            for index, item in enumerate(rows))
-        selected = [(label, item) for label, item in selected if label in wanted]
-        if {label for label, _ in selected} != wanted:
-            raise ValueError("The requested source selection changed")
+        reference = config.get("referenceSources")
+        selected = select_sources(resolver, wanted, reference)
         media = {}
         STAGE = "source-resolution"
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
             for label, row, error in pool.map(resolver["resolve"], selected):
                 if error or not row:
                     raise ValueError("A selected source could not be resolved")
+                if set(row["rangeHashes"]) != {"start", "middle", "end"}:
+                    raise ValueError("The source did not supply all three requested byte ranges")
+                if reference is not None:
+                    expected = reference[label]
+                    if (row["type"], row["size"], row["seconds"], row["container"]) != (
+                            expected["kind"], expected["bytes"], expected["seconds"], expected["container"]):
+                        raise ValueError("The resolved playback file differs from its catalog reference")
                 media[label] = row
     finally:
         if resolver.get("TOKEN"):
             try:
                 STAGE = "server-logout"
-                request = resolver["urllib"].request.Request(resolver["ROOT"] + "/Sessions/Logout", data=b"{}", headers={
-                    "X-Emby-Authorization": resolver["AUTH"], "X-Emby-Token": resolver["TOKEN"],
-                    "Content-Type": "application/json",
-                })
-                with resolver["HTTP"].open(request, timeout=15) as response:
-                    if response.status not in (200, 204):
-                        raise ValueError("The source session did not log out")
+                close_emby_session(resolver)
             finally:
                 resolver["TOKEN"] = None
         config.pop("credentials", None)

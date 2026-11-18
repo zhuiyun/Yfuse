@@ -57,6 +57,15 @@ class RelayTest(unittest.TestCase):
         finally:
             connection.close()
 
+    def wait_for_recorded_body(self):
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            summary = self.state.request_summary()
+            if any(row["bytes"] for row in summary["retained"]):
+                return summary
+            time.sleep(.01)
+        self.fail("The request completed on the client but was never recorded by the server")
+
     def test_auth_and_allowlist_never_reach_upstream(self):
         for path in ("/wrong/m-001", "/" + "b" * 43 + "/m-001", "/" + self.token + "/e-002",
                      "/" + self.token + "/m-001?url=https://other.invalid", "/" + self.token + "/../m-001"):
@@ -68,6 +77,7 @@ class RelayTest(unittest.TestCase):
         self.assertEqual((206, "bytes 3-6/10", b"3456"), (status, headers["Content-Range"], body))
         self.assertIsNone(self.origin.requests[0].get_header("Authorization"))
         self.assertIsNone(self.origin.requests[0].get_header("Cookie"))
+        self.wait_for_recorded_body()
         self.assertEqual(4, self.state.bytes_sent)
 
     def test_head_does_not_fetch_media(self):
@@ -77,7 +87,7 @@ class RelayTest(unittest.TestCase):
 
     def test_session_admits_only_the_configured_runner_address(self):
         self.server.allowed_clients = frozenset({"192.0.2.5"})
-        with self.assertRaises((http.client.RemoteDisconnected, ConnectionResetError)):
+        with self.assertRaises((http.client.RemoteDisconnected, ConnectionResetError, ConnectionAbortedError)):
             self.request(headers={"Range": "bytes=1-3"})
         self.assertEqual([], self.origin.requests)
         self.server.allowed_clients = frozenset({"127.0.0.1"})
@@ -85,10 +95,7 @@ class RelayTest(unittest.TestCase):
 
     def test_range_telemetry_is_numeric_bounded_and_has_no_source_or_capability(self):
         self.request(headers={"Range": "bytes=3-6"})
-        deadline = time.monotonic() + 1
-        while not self.state.request_summary()['total'] and time.monotonic() < deadline:
-            time.sleep(.01)
-        row = self.state.request_summary()['retained'][0]
+        row = self.wait_for_recorded_body()['retained'][0]
         self.assertEqual(('m-001', 3, 6, 4, 206),
                          (row['label'], row['start'], row['end'], row['bytes'], row['status']))
         self.assertNotIn(self.token, str(row))
@@ -120,6 +127,7 @@ class RelayTest(unittest.TestCase):
         self.assertEqual(b"3456", self.request(headers={"Range": "bytes=3-6"})[2])
         self.assertEqual(429, self.request(headers={"Range": "bytes=0-1"})[0])
         self.assertEqual(1, len(self.origin.requests))
+        self.wait_for_recorded_body()
         self.assertEqual(4, self.state.bytes_sent)
 
     def test_suffix_and_open_ranges(self):
