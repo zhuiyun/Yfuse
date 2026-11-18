@@ -1,4 +1,4 @@
-name: Verify all pages and interactions on the bounded-clock candidate
+name: Verify all pages and file information contrast on both display configurations
 'on':
   push:
     branches:
@@ -9,8 +9,8 @@ permissions:
   contents: read
   actions: read
 env:
-  QA_APP_SHA: 992aef4ad202dfce7c7f4ca768bc44dd40e5da47
-  QA_BUILD_RUN: 44295250106
+  QA_APP_SHA: 6c05a4bd1fc78d4c324eacaf71e43c3b61c86a14
+  QA_BUILD_RUN: 44309572364
 jobs:
   acquire:
     runs-on: ubuntu-24.04
@@ -148,6 +148,9 @@ jobs:
         '
     - name: Capture current native pages and all reachable scroll states
       run: /usr/bin/python3 qa-power-ui/capture.py
+    - name: Measure text on the painted movie and episode information cards
+      if: matrix.scope == 'primary'
+      run: /usr/bin/python3 qa-power-ui/check_detail_specs.py results/ui --output results/ui/file-info-contrast.json
     - if: always()
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
       with:
