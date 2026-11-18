@@ -4,7 +4,7 @@ from PIL import Image
 import subprocess
 
 
-WIDTH, HEIGHT, RATE = 96, 54, 2
+WIDTH, HEIGHT, RATE = 96, 54, 6
 
 
 def signatures(images):

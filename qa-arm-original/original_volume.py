@@ -14,7 +14,7 @@ import urllib.request
 from urllib.parse import urlsplit
 
 import direct
-from natural_frames import OriginalFrames
+from natural_frames import OriginalFrames, RATE
 sys.path.insert(0, 'qa-power-ui')
 from media import MediaServer
 from power import engine, playing
@@ -22,6 +22,7 @@ from power import engine, playing
 
 OUT = Path('results/original-volume')
 PUBLISHERS = {'download.blender.org', 'media.xiph.org', 'video.blender.org', 'images-assets.nasa.gov'}
+MATCHED_PICTURES = ('distinct-match', 'consistent-repeated-picture')
 
 
 def write(path, value):
@@ -70,23 +71,38 @@ def fractions(identifier, duration, count):
     return [round(rng.uniform(.60, upper) if index % 2 == 0 else rng.uniform(.10, .35), 6) for index in range(count)]
 
 
-def later_source_picture(reference, first_second):
+def later_source_picture(compare, first_second):
     started = time.monotonic()
-    deadline = started + 5
+    deadline = started + 7
     while time.monotonic() < deadline:
         _, tree = direct.reveal()
-        position = direct.media_clock(tree)
-        if position is not None and position > first_second:
+        before = direct.media_clock(tree)
+        if before is not None and before > first_second:
+            frame = direct.screen()
             elapsed = time.monotonic() - started
-            picture = reference.compare(direct.screen(), position)
-            picture['secondsAfterFirstCheck'] = round(elapsed, 3)
-            return picture
+            after = direct.media_clock(direct.snapshot())
+            if elapsed <= 7 and after is not None and before <= after <= before + 2:
+                picture = compare(frame, (before + after) / 2)
+                picture.update(clockBeforeCapture=before, clockAfterCapture=after,
+                               secondsAfterFirstCheck=round(elapsed, 3))
+                return picture
         time.sleep(.2)
     return None
 
 
-def measure_touch(index, fraction, duration, reference, case):
+def measure_touch(index, fraction, duration, reference, case, save_source_pictures=False):
     row = {'index': index, 'fraction': fraction, 'issued': False, 'confirmed': False}
+    images = []
+
+    def compare(image, clock):
+        result = reference.compare(image, clock)
+        if save_source_pictures and (images or result['classification'] not in MATCHED_PICTURES):
+            path = OUT / f'{case}-source-{len(images)}.png'
+            image.save(path)
+            images.append(path.name)
+            result.update(observedImage=path.name, imageSha256=hashlib.sha256(path.read_bytes()).hexdigest())
+        return result
+
     try:
         reply = direct.adb('shell', 'am', 'instrument', '-w', '-e', 'mode', 'seekTo', '-e', 'fraction',
                            str(fraction), 'qa.yfuse.gesture/.Driver')
@@ -113,27 +129,32 @@ def measure_touch(index, fraction, duration, reference, case):
         row.update(beforeSecond=previous, rail=[left, top, right, bottom], downX=start, releaseX=x,
                    targetSecond=target, toleranceSeconds=tolerance)
         out = direct.decode_playback(case, target, duration, max_wait=25, tolerance=tolerance,
-                                     picture_check = reference.compare)
+                                     picture_check=compare)
         row['output'] = out
         if previous is None or abs(previous - target) <= tolerance + 2:
             row['reason'] = 'pre-touch clock did not distinguish this gesture from continued playback'
             return row
-        if out['sourcePicture']['classification'] == 'different-scene':
-            # A single screenshot may straddle a cut or a UI transition. Preserve both readings.
-            second = later_source_picture(reference, out['laterPos'])
-            if second is None:
+        first_class = out['sourcePicture']['classification']
+        row['sourceCorroborated'] = first_class in MATCHED_PICTURES
+        second = None
+        if not row['sourceCorroborated']:
+            second = later_source_picture(compare, out['laterPos'])
+            if second is None and first_class == 'different-scene':
                 row['reason'] = 'second picture clock unavailable after a conflicting scene'
                 return row
+        if second is not None:
             row['secondSourcePicture'] = second
             second_position = second['playerSecond']
             latest_position = out['laterPos'] + second['secondsAfterFirstCheck'] + tolerance
             if not out['laterPos'] < second_position < duration or second_position > latest_position:
                 row['reason'] = 'second picture timestamp jumped outside the original seek observation'
                 return row
-            if second['classification'] not in ('distinct-match', 'consistent-repeated-picture'):
-                row['reason'] = ('two independent pictures match a different part of the original'
-                                 if second['classification'] == 'different-scene'
-                                 else 'second picture could not resolve a conflicting scene')
+            if second['classification'] == 'different-scene':
+                row['reason'] = 'later picture matches a different part of the original'
+                return row
+            row['sourceCorroborated'] = second['classification'] in MATCHED_PICTURES
+            if first_class == 'different-scene' and not row['sourceCorroborated']:
+                row['reason'] = 'second picture could not resolve a conflicting scene'
                 return row
         row['confirmed'] = True
     except (AssertionError, ValueError, RuntimeError, OSError, subprocess.SubprocessError) as error:
@@ -150,19 +171,24 @@ def exercise(item, original, path, core, count, reference):
     os.environ['QA_ENGINE'] = core
     plans = fractions(label, original['duration'], count)
     record = {'core': core, 'id': label, 'kind': item['kind'], 'original': original, 'planned': count, 'targets': plans,
-            'sessions': [], 'touches': [], 'cachePolicy': 'clear on engine entry, retain between sessions'}
+            'sessions': [], 'touches': [], 'referenceFramesPerSecond': RATE,
+            'cachePolicy': 'clear on engine entry, retain between sessions'}
     result = OUT / f'{label}-{core}.json'
     write(result, record)
     endpoint = MediaServer(path, OUT / f'{label}-{core}-ranges.jsonl', content_type=item['mime'])
     url = f"http://127.0.0.1:18389/{original['sha256']}.{path.suffix.lstrip('.') or 'media'}"
     try:
+        captured_gestures = 0
         for first in range(0, count, 40):
             direct.adb('shell', 'am', 'force-stop', 'com.yfuse')
             opened = playing(core, url, item['mime'], hide_controls=False)
             record['sessions'].append({'firstTouch': first, 'opened': opened})
             for index in range(first, min(first + 40, count)):
                 case = f'{label}-{core}-{index}'
-                row = measure_touch(index, plans[index], original['duration'], reference, case)
+                row = measure_touch(index, plans[index], original['duration'], reference, case,
+                                    save_source_pictures=captured_gestures < 2)
+                if row.get('output', {}).get('sourcePicture', {}).get('observedImage'):
+                    captured_gestures += 1
                 record['touches'].append(row)
                 if not row['confirmed'] and sum(not t['confirmed'] for t in record['touches']) <= 2:
                     direct.screen().save(OUT / (case + '-unconfirmed.png'))
@@ -176,8 +202,9 @@ def exercise(item, original, path, core, count, reference):
         record['mediaTraffic'] = endpoint.counters()
         record['pictureClasses'] = dict(Counter(row['output']['sourcePicture']['classification'] for row in record['touches'] if 'output' in row))
         record['confirmed'] = sum(row['confirmed'] for row in record['touches'])
-        matched = sum(record['pictureClasses'].get(k, 0) for k in ('distinct-match', 'consistent-repeated-picture'))
-        record['passed'] = record['confirmed'] == count and matched >= min(count, 2)
+        record['sourceCorroboratedGestures'] = [row['index'] for row in record['touches']
+                                               if row['confirmed'] and row.get('sourceCorroborated')]
+        record['passed'] = record['confirmed'] == count and len(record['sourceCorroboratedGestures']) >= min(count, 2)
         write(result, record)
     return record['passed']
 

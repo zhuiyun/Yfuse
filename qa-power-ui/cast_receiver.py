@@ -62,7 +62,8 @@ def latest_picture(frames):
 
 
 def moving(frames, label, *, target=None, after=-1):
-    deadline = time.monotonic() + 35
+    started = time.monotonic()
+    deadline = started + 35
     first = None
     while time.monotonic() < deadline:
         result = latest_picture(frames)
@@ -70,10 +71,11 @@ def moving(frames, label, *, target=None, after=-1):
             index, second, picture = result
             if index > after and (target is None or target - 4 <= second <= target + 9):
                 if first is None:
-                    first = index, second
+                    first = index, second, time.monotonic() - started
                 elif index > first[0] and second > first[1]:
                     picture.save(OUT / (label + '-receiver.png'))
-                    return {'firstFrame': first[0], 'firstSecond': first[1], 'frame': index, 'second': second}
+                    return {'firstFrame': first[0], 'firstSecond': first[1], 'frame': index, 'second': second,
+                            'firstObservedAfterSeconds': round(first[2], 3)}
         time.sleep(.15)
     raise AssertionError('No advancing decoded receiver timecode for ' + label)
 
@@ -122,6 +124,34 @@ def observe(recorder, phase, server, duration):
         if time.monotonic() >= deadline:
             break
         time.sleep(2)
+
+
+def continuity(evidence):
+    paused = evidence['receiverPause']['second']
+    resumed = evidence['resumed']
+    first = resumed['firstSecond']
+    return {
+        'pausedClockAgreesWithPicture': abs(evidence['phonePause']['positionAfter'] - paused) <= 2,
+        'resumedAtPausedPicture': paused - 1 <= first <= paused + resumed['firstObservedAfterSeconds'] + 2,
+        'resumedFramesAdvanceInOrder': 0 < resumed['second'] - first <= resumed['frame'] - resumed['firstFrame'] + 1,
+    }
+
+
+def save_cast_diagnostics():
+    raw = adb('shell', 'cat /data/user/0/com.yfuse/no_backup/diagnostics/diagnostic-*.jsonl', check=False)
+    events = []
+    for line in raw.splitlines():
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if row.get('category') != 'cast':
+            continue
+        attributes = row.get('attributes') or {}
+        events.append({'event': row.get('event'), 'timestamp': row.get('timestamp'), 'attributes':
+                       {k: v for k, v in attributes.items() if k in ('state', 'status', 'positionMs', 'startPositionMs',
+                         'targetMs', 'fromMs', 'attempt', 'seekAttempts', 'seekedBeforePlay', 'failure')}})
+    (OUT / 'cast-events.json').write_text(json.dumps(events, indent=2))
 
 
 def exercise(core, url, frames, server, recorder, evidence):
@@ -180,7 +210,8 @@ def main():
     server = MediaServer(fixture, OUT / 'media.jsonl', bridge_address=bridge)
     recorder = Recorder(OUT / 'activity')
     evidence = {'core': core, 'fixtureSha256': hashlib.sha256(fixture.read_bytes()).hexdigest(),
-                'receiver': RECEIVER, 'receiverSoftware': 'GMediaRender/GStreamer', 'passed': False}
+                'receiver': RECEIVER, 'receiverSoftware': 'GMediaRender/GStreamer',
+                'audioClock': os.environ['QA_RECEIVER_CLOCK'], 'passed': False}
     try:
         exercise(core, f'http://{bridge}:18389/clock.mp4', frames, server, recorder, evidence)
         arrivals = [json.loads(line) for line in (OUT / 'media.jsonl').read_text().splitlines()]
@@ -188,8 +219,12 @@ def main():
         evidence['bytesDeliveredToReceiver'] = sum(row['bytes'] for row in received)
         if evidence['bytesDeliveredToReceiver'] <= 0:
             raise AssertionError('No original media bytes recorded at the receiver')
+        evidence['continuity'] = continuity(evidence)
+        if not all(evidence['continuity'].values()):
+            raise AssertionError('Receiver continuity failed: ' + str(evidence['continuity']))
         evidence['passed'] = True
     finally:
+        save_cast_diagnostics()
         if not evidence['passed']:
             failure_diagnostics(OUT, 'failure')
             with suppress(Exception):

@@ -53,9 +53,10 @@ jobs:
     timeout-minutes: 80
     strategy:
       fail-fast: false
-      matrix: {engine: [YCore, SenPlayer]}
+      matrix: {engine: [YCore, SenPlayer], clock: [paced, unpaced]}
     env:
       QA_ENGINE: ${{ matrix.engine }}
+      QA_RECEIVER_CLOCK: ${{ matrix.clock }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with: {persist-credentials: false}
@@ -76,20 +77,27 @@ jobs:
           mkdir -p "$RUNNER_TEMP/cast-frames" results/cast
           docker pull --platform linux/arm64 ubuntu:24.04
           docker image inspect ubuntu:24.04 --format '{{index .RepoDigests 0}}' > results/cast/receiver-image.txt
-          docker run -d --name qa-receiver --platform linux/arm64 --network bridge --volume "$RUNNER_TEMP/cast-frames:/frames" ubuntu:24.04 bash -ec '
+          docker run -d --name qa-receiver --platform linux/arm64 --network bridge --env QA_RECEIVER_CLOCK --volume "$RUNNER_TEMP/cast-frames:/frames" ubuntu:24.04 bash -ec '
             export DEBIAN_FRONTEND=noninteractive
             apt-get update -qq
             apt-get install -y --no-install-recommends gmediarender gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-libav
             dpkg-query -W gmediarender gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-libav > /frames/versions.txt
             gmediarender --help-all > /tmp/receiver-help.txt
             grep -q -- "--gstout-videopipe" /tmp/receiver-help.txt
+            if test "$QA_RECEIVER_CLOCK" = paced; then
+              grep -q -- "--gstout-audiopipe" /tmp/receiver-help.txt
+              audio="--gstout-audiopipe=fakesink sync=true"
+            else
+              test "$QA_RECEIVER_CLOCK" = unpaced
+              audio="--gstout-audiosink=fakesink"
+            fi
             if grep -q -- "--interface-name" /tmp/receiver-help.txt; then
               binding="--interface-name=eth0"
             else
               binding="--ip-address=$(hostname -I | cut -d" " -f1)"
             fi
             touch /frames/ready
-            exec gmediarender "$binding" --friendly-name="Yfuse QA Renderer" --gstout-audiosink=fakesink --logfile=stderr --gstout-videopipe="videorate ! video/x-raw,framerate=1/1 ! videoconvert ! videoscale ! video/x-raw,format=RGB,width=160,height=90 ! multifilesink location=/frames/frame-%08d.rgb max-files=12 sync=true"'
+            exec gmediarender "$binding" --friendly-name="Yfuse QA Renderer" "$audio" --logfile=stderr --gstout-videopipe="videorate ! video/x-raw,framerate=1/1 ! videoconvert ! videoscale ! video/x-raw,format=RGB,width=160,height=90 ! multifilesink location=/frames/frame-%08d.rgb max-files=12 sync=true"'
           for i in $(seq 1 160); do
             if test -f "$RUNNER_TEMP/cast-frames/ready"; then break; fi
             test "$(docker inspect qa-receiver --format '{{.State.Running}}')" = true
@@ -130,4 +138,4 @@ jobs:
           docker logs --tail 400 qa-receiver > results/cast/receiver-log.txt 2>&1 || true
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        with: {name: 'dlna-receiver-${{ matrix.engine }}', path: results/cast/, retention-days: 10}
+        with: {name: 'dlna-receiver-${{ matrix.engine }}-${{ matrix.clock }}', path: results/cast/, retention-days: 10}

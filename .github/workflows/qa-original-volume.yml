@@ -5,7 +5,7 @@ on:
     paths: [.github/workflows/qa-original-volume.yml, qa-arm-original/original_volume.py, qa-arm-original/natural_frames.py, qa-arm-original/start_volume.sh, qa-arm-original/prepare_volume.sh]
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: fa4ffc7524fd1518680ad6e6965a7200b9255758
+  QA_APP_SHA: 92927caeedad906743f0d82097adb41d915d6f06
 jobs:
   driver:
     runs-on: ubuntu-24.04
@@ -33,7 +33,7 @@ jobs:
         with: {name: original-seek-driver, path: driver}
       - name: Verify the current release candidate
         env: {API_TOKEN: '${{ github.token }}'}
-        run: bash qa-arm-original/prepare_volume.sh 44391996767
+        run: bash qa-arm-original/prepare_volume.sh 44403005018
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with: {name: natural-original-input, path: candidate/, retention-days: 5}
   original_touch_control:
