@@ -75,6 +75,14 @@ class RelayTest(unittest.TestCase):
         self.assertEqual((200, "10", b""), (status, headers["Content-Length"], body))
         self.assertEqual([], self.origin.requests)
 
+    def test_session_admits_only_the_configured_runner_address(self):
+        self.server.allowed_clients = frozenset({"192.0.2.5"})
+        with self.assertRaises((http.client.RemoteDisconnected, ConnectionResetError)):
+            self.request(headers={"Range": "bytes=1-3"})
+        self.assertEqual([], self.origin.requests)
+        self.server.allowed_clients = frozenset({"127.0.0.1"})
+        self.assertEqual((206, b"123"), self.request(headers={"Range": "bytes=1-3"})[::2])
+
     def test_range_telemetry_is_numeric_bounded_and_has_no_source_or_capability(self):
         self.request(headers={"Range": "bytes=3-6"})
         deadline = time.monotonic() + 1

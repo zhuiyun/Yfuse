@@ -210,6 +210,23 @@ def android_network(url):
     finally:adb("shell",f"rm -f {p}",check=False)
 
 
+def record_android_range(label, url):
+    started = time.monotonic()
+    try:
+        reply = android_network(url)
+    except subprocess.TimeoutExpired:
+        reply = {"driverResult": "timeout"}
+    code = reply.get("status", 0)
+    error_type = str(reply.get("exception", ""))
+    driver_result = reply.get("driverResult")
+    measured(label, code=code if type(code) is int else 0,
+             bytesRead=reply.get("bytes") if type(reply.get("bytes")) is int else None,
+             elapsedMs=round(1000 * (time.monotonic() - started)),
+             errorType=error_type if re.fullmatch(r"[A-Za-z_$][A-Za-z0-9_$]{0,64}(?:Exception|Error)", error_type) else None,
+             driverResult=driver_result if driver_result in ("missing", "timeout") else "received")
+    return code
+
+
 def source_range_benchmark(media):
     # Bounded transport measurements only; no bytes, titles, URLs or response headers leave the runner.
     size=int(media.get("size",0))
@@ -307,8 +324,7 @@ if __name__=='__main__':
         engine.configure(core)
         for k in launched:
             media=items[k];label=core+'-'+k
-            response=android_network(media['location'])
-            measured(label+'-android-network',code=response.get('status',0))
+            range_status = record_android_range(label+'-android-network', media['location'])
             adb('shell','am','force-stop',PKG);since=time.time();prior={(x['time'],x['event']) for x in app_events()}
             mime={'mkv':'x-matroska','ts':'mp2t','mpegts':'mp2t','webm':'webm','mov':'quicktime','mp4':'mp4'}.get(media['container'],'*')
             cmd='am start -W -a android.intent.action.VIEW -n com.yfuse/com.yfuse.feature.player.ExternalPlaybackActivity -t video/'+mime+' -d '+shlex.quote(media['location'])
@@ -348,3 +364,5 @@ if __name__=='__main__':
             events=[e for e in app_events() if (e['time'],e['event']) not in prior]
             measured(label+'-diagnostics',total=len(events),events=events[-600:])
             adb('shell','am','force-stop',PKG)
+            if range_status != 206:
+                record_android_range(label+'-android-network-recheck', media['location'])

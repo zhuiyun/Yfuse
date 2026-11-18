@@ -50,6 +50,15 @@ def run(config):
     host = str(ipaddress.ip_address(config["host"]))
     if not ipaddress.ip_address(host).is_global or config["port"] != 19196:
         raise ValueError("Unexpected test endpoint")
+    runner_ips = config.get("runnerIps")
+    allowed_clients = None
+    if runner_ips is not None:
+        if set(runner_ips) != set(config["keys"]):
+            raise ValueError("Missing address for an authorized runner")
+        addresses = [ipaddress.IPv4Address(value) for value in runner_ips.values()]
+        if not all(address.is_global for address in addresses):
+            raise ValueError("A public runner address is required")
+        allowed_clients = {str(address) for address in addresses}
     wanted = set(config["labels"])
     if not wanted:
         raise ValueError("An explicit media allowlist is required")
@@ -107,7 +116,8 @@ def run(config):
         tls.options |= ssl.OP_NO_TLSv1 | ssl.OP_NO_TLSv1_1
         tls.load_cert_chain(str(cert_file), str(key_file))
         STAGE = "temporary-listener"
-        server = relay["BoundedHTTPServer"](("0.0.0.0", config["port"]), relay["handler_for"](state), tls)
+        server = relay["BoundedHTTPServer"](("0.0.0.0", config["port"]), relay["handler_for"](state),
+                                           tls, allowed_clients=allowed_clients)
         server.timeout = 1
         try:
             STAGE = "encrypted-manifest"

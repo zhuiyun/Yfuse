@@ -78,5 +78,6 @@ finally:
     Path("private-results/relay-path.json").write_text(json.dumps({
         "sourcePath": "temporary-server-relay", "tlsCertificatePinned": True,
         "loopbackOnly": True, "bytesForwarded": state.bytes_sent,
+        "requests": state.request_summary(),
         "note": "This validates original media bytes via the source server; it does not prove direct cloud-to-CDN access.",
     }))

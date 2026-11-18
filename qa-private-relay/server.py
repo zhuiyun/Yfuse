@@ -32,10 +32,14 @@ def requested_range(value, size):
 class BoundedHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
     daemon_threads = True
 
-    def __init__(self, address, handler, tls_context=None):
+    def __init__(self, address, handler, tls_context=None, allowed_clients=None):
         self.connection_slots = threading.BoundedSemaphore(16)
         self.tls_context = tls_context
+        self.allowed_clients = None if allowed_clients is None else frozenset(allowed_clients)
         super().__init__(address, handler)
+
+    def verify_request(self, request, address):
+        return self.allowed_clients is None or address[0] in self.allowed_clients
 
     def get_request(self):
         connection, address = super().get_request()
@@ -173,13 +177,15 @@ def handler_for(state):
             if not body:
                 self.headers_for(lo, hi, partial, size)
                 return
-            if not state.slots.acquire(timeout=8):
-                self.fail(503)
-                return
-            started = False
             began = time.monotonic()
             metric = {"label": label, "start": lo, "end": hi, "bytes": 0,
                       "startedEpochMs": round(time.time() * 1000)}
+            if not state.slots.acquire(timeout=8):
+                state.record_request(dict(metric, status=503, errorType="SlotTimeout",
+                                          elapsedMs=round(1000 * (time.monotonic() - began))))
+                self.fail(503)
+                return
+            started = False
             self.response_status = 0
             try:
                 if not state.alive():
@@ -195,6 +201,7 @@ def handler_for(state):
                     "User-Agent": "Emby for Android Mobile", "Accept-Encoding": "identity",
                 })
                 with state.opener.open(request, timeout=12) as response:
+                    metric["upstreamStatus"] = response.status
                     expected = "bytes %d-%d/%d" % (lo, hi, size)
                     if response.status != 206 or response.headers.get("Content-Range") != expected:
                         self.fail(502)
@@ -217,6 +224,8 @@ def handler_for(state):
                         left -= len(data)
             except Exception as error:
                 metric["errorType"] = type(error).__name__
+                if isinstance(getattr(error, "code", None), int):
+                    metric["upstreamStatus"] = error.code
                 if not started:
                     self.fail(502)
             finally:
