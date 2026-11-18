@@ -40,6 +40,7 @@ class YSubtitleCueBuffer(
     }
 
     private val appended = mutableListOf<YSubtitleCue>()
+    private val restoredText = mutableSetOf<YSubtitleCue>()
     private val displays = mutableListOf<YSubtitleDecodeResult.DisplaySet>()
 
     val retainedCueCount: Int get() = appended.size + displays.sumOf { it.cues.size }
@@ -53,7 +54,7 @@ class YSubtitleCueBuffer(
         private set
 
     fun add(cue: YSubtitleCue) {
-        appended.add(cue)
+        if (!restoredText.remove(cue)) appended.add(cue)
     }
 
     fun apply(result: YSubtitleDecodeResult) {
@@ -129,8 +130,11 @@ class YSubtitleCueBuffer(
     fun activeDisplayCount(positionUs: Long): Int =
         if (displays.lastOrNull { it.startUs <= positionUs }?.cues?.any { positionUs < it.endUs } == true) 1 else 0
 
-    fun clear() {
+    fun clear(activeText: List<YSubtitleCue> = emptyList()) {
         appended.clear()
+        restoredText.clear()
+        restoredText.addAll(activeText)
+        appended.addAll(restoredText)
         displays.clear()
         replacementCount = 0L
         clearCount = 0L

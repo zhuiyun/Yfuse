@@ -14,11 +14,13 @@ internal class DlnaSeekCommands {
         private set
     private var targetMs = 0L
     private var requestedAtMs = 0L
+    private var pausedPositionMs: Long? = null
 
     fun select(
         positionMs: Long,
         nowMs: Long,
     ): Long {
+        pausedPositionMs = null
         targetMs = positionMs
         requestedAtMs = nowMs
         return ++revision
@@ -32,6 +34,40 @@ internal class DlnaSeekCommands {
         if (revision == 0L || positionMs == null || nowMs < requestedAtMs) return false
         return positionMs - targetMs in -toleranceMs..(nowMs - requestedAtMs + toleranceMs)
     }
+
+    fun observeUntrustedClock(
+        status: CastPlaybackStatus,
+        positionMs: Long?,
+        nowMs: Long,
+        toleranceMs: Long,
+    ): Long? {
+        if (status != CastPlaybackStatus.Paused) {
+            pausedPositionMs = null
+            return null
+        }
+        val previous = pausedPositionMs
+        if (positionMs != null &&
+            matchesPausedClock(positionMs, nowMs, toleranceMs) &&
+            (previous == null || kotlin.math.abs(positionMs - previous) <= toleranceMs)
+        ) {
+            pausedPositionMs = positionMs
+            return positionMs
+        }
+        return null
+    }
+
+    fun resumeAnchor(
+        state: CastState,
+        clockTrusted: Boolean,
+    ): Long? =
+        pausedPositionMs?.takeIf {
+            !clockTrusted &&
+                state.status == CastPlaybackStatus.Paused &&
+                state.positionConfirmed &&
+                state.capabilities.seek == CastCapability.Supported &&
+                state.positionMs == it &&
+                it > 0L
+        }
 
     suspend fun <T> whenCurrent(
         expected: Long,

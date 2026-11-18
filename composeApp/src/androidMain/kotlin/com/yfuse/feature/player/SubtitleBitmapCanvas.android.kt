@@ -86,7 +86,7 @@ internal fun SubtitleBitmapCanvas(
     Layout(content = {
         Canvas(Modifier.fillMaxSize()) {
             val alpha = brightness.coerceIn(0.35f, 1f)
-            val background = Color(appearance.backgroundColorArgb.toULong())
+            val background = Color(appearance.backgroundColorArgb.toInt())
             frames.value.forEach { node ->
                 val payload = node.payload
                 val destination =

@@ -112,6 +112,8 @@ data class PlayerMediaVersion(
     val playSessionId: String = "",
     /** Cross-origin provider URLs may be signed and do not accept our reporting session id. */
     val preserveUrlOnSessionRefresh: Boolean = false,
+    /** Display aspect reported for this physical file; absent on older saved queues. */
+    val sourceDisplayAspect: String? = null,
 ) {
     /**
      * The same physical file addressed as a brand-new playback session.

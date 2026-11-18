@@ -152,6 +152,7 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
             sourceWidth = version.video?.width,
             sourceHeight = version.videoHeight ?: version.video?.height,
             sourceRotation = version.video?.rotation,
+            sourceDisplayAspect = version.video?.aspectRatio,
             sourceBitrateBps = version.bitrateBps ?: version.video?.bitrateBps,
             sourceVideoCodec = version.videoCodec ?: version.video?.codec,
             sourceFrameRate = version.video?.frameRate,

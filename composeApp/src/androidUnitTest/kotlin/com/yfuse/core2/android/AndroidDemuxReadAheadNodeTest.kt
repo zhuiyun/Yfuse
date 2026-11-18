@@ -445,6 +445,75 @@ class AndroidDemuxReadAheadNodeTest {
         }
     }
 
+    @Test
+    fun an_unselected_interleaved_caption_survives_seek_and_track_selection_without_an_extra_read() {
+        val english = subtitle(2, YSubtitleFormat.Srt)
+        val chinese = subtitle(3, YSubtitleFormat.Srt)
+        val packet = YCompressedSample(english.id, "first".encodeToByteArray(), 1_000_000L, durationUs = 598_000_000L)
+        val translation = packet.copy(trackId = chinese.id, data = "second".encodeToByteArray())
+        val video = samples(0, 1).single()
+        val fake = FakeDemuxer(listOf(packet, translation, video), listOf(english, chinese))
+        val node = AndroidDemuxReadAheadNode(fake)
+        try {
+            node.open(YDemuxSource("file:///subtitles.mkv"))
+            node.selectTracks(setOf(TRACK))
+            assertEquals(setOf(TRACK, english.id, chinese.id), fake.selected)
+            assertEquals(TRACK, awaitSample(node, fake).trackId)
+            assertEquals(0, node.snapshot().queuedSamples)
+            node.selectTracks(setOf(TRACK, english.id), 30_000_000L)
+            val buffer = YSubtitleCueBuffer()
+            val active = node.retainedTextAt(english, 30_000_000L)
+            buffer.clear(active)
+            buffer.add(requireNotNull(packet.decodeTextCue(YSubtitleFormat.Srt)))
+            assertEquals(listOf("first"), buffer.toList().map { (it.payload as YSubtitlePayload.Text).plainText })
+            node.seekTo(395_000_000L)
+            val secondary = node.retainedTextAt(chinese, 395_000_000L).single()
+            assertEquals("second", (secondary.payload as YSubtitlePayload.Text).plainText)
+            assertTrue(node.retainedTextAt(english, 599_000_000L).isEmpty())
+            node.close()
+            node.open(YDemuxSource("file:///next.mkv"))
+            assertTrue(node.retainedTextAt(english, 10_000_000L).isEmpty())
+        } finally {
+            node.release()
+        }
+    }
+
+    @Test
+    fun caption_history_bounds_bytes_and_packet_count_and_ignores_adaptive_or_bitmap_tracks() {
+        val text = subtitle(2, YSubtitleFormat.Srt)
+        val bitmap = subtitle(3, YSubtitleFormat.Pgs)
+        val result = YDemuxOpenResult(YContainer.Matroska, tracks = listOf(text, bitmap))
+        val cache = EmbeddedTextPacketHistory(maxBytes = 5, maxPackets = 2)
+        cache.reset(result)
+        assertEquals(setOf(text.id), cache.trackIds)
+
+        fun packet(
+            at: Long,
+            data: String,
+        ) = YCompressedSample(text.id, data.encodeToByteArray(), at, durationUs = 900L)
+
+        cache.remember(packet(1, "abc"))
+        cache.remember(packet(2, "def"))
+        cache.remember(packet(3, "g"))
+        cache.remember(packet(4, "h"))
+        cache.remember(packet(5, "toolarge"))
+        cache.remember(packet(6, "o").copy(durationUs = null))
+        assertEquals(listOf(3L, 4L), cache.activeAt(text.id, 300L).map { it.presentationTimeUs })
+        assertTrue(cache.activeAt(text.id, 2).isEmpty())
+        cache.reset(result.copy(container = YContainer.Unknown))
+        assertTrue(cache.trackIds.isEmpty())
+        assertTrue(cache.activeAt(text.id, 300L).isEmpty())
+    }
+
+    private fun subtitle(
+        index: Int,
+        format: YSubtitleFormat,
+    ) = YDemuxTrack(
+        id = YTrackId(index),
+        type = YDemuxTrackType.Subtitle,
+        subtitle = YSubtitleTrackFormat(format, "application/x-subtitle"),
+    )
+
     private fun awaitSample(
         node: AndroidDemuxReadAheadNode,
         fake: FakeDemuxer,
@@ -476,12 +545,14 @@ class AndroidDemuxReadAheadNodeTest {
 
     private class FakeDemuxer(
         initial: List<YCompressedSample>,
+        private val tracks: List<YDemuxTrack> = emptyList(),
     ) : YDemuxer {
         override val name: String = "fake"
         private var samples = ArrayDeque(initial)
         var samplesAfterSeek: List<YCompressedSample> = emptyList()
         var lastReadThread: String = ""
         var openCount = 0
+        var selected = emptySet<YTrackId>()
 
         /** One permit per read: the read-ahead queue only changes when the owner thread reads. */
         private val reads = Semaphore(0)
@@ -498,10 +569,12 @@ class AndroidDemuxReadAheadNodeTest {
         override fun open(source: YDemuxSource): YDemuxOpenResult =
             YDemuxOpenResult(
                 container = YContainer.Matroska,
-                tracks = emptyList(),
+                tracks = tracks,
             ).also { openCount++ }
 
-        override fun selectTracks(trackIds: Set<YTrackId>) = Unit
+        override fun selectTracks(trackIds: Set<YTrackId>) {
+            selected = trackIds
+        }
 
         override fun readSample(): YCompressedSample? {
             lastReadThread = Thread.currentThread().name

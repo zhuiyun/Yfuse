@@ -57,7 +57,6 @@ import com.yfuse.core2.render.videoFrameRateHint
 import com.yfuse.core2.strategy.YDecodePath
 import com.yfuse.core2.strategy.YPlaybackPlan
 import com.yfuse.core2.strategy.YRenderPath
-import com.yfuse.core2.subtitle.YEmbeddedSubtitleDecoder
 import com.yfuse.core2.subtitle.YSubtitleCueBuffer
 import com.yfuse.core2.subtitle.YSubtitleDecodeResult
 import com.yfuse.core2.sync.YAvSync
@@ -1118,8 +1117,8 @@ internal class AndroidEnhancedPlaybackSession(
                 "Vulkan seek output generation reset failed"
             }
         }
-        subtitleCues.clear()
-        secondarySubtitleCues.clear()
+        subtitleCues.clear(demuxReadAhead.retainedTextAt(subtitleTrack, target))
+        secondarySubtitleCues.clear(demuxReadAhead.retainedTextAt(secondarySubtitleTrack, target))
         resetEndState()
         seekVideoTargetUs = target
         seekAudioTargetUs = target
@@ -2422,14 +2421,7 @@ internal class AndroidEnhancedPlaybackSession(
         if (decodedResult != null) {
             cues.apply(decodedResult)
         } else if (format.textOverlaySupported) {
-            YEmbeddedSubtitleDecoder
-                .decode(
-                    data = sample.data,
-                    format = format,
-                    startUs = sample.presentationTimeUs,
-                    durationUs = sample.durationUs,
-                    id = "${track.id.value}:${sample.presentationTimeUs}",
-                )?.let(cues::add)
+            sample.decodeTextCue(format)?.let(cues::add)
         }
         cues.prune(positionUs - SUBTITLE_HISTORY_US, positionUs)
     }

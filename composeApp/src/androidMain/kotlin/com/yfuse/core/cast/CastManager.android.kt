@@ -1615,9 +1615,49 @@ private class AndroidCastManager(
         withContext(Dispatchers.Main.immediate) {
             val target = activeDlnaTarget() ?: return@withContext false
             val label = dlnaActionLabel(action)
+            val state = mutableState.value
+            val token = state.castSessionToken()
+            val seeks = dlnaSeeks
+            val revision = seeks.revision
+            val anchor =
+                if (action ==
+                    "Play"
+                ) {
+                    seeks.resumeAnchor(state, dlnaStart == null && dlnaClockTrusted)
+                } else {
+                    null
+                }
             val result =
-                readDlnaSessionResult(mutableState.value.castSessionToken(), { mutableState.value }) {
+                readDlnaSessionResult(token, { mutableState.value }) {
                     soap(target.avTransportUrl, action, arguments)
+                    if (anchor != null) {
+                        seeks.whenCurrent(revision) {
+                            readDlnaSessionResult(token, { mutableState.value }) {
+                                sendDlnaSeek(target, anchor)
+                            }?.fold(
+                                onSuccess = {
+                                    AppLog.info(
+                                        "cast",
+                                        "dlna_resume_seek",
+                                        "Restored the paused renderer position on resume",
+                                        attributes =
+                                            mapOf(
+                                                "targetMs" to anchor.toString(),
+                                                "revision" to revision.toString(),
+                                            ),
+                                    )
+                                },
+                                onFailure = {
+                                    AppLog.warning(
+                                        "cast",
+                                        "dlna_resume_seek_failed",
+                                        "Renderer declined the resume position",
+                                        it,
+                                    )
+                                },
+                            )
+                        }
+                    }
                     confirmDlnaTransport(target, accepted) ?: error("设备未确认$label")
                 } ?: return@withContext false
             result
@@ -1633,6 +1673,7 @@ private class AndroidCastManager(
                                 },
                             positionMs = confirmedDlnaPosition(snapshot),
                             durationMs = snapshot.durationMs,
+                            resumeConfirmed = action == "Play",
                         )
                     }
                 }.onFailure { error ->
@@ -1643,8 +1684,12 @@ private class AndroidCastManager(
 
     private fun confirmedDlnaPosition(snapshot: DlnaSnapshot): Long? {
         if (dlnaStart == null && dlnaClockTrusted) return snapshot.positionMs
-        if (snapshot.status != CastPlaybackStatus.Paused) return null
-        return snapshot.positionMs.takeIf { dlnaSeeks.matchesPausedClock(it, monotonicNowMs(), DLNA_SEEK_TOLERANCE_MS) }
+        return dlnaSeeks.observeUntrustedClock(
+            snapshot.status,
+            snapshot.positionMs,
+            monotonicNowMs(),
+            DLNA_SEEK_TOLERANCE_MS,
+        )
     }
 
     private suspend fun sendDlnaSeek(
@@ -1691,7 +1736,11 @@ private class AndroidCastManager(
                             category = "cast",
                             event = "dlna_user_seek_sent",
                             message = "DLNA renderer accepted the viewer's seek command",
-                            attributes = mapOf("targetMs" to targetPosition.toString()),
+                            attributes =
+                                mapOf(
+                                    "targetMs" to targetPosition.toString(),
+                                    "revision" to revision.toString(),
+                                ),
                         )
                         awaitDlnaConfirmation(
                             attempts = DLNA_CONFIRM_ATTEMPTS,

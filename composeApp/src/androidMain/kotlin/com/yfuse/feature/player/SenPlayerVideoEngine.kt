@@ -8,14 +8,16 @@ import android.view.Display
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.widget.FrameLayout
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.viewinterop.AndroidView
 import com.yfuse.core.data.SenPlayerEnhancementLevel
@@ -87,6 +89,7 @@ internal class SenPlayerVideoEngine(
     private val surfaceProbe = SenPlayerSurfaceProbe()
     private val outputGeneration = AtomicLong()
     private var boundSurfaceEpoch = -1L
+    private var sessionOutputSize: IntSize? = null
     private var audioDelayMs = 0L
     private var outputWatchdog = SenPlayerOutputWatchdog()
     private var rebuffers = SenPlayerRebufferTracker()
@@ -223,6 +226,7 @@ internal class SenPlayerVideoEngine(
                         return@submit
                     }
                     if (session?.isUsable() == false) closeSession()
+                    if (session != null && sessionOutputSize != view.fixedVideoSize) retireSurfaceSession()
                     if (session == null) {
                         mutableState.update { it.copy(buffering = true, error = null) }
                         val options =
@@ -252,6 +256,11 @@ internal class SenPlayerVideoEngine(
                             return@submit
                         }
                         session = created
+                        sessionOutputSize = view.fixedVideoSize
+                        view.fixedVideoSize?.let {
+                            created.resize(it.width, it.height)
+                            view.recordOutputSize()
+                        }
                         boundSurfaceEpoch = epoch
                         proxy = AndroidPlaybackHttpProxy(appContext, customUserAgent, videoCacheBytes)
                         loadCurrent()
@@ -272,7 +281,7 @@ internal class SenPlayerVideoEngine(
                         if (loadPending) loadCurrent() else current.play(requested)
                     }
                     if (attached === view && surfaceEpoch.get() == epoch && !released.get()) {
-                        session?.resize(view.width.coerceAtLeast(1), view.height.coerceAtLeast(1))
+                        session?.let(view::resizeOutput)
                     }
                 }
             }
@@ -292,7 +301,7 @@ internal class SenPlayerVideoEngine(
                             surfaceCallback.surfaceCreated(holder)
                             return@submit
                         }
-                        session?.resize(view.video.width.coerceAtLeast(1), view.video.height.coerceAtLeast(1))
+                        session?.let(view::resizeOutput)
                     }
                 }
             }
@@ -714,7 +723,7 @@ internal class SenPlayerVideoEngine(
         current.surface(view.video.holder.surface, view.subtitles.holder.surface)
         pictureController.reset()
         subtitles.surfaceChanged()
-        current.resize(view.video.width.coerceAtLeast(1), view.video.height.coerceAtLeast(1))
+        view.resizeOutput(current)
         current.play(requested)
         surfaceRecoveries++
     }
@@ -1099,6 +1108,7 @@ internal class SenPlayerVideoEngine(
             session?.close()
         } finally {
             session = null
+            sessionOutputSize = null
             subtitles.clear()
             pictureController.reset()
             try {
@@ -1156,31 +1166,75 @@ internal fun SenPlayerSurface(
     engine: SenPlayerVideoEngine,
     controls: SubtitleControlState,
     videoSize: IntSize,
+    item: PlayerMediaItem?,
+    scaleMode: VideoScaleMode,
+    settings: SenPlayerPictureSettings,
     modifier: Modifier = Modifier,
 ) {
-    var container by remember { mutableStateOf(IntSize.Zero) }
-    val picture = core2SurfaceSize(container = container, video = videoSize, scaleMode = VideoScaleMode.Fit)
-    val region = nativeSubtitleRegion(container, picture, controls)
-    LaunchedEffect(engine, region.useBlackBar) { engine.setSubtitleMargins(region.useBlackBar) }
-    AndroidView(
-        factory = { context -> SenPlayerSurfaceHost(context).also(engine::attach) },
-        modifier = modifier.onSizeChanged { container = it },
-        update = engine::attach,
-        onRelease = engine::detach,
-    )
+    BoxWithConstraints(modifier) {
+        val container = IntSize(constraints.maxWidth, constraints.maxHeight)
+        val picture = core2SurfaceSize(container = container, video = videoSize, scaleMode = VideoScaleMode.Fit)
+        val region = nativeSubtitleRegion(container, picture, controls)
+        LaunchedEffect(engine, region.useBlackBar) { engine.setSubtitleMargins(region.useBlackBar) }
+        val candidate =
+            remember(item, container, scaleMode, settings) {
+                senPlayerOutputSize(item, container, scaleMode, settings)
+            }
+        var metadataMismatch by remember(engine, item?.url, item?.id, item?.versionId) { mutableStateOf(false) }
+        val mismatch = candidate != null && videoSize.width > 0 && videoSize.height > 0 && videoSize != candidate
+        LaunchedEffect(mismatch) { if (mismatch) metadataMismatch = true }
+        val outputSize = candidate.takeUnless { mismatch || metadataMismatch }
+        key(engine, outputSize) {
+            AndroidView(
+                factory = { context -> SenPlayerSurfaceHost(context, outputSize).also(engine::attach) },
+                modifier = Modifier.fillMaxSize(),
+                update = engine::attach,
+                onRelease = engine::detach,
+            )
+        }
+    }
 }
 
 /** Original vp3 layout uses a dedicated transparent native subtitle output above video. */
 internal class SenPlayerSurfaceHost(
     context: Context,
+    val fixedVideoSize: IntSize? = null,
 ) : FrameLayout(context) {
-    val video = SurfaceView(context)
+    val video =
+        SurfaceView(context).apply {
+            fixedVideoSize?.let { holder.setFixedSize(it.width, it.height) }
+        }
     val subtitles =
         SurfaceView(context).apply {
             holder.setFormat(PixelFormat.TRANSLUCENT)
             setZOrderMediaOverlay(true)
         }
     val ready: Boolean get() = video.holder.surface.isValid && subtitles.holder.surface.isValid
+
+    fun resizeOutput(session: SenPlayerSession) {
+        session.resize(
+            fixedVideoSize?.width ?: video.width.coerceAtLeast(1),
+            fixedVideoSize?.height ?: video.height.coerceAtLeast(1),
+        )
+    }
+
+    fun recordOutputSize() {
+        val buffer = video.holder.surfaceFrame
+        val captions = subtitles.holder.surfaceFrame
+        AppLog.info(
+            "player.senplayer",
+            "video_buffer_configured",
+            "Bound the original video buffer and subtitle surface",
+            mapOf(
+                "bufferWidth" to buffer.width().toString(),
+                "bufferHeight" to buffer.height().toString(),
+                "windowWidth" to width.toString(),
+                "windowHeight" to height.toString(),
+                "subtitleWidth" to captions.width().toString(),
+                "subtitleHeight" to captions.height().toString(),
+            ),
+        )
+    }
 
     fun owns(holder: SurfaceHolder): Boolean = holder === video.holder || holder === subtitles.holder
 

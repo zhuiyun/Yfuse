@@ -564,9 +564,9 @@ private fun Core2SubtitleText(
                 val cueStyle = payload.style
                 val authoredColor = cueStyle.primaryColorArgb?.let(::Color) ?: Color.White
                 val useAuthoredColor = appearance == SubtitleAppearance()
-                val requestedColor = Color(appearance.textColorArgb.toULong())
-                val backgroundColor = Color(appearance.backgroundColorArgb.toULong())
-                val outlineColor = Color(appearance.outlineColorArgb.toULong())
+                val requestedColor = Color(appearance.textColorArgb.toInt())
+                val backgroundColor = Color(appearance.backgroundColorArgb.toInt())
+                val outlineColor = Color(appearance.outlineColorArgb.toInt())
                 val textScale = scale.coerceIn(0.6f, 1.8f)
                 val authoredSize = cueStyle.fontSizePoints?.coerceIn(10f, 64f) ?: 22f
                 Text(

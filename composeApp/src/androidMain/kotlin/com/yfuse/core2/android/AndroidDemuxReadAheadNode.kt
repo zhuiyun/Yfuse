@@ -3,9 +3,11 @@ package com.yfuse.core2.android
 import com.yfuse.core2.demux.YCompressedSample
 import com.yfuse.core2.demux.YDemuxOpenResult
 import com.yfuse.core2.demux.YDemuxSource
+import com.yfuse.core2.demux.YDemuxTrack
 import com.yfuse.core2.demux.YDemuxer
 import com.yfuse.core2.demux.YSubtitlePacketDecoder
 import com.yfuse.core2.demux.YTrackId
+import com.yfuse.core2.subtitle.YSubtitleCue
 import com.yfuse.core2.subtitle.YSubtitleDecodeResult
 import com.yfuse.core2.subtitle.YSubtitleFormat
 import com.yfuse.core2.subtitle.YSubtitlePayload
@@ -39,6 +41,7 @@ internal class AndroidDemuxReadAheadNode(
     private val trackTimeSpans = mutableMapOf<YTrackId, QueuedTrackTimeSpan>()
     private var nativeSubtitleTracks = emptySet<YTrackId>()
     private var subtitleTracks = emptySet<YTrackId>()
+    private val textHistory = EmbeddedTextPacketHistory()
     private var generation = 0L
     private var executor: ExecutorService? = null
     private var opened = false
@@ -112,6 +115,7 @@ internal class AndroidDemuxReadAheadNode(
                     ?: AndroidPlaybackMemoryBudget.acquire(PlaybackBufferKind.Demux, MAXIMUM_QUEUE_BYTES)
         }
         val decoder = delegate as? YSubtitlePacketDecoder
+        textHistory.reset(result)
         subtitleTracks = result.tracks.filter { it.subtitle != null }.mapTo(mutableSetOf()) { it.id }
         nativeSubtitleTracks =
             result.tracks
@@ -153,7 +157,9 @@ internal class AndroidDemuxReadAheadNode(
         controlTimeoutMs: Long = this.controlTimeoutMs,
     ) {
         runReadControl(resumeReadAhead = trackIds.isNotEmpty(), timeoutMs = controlTimeoutMs) {
-            delegate.selectTracks(trackIds)
+            val readTracks =
+                synchronized(monitor) { if (trackIds.isEmpty()) trackIds else trackIds + textHistory.trackIds }
+            delegate.selectTracks(readTracks)
             positionUs?.let(delegate::seekTo)
             synchronized(monitor) { selectedTrackIds = trackIds.toSet() }
         }
@@ -198,6 +204,15 @@ internal class AndroidDemuxReadAheadNode(
 
     fun supportsSubtitleFormat(format: YSubtitleFormat): Boolean =
         (delegate as? YSubtitlePacketDecoder)?.supportsSubtitleFormat(format) == true
+
+    fun retainedTextAt(
+        track: YDemuxTrack?,
+        positionUs: Long,
+    ): List<YSubtitleCue> {
+        val format = track?.subtitle?.format ?: return emptyList()
+        val packets = synchronized(monitor) { textHistory.activeAt(track.id, positionUs) }
+        return packets.mapNotNull { it.decodeTextCue(format) }.distinct()
+    }
 
     fun snapshot(
         includeTrackDetails: Boolean = false,
@@ -264,6 +279,7 @@ internal class AndroidDemuxReadAheadNode(
                 opened = false
                 tracksSelected = false
                 clearQueueLocked()
+                textHistory.reset()
                 memoryLease?.close()
                 memoryLease = null
                 executor
@@ -438,17 +454,22 @@ internal class AndroidDemuxReadAheadNode(
                         endOfInput = true
                         return
                     }
-                    samples.addLast(queued)
-                    trackTimeSpans.getOrPut(queued.value.trackId) { QueuedTrackTimeSpan() }.add(queued.value)
+                    val packet = queued.value
+                    val passiveText = packet.trackId in textHistory.trackIds
+                    if (passiveText) textHistory.remember(packet)
+                    if (!passiveText || packet.trackId in selectedTrackIds) {
+                        samples.addLast(queued)
+                        trackTimeSpans.getOrPut(packet.trackId) { QueuedTrackTimeSpan() }.add(packet)
+                        queuedBytes += queued.memoryBytes
+                        maximumQueuedBytesObserved = maxOf(maximumQueuedBytesObserved, queuedBytes)
+                    }
                     lastPacketNs = System.nanoTime()
                     packetsRead++
-                    queuedBytes += queued.memoryBytes
                     throughput.record(
                         queued.value.data.size
                             .toLong(),
                         lastPacketNs,
                     )
-                    maximumQueuedBytesObserved = maxOf(maximumQueuedBytesObserved, queuedBytes)
                 }
             }
         } catch (throwable: Throwable) {

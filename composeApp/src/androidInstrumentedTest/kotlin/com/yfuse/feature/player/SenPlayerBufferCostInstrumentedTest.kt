@@ -46,7 +46,24 @@ class SenPlayerBufferCostInstrumentedTest {
             }
         val windows = JSONArray()
         for ((index, sourceSize) in listOf(false, true, true, false).withIndex()) {
-            val item = externalPlaybackItem(url, "合成功耗样本", "video/mp4")
+            val width = if (sourceSize) 640 else 1280
+            val height = if (sourceSize) 360 else 720
+            val file =
+                PlayerMediaVersion(
+                    id = "clock",
+                    label = "AVC",
+                    detail = "",
+                    url = url,
+                    transcodeUrl = "",
+                    fallbackTranscodeUrl = "",
+                    sourceWidth = 640,
+                    sourceHeight = 360,
+                    sourceDisplayAspect = "16:9",
+                    sourceDynamicRange = "SDR",
+                )
+            val item =
+                externalPlaybackItem(url, "合成功耗样本", "video/mp4")
+                    .copy(versions = if (sourceSize) listOf(file) else emptyList())
             val intent =
                 PlayerActivity.intent(
                     context,
@@ -60,22 +77,7 @@ class SenPlayerBufferCostInstrumentedTest {
             ActivityScenario.launch<PlayerActivity>(intent).use { scenario ->
                 val host = waitForHost(scenario)
                 val evidence = File(directory, "buffer-$transport-$index")
-                val initial = awaitClock(host.video, File("${evidence.path}-before"))
-                val playingBeforeChange = awaitClock(host.video, File("${evidence.path}-before"), initial.second)
-                val width = if (sourceSize) 640 else 1280
-                val height = if (sourceSize) 360 else 720
-                scenario.onActivity {
-                    host.video.holder.setSizeFromLayout()
-                    host.video.pivotX = 0f
-                    host.video.pivotY = 0f
-                    host.video.scaleX = host.width.toFloat() / width
-                    host.video.scaleY = host.height.toFloat() / height
-                    host.video.layoutParams =
-                        host.video.layoutParams.apply {
-                            this.width = width
-                            this.height = height
-                        }
-                }
+                check((host.fixedVideoSize != null) == sourceSize)
                 val deadline = SystemClock.elapsedRealtime() + 20_000L
                 while (SystemClock.elapsedRealtime() < deadline) {
                     var ready = false
@@ -97,8 +99,8 @@ class SenPlayerBufferCostInstrumentedTest {
                         assertEquals(720, geometry.getInt("windowHeight"))
                         assertEquals(1280, geometry.getInt("parentWidth"))
                         assertEquals(720, geometry.getInt("parentHeight"))
-                        assertEquals(width, geometry.getInt("videoLayoutWidth"))
-                        assertEquals(height, geometry.getInt("videoLayoutHeight"))
+                        assertEquals(1280, geometry.getInt("videoLayoutWidth"))
+                        assertEquals(720, geometry.getInt("videoLayoutHeight"))
                         assertEquals(width, geometry.getInt("videoBufferWidth"))
                         assertEquals(height, geometry.getInt("videoBufferHeight"))
                         assertEquals(1280, geometry.getInt("subtitleLayoutWidth"))
@@ -123,7 +125,8 @@ class SenPlayerBufferCostInstrumentedTest {
                 capturePictures(host.video, evidence)
                 row.put("videoBufferWidth", width).put("videoBufferHeight", height)
                 row.put("transport", transport)
-                row.put("advancingBeforeResizeSecond", playingBeforeChange.second)
+                row.put("selectedBeforeCreation", true).put("sourceSizedFromCreation", sourceSize)
+                row.put("libraryMetadata", item.activeVersion != null)
                 row.put("firstPictureSecond", before.second).put("lastPictureSecond", after.second)
                 row.put("firstPictureSource", before.observer).put("lastPictureSource", after.observer)
                 row.put("elapsedMs", elapsed)

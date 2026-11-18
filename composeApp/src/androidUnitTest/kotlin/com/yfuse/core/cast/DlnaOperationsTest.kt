@@ -59,6 +59,32 @@ class DlnaOperationsTest {
     }
 
     @Test
+    fun resume_restores_only_a_corroborated_paused_position_on_an_untrusted_seekable_renderer() {
+        val commands = DlnaSeekCommands()
+        commands.select(20_000L, 3_000L)
+        val paused =
+            CastState(
+                status = CastPlaybackStatus.Paused,
+                positionConfirmed = true,
+                positionMs = 21_000L,
+                capabilities = CastCapabilities(seek = CastCapability.Supported),
+            )
+        assertNull(commands.resumeAnchor(paused, false))
+        assertEquals(21_000L, commands.observeUntrustedClock(CastPlaybackStatus.Paused, 21_000L, 4_500L, 2_000L))
+        assertEquals(21_000L, commands.resumeAnchor(paused, false))
+        assertNull(commands.resumeAnchor(paused, true))
+        assertNull(commands.resumeAnchor(paused.copy(positionConfirmed = false), false))
+        assertNull(commands.resumeAnchor(paused.copy(capabilities = CastCapabilities()), false))
+        assertNull(commands.observeUntrustedClock(CastPlaybackStatus.Paused, 95_000L, 100_000L, 2_000L))
+        assertEquals(21_000L, commands.resumeAnchor(paused, false))
+        commands.observeUntrustedClock(CastPlaybackStatus.Playing, 95_000L, 100_100L, 2_000L)
+        assertNull(commands.resumeAnchor(paused, false))
+        commands.observeUntrustedClock(CastPlaybackStatus.Paused, 22_000L, 101_000L, 2_000L)
+        commands.select(60_000L, 102_000L)
+        assertNull(commands.resumeAnchor(paused.copy(positionMs = 22_000L), false))
+    }
+
+    @Test
     fun confirmed_seek_returns_before_an_unnecessary_failing_request() =
         runTest {
             var requests = 0

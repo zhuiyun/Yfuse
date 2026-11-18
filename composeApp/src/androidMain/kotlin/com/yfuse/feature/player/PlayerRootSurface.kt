@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.State
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -206,7 +207,8 @@ internal fun PlayerRootSurface(
                     ambientSampler = ambient.sampler,
                     ambientLayer = ambientLayer,
                 )
-            is SenPlayerVideoEngine ->
+            is SenPlayerVideoEngine -> {
+                val settings by playbackPreferences.senPlayerPicture.state.collectAsState()
                 SenPlayerSurface(
                     engine,
                     presentationSubtitleControls,
@@ -214,8 +216,12 @@ internal fun PlayerRootSurface(
                         state.diagnostics.videoWidth.takeIf { it > 0 } ?: currentItem?.activeVersion?.sourceWidth ?: 0,
                         state.videoHeight.takeIf { it > 0 } ?: currentItem?.activeVersion?.sourceHeight ?: 0,
                     ),
-                    pictureModifier,
+                    item = currentItem,
+                    scaleMode = choices.scaleMode,
+                    settings = settings,
+                    modifier = pictureModifier,
                 )
+            }
         }
 
         // Placed outside the timeline scope so the chip's anchor is not rebuilt per tick.
