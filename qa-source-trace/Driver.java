@@ -70,6 +70,76 @@ public final class Driver extends Instrumentation {
         }
         return null;
     }
+
+    private static final java.util.regex.Pattern PLAYER_TIMES = java.util.regex.Pattern.compile(
+            "(\\d{1,3}:\\d{2}(?::\\d{2})?)\\s*/\\s*(\\d{1,3}:\\d{2}(?::\\d{2})?)");
+
+    private int clockSeconds(String clock) {
+        int seconds = 0;
+        for (String part : clock.split(":")) seconds = seconds * 60 + Integer.parseInt(part);
+        return seconds;
+    }
+
+    private int[] picturePatch(UiAutomation ui) {
+        android.graphics.Bitmap screen = ui.takeScreenshot();
+        if (screen == null) throw new IllegalStateException("Missing playback screenshot");
+        android.graphics.Bitmap software = screen.getConfig() == android.graphics.Bitmap.Config.HARDWARE
+                ? screen.copy(android.graphics.Bitmap.Config.ARGB_8888, false) : screen;
+        android.graphics.Bitmap patch = android.graphics.Bitmap.createBitmap(96, 48, android.graphics.Bitmap.Config.ARGB_8888);
+        try {
+            int w = software.getWidth(), h = software.getHeight();
+            android.graphics.Rect source = new android.graphics.Rect((int)(w*.17), (int)(h*.31), (int)(w*.83), (int)(h*.66));
+            new android.graphics.Canvas(patch).drawBitmap(software, source, new android.graphics.Rect(0, 0, 96, 48),
+                    new android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG));
+            int[] pixels = new int[96 * 48];
+            patch.getPixels(pixels, 0, 96, 0, 0, 96, 48);
+            return pixels;
+        } finally {
+            patch.recycle();
+            if (software != screen) software.recycle();
+            screen.recycle();
+        }
+    }
+
+    private double pictureChange(int[] previous, int[] current) {
+        long difference = 0;
+        for (int i = 0; i < current.length; i++) {
+            for (int shift = 0; shift <= 16; shift += 8) {
+                difference += Math.abs(((current[i] >> shift) & 255) - ((previous[i] >> shift) & 255));
+            }
+        }
+        return difference / (3.0 * current.length);
+    }
+
+    private void observeShortTail(UiAutomation ui, Bundle result) throws Exception {
+        long start = SystemClock.elapsedRealtime();
+        int previousTime = -1;
+        int[] previousPicture = null;
+        org.json.JSONArray samples = new org.json.JSONArray();
+        while (SystemClock.elapsedRealtime() - start < 9000) {
+            android.view.accessibility.AccessibilityNodeInfo rail = progressNode(ui.getRootInActiveWindow());
+            if (rail != null && rail.refresh()) {
+                java.util.regex.Matcher times = PLAYER_TIMES.matcher(String.valueOf(rail.getStateDescription()));
+                if (times.find()) {
+                    int position = clockSeconds(times.group(1));
+                    if (position != previousTime) {
+                        int[] picture = picturePatch(ui);
+                        org.json.JSONObject sample = new org.json.JSONObject();
+                        sample.put("seconds", position);
+                        sample.put("durationSeconds", clockSeconds(times.group(2)));
+                        sample.put("elapsedMs", SystemClock.elapsedRealtime() - start);
+                        if (previousPicture != null) sample.put("pictureChange", pictureChange(previousPicture, picture));
+                        samples.put(sample);
+                        previousTime = position;
+                        previousPicture = picture;
+                    }
+                }
+            }
+            SystemClock.sleep(90);
+        }
+        result.putString("tailFrames", samples.toString());
+    }
+
     private void observedSeek(UiAutomation ui,Bundle result)throws Exception {
         android.graphics.Rect rect=seek(ui.getRootInActiveWindow());
         long deadline=SystemClock.uptimeMillis()+5000;
@@ -82,6 +152,15 @@ public final class Driver extends Instrumentation {
         if(fraction<=0 || fraction>=1)throw new IllegalArgumentException("Seek fraction");
         int start=(int)Math.round(rect.left+rect.width()*(fraction<.5?.83:.17));
         int end=(int)Math.round(rect.left+rect.width()*fraction),y=rect.centerY();
+        if ("short-swipe".equals(args.getString("mode"))) {
+            String swipe = "input swipe " + start + " " + y + " " + end + " " + y + " 330";
+            try (android.os.ParcelFileDescriptor.AutoCloseInputStream input =
+                     new android.os.ParcelFileDescriptor.AutoCloseInputStream(ui.executeShellCommand(swipe))) {
+                while (input.read() != -1) { }
+            }
+            observeShortTail(ui, result);
+            return;
+        }
         long down=SystemClock.uptimeMillis();
         org.json.JSONObject row=new org.json.JSONObject();
         row.put("railLeft",rect.left);row.put("railRight",rect.right);
@@ -116,6 +195,7 @@ public final class Driver extends Instrumentation {
             }finally{held.recycle();}
             row.put("heldScreenshot",picture.getAbsolutePath());
         } finally { touch(ui,down,MotionEvent.ACTION_UP,end,y); }
+        if ("true".equals(args.getString("shortTail"))) observeShortTail(ui, result);
         result.putString("observedSeek",row.toString());
         result.putString("outcome","injected");
     }
@@ -168,7 +248,7 @@ public final class Driver extends Instrumentation {
         Bundle result=new Bundle();
         try {
             final UiAutomation ui=getUiAutomation();
-            if("observed-seek".equals(args.getString("mode"))){observedSeek(ui,result);finish(-1,result);return;}
+            if("observed-seek".equals(args.getString("mode")) || "short-swipe".equals(args.getString("mode"))){observedSeek(ui,result);finish(-1,result);return;}
             if("range".equals(args.getString("mode"))){
                 org.json.JSONObject r=new org.json.JSONObject();
                 try {

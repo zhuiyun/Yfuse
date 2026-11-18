@@ -7,6 +7,7 @@ import re
 import shlex
 import sys
 import time
+from short_tail import confirm as confirm_short_tail
 
 sys.path.insert(0, 'qa-arm-matrix')
 import engine
@@ -53,10 +54,13 @@ def seek(case, fraction, method, duration):
     rail, _ = observer.reveal()
     left, top, right, bottom = rail
     row = {'fraction': fraction, 'method': method, 'rawTargetSeconds': duration * fraction}
-    if method == 'held-preview':
-        response = observer.adb('shell', 'am', 'instrument', '-w', '-e', 'mode', 'observed-seek',
-            '-e', 'fraction', fraction, 'qa.yfuse.gesture/.Driver', timeout=40)
+    short_tail = duration * (1 - fraction) <= 12
+    if method == 'held-preview' or short_tail:
+        mode = 'observed-seek' if method == 'held-preview' else 'short-swipe'
+        response = observer.adb('shell', 'am', 'instrument', '-w', '-e', 'mode', mode,
+            '-e', 'fraction', fraction, '-e', 'shortTail', str(short_tail).lower(), 'qa.yfuse.gesture/.Driver', timeout=40)
         (output / (case + '-input.txt')).write_text(response)
+    if method == 'held-preview':
         match = re.search(r'INSTRUMENTATION_RESULT: observedSeek=(\{[^\n]+\})', response)
         if not match:
             (output / (case + '-driver-crash.txt')).write_text(observer.adb('logcat', '-d', '-b', 'crash', check=False))
@@ -64,10 +68,18 @@ def seek(case, fraction, method, duration):
         row['inputReceipt'] = json.loads(match[1])
         row['shownTargetSeconds'] = duration * row['inputReceipt']['shownFraction']
         observer.adb('pull', row['inputReceipt']['heldScreenshot'], str(output / (case + '-held.png')))
-    else:
+    elif not short_tail:
         observer.adb('shell', 'input', 'swipe',
             round(left + (right-left) * (.83 if fraction < .5 else .17)), (top+bottom)//2,
             round(left + (right-left) * fraction), (top+bottom)//2, 330)
+    if short_tail:
+        receipt = re.search(r'INSTRUMENTATION_RESULT: tailFrames=(\[[^\n]+\])', response)
+        row['shortTailSamples'] = json.loads(receipt[1]) if receipt else []
+        row['output'] = confirm_short_tail(row['shortTailSamples'], duration * fraction, duration)
+        row['rawTargetConfirmed'] = row['output'] is not None
+        if not row['rawTargetConfirmed']:
+            screenshot(case + '-unconfirmed')
+        return row
     try:
         row['output'] = observer.decode_playback(case, duration*fraction, duration)
         row['rawTargetConfirmed'] = True

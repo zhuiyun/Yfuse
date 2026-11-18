@@ -1,4 +1,4 @@
-name: Verify both cores across the full format and seek matrix
+name: Verify all formats and capture short clips immediately after each seek
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
