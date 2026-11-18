@@ -281,7 +281,7 @@ internal fun MediaInfoSection(
                                 audio.codec?.uppercase()?.let { "编码" to it },
                                 audio.profile?.let { "配置" to it },
                                 audio.bitrateLabel?.let { "比特率" to it },
-                                audio.channels?.let { "布局" to it },
+                                audio.channelLayout?.let { "布局" to it },
                                 audio.channelCount?.takeIf { it > 0 }?.let { "声道" to it.toString() },
                                 audio.sampleRateLabel?.let { "采样率" to it },
                                 audio.external?.let { "外部" to if (it) "是" else "否" },
