@@ -31,6 +31,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asExecutor
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -55,6 +56,7 @@ import java.net.SocketTimeoutException
 import java.net.URI
 import java.net.URL
 import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 private lateinit var castApplicationContext: Context
 
@@ -129,7 +131,7 @@ private class AndroidCastManager(
     private var activeProtocol: ActiveProtocol? = null
     private var castClient: RemoteMediaClient? = null
     private var castMessageSession: CastSession? = null
-    private var sessionListenerRegistered = false
+    private var castContext: CastContext? = null
     private var suppressNextSessionEnd = false
     private var activeDiscovery: Any? = null
 
@@ -319,15 +321,19 @@ private class AndroidCastManager(
                 discoveredTargets?.let {
                     targets.clear()
                     targets.putAll(it)
+                    mutableState.update { current -> current.copy(devices = allDevices()) }
                 }
-                ensureCastCallbacks()
-                mediaRouter.removeCallback(routeCallback)
-                mediaRouter.addCallback(
-                    castSelector,
-                    routeCallback,
-                    MediaRouter.CALLBACK_FLAG_REQUEST_DISCOVERY,
-                )
-                refreshCastRoutes()
+                val chromecast = loadCastContext()
+                if (activeDiscovery !== discovery) return@withContext
+                if (chromecast != null) {
+                    mediaRouter.removeCallback(routeCallback)
+                    mediaRouter.addCallback(
+                        castSelector,
+                        routeCallback,
+                        MediaRouter.CALLBACK_FLAG_REQUEST_DISCOVERY,
+                    )
+                    refreshCastRoutes()
+                }
                 val devices = allDevices()
                 mutableState.update { current ->
                     current.copy(
@@ -591,13 +597,33 @@ private class AndroidCastManager(
             }
         }
 
-    private fun ensureCastCallbacks() {
-        if (sessionListenerRegistered) return
-        CastContext.getSharedInstance(context).sessionManager.addSessionManagerListener(
-            sessionListener,
-            CastSession::class.java,
-        )
-        sessionListenerRegistered = true
+    private suspend fun loadCastContext(): CastContext? {
+        castContext?.let { return it }
+        return try {
+            val task = CastContext.getSharedInstance(context, Dispatchers.IO.asExecutor())
+            val shared =
+                suspendCancellableCoroutine<CastContext> { waiting ->
+                    task.addOnCompleteListener { result ->
+                        if (result.isSuccessful) {
+                            waiting.resume(result.result)
+                        } else {
+                            waiting.resumeWithException(
+                                result.exception ?: IllegalStateException("Chromecast initialization cancelled"),
+                            )
+                        }
+                    }
+                }
+            if (castContext == null) {
+                shared.sessionManager.addSessionManagerListener(sessionListener, CastSession::class.java)
+                castContext = shared
+            }
+            castContext
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            AppLog.warning("cast", "chromecast_unavailable", "Chromecast discovery unavailable", error)
+            null
+        }
     }
 
     private fun refreshCastRoutes() {
@@ -625,10 +651,10 @@ private class AndroidCastManager(
         queueIndex: Int,
     ): Boolean =
         withContext(Dispatchers.Main.immediate) {
-            ensureCastCallbacks()
+            val shared = castContext
             val route = castRoutes[deviceId]
             val device = allDevices().firstOrNull { it.id == deviceId }
-            if (route == null || device == null) {
+            if (shared == null || route == null || device == null) {
                 mutableState.update { it.commandFailed("Chromecast 设备已离线，请重新发现") }
                 return@withContext false
             }
@@ -640,12 +666,11 @@ private class AndroidCastManager(
             val token = mutableState.value.castSessionToken()
             runCatching {
                 mediaRouter.selectRoute(route)
-                val castContext = CastContext.getSharedInstance(context)
-                var session = castContext.sessionManager.currentCastSession
+                var session = shared.sessionManager.currentCastSession
                 var attempts = 0
                 while (session?.remoteMediaClient == null && attempts < 20) {
                     delay(250L)
-                    session = castContext.sessionManager.currentCastSession
+                    session = shared.sessionManager.currentCastSession
                     attempts++
                 }
                 if (!token.matches(mutableState.value)) return@withContext false
@@ -761,10 +786,7 @@ private class AndroidCastManager(
                 if (previousProtocol == ActiveProtocol.Dlna) {
                     detachCastClient()
                 } else if (previousProtocol == ActiveProtocol.Chromecast) {
-                    CastContext
-                        .getSharedInstance(context)
-                        .sessionManager.currentCastSession
-                        ?.let(::attachCastClient)
+                    shared.sessionManager.currentCastSession?.let(::attachCastClient)
                 } else {
                     detachCastClient()
                 }
@@ -985,12 +1007,7 @@ private class AndroidCastManager(
         command: (RemoteMediaClient) -> PendingResult<out Result>,
     ): Boolean =
         withContext(Dispatchers.Main.immediate) {
-            val remote =
-                castClient
-                    ?: CastContext
-                        .getSharedInstance(context)
-                        .sessionManager.currentCastSession
-                        ?.remoteMediaClient
+            val remote = castClient ?: castContext?.sessionManager?.currentCastSession?.remoteMediaClient
             if (remote == null || activeProtocol != ActiveProtocol.Chromecast) {
                 mutableState.update { it.commandFailed("Chromecast 会话已不可用") }
                 return@withContext false
@@ -1010,12 +1027,7 @@ private class AndroidCastManager(
 
     private suspend fun stopChromecast(): Boolean =
         withContext(Dispatchers.Main.immediate) {
-            val remote =
-                castClient
-                    ?: CastContext
-                        .getSharedInstance(context)
-                        .sessionManager.currentCastSession
-                        ?.remoteMediaClient
+            val remote = castClient ?: castContext?.sessionManager?.currentCastSession?.remoteMediaClient
             val accepted =
                 remote == null ||
                     withTimeoutOrNull(CAST_COMMAND_TIMEOUT_MS) { remote.stop().awaitSuccess() } == true
@@ -1025,7 +1037,7 @@ private class AndroidCastManager(
             }
             suppressNextSessionEnd = true
             detachCastClient()
-            CastContext.getSharedInstance(context).sessionManager.endCurrentSession(true)
+            castContext?.sessionManager?.endCurrentSession(true)
             activeProtocol = null
             mutableState.update { it.userStopped() }
             true
