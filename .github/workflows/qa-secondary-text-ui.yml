@@ -1,4 +1,4 @@
-name: Verify full option explanations and selected file protocols across four layouts
+name: Verify fixed dialog touch targets after scrolling across four layouts
 'on':
   push:
     branches:
@@ -9,8 +9,8 @@ permissions:
   contents: read
   actions: read
 env:
-  QA_APP_SHA: 01a74dc1ea41b222e275da58b44e09e2abdd6553
-  QA_BUILD_RUN: 43909205462
+  QA_APP_SHA: df5dd228609eaa0689a55a79260f5f9920c63fd9
+  QA_BUILD_RUN: 44236860136
 jobs:
   acquire:
     runs-on: ubuntu-24.04
@@ -19,10 +19,14 @@ jobs:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with:
         persist-credentials: false
-    - name: Acquire built diagnostic baseline and retain known qualification failures
+    - name: Acquire current fully qualified candidate
       env:
         API_TOKEN: ${{ github.token }}
-      run: bash qa-power-ui/acquire-baseline.sh "$QA_BUILD_RUN" "$QA_APP_SHA"
+      run: |
+        bash qa-integrated/acquire-qualified-candidate.sh "$QA_BUILD_RUN" "$QA_APP_SHA"
+        cp "$RUNNER_TEMP/qualified-build.json" preview/baseline-build-run.json
+        cp "$RUNNER_TEMP/qualified-jobs.json" preview/baseline-build-jobs.json
+        printf '%s\n' 'Qualified candidate; screenshots still need visual review.' > preview/baseline-limit.txt
     - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
       with:
         name: power-ui-baseline-input
@@ -65,19 +69,19 @@ jobs:
         include:
         - variant: light
           scope: secondary
-          routes: ''
+          routes: particle-choice,player-transition-choice
           density: 260
         - variant: dark-large
           scope: secondary
-          routes: ''
+          routes: particle-choice,player-transition-choice
           density: 260
         - variant: compact-light
           scope: secondary
-          routes: motion-theme-choice,player-transition-choice,portrait-choice,version-choice,preheat-choice,buffer-duration-choice,file-alist-form
+          routes: particle-choice,player-transition-choice
           density: 320
         - variant: compact-large
           scope: secondary
-          routes: motion-theme-choice,player-transition-choice,portrait-choice,version-choice,preheat-choice,buffer-duration-choice,file-alist-form
+          routes: particle-choice,player-transition-choice
           density: 320
     env:
       QA_UI_SCOPE: ${{ matrix.scope }}
