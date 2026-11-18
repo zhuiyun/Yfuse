@@ -43,6 +43,8 @@ internal object FfmpegNativeBridge {
 
     val softwareVideoTimed: Boolean get() = softwareDecoderApiVersion >= 5
 
+    val softwareProfile5Available: Boolean get() = softwareDecoderApiVersion >= 6
+
     val softwareAudioFloat: Boolean get() = softwareDecoderApiVersion >= 4
 
     val assRendererAvailable: Boolean by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
@@ -360,9 +362,15 @@ internal object FfmpegNativeBridge {
         handle: Long,
         trackIndex: Int,
         toneMapHdrToSdr: Boolean,
+        requireProfile5Mapping: Boolean = false,
     ) {
         check(softwareDecodeAvailable) { "YCore FFmpeg software decoder is not installed" }
-        nativeConfigureSoftwareDecoder(handle, trackIndex, toneMapHdrToSdr)
+        if (requireProfile5Mapping) {
+            check(softwareProfile5Available && toneMapHdrToSdr) { "YCore Profile 5 SDR conversion is unavailable" }
+            nativeConfigureProfile5Decoder(handle, trackIndex)
+        } else {
+            nativeConfigureSoftwareDecoder(handle, trackIndex, toneMapHdrToSdr)
+        }
     }
 
     fun sendSoftwarePacket(
@@ -643,6 +651,11 @@ internal object FfmpegNativeBridge {
         handle: Long,
         trackIndex: Int,
         toneMapHdrToSdr: Boolean,
+    )
+
+    private external fun nativeConfigureProfile5Decoder(
+        handle: Long,
+        trackIndex: Int,
     )
 
     private external fun nativeSendSoftwarePacket(

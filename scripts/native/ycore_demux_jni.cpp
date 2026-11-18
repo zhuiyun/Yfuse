@@ -53,6 +53,7 @@ extern "C" {
 #include "ycore_cached_preview.h"
 #include "ycore_parallel_rows.h"
 #include "ycore_tone_map.h"
+#include "ycore_dovi_profile5.h"
 #include "ycore_deinterlace.h"
 #include "ycore_disc_language.h"
 #include "ycore_disc_uri.h"
@@ -115,8 +116,8 @@ constexpr int kSoftwareFrameSkipped = 3;
 constexpr int kSoftwareFrameGrowBuffer = -1;
 // Version 3: video frames are RGBA (Android ARGB_8888 memory order; v2 wrote BGRA), YUV matrix and
 // range follow the stream, and isolated undecodable packets are dropped instead of thrown.
-constexpr int kSoftwareDecoderApiVersion = 5;
-// A damaged TS segment or a broken frame at a splice is dropped the way ffmpeg and mpv drop it.
+constexpr int kSoftwareDecoderApiVersion = 6;
+// Drop isolated damaged transport packets and broken pictures at splices.
 // Only this many failures in a row, with no frame decoded in between, mean the decoder cannot
 // play the stream at all.
 constexpr int kMaxConsecutiveSoftwareDecodeErrors = 64;
@@ -274,11 +275,11 @@ struct SoftwareDecoder {
     std::vector<uint16_t> tone_map_rgb48;
     std::unique_ptr<ycore_tone_map::Mapper> tone_mapper;
     ycore_tone_map::Transfer tone_mapper_transfer = ycore_tone_map::Transfer::Pq;
-    double tone_mapper_peak_nits = 0.0;
     std::unique_ptr<ycore_parallel::RowWorkers> row_workers;
     int consecutive_decode_errors = 0;
     bool frame_pending = false;
     bool tone_map_hdr_to_sdr = false;
+    bool require_profile5_mapping = false;
 
     void reset_resampler() {
         swr_free(&resampler);
@@ -1765,6 +1766,50 @@ ycore_parallel::RowWorkers* software_row_workers(SoftwareDecoder* decoder) {
     return decoder->row_workers.get();
 }
 
+const ycore_tone_map::Mapper* prepare_tone_mapper(
+    JNIEnv* env, SoftwareDecoder* decoder, ycore_tone_map::Transfer transfer, double peak_nits) {
+    if (!decoder->tone_mapper || decoder->tone_mapper_transfer != transfer) {
+        try {
+            decoder->tone_mapper = std::make_unique<ycore_tone_map::Mapper>(transfer, peak_nits);
+        } catch (const std::bad_alloc&) {
+            throw_illegal_state(env, "Unable to allocate the FFmpeg HDR tone-map tables");
+            return nullptr;
+        }
+        decoder->tone_mapper_transfer = transfer;
+    }
+    decoder->tone_mapper->set_peak_nits(peak_nits);
+    return decoder->tone_mapper.get();
+}
+
+bool render_profile5_sdr(JNIEnv* env, SoftwareDecoder* decoder, AVStream* stream, uint8_t* destination) {
+    const AVFrame& frame = *decoder->frame;
+    ycore_dovi::Profile5Mapping mapping;
+    if (!ycore_dovi::supported_planes(frame) || (frame.flags & AV_FRAME_FLAG_INTERLACED) ||
+        !mapping.read(av_frame_get_side_data(&frame, AV_FRAME_DATA_DOVI_METADATA))) {
+        throw_illegal_state(env, "YCore Profile 5 requires progressive 10-bit pixels and a supported per-frame RPU");
+        return false;
+    }
+    const double peak = mapping.source_max_pq > 0 && mapping.source_max_pq <= 4095
+        ? ycore_tone_map::pq_to_linear(mapping.source_max_pq / 4095.0) * 10000.0
+        : hdr_frame_peak_nits(&frame, stream->codecpar);
+    const auto* mapper = prepare_tone_mapper(env, decoder, ycore_tone_map::Transfer::Pq, peak);
+    if (!mapper) return false;
+    software_row_workers(decoder)->run(frame.height, [&](int first, int end) {
+        for (int y = first; y < end; ++y) {
+            uint8_t* target = destination + 4ULL * frame.width * y;
+            ycore_dovi::render_row(mapping, frame, y, [mapper](float v) { return mapper->pq_display_light(v); },
+                [&](int x, const ycore_dovi::Triple& light) {
+                    const auto pixel = mapper->display_light_to_sdr(light[0], light[1], light[2]);
+                    target[4*x] = pixel.red;
+                    target[4*x+1] = pixel.green;
+                    target[4*x+2] = pixel.blue;
+                    target[4*x+3] = pixel.alpha;
+                });
+        }
+    });
+    return true;
+}
+
 bool tone_map_hdr_frame(
     JNIEnv* env,
     SoftwareDecoder* decoder,
@@ -1778,6 +1823,7 @@ bool tone_map_hdr_frame(
         throw_illegal_state(env, "FFmpeg HDR tone-map frame exceeds the 4K safety limit");
         return false;
     }
+    if (decoder->require_profile5_mapping) return render_profile5_sdr(env, decoder, stream, destination);
     const AVColorTransferCharacteristic transfer =
         decoder->frame->color_trc != AVCOL_TRC_UNSPECIFIED
         ? decoder->frame->color_trc
@@ -1828,20 +1874,9 @@ bool tone_map_hdr_frame(
         ? ycore_tone_map::Transfer::Pq
         : ycore_tone_map::Transfer::Hlg;
     const double mastering_peak_nits = hdr_frame_peak_nits(decoder->frame, stream->codecpar);
-    if (!decoder->tone_mapper ||
-        decoder->tone_mapper_transfer != tone_map_transfer) {
-        try {
-            decoder->tone_mapper =
-                std::make_unique<ycore_tone_map::Mapper>(tone_map_transfer, mastering_peak_nits);
-        } catch (const std::bad_alloc&) {
-            throw_illegal_state(env, "Unable to allocate the FFmpeg HDR tone-map tables");
-            return false;
-        }
-        decoder->tone_mapper_transfer = tone_map_transfer;
-        decoder->tone_mapper_peak_nits = mastering_peak_nits;
-    }
-    decoder->tone_mapper->set_peak_nits(mastering_peak_nits);
-    const ycore_tone_map::Mapper& mapper = *decoder->tone_mapper;
+    const auto* prepared_mapper = prepare_tone_mapper(env, decoder, tone_map_transfer, mastering_peak_nits);
+    if (!prepared_mapper) return false;
+    const ycore_tone_map::Mapper& mapper = *prepared_mapper;
     const uint16_t* rgb48 = decoder->tone_map_rgb48.data();
     software_row_workers(decoder)->run(height, [&](int first_row, int end_row) {
         for (int row = first_row; row < end_row; ++row) {
@@ -3334,6 +3369,29 @@ void native_configure_software_decoder(
     SoftwareDecoder* decoder = software_decoder(env, from_handle(handle), index);
     if (decoder && !env->ExceptionCheck()) {
         decoder->tone_map_hdr_to_sdr = tone_map_hdr_to_sdr == JNI_TRUE;
+        decoder->require_profile5_mapping = false;
+    }
+}
+
+void native_configure_profile5_decoder(JNIEnv* env, jclass, jlong handle, jint index) {
+    auto* session = from_handle(handle);
+    AVStream* stream = checked_stream(env, session, index);
+    if (!stream) return;
+    const auto* parameters = stream->codecpar;
+    const auto* side = av_packet_side_data_get(parameters->coded_side_data,
+        parameters->nb_coded_side_data, AV_PKT_DATA_DOVI_CONF);
+    const auto* config = side && side->size >= sizeof(AVDOVIDecoderConfigurationRecord)
+        ? reinterpret_cast<const AVDOVIDecoderConfigurationRecord*>(side->data) : nullptr;
+    if (parameters->codec_id != AV_CODEC_ID_HEVC || !config || config->dv_profile != 5 ||
+        config->dv_bl_signal_compatibility_id != 0 || !config->rpu_present_flag ||
+        !config->bl_present_flag || config->el_present_flag) {
+        throw_illegal_state(env, "YCore software Dolby conversion needs a confirmed single-layer HEVC Profile 5 track");
+        return;
+    }
+    SoftwareDecoder* decoder = software_decoder(env, session, index);
+    if (decoder && !env->ExceptionCheck()) {
+        decoder->tone_map_hdr_to_sdr = true;
+        decoder->require_profile5_mapping = true;
     }
 }
 
@@ -3863,6 +3921,7 @@ static const JNINativeMethod kMethods[] = {
     {"nativeDecodeSubtitle", "(JI[BJJ)[B", reinterpret_cast<void*>(native_decode_subtitle)},
     {"nativeSoftwareDecoderApiVersion", "()I", reinterpret_cast<void*>(native_software_decoder_api_version)},
     {"nativeConfigureSoftwareDecoder", "(JIZ)V", reinterpret_cast<void*>(native_configure_software_decoder)},
+    {"nativeConfigureProfile5Decoder", "(JI)V", reinterpret_cast<void*>(native_configure_profile5_decoder)},
     {"nativeSendSoftwarePacket", "(JI[BJJ)I", reinterpret_cast<void*>(native_send_software_packet)},
     {"nativeReceiveSoftwareVideoFrame", "(JILjava/nio/ByteBuffer;)[J", reinterpret_cast<void*>(native_receive_software_video_frame)},
     {"nativeReceiveSoftwareAudioFrame", "(JILjava/nio/ByteBuffer;)[J", reinterpret_cast<void*>(native_receive_software_audio_frame)},

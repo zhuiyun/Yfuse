@@ -916,10 +916,11 @@ internal class AndroidCore2RouteEvaluator(
         }
         if (dolbyDecision != null) {
             val dolbyLabel =
-                if (plan.usesHdrFallback && plan.softwareVideoToneMap) {
-                    "DV compatible base tone-mapped to SDR"
-                } else {
-                    dolbyDecision.diagnosticLabel()
+                when {
+                    plan.extractsDolbyBaseLayer && plan.softwareVideoToneMap -> "DV compatible base tone-mapped to SDR"
+                    plan.inputHdrType == YHdrType.DolbyVision && plan.softwareVideoToneMap ->
+                        "DV RPU colour conversion to SDR"
+                    else -> dolbyDecision.diagnosticLabel()
                 }
             plan =
                 plan.copy(

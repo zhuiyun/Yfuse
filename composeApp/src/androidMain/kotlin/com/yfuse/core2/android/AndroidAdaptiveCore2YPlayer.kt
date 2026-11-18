@@ -3114,7 +3114,7 @@ internal fun yCoreUnavailableError(
 
 /**
  * Whether FallbackToSoftware has a route to build for this input (see createInternalSoftwareRoute).
- * Protected input and Dolby sources without a confirmed compatible base cannot use this path.
+ * Dolby input needs a compatible base or an identified single-layer Profile 5 stream for RPU conversion.
  */
 internal fun yCoreSoftwareRecoveryAvailable(
     protectedContent: Boolean,
@@ -3225,7 +3225,12 @@ internal fun yCoreInternalSoftwareRecoveryPlan(
     dolbyConfig: YDolbyVisionConfig? = null,
 ): YPlaybackPlan? {
     val compatibleBase = dolbyConfig?.takeIf { it.profile == 7 || it.profile == 8 }?.compatibleBaseHdr
-    val decodeHdr = if (inputHdrType == YHdrType.DolbyVision) compatibleBase ?: return null else inputHdrType
+    val decodeHdr =
+        when {
+            inputHdrType != YHdrType.DolbyVision -> inputHdrType
+            dolbyConfig?.singleLayerProfile5WithRpu == true -> YHdrType.DolbyVision
+            else -> compatibleBase ?: return null
+        }
     return YPlaybackPlan(
         route = YPlaybackRoute.SoftwareFallback,
         demuxPath = YDemuxPath.Enhanced,
@@ -3238,7 +3243,12 @@ internal fun yCoreInternalSoftwareRecoveryPlan(
         softwareAudioDecode = true,
         softwareVideoToneMap = decodeHdr != YHdrType.Sdr,
         usesHdrFallback = inputHdrType == YHdrType.DolbyVision,
-        reason = "YCore internal FFmpeg software decode recovery",
+        reason =
+            if (decodeHdr == YHdrType.DolbyVision) {
+                "YCore HEVC software decode with Profile 5 RPU colour conversion to SDR"
+            } else {
+                "YCore internal FFmpeg software decode recovery"
+            },
     )
 }
 
@@ -3266,22 +3276,29 @@ private fun yCoreSoftwarePlanExecutable(
     if (!yCoreSoftwarePlanPassesDolbyGuard(plan, dolbyConfig)) return false
     return runCatching {
         AndroidFfmpegDemuxer().let { demuxer ->
-            demuxer.available && demuxer.softwareDecodeAvailable
+            demuxer.available &&
+                demuxer.softwareDecodeAvailable &&
+                (plan.inputHdrType != YHdrType.DolbyVision || FfmpegNativeBridge.softwareProfile5Available)
         }
     }.getOrDefault(false)
 }
 
 /**
- * FFmpeg can decode a verified HEVC compatible base and present it as SDR. Raw Dolby pixels
- * require their own color transform. A hardware video decoder with software audio follows the
- * platform's Dolby path, independently of this check.
+ * Software output uses either a confirmed compatible base or per-frame Profile 5 RPU conversion.
+ * A hardware video decoder with software audio follows the platform's Dolby path.
  */
 internal fun yCoreSoftwarePlanPassesDolbyGuard(
     plan: YPlaybackPlan,
     dolbyConfig: YDolbyVisionConfig? = null,
 ): Boolean {
     if (plan.decodePath != YDecodePath.Software) return true
-    if (plan.inputHdrType == YHdrType.DolbyVision || plan.outputHdrType == YHdrType.DolbyVision) return false
+    if (plan.outputHdrType == YHdrType.DolbyVision) return false
+    if (plan.inputHdrType == YHdrType.DolbyVision) {
+        return dolbyConfig?.singleLayerProfile5WithRpu == true &&
+            plan.usesHdrFallback &&
+            plan.softwareVideoToneMap &&
+            plan.outputHdrType == YHdrType.Sdr
+    }
     if (!plan.usesHdrFallback) return true
     return dolbyConfig?.profile in setOf(7, 8) &&
         dolbyConfig?.compatibleBaseHdr == plan.inputHdrType &&

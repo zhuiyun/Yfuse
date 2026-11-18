@@ -53,8 +53,9 @@ internal class AndroidFfmpegSoftwareDecoderNode(
     fun configureVideo(
         trackId: YTrackId,
         toneMapHdrToSdr: Boolean = false,
+        requireProfile5Mapping: Boolean = false,
     ) {
-        demuxer.configureSoftwareDecoder(trackId, toneMapHdrToSdr)
+        demuxer.configureSoftwareDecoder(trackId, toneMapHdrToSdr, requireProfile5Mapping)
         videoTrackId = trackId
     }
 

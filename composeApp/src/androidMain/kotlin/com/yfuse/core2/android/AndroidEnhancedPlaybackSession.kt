@@ -416,6 +416,7 @@ internal class AndroidEnhancedPlaybackSession(
                     requireNotNull(softwareNode).configureVideo(
                         trackId = videoTrack.id,
                         toneMapHdrToSdr = resolvedPlan.softwareVideoToneMap,
+                        requireProfile5Mapping = resolvedPlan.inputHdrType == YHdrType.DolbyVision,
                     )
                     softwareVideoRenderer.geometry = effectiveVideo.geometry
                     softwareVideoRenderer.attach(surface)
@@ -1467,7 +1468,7 @@ internal class AndroidEnhancedPlaybackSession(
 
         val videoTrack = requireNotNull(sourceVideoTrack)
         if (sample.trackId == videoTrack.id &&
-            plan?.usesHdrFallback == true &&
+            plan?.extractsDolbyBaseLayer == true &&
             preparedVideoAccessUnit(sample).data.isEmpty()
         ) {
             // Enhancement-only packets have no picture in the compatible base. Passing an empty
@@ -1480,7 +1481,7 @@ internal class AndroidEnhancedPlaybackSession(
                 videoTrack.id -> {
                     if (softwareVideoActive) {
                         val softwareSample =
-                            if (requireNotNull(plan).usesHdrFallback) {
+                            if (requireNotNull(plan).extractsDolbyBaseLayer) {
                                 sample.copy(data = preparedVideoAccessUnit(sample).data)
                             } else {
                                 sample
@@ -1593,7 +1594,7 @@ internal class AndroidEnhancedPlaybackSession(
     private fun transformVideoSample(data: ByteArray): ByteArray {
         val sourceTrack = requireNotNull(sourceVideoTrack?.video)
         val currentPlan = requireNotNull(plan)
-        if (currentPlan.usesHdrFallback) {
+        if (currentPlan.extractsDolbyBaseLayer) {
             val config =
                 requireNotNull(sourceTrack.dolbyVisionConfig) {
                     "HDR fallback requires explicit Dolby Vision configuration"
@@ -2696,6 +2697,16 @@ internal class AndroidEnhancedPlaybackSession(
             requireNotNull(source.dolbyVisionConfig) {
                 "HDR fallback route requires Dolby Vision configuration"
             }
+        if (plan.decodePath == YDecodePath.Software && plan.inputHdrType == YHdrType.DolbyVision) {
+            require(
+                yCoreSoftwarePlanPassesDolbyGuard(plan, config) &&
+                    source.codec == YVideoCodec.H265 &&
+                    source.samplePacking != null,
+            ) {
+                "Profile 5 SDR conversion needs single-layer HEVC with identified packet packing and RPU"
+            }
+            return source
+        }
         require(config.profile in setOf(7, 8) && config.compatibleBaseHdr == plan.inputHdrType) {
             "Only explicit Profile 7/8 compatible-base fallback is supported"
         }

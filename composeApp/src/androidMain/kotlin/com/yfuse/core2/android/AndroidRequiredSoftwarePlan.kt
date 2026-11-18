@@ -10,6 +10,9 @@ import com.yfuse.core2.demux.YVideoTrackFormat
 import com.yfuse.core2.dolby.YDolbyVisionConfig
 import com.yfuse.core2.strategy.YPlaybackPlan
 
+internal val YPlaybackPlan.extractsDolbyBaseLayer: Boolean
+    get() = usesHdrFallback && inputHdrType != YHdrType.DolbyVision
+
 /** A forced recovery skips platform probes, but never skips demux format and protection checks. */
 internal fun softwareRecoveryPlanFromDemux(
     video: YVideoTrackFormat,

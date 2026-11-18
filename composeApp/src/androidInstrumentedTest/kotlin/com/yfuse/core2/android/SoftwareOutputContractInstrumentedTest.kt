@@ -15,10 +15,107 @@ import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.security.MessageDigest
+import kotlin.math.abs
 
 /** Real bundled JNI, including buffer-growth retries and an EOF with a second field pending. */
 @RunWith(AndroidJUnit4::class)
 class SoftwareOutputContractInstrumentedTest {
+    @Test
+    fun profile_five_maps_each_rpu_before_and_after_seek_and_rejects_missing_metadata() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val assets = instrumentation.context.assets
+        val file = File.createTempFile("profile-five-", ".mp4", instrumentation.targetContext.cacheDir)
+        try {
+            val fixture = assets.open("ycore/dolby-profile5-swatches.mp4.b64").use { it.readBytes() }
+            file.writeBytes(Base64.decode(fixture, Base64.DEFAULT))
+            val references =
+                assets.open("ycore/dolby-profile5-sdr.csv").bufferedReader().useLines { lines ->
+                    val points = lines.drop(1).map { line -> line.split(',').map(String::toInt) }
+                    points.groupBy { it.first().toLong() }
+                }
+            assertEquals(6, references.size)
+            val demux = AndroidFfmpegDemuxer()
+            val track =
+                try {
+                    demux.open(YDemuxSource(file.absolutePath)).tracks.mapNotNull { it.video }.single()
+                } finally {
+                    demux.close()
+                }
+            val plan = softwareRecoveryPlanFromDemux(track, protectedContent = false)
+            assertTrue(plan.softwareVideoToneMap && !plan.extractsDolbyBaseLayer)
+            assertEquals(YHdrType.DolbyVision, plan.inputHdrType)
+            assertEquals(YHdrType.Sdr, plan.outputHdrType)
+            val handle = FfmpegNativeBridge.open(file.absolutePath, emptyMap())
+            try {
+                FfmpegNativeBridge.selectTracks(handle, intArrayOf(0))
+                FfmpegNativeBridge.configureSoftwareDecoder(handle, 0, true, requireProfile5Mapping = true)
+                val initial = checkProfile5Frames(handle, references)
+                assertEquals(references.keys.sorted(), initial)
+                FfmpegNativeBridge.seek(handle, 500_000L)
+                FfmpegNativeBridge.flushSoftwareDecoder(handle, 0)
+                val after = checkProfile5Frames(handle, references, minimumUs = 500_000L)
+                assertEquals(initial.filter { it >= 500_000L }, after)
+            } finally {
+                FfmpegNativeBridge.close(handle)
+            }
+            checkProfile5WithoutRpu(file, requireNotNull(track.samplePacking))
+        } finally {
+            file.delete()
+        }
+    }
+
+    private fun checkProfile5Frames(
+        handle: Long,
+        references: Map<Long, List<List<Int>>>,
+        minimumUs: Long = Long.MIN_VALUE,
+    ): List<Long> =
+        buildList {
+            decode(
+                handle,
+                video = true,
+                minimumPresentationTimeUs = minimumUs,
+                skipped = { _, _ -> },
+            ) { metadata, data ->
+                val pts = metadata[2]
+                val coords = references.getValue(pts)
+                assertEquals(8, coords.size)
+                for (point in coords) {
+                    val at = point[2] * metadata[5].toInt() + 4 * point[1]
+                    for (channel in 0 until 3) {
+                        val value = data.get(at + channel).toInt() and 255
+                        val label = "PTS $pts at ${point[1]},${point[2]}, channel $channel got $value"
+                        assertTrue(label, abs(value - point[3 + channel]) <= 2)
+                    }
+                    assertEquals(255, data.get(at + 3).toInt() and 255)
+                }
+                add(pts)
+            }
+        }
+
+    private fun checkProfile5WithoutRpu(
+        file: File,
+        packing: YSamplePacking,
+    ) {
+        val handle = FfmpegNativeBridge.open(file.absolutePath, emptyMap())
+        try {
+            FfmpegNativeBridge.selectTracks(handle, intArrayOf(0))
+            FfmpegNativeBridge.configureSoftwareDecoder(handle, 0, true, requireProfile5Mapping = true)
+            val failure =
+                runCatching {
+                    decode(
+                        handle,
+                        video = true,
+                        packetTransform = { dolbyVisionHevcBaseLayerSample(it, packing, packing) },
+                    ) { _, _ ->
+                        error("A Profile 5 frame without an RPU produced pixels")
+                    }
+                }.exceptionOrNull()
+            assertTrue(failure?.message.orEmpty().contains("supported per-frame RPU"))
+        } finally {
+            FfmpegNativeBridge.close(handle)
+        }
+    }
+
     @Test
     fun compatible_base_keeps_all_six_tone_mapped_pictures_and_timestamps() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()

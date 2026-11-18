@@ -60,6 +60,7 @@ class AndroidDemuxedSoftwareRecoveryPlanTest {
             assertEquals(YHdrType.Sdr, plan.outputHdrType)
             assertEquals(hdr != YHdrType.Sdr, plan.softwareVideoToneMap)
             assertTrue(plan.usesHdrFallback)
+            assertTrue(plan.extractsDolbyBaseLayer)
             assertTrue(yCoreSoftwarePlanPassesDolbyGuard(plan, compatible))
             assertFalse(yCoreSoftwarePlanPassesDolbyGuard(plan))
             assertEquals(
@@ -77,7 +78,9 @@ class AndroidDemuxedSoftwareRecoveryPlanTest {
                 video.copy(hdrType = YHdrType.DolbyVision),
                 video.copy(mimeType = "video/dolby-vision"),
                 video.copy(dolbyVisionConfig = config),
-                packed.copy(dolbyVisionConfig = config.copy(profile = 5, baseLayerCompatibilityId = 0)),
+                packed.copy(
+                    dolbyVisionConfig = config.copy(profile = 5, baseLayerCompatibilityId = 0, rpuPresent = false),
+                ),
                 packed.copy(dolbyVisionConfig = config.copy(profile = 10)),
                 packed.copy(dolbyVisionConfig = config.copy(baseLayerPresent = false)),
                 packed.copy(dolbyVisionConfig = config.copy(baseLayerCompatibilityId = 0)),
@@ -90,6 +93,29 @@ class AndroidDemuxedSoftwareRecoveryPlanTest {
                 }
             assertEquals(YPlaybackFailureCategory.Decoder, failure.category)
         }
+    }
+
+    @Test
+    fun `profile five conversion requires identified HEVC and keeps its RPU packets`() {
+        val config = YDolbyVisionConfig(1, 0, 5, 6, true, false, true, 0, 0)
+        val track = video.copy(dolbyVisionConfig = config, samplePacking = YSamplePacking.LengthPrefixed())
+        val plan = softwareRecoveryPlanFromDemux(track, protectedContent = false)
+        assertTrue(yCoreSoftwarePlanPassesDolbyGuard(plan, config))
+        assertTrue(plan.softwareVideoToneMap && plan.usesHdrFallback)
+        assertFalse(plan.extractsDolbyBaseLayer)
+        assertEquals(YHdrType.DolbyVision, plan.inputHdrType)
+        assertEquals(YHdrType.Sdr, plan.outputHdrType)
+        assertFalse(yCoreSoftwarePlanPassesDolbyGuard(plan.copy(softwareVideoToneMap = false), config))
+        assertFalse(yCoreSoftwarePlanPassesDolbyGuard(plan.copy(outputHdrType = YHdrType.DolbyVision), config))
+        for (invalid in listOf(
+            config.copy(baseLayerPresent = false),
+            config.copy(enhancementLayerPresent = true),
+            config.copy(rpuPresent = false),
+        )) {
+            assertFalse(yCoreSoftwarePlanPassesDolbyGuard(plan, invalid))
+        }
+        assertFailsWith<YPlaybackException> { softwareRecoveryPlanFromDemux(track, protectedContent = true) }
+        assertFailsWith<YPlaybackException> { softwareRecoveryPlanFromDemux(track.copy(samplePacking = null), false) }
     }
 
     @Test

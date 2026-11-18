@@ -315,10 +315,16 @@ internal class AndroidFfmpegDemuxer :
     fun configureSoftwareDecoder(
         trackId: YTrackId,
         toneMapHdrToSdr: Boolean = false,
+        requireProfile5Mapping: Boolean = false,
     ) {
         requireOpenResult().tracks.singleOrNull { it.id == trackId }
             ?: error("Software decoder track does not belong to this demux session")
-        FfmpegNativeBridge.configureSoftwareDecoder(requireHandle(), trackId.value, toneMapHdrToSdr)
+        FfmpegNativeBridge.configureSoftwareDecoder(
+            requireHandle(),
+            trackId.value,
+            toneMapHdrToSdr,
+            requireProfile5Mapping,
+        )
     }
 
     fun sendSoftwarePacket(
