@@ -32,6 +32,9 @@ DURATION = 600
 SECONDARY = ('SECONDARY', 'CLOUD', 'PASS')
 CUE_SECONDS = int(os.environ.get('QA_SUBTITLE_CUE_SECONDS', '598'))
 assert CUE_SECONDS in (2, 598)
+CORE = os.environ.get('QA_ENGINE', 'SenPlayer')
+if CORE not in ('YCore', 'SenPlayer'):
+    raise ValueError('Expected a supported playback core')
 def stamp(seconds):
     return f'{seconds//3600:02}:{seconds//60%60:02}:{seconds%60:02},000'
 for filename, text in [('caption.srt', 'SUBTITLE FACTORY PASS'), ('secondary.srt', 'SECONDARY CLOUD PASS')]:
@@ -81,7 +84,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 server = http.server.ThreadingHTTPServer(('127.0.0.1', 18388), Handler)
 threading.Thread(target=server.serve_forever, daemon=True).start()
 adb('reverse', 'tcp:18388', 'tcp:18388')
-engine.configure('SenPlayer')
+engine.configure(CORE)
 adb('shell', 'cmd', 'appops', 'set', 'com.yfuse', 'PICTURE_IN_PICTURE', 'deny')
 since = time.time()
 checks = []
@@ -257,8 +260,9 @@ try:
         'com.yfuse/com.yfuse.feature.player.ExternalPlaybackActivity', '-t', 'video/x-matroska',
         '-d', 'http://127.0.0.1:18388/fixture.mkv')
     moving = direct.decode_playback('subtitle-fixture', None, DURATION)
-    identity = engine.engine_evidence('SenPlayer', since)
-    if not identity['active']:raise AssertionError('SenPlayer native output identity missing')
+    identity = engine.engine_evidence(CORE, since)
+    checks.append({'case': 'opening', 'identity': identity, 'movingPicture': moving})
+    if not identity['active']:raise AssertionError(f'{CORE} native output identity missing')
     select(True);verify(True, 'selected')
     select(False);verify(False, 'disabled')
     select(True);verify(True, 'reselected')
@@ -283,11 +287,14 @@ try:
     raw = adb('shell', 'cat /data/user/0/com.yfuse/no_backup/diagnostics/diagnostic-*.jsonl', check=False)
     (out/'subtitle-diagnostics.txt').write_text(raw)
     events = [json.loads(line).get('event') for line in raw.splitlines() if line.startswith('{')]
-    if 'subtitle_renderer_ready' not in events or 'subtitle_operation_failed' in events:
-        raise AssertionError('Original subtitle configuration did not succeed')
+    if 'subtitle_operation_failed' in events or (CORE == 'SenPlayer' and 'subtitle_renderer_ready' not in events):
+        raise AssertionError(f'{CORE} subtitle configuration did not succeed')
+    final_identity = engine.engine_evidence(CORE, since)
+    checks.append({'case': 'after-subtitle-changes', 'identity': final_identity})
+    if not final_identity['active']:raise AssertionError(f'{CORE} output identity missing after subtitle checks')
     passed = True
 finally:
-    (out/'subtitle-results.json').write_text(json.dumps({'passed': passed, 'checks': checks, 'cueSeconds': CUE_SECONDS,
+    (out/'subtitle-results.json').write_text(json.dumps({'passed': passed, 'engine': CORE, 'checks': checks, 'cueSeconds': CUE_SECONDS,
         'fixture': 'generated two-track English and Chinese-labelled SRT, not Emby coverage'}))
     if not passed:direct.capture_failure('subtitle-factory')
     server.shutdown();server.server_close()
