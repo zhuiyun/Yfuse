@@ -2,7 +2,7 @@ name: Cast a moving timecode to an independent DLNA renderer and return to both 
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
-    paths: [.github/workflows/qa-dlna-receiver.yml, qa-power-ui/cast_receiver.py]
+    paths: [.github/workflows/qa-dlna-receiver.yml, qa-power-ui/cast_receiver.py, qa-power-ui/check_cast_bridge.py]
 permissions: {contents: read, actions: read}
 jobs:
   cast:
@@ -55,6 +55,17 @@ jobs:
           done
           test -f "$RUNNER_TEMP/cast-frames/ready"
           cp "$RUNNER_TEMP/cast-frames/versions.txt" results/cast/
+          for i in $(seq 1 20); do
+            if docker logs qa-receiver 2>&1 | grep -F 'Ready for rendering' >/dev/null; then break; fi
+            sleep 1
+          done
+          guest_pid=$(docker inspect --format '{{.State.Pid}}' qa-android)
+          peer=$(docker inspect --format '{{.NetworkSettings.Networks.bridge.IPAddress}}' qa-receiver)
+          if sudo nsenter --target "$guest_pid" --net /usr/bin/python3 qa-power-ui/check_cast_bridge.py "$peer" > results/cast/discovery-control.json 2> results/cast/discovery-control-errors.txt; then
+            echo passed > results/cast/discovery-control-status.txt
+          else
+            echo failed > results/cast/discovery-control-status.txt
+          fi
       - name: Discover, connect, seek, pause, resume and stop through the installed app
         run: |
           set -euo pipefail
@@ -69,6 +80,7 @@ jobs:
           adb shell wm dismiss-keyguard
           touch /tmp/yfuse-tree-active
           /usr/bin/python3 qa-power-ui/cast_receiver.py
+          grep -Fx passed results/cast/discovery-control-status.txt
       - name: Retain the temporary receiver diagnostics
         if: always()
         run: |

@@ -10,7 +10,7 @@ import time
 
 from PIL import Image
 
-from capture import capture
+from capture import capture, failure_diagnostics
 from media import MediaServer
 from navigation import click
 from player_ui import pause_visible
@@ -94,7 +94,8 @@ def page_contains(label):
 
 def cast_panel():
     if not page_contains('局域网投屏设备'):
-        direct.reveal()
+        if not page_contains('投屏'):
+            direct.reveal()
         click(['投屏中', '投屏'], 0)
 
 
@@ -126,7 +127,9 @@ def observe(recorder, phase, server, duration):
 def exercise(core, url, frames, server, recorder, evidence):
     evidence['localPlayback'] = playing(core, url)
     pause_visible(OUT / 'local-pause.txt')
+    require_screen('before-discovery', '投屏')
     cast_panel()
+    capture(OUT, 'opened-cast-panel', expected='局域网投屏设备', timeout=3)
     evidence['discovery'] = require_screen('discovered', RECEIVER)
     click(RECEIVER)
     started = moving(frames, 'start')
@@ -188,6 +191,7 @@ def main():
         evidence['passed'] = True
     finally:
         if not evidence['passed']:
+            failure_diagnostics(OUT, 'failure')
             with suppress(Exception):
                 capture(OUT, 'failure')
             with suppress(OSError):
