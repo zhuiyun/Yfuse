@@ -1,4 +1,4 @@
-name: Verify long seeks and await the actual core output telemetry
+name: Verify both cores across the full format and seek matrix
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
@@ -46,7 +46,7 @@ jobs:
     timeout-minutes: 90
     env:
       QA_ENGINE: '${{ matrix.core }}'
-      QA_DIAGNOSTIC_CASES: long-avc,long-gop-chapter,hevc-4k-60s
+      QA_DIAGNOSTIC_CASES: long-avc,avc-cropped,hevc-main,hevc-main10,prores-4444,avc-transport,hevc-4k,hevc-4k-60s,long-gop,long-gop-chapter
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with: {persist-credentials: false}
