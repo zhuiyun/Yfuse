@@ -1,11 +1,11 @@
-name: Qualify carousel artwork contrast, motion and both playback cores
+name: Qualify detail card contrast, motion and both playback cores
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
     paths: ['.github/workflows/qa-integrated-av-repair.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: 992aef4ad202dfce7c7f4ca768bc44dd40e5da47
+  QA_APP_SHA: 6c05a4bd1fc78d4c324eacaf71e43c3b61c86a14
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 992aef4ad202dfce7c7f4ca768bc44dd40e5da47
+          ref: 6c05a4bd1fc78d4c324eacaf71e43c3b61c86a14
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
