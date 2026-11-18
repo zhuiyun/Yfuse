@@ -44,7 +44,7 @@ class PlayerPanelNavigationInstrumentedTest {
         }
         rows += captureProblemCaptions(true, null, "dark-default", directory)
         File(directory, "measurements.json").writeText(JSONArray(rows).toString(2))
-        val dim = rows.filter { it.getDouble("contrast") < 4.5 }
+        val dim = rows.filter { it.getDouble("contrast") < 4.5 || it.getDouble("settledContrast") < 4.5 }
         assertTrue("Playback diagnostic captions below 4.5:1: $dim", dim.isEmpty())
     }
 
@@ -54,29 +54,82 @@ class PlayerPanelNavigationInstrumentedTest {
         name: String,
         directory: File,
     ): List<JSONObject> {
-        val labels = listOf("连接与读取", "播放器", "视频输出", "声音输出", "当前音轨", "前向缓冲", "实时读取", "网络恢复")
+        val labels =
+            listOf(
+                "连接与读取",
+                "播放器",
+                "视频输出",
+                "声音输出",
+                "当前音轨",
+                "前向缓冲",
+                "实时读取",
+                "网络恢复",
+                "检查服务器可达性与下载速度，再重试当前片源。",
+            )
         return launchMainActivityForInput().use { scenario ->
             scenario.onActivity { it.setContent { ProblemContrastFixture(dark, backing) } }
             await("Diagnostic captions visible on $name") { labels.all { find(it) != null } }
             instrumentation.waitForIdleSync()
-            val screenshot = requireNotNull(instrumentation.uiAutomation.takeScreenshot())
-            val pixels = requireNotNull(screenshot.copy(Bitmap.Config.ARGB_8888, false))
+            val first = capturePixels()
             try {
-                val file = File(directory, "$name.png")
-                file.outputStream().use { pixels.compress(Bitmap.CompressFormat.PNG, 100, it) }
-                labels.map { label ->
-                    val bounds = Rect().also(requireNotNull(find(label))::getBoundsInScreen)
-                    JSONObject()
-                        .put("screen", name)
-                        .put("label", label)
-                        .put("bounds", bounds.flattenToString())
-                        .put("contrast", captionContrast(pixels, bounds))
+                val positions =
+                    labels.associateWith { label ->
+                        Rect().also(requireNotNull(find(label))::getBoundsInScreen)
+                    }
+                val area = Rect().apply { positions.values.forEach(::union) }
+                val settled = captureSettledPixels(area)
+                try {
+                    savePixels(first, File(directory, "$name.png"))
+                    savePixels(settled, File(directory, "settled-$name.png"))
+                    positions.map { (label, bounds) ->
+                        JSONObject()
+                            .put("screen", name)
+                            .put("label", label)
+                            .put("bounds", bounds.flattenToString())
+                            .put("contrast", captionContrast(first, bounds))
+                            .put("settledContrast", captionContrast(settled, bounds))
+                    }
+                } finally {
+                    settled.recycle()
                 }
             } finally {
-                pixels.recycle()
-                screenshot.recycle()
+                first.recycle()
             }
         }
+    }
+
+    private fun capturePixels(): Bitmap {
+        val screenshot = requireNotNull(instrumentation.uiAutomation.takeScreenshot())
+        try {
+            return requireNotNull(screenshot.copy(Bitmap.Config.ARGB_8888, false))
+        } finally {
+            screenshot.recycle()
+        }
+    }
+
+    private fun savePixels(
+        pixels: Bitmap,
+        file: File,
+    ) {
+        file.outputStream().use { check(pixels.compress(Bitmap.CompressFormat.PNG, 100, it)) }
+    }
+
+    private fun captureSettledPixels(area: Rect): Bitmap {
+        require(!area.isEmpty)
+        val deadline = SystemClock.uptimeMillis() + 5_000L
+        var previous: IntArray? = null
+        var matches = 0
+        while (SystemClock.uptimeMillis() < deadline) {
+            val frame = capturePixels()
+            val pixels = IntArray(area.width() * area.height())
+            frame.getPixels(pixels, 0, area.width(), area.left, area.top, area.width(), area.height())
+            matches = if (pixels.contentEquals(previous)) matches + 1 else 0
+            if (matches == 2) return frame
+            frame.recycle()
+            previous = pixels
+            SystemClock.sleep(150)
+        }
+        throw AssertionError("Diagnostic panel did not produce three identical consecutive caption regions")
     }
 
     private fun captionContrast(

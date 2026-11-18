@@ -29,8 +29,11 @@ internal fun PlaybackProblemDialog(
     ) {
         GlassDialog(onDismiss = onDismiss) {
             val palette = LocalPalette.current
-            val labels = remember(palette) { palette.copy(sub = palette.body, sub2 = palette.body) }
-            CompositionLocalProvider(LocalPalette provides labels) {
+            val readablePalette =
+                remember(palette) {
+                    palette.copy(body = palette.text, sub = palette.text, sub2 = palette.text)
+                }
+            CompositionLocalProvider(LocalPalette provides readablePalette) {
                 OverlayHeader("播放状态", explanation.stage, onClose = onDismiss)
                 Text(explanation.advice, style = AppTypography.body.regular, color = LocalPalette.current.body)
                 PlaybackProblemRow("播放器", diagnostics.engine.ifBlank { "尚未创建" })
