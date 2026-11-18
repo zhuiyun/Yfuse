@@ -1,4 +1,4 @@
-name: Verify all pages and file information contrast on both display configurations
+name: Verify all pages, file information contrast and the count-only audio card
 'on':
   push:
     branches:
@@ -9,8 +9,8 @@ permissions:
   contents: read
   actions: read
 env:
-  QA_APP_SHA: c77ab7319cc2f7fc745ee67d36e795ecb3feefaf
-  QA_BUILD_RUN: 44327313913
+  QA_APP_SHA: 2a3c4ab9624f3d35d7637729d619555db98b357b
+  QA_BUILD_RUN: 44349576264
 jobs:
   acquire:
     runs-on: ubuntu-24.04
@@ -150,7 +150,7 @@ jobs:
       run: /usr/bin/python3 qa-power-ui/capture.py
     - name: Measure text on the painted movie and episode information cards
       if: matrix.scope == 'primary'
-      run: /usr/bin/python3 qa-power-ui/check_detail_specs.py results/ui --output results/ui/file-info-contrast.json
+      run: /usr/bin/python3 qa-power-ui/check_detail_specs.py results/ui --output results/ui/file-info-contrast.json --count-only-audio
     - if: always()
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
       with:

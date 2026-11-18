@@ -201,7 +201,8 @@ for media in catalog:
     results.append(row)
     prior = set()
     launch = None
-    mime = {'mkv': 'video/x-matroska', 'ts': 'video/mp2t', 'mov': 'video/quicktime'}.get(media['file'].rsplit('.', 1)[1], 'video/mp4')
+    mime = {'mp4': 'video/mp4', 'mkv': 'video/x-matroska', 'ts': 'video/mp2t',
+            'mov': 'video/quicktime', 'webm': 'video/webm'}[media['file'].rsplit('.', 1)[1]]
     server = MediaServer(Path('format-fixtures') / media['file'], output / (case + '-http.jsonl'), content_type=mime)
     try:
         observer.adb('shell', 'am', 'force-stop', 'com.yfuse')
