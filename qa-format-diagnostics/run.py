@@ -221,8 +221,9 @@ for media in catalog:
         if row.get('open') or row.get('lateOpen'):
             screenshot(case + '-opened')
             duration = (row.get('open') or row['lateOpen'])['durationSeconds']
-            for method, fraction in [('adb-swipe', .63), ('adb-swipe', .21), ('held-preview', .63), ('held-preview', .21)]:
-                row['seeks'].append(seek(case+'-'+method+'-'+str(fraction), fraction, method, duration))
+            for method in ('adb-swipe', 'held-preview'):
+                for fraction in media.get('seekFractions', (.63, .21)):
+                    row['seeks'].append(seek(case+'-'+method+'-'+str(fraction), fraction, method, duration))
     except Exception as error:
         row['errorType'] = type(error).__name__
         row['errorDetail'] = str(error)[:180]
