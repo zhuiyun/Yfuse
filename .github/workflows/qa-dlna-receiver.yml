@@ -2,7 +2,7 @@ name: Cast a moving timecode to an independent DLNA renderer and return to both 
 on:
   push:
     branches: [codex/two-engines-cloud-seek-20261113]
-    paths: [.github/workflows/qa-dlna-receiver.yml, qa-power-ui/cast_receiver.py, qa-power-ui/check_cast_bridge.py]
+    paths: [.github/workflows/qa-dlna-receiver.yml, qa-power-ui/cast_receiver.py, qa-power-ui/check_cast_bridge.py, qa-power-ui/receiver_resume_control.py]
 permissions: {contents: read, actions: read}
 jobs:
   candidate:
@@ -112,6 +112,13 @@ jobs:
         run: |
           mkdir -p results/cast
           docker logs --tail 400 qa-receiver > results/cast/receiver-log.txt 2>&1 || true
+      - name: Compare resume sequences on the same receiver independently of the stopped phone app
+        if: ${{ !cancelled() && hashFiles('results/cast/outcome.json') != '' }}
+        run: |
+          set -euo pipefail
+          adb shell am force-stop com.yfuse
+          test -z "$(adb shell pidof com.yfuse | tr -d '\r')"
+          /usr/bin/python3 qa-power-ui/receiver_resume_control.py
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with: {name: 'dlna-receiver-${{ matrix.engine }}-${{ matrix.clock }}', path: results/cast/, retention-days: 10}

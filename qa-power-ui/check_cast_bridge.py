@@ -5,7 +5,7 @@ import json
 import socket
 import sys
 import time
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 import xml.etree.ElementTree as ET
 
 
@@ -54,7 +54,11 @@ def check(peer):
     services = [n.text for n in device.findall('.//{*}serviceType')]
     if name != 'Yfuse QA Renderer' or not any('service:AVTransport:' in s for s in services if s):
         raise ValueError('Unexpected renderer or missing AVTransport')
-    print(json.dumps({'friendlyName': name, 'services': services, 'descriptionBytes': len(payload)}))
+    service = next(s for s in device.findall('.//{*}service') if s.findtext('{*}serviceType') == 'urn:schemas-upnp-org:service:AVTransport:1')
+    control = urlsplit(urljoin(location.geturl(), service.findtext('{*}controlURL')))
+    if control.scheme != 'http' or control.hostname != peer or control.port != location.port or not control.path.startswith('/'):
+        raise ValueError('Expected the dedicated renderer control URL')
+    print(json.dumps({'friendlyName': name, 'services': services, 'descriptionBytes': len(payload), 'avTransportUrl': control.geturl()}))
 
 
 if __name__ == '__main__':
