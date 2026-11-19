@@ -53,10 +53,12 @@ import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.returnLocator
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.personal.DEFAULT_PERSONAL_PROFILE
+import com.yfuse.core.personal.MAX_PROFILE_NAME_LENGTH
 import com.yfuse.core.personal.PersonalCollection
 import com.yfuse.core.personal.PersonalLibraryRepository
 import com.yfuse.core.personal.PersonalMediaRef
 import com.yfuse.core.personal.PersonalProfile
+import com.yfuse.core.personal.newGuardianPinLength
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.SyncMutationKind
 import com.yfuse.core.sync.playback.PlaybackSyncManager
@@ -455,6 +457,7 @@ private fun PersonalCenterPage(
         PersonalPinDialog(
             title = "切换到 ${profile.name}",
             setting = false,
+            currentPinRequired = true,
             onDismiss = { onIntent(PersonalCenterIntent.DismissSwitch) },
             error = state.dialogError,
         ) { pin, _ ->
@@ -465,6 +468,7 @@ private fun PersonalCenterPage(
         PersonalPinDialog(
             title = "家长 PIN",
             setting = true,
+            currentPinRequired = state.library.hasGuardianPin,
             onDismiss = { onIntent(PersonalCenterIntent.DismissGuardianPin) },
             error = state.dialogError,
         ) { old, next ->
@@ -553,30 +557,39 @@ private fun PersonalProfileEditor(
                 style = AppTypography.section.strong,
                 color = LocalPalette.current.text,
             )
-            YfFormField(name, { name = it }, label = "资料名称")
+            YfFormField(name, { name = it }, label = "资料名称（1–$MAX_PROFILE_NAME_LENGTH 个字）")
             if (profile?.id != DEFAULT_PERSONAL_PROFILE) {
                 SwitchRow("儿童资料", child, onChange = { child = it })
             }
-            Text(
-                "儿童资料需要家长 PIN，只能使用下方勾选的服务器用户。",
-                style = AppTypography.caption.regular,
-                color = LocalPalette.current.sub2,
-            )
-            SettingsCard {
-                servers.forEachIndexed { index, server ->
-                    if (index > 0) SettingsDivider()
-                    SwitchRow(
-                        title = server.serverName + " · " + server.userName,
-                        checked = server.id in ids,
-                        embedded = true,
-                        onChange = { checked -> ids = if (checked) ids + server.id else ids - server.id },
-                    )
+            if (child) {
+                Text(
+                    if (servers.isEmpty()) "儿童资料需要家长 PIN。添加服务器账号后，可在这里授权访问。" else "儿童资料需要家长 PIN，只能使用选中的服务器账号。",
+                    style = AppTypography.caption.regular,
+                    color = LocalPalette.current.sub2,
+                )
+            }
+            if (servers.isNotEmpty()) {
+                SettingsCard {
+                    servers.forEachIndexed { index, server ->
+                        if (index > 0) SettingsDivider()
+                        SwitchRow(
+                            title = server.serverName + " · " + server.userName,
+                            checked = server.id in ids,
+                            embedded = true,
+                            onChange = { checked -> ids = if (checked) ids + server.id else ids - server.id },
+                        )
+                    }
                 }
             }
             error?.let { PersonalDialogError(it) }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 YfButton("取消", onDismiss, modifier = Modifier.weight(1f), tone = YfButtonTone.Secondary)
-                YfButton("保存", { onSave(name, child, ids) }, modifier = Modifier.weight(1f))
+                YfButton(
+                    "保存",
+                    { onSave(name, child, ids) },
+                    modifier = Modifier.weight(1f),
+                    enabled = name.trim().length in 1..MAX_PROFILE_NAME_LENGTH,
+                )
             }
         }
     }
@@ -586,6 +599,7 @@ private fun PersonalProfileEditor(
 private fun PersonalPinDialog(
     title: String,
     setting: Boolean,
+    currentPinRequired: Boolean,
     onDismiss: () -> Unit,
     /** Why the last attempt did not go through — a wrong PIN, most often. */
     error: String? = null,
@@ -593,24 +607,36 @@ private fun PersonalPinDialog(
 ) {
     var pin by remember { mutableStateOf("") }
     var next by remember { mutableStateOf("") }
+    val currentPinReady = !currentPinRequired || pin.isNotEmpty()
+    val newPinReady = !setting || next.length in newGuardianPinLength
     GlassDialog(onDismiss = onDismiss, contentPadding = 0.dp) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(title, style = AppTypography.section.strong, color = LocalPalette.current.text)
-            YfFormField(
-                value = pin,
-                onValueChange = { pin = it.filter(Char::isDigit).take(12) },
-                label = if (setting) "当前 PIN（首次设置留空）" else "家长 PIN",
-                visualTransformation = PasswordVisualTransformation(),
-            )
+            if (currentPinRequired) {
+                YfFormField(
+                    value = pin,
+                    onValueChange = { pin = it.filter(Char::isDigit).take(newGuardianPinLength.last) },
+                    label = if (setting) "当前 PIN" else "家长 PIN",
+                    visualTransformation = PasswordVisualTransformation(),
+                )
+            }
             if (setting) {
-                YfFormField(next, {
-                    next = it.filter(Char::isDigit).take(12)
-                }, label = "新 PIN（6–12 位）", visualTransformation = PasswordVisualTransformation())
+                YfFormField(
+                    value = next,
+                    onValueChange = { next = it.filter(Char::isDigit).take(newGuardianPinLength.last) },
+                    label = "新 PIN（${newGuardianPinLength.first}–${newGuardianPinLength.last} 位）",
+                    visualTransformation = PasswordVisualTransformation(),
+                )
             }
             error?.let { PersonalDialogError(it) }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 YfButton("取消", onDismiss, modifier = Modifier.weight(1f), tone = YfButtonTone.Secondary)
-                YfButton("确认", { onSubmit(pin, next) }, modifier = Modifier.weight(1f))
+                YfButton(
+                    "确认",
+                    { onSubmit(pin, next) },
+                    modifier = Modifier.weight(1f),
+                    enabled = currentPinReady && newPinReady,
+                )
             }
         }
     }

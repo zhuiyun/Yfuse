@@ -17,6 +17,9 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlin.random.Random
 
+internal val newGuardianPinLength = 6..12
+internal const val MAX_PROFILE_NAME_LENGTH = 40
+
 /** Personal assets belong to an account/profile, independently of the available media servers. */
 class PersonalLibraryRepository(
     private val settings: Settings,
@@ -143,8 +146,8 @@ class PersonalLibraryRepository(
             runCatching {
                 val token = scopeToken
                 // Four digits fell to a patient child in an afternoon; existing short PINs still open.
-                require(pin.size in MIN_NEW_PIN_DIGITS..12 && pin.all(Char::isDigit)) {
-                    "PIN 需为 $MIN_NEW_PIN_DIGITS–12 位数字"
+                require(pin.size in newGuardianPinLength && pin.all(Char::isDigit)) {
+                    "PIN 需为 ${newGuardianPinLength.first}–${newGuardianPinLength.last} 位数字"
                 }
                 verifyGuardian(currentPin, required = synchronized(lock) { snapshot.guardianPin != null })
                 val salt = crypto.generateVaultKey().copyOf(16)
@@ -181,7 +184,7 @@ class PersonalLibraryRepository(
                 verifyGuardian(pin, required = policy.value.child)
                 synchronized(lock) {
                     check(token == scopeToken) { "资料已切换，请重试" }
-                    require(name.trim().isNotEmpty() && name.trim().length <= 40) { "资料名称需为 1–40 个字" }
+                    require(name.trim().length in 1..MAX_PROFILE_NAME_LENGTH) { "资料名称需为 1–$MAX_PROFILE_NAME_LENGTH 个字" }
                     require(!child || snapshot.guardianPin != null) { "请先设置家长 PIN" }
                     require(id != DEFAULT_PERSONAL_PROFILE || !child) { "主要资料必须是成人资料" }
                     require(id == null || snapshot.profiles.any { it.id == id && !it.deleted }) { "资料不存在" }
@@ -641,7 +644,6 @@ class PersonalLibraryRepository(
         const val OWNER_KEY = "personal.owner.v1"
         const val PIN_ATTEMPTS_PREFIX = "personal.pin_attempts.v1."
         const val PROGRESS_PERSIST_INTERVAL_MS = 60_000L
-        const val MIN_NEW_PIN_DIGITS = 6
         const val PIN_ATTEMPTS_PER_WAIT = 5
         const val MAX_PIN_WAIT_MS = 24 * 60 * 60_000L
 

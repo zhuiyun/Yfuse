@@ -609,7 +609,11 @@ fun ProfileScreen(component: ProfileComponent) {
                     ProfilePage.Handoff ->
                         (entry.instance as? ProfileComponent.Child.Handoff)?.let { handoffPage ->
                             com.yfuse.feature.handoff
-                                .DeviceHandoffScreen(handoffPage.store, component::closePage)
+                                .DeviceHandoffScreen(
+                                    handoffPage.store,
+                                    onBack = component::closePage,
+                                    onOpenAccount = { component.openPage(ProfilePage.Account) },
+                                )
                         }
 
                     ProfilePage.Trakt ->

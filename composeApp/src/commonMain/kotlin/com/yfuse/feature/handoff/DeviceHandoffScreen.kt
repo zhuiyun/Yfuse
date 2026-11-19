@@ -57,6 +57,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 fun DeviceHandoffScreen(
     store: Store<DeviceHandoffIntent, HandoffUiState, Nothing>,
     onBack: () -> Unit,
+    onOpenAccount: () -> Unit,
 ) {
     val state by store.states.collectAsState(store.state)
     val palette = LocalPalette.current
@@ -119,9 +120,10 @@ fun DeviceHandoffScreen(
                         Section(title = "在线设备") {
                             SettingsCard {
                                 SettingRow(
-                                    "连接状态",
-                                    state.connectionLabel,
+                                    if (state.signedIn) "连接状态" else "登录鱼服账号",
+                                    if (state.signedIn) state.connectionLabel else "登录后可连接其他设备",
                                     embedded = true,
+                                    onClick = onOpenAccount.takeUnless { state.signedIn },
                                 )
                                 if (state.online && state.devices.isEmpty()) {
                                     SettingsDivider()
@@ -225,13 +227,14 @@ private data class HandoffPage(
 fun DeviceHandoffScreen(
     controller: HandoffController,
     onBack: () -> Unit,
+    onOpenAccount: () -> Unit,
 ) {
     val store =
         rememberComposedPageStore(controller) {
             // The app's StoreFactory is this one; the television reaches the page without it.
             DeviceHandoffStoreFactory(DefaultStoreFactory(), controller).create()
         }
-    DeviceHandoffScreen(store, onBack)
+    DeviceHandoffScreen(store, onBack, onOpenAccount)
 }
 
 /** Mount once above the phone/TV navigation graph so incoming requests remain visible. */
