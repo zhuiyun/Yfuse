@@ -333,11 +333,22 @@ if __name__=='__main__':
         if label in benchmark_labels:measured(label+'-range-benchmark',samples=source_range_benchmark(items[label]))
     cores=os.environ.get('QA_ENGINES','YCore,SenPlayer').split(',')
     if not cores or len(set(cores))!=len(cores) or any(core not in ('YCore','SenPlayer') for core in cores):raise ValueError('Invalid cloud engine selection')
-    for core in cores:
-        engine.configure(core)
-        for k in launched:
+    pinned_relay = os.environ.get('QA_VERIFIED_PRIVATE_RELAY') == 'true'
+    configured_core = None
+    for index, k in enumerate(launched):
+        # Give both engines the same source lifetime. Alternate which one sees each title first.
+        for core in (cores if index % 2 == 0 else reversed(cores)):
             media=items[k];label=core+'-'+k
             range_status = record_android_range(label+'-android-network', media['location'])
+            if pinned_relay and range_status != 206:
+                if range_status not in (401, 403, 404, 410, 412, 429):
+                    range_status = record_android_range(label+'-android-network-recheck', media['location'])
+                if range_status != 206:
+                    measured(label+'-input-unavailable', code=range_status)
+                    continue
+            if core != configured_core:
+                engine.configure(core)
+                configured_core = core
             adb('shell','am','force-stop',PKG);since=time.time();prior={(x['time'],x['event']) for x in app_events()}
             mime={'mkv':'x-matroska','ts':'mp2t','mpegts':'mp2t','webm':'webm','mov':'quicktime','mp4':'mp4'}.get(media['container'],'*')
             cmd='am start -W -a android.intent.action.VIEW -n com.yfuse/com.yfuse.feature.player.ExternalPlaybackActivity -t video/'+mime+' -d '+shlex.quote(media['location'])

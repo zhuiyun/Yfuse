@@ -296,7 +296,12 @@ def handler_for(state):
                 metric.update(request_error_fields(error))
                 metric["failureStage"] = stage
                 if not started:
-                    self.fail(502)
+                    # Retain the origin's access decision across both relay hops. Its headers
+                    # and response body can contain private source details.
+                    code = error.code if isinstance(error, urllib.error.HTTPError) else None
+                    self.fail(code if code in (401, 403, 404, 410, 412, 429) else 502)
+                if isinstance(error, urllib.error.HTTPError):
+                    error.close()
             finally:
                 self.close_connection = True
                 metric.update(status=self.response_status, elapsedMs=round((time.monotonic() - began) * 1000))

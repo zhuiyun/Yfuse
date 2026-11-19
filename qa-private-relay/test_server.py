@@ -98,6 +98,17 @@ class RelayTest(unittest.TestCase):
         self.assertEqual((200, "10", b""), (status, headers["Content-Length"], body))
         self.assertEqual([], self.origin.requests)
 
+    def test_upstream_access_refusal_retains_status_without_forwarding_private_data(self):
+        for code in (401, 403, 404, 410, 412, 429, 503):
+            with self.subTest(code=code):
+                def refuse(request, timeout):
+                    raise urllib.error.HTTPError("https://private.invalid", code, "private response",
+                                                 {"X-Private": "private header"}, io.BytesIO(b"private body"))
+                self.origin.open = refuse
+                status, headers, body = self.request(headers={"Range": "bytes=0-2"})
+                self.assertEqual((502 if code == 503 else code, b""), (status, body))
+                self.assertNotIn("X-Private", headers)
+
     def test_first_byte_is_timed_before_the_remaining_range_arrives(self):
         class DelayedRemainder(Response):
             def read(self, size=-1):
@@ -182,7 +193,7 @@ class RelayTest(unittest.TestCase):
         try:
             while self.server.connection_slots.acquire(blocking=False):
                 acquired += 1
-            with self.assertRaises((http.client.RemoteDisconnected, ConnectionResetError)):
+            with self.assertRaises((http.client.RemoteDisconnected, ConnectionResetError, ConnectionAbortedError)):
                 self.request(headers={"Range": "bytes=2-4"})
             info = self.server.connection_summary()
             self.assertEqual(1, info['acceptedFromAllowedClients'])
