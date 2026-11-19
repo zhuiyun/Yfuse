@@ -4,10 +4,30 @@ from collections import deque
 import http.server
 import re
 import socketserver
+import sys
 import threading
 import time
+import urllib.error
 import urllib.request
 from urllib.parse import urlsplit
+
+
+def strong_etag(value):
+    return value if value and re.fullmatch(r'"[!#-~\x80-\xff]*"', value) else None
+
+
+def request_error_fields(error):
+    fields = {"errorType": type(error).__name__}
+    if isinstance(getattr(error, "code", None), int):
+        fields["upstreamStatus"] = error.code
+    if isinstance(error, urllib.error.URLError) and isinstance(error.reason, BaseException):
+        reason = error.reason
+        fields["transportCause"] = type(reason).__name__
+        for attribute, key in (("errno", "errno"), ("verify_code", "tlsVerifyCode")):
+            value = getattr(reason, attribute, None)
+            if isinstance(value, int):
+                fields[key] = value
+    return fields
 
 
 def requested_range(value, size):
@@ -36,6 +56,11 @@ class BoundedHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
         self.connection_slots = threading.BoundedSemaphore(16)
         self.tls_context = tls_context
         self.allowed_clients = None if allowed_clients is None else frozenset(allowed_clients)
+        self.connection_lock = threading.Lock()
+        self.accepted_connections = 0
+        self.slot_refusals = 0
+        self.handler_errors = 0
+        self.connection_failures = deque(maxlen=512)
         super().__init__(address, handler)
 
     def verify_request(self, request, address):
@@ -51,7 +76,12 @@ class BoundedHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
         return connection, address
 
     def process_request(self, request, address):
+        with self.connection_lock:
+            self.accepted_connections += 1
         if not self.connection_slots.acquire(blocking=False):
+            with self.connection_lock:
+                self.slot_refusals += 1
+                self.connection_failures.append({'epochMs': round(time.time() * 1000), 'cause': 'slot-full'})
             self.shutdown_request(request)
             return
         try:
@@ -67,7 +97,19 @@ class BoundedHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
             self.connection_slots.release()
 
     def handle_error(self, request, address):
-        pass
+        error = sys.exc_info()[1]
+        # Keep the cause and timestamp only. Exception messages may contain a capability.
+        row = {'epochMs': round(time.time() * 1000), 'cause': 'handler', 'errorType': type(error).__name__}
+        if isinstance(error, OSError) and isinstance(error.errno, int):
+            row['errno'] = error.errno
+        with self.connection_lock:
+            self.handler_errors += 1
+            self.connection_failures.append(row)
+
+    def connection_summary(self):
+        with self.connection_lock:
+            return {'acceptedFromAllowedClients': self.accepted_connections, 'slotRefusals': self.slot_refusals,
+                    'handlerErrors': self.handler_errors, 'recentFailures': list(self.connection_failures)}
 
 
 class RelayState:
@@ -107,6 +149,12 @@ class RelayState:
     def sent(self, amount):
         with self.lock:
             self.bytes_sent += amount
+
+    def response_tag(self, label, upstream_tag):
+        if not strong_etag(upstream_tag):
+            return None
+        value = label.encode('ascii') + b'\0' + upstream_tag.encode('latin1')
+        return '"' + hmac.new(self.token.encode('ascii'), value, 'sha256').hexdigest() + '"'
 
     def record_request(self, record):
         with self.lock:
@@ -200,13 +248,24 @@ def handler_for(state):
                     "Range": "bytes=%d-%d" % (lo, hi),
                     "User-Agent": "Emby for Android Mobile", "Accept-Encoding": "identity",
                 })
+                condition = self.headers.get("If-Range") if partial else None
+                if condition is not None and not strong_etag(condition):
+                    self.fail(412)
+                    return
                 with state.opener.open(request, timeout=12) as response:
                     metric["upstreamStatus"] = response.status
+                    # Bind the tag to this source and session. Only the relay sees the origin's tag.
+                    tag = state.response_tag(label, response.headers.get("ETag"))
+                    metric["strongValidator"] = tag is not None
+                    metric["conditional"] = condition is not None
+                    if condition is not None and (response.status != 206 or tag != condition):
+                        self.fail(412)
+                        return
                     expected = "bytes %d-%d/%d" % (lo, hi, size)
                     if response.status != 206 or response.headers.get("Content-Range") != expected:
                         self.fail(502)
                         return
-                    self.headers_for(lo, hi, partial, size)
+                    self.headers_for(lo, hi, partial, size, tag)
                     started = True
                     left = hi - lo + 1
                     while left and state.alive():
@@ -223,9 +282,7 @@ def handler_for(state):
                         metric["bytes"] += len(data)
                         left -= len(data)
             except Exception as error:
-                metric["errorType"] = type(error).__name__
-                if isinstance(getattr(error, "code", None), int):
-                    metric["upstreamStatus"] = error.code
+                metric.update(request_error_fields(error))
                 if not started:
                     self.fail(502)
             finally:
@@ -234,13 +291,15 @@ def handler_for(state):
                 state.record_request(metric)
                 state.slots.release()
 
-        def headers_for(self, lo, hi, partial, size):
+        def headers_for(self, lo, hi, partial, size, tag=None):
             self.response_status = 206 if partial else 200
             self.send_response(206 if partial else 200)
             self.send_header("Content-Type", "application/octet-stream")
             self.send_header("Content-Length", str(hi - lo + 1))
             self.send_header("Accept-Ranges", "bytes")
             self.send_header("Cache-Control", "no-store")
+            if tag:
+                self.send_header("ETag", tag)
             if partial:
                 self.send_header("Content-Range", "bytes %d-%d/%d" % (lo, hi, size))
             self.end_headers()

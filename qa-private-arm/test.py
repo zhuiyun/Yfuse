@@ -170,6 +170,11 @@ def app_events():
     fields.update({"failurestage","codecmime","codecprofile","outputallowed","bufferedms","requiredms","targetms","waitms","queuebytes","memorybudgetbytes","queuebudgetbytes","plannedbudgetbytes","queuesamples","fillscheduled","readelapsedms","lastpacketagems","packetsread","demuxthroughputbps","pendingtrackcount","endofinput","atcapacity","generation","audiorendering","videorendering","renderedframecount","decodedframecount","droppedframecount","framesrendered","framesdropped","outputgeneration","videooutputverified","audiooutputverified","deterministic"})
     fields.update({"renderedframes","droppedframes","lastvideoms","softwarevideo","pendingvideoframe"})
     fields.update({"elapsedms","remainingms","attempt","itemindex"})
+    fields.update({"blockindex","blocksize","blocksizebytes","offset","start","end","size","requestedbytes",
+                   "allowancems","startupreadserved","prioritizestartupreads","prefetchdepthblocks","cachebytes",
+                   "expectedrangestart","acceptedrangestart","attemptcount","redirectcount","contentlengthknown",
+                   "negotiatedprotocol","finalprotocol","cleartextredirect"})
+    knownText.update({"http/1.1","h2","http_2","http_1_1","https","unavailable"})
     fields.update({"nativeerrorcode","failurekind","sourcekept","candidatelimit","candidatecount","limitms","reservedms","outcome"})
     knownText.update({"authorization","drm","container","renderer","audiosink","license","network","format","playback","completed","deadline","busy","yielded","cancelled_or_deadline"})
     knownText.update({"nativenhanced","nativeenhanced","softwarefallback","softwarevideodecoderconfigure","softwarevideodecode","audiorender","videorender","audiodecoderconfigure","audiodecoderqueue","videodecoderqueue","demux","seek","prepare","audio/flac","audio/aac","audio/opus","video/dolby-vision","video/x-vnd.on2.vp9","video/mpeg2","video/mp4v-es"})
@@ -312,6 +317,14 @@ if __name__=='__main__':
     candidates=[k for k,positions in groups.items() if any(r['correct'] for r in positions.values())]
     controls=[next((k for k in groups if k.startswith(prefix) and k not in candidates),None) for prefix in ('m-','e-')]
     launched=candidates+[k for k in controls if k]
+    if os.environ.get('QA_VERIFIED_PRIVATE_RELAY') == 'true':
+        # Every original admitted to this pinned test session has source-side byte hashes.
+        # Exercise tracks with a failed cloud probe too, retaining the original failing gate.
+        # Refusals and identity mismatches must be investigated before those tracks are opened.
+        def can_open(label):
+            return all(row['code'] not in (401,403,404,410,412,429) and
+                       (row['code'] != 206 or row['correct']) for row in groups[label].values())
+        launched=[label for label in items if can_open(label)]
     probe_labels=set(os.environ.get('QA_PROBE_LABELS','').split(','))
     benchmark_labels=set(os.environ.get('QA_BENCHMARK_LABELS','').split(','))
     late_open_labels=set(os.environ.get('QA_LATE_OPEN_LABELS','').split(','))

@@ -202,7 +202,7 @@ def run(config):
             state.stopped.set()
             server.server_close()
     print(json.dumps({"stopped": True, "bytesSent": state.bytes_sent,
-                      "sourceRequests": state.request_summary()}), flush=True)
+                      "sourceRequests": state.request_summary(), "connections": server.connection_summary()}), flush=True)
 
 
 if __name__ == "__main__":

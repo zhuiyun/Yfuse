@@ -7,6 +7,8 @@ import time
 import unittest
 import ssl
 import tempfile
+import errno
+import urllib.error
 from cryptography.hazmat.primitives import serialization
 
 spec = importlib.util.spec_from_file_location("relay", Path(__file__).with_name("server.py"))
@@ -26,11 +28,15 @@ class Upstream:
     def __init__(self):
         self.requests = []
         self.wrong_range = False
+        self.etag = None
 
     def open(self, request, timeout):
         self.requests.append(request)
         lo, hi, _ = relay.requested_range(request.get_header("Range"), 10)
-        return Response(b"0123456789"[lo:hi + 1], "bytes %d-%d/10" % (lo + int(self.wrong_range), hi))
+        response = Response(b"0123456789"[lo:hi + 1], "bytes %d-%d/10" % (lo + int(self.wrong_range), hi))
+        if self.etag is not None:
+            response.headers['ETag'] = self.etag
+        return response
 
 
 class RelayTest(unittest.TestCase):
@@ -92,6 +98,34 @@ class RelayTest(unittest.TestCase):
         self.assertEqual((200, "10", b""), (status, headers["Content-Length"], body))
         self.assertEqual([], self.origin.requests)
 
+    def test_conditional_range_validates_source_tag_before_sending_any_bytes(self):
+        self.origin.etag = '"private-origin-tag"'
+        status, headers, data = self.request(headers={'Range': 'bytes=0-2'})
+        tag = headers['ETag']
+        self.assertEqual((206, b'012'), (status, data))
+        self.assertRegex(tag, r'^"[0-9a-f]{64}"$')
+        status, headers, data = self.request(headers={'Range': 'bytes=3-6', 'If-Range': tag})
+        self.assertEqual((206, tag, b'3456'), (status, headers['ETag'], data))
+        self.origin.etag = '"same-size-replacement"'
+        status, _, data = self.request(headers={'Range': 'bytes=3-6', 'If-Range': tag})
+        self.assertEqual((412, b''), (status, data))
+        self.assertNotIn('private-origin-tag', str(self.state.request_summary()))
+        self.assertNotIn(tag, str(self.state.request_summary()))
+
+    def test_absent_or_weak_origin_validator_does_not_generate_a_strong_tag(self):
+        for tag in (None, 'W/"weak"', 'unquoted', '"has a space"'):
+            self.origin.etag = tag
+            status, headers, data = self.request(headers={'Range': 'bytes=1-2'})
+            self.assertEqual((206, b'12'), (status, data))
+            self.assertNotIn('ETag', headers)
+        self.assertEqual(412, self.request(headers={'Range': 'bytes=1-2', 'If-Range': '"obsolete"'})[0])
+
+    def test_pre_response_failure_reports_the_transport_cause_without_error_text(self):
+        cause = ConnectionResetError(errno.ECONNRESET, 'private source address')
+        result = relay.request_error_fields(urllib.error.URLError(cause))
+        self.assertEqual({'errorType': 'URLError', 'transportCause': 'ConnectionResetError', 'errno': errno.ECONNRESET}, result)
+        self.assertNotIn('private', str(result))
+
     def test_session_admits_only_the_configured_runner_address(self):
         self.server.allowed_clients = frozenset({"192.0.2.5"})
         with self.assertRaises((http.client.RemoteDisconnected, ConnectionResetError, ConnectionAbortedError)):
@@ -128,6 +162,22 @@ class RelayTest(unittest.TestCase):
         self.origin.wrong_range = True
         self.assertEqual(502, self.request(headers={"Range": "bytes=3-6"})[0])
         self.assertEqual(0, self.state.bytes_sent)
+
+    def test_a_connection_slot_refusal_is_distinct_from_an_upstream_request(self):
+        acquired = 0
+        try:
+            while self.server.connection_slots.acquire(blocking=False):
+                acquired += 1
+            with self.assertRaises((http.client.RemoteDisconnected, ConnectionResetError)):
+                self.request(headers={"Range": "bytes=2-4"})
+            info = self.server.connection_summary()
+            self.assertEqual(1, info['acceptedFromAllowedClients'])
+            self.assertEqual(1, info['slotRefusals'])
+            self.assertEqual('slot-full', info['recentFailures'][0]['cause'])
+            self.assertEqual([], self.origin.requests)
+        finally:
+            for _ in range(acquired):
+                self.server.connection_slots.release()
 
     def test_budget_is_atomic_and_limits_transfer(self):
         self.state.remaining = 4

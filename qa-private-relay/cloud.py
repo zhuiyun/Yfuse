@@ -1,6 +1,5 @@
 """Cloud-only TLS-pinned bridge; Android sees the same bytes through an isolated loopback port."""
 import base64
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -18,6 +17,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 sys.path.insert(0, str(Path(__file__).parent))
 from server import BoundedHTTPServer, RelayState, handler_for
+from admission import check_path
 
 if os.environ.get("GITHUB_ACTIONS") != "true":
     raise SystemExit("Cloud runner required")
@@ -30,19 +30,12 @@ if len(certificates) != 1:
 tls = ssl.create_default_context(cadata=certificates.pop())
 opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), urllib.request.HTTPSHandler(context=tls))
 Path("private-results").mkdir(exist_ok=True)
-try:
-    first = next(iter(items.values()))
-    request = urllib.request.Request(first["location"], headers={
-        "Range": "bytes=0-1023", "User-Agent": "Emby for Android Mobile", "Accept-Encoding": "identity",
-    })
-    with opener.open(request, timeout=12) as response:
-        data = response.read(1024)
-        if response.status != 206 or hashlib.sha256(data).hexdigest()[:16] != first["rangeHashes"]["start"]:
-            raise ValueError("The remote relay did not return the original source bytes")
-except Exception as error:
+admission = check_path(items, opener)
+Path("private-results/remote-admission.json").write_text(json.dumps(admission, indent=2))
+if not admission["remoteAdmissionPassed"]:
     Path("private-results/relay-path.json").write_text(json.dumps({
         "sourcePath": "temporary-server-relay", "remoteAdmissionPassed": False,
-        "errorType": type(error).__name__, "httpStatus": getattr(error, "code", 0),
+        "admissionEvidence": "remote-admission.json",
         "appPlaybackAttempts": 0,
     }))
     raise SystemExit("The temporary relay must be reachable before starting player tests")
@@ -68,6 +61,7 @@ try:
     envelope = {k: base64.b64encode(v).decode() for k, v in
                 (("key", wrapped), ("nonce", nonce), ("ciphertext", ciphertext))}
     (temp / "envelope.json").write_text(json.dumps(envelope))
+    os.environ['QA_VERIFIED_PRIVATE_RELAY'] = 'true'
     runpy.run_path("qa-private-arm/gate.py", run_name="__main__")
 finally:
     state.stopped.set()
@@ -77,7 +71,7 @@ finally:
     Path("private-results").mkdir(exist_ok=True)
     Path("private-results/relay-path.json").write_text(json.dumps({
         "sourcePath": "temporary-server-relay", "tlsCertificatePinned": True,
-        "loopbackOnly": True, "bytesForwarded": state.bytes_sent,
-        "requests": state.request_summary(),
+        "loopbackOnly": True, "bytesForwarded": state.bytes_sent, "admissionEvidence": "remote-admission.json",
+        "requests": state.request_summary(), "connections": server.connection_summary(),
         "note": "This validates original media bytes via the source server; it does not prove direct cloud-to-CDN access.",
     }))
