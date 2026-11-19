@@ -48,6 +48,19 @@ batches=int(os.environ.get('QA_BATCHES','2'))
 batch_count=int(os.environ.get('QA_BATCH_COUNT','16'))
 assert sessions>0 and batches>0 and batch_count>0
 rec=[];report={'continuousProcess':continuous,'cycles':cycles,'processSamples':process_samples,'shard':shard,'mediaPath':'adb-reverse' if media_host=='127.0.0.1' else 'docker-bridge','planned':len(clips)*sessions*batches*batch_count,'files':rec}
+historical = {}
+if os.environ.get('QA_HISTORICAL_REPLAY') == 'true':
+    manifest = json.loads(pathlib.Path('qa-historical-seeks/affected-batches.json').read_text())
+    historical = manifest['shards'][str(shard)]
+    assert not continuous and sessions == 1 and batch_count == manifest['batchLength'] == 16
+    clips = [clip for clip in clips if clip['name'] in historical]
+    assert {clip['name'] for clip in clips} == set(historical)
+    for clip in clips:
+        old = historical[clip['name']]
+        assert all(clip[field] == old[field] for field in ('duration', 'codec', 'width'))
+    report['planned'] = sum(len(file['batches']) * batch_count for file in historical.values())
+    report['plannedHistoricalFailures'] = sum(len(batch['failedTargets']) for file in historical.values()
+                                               for batch in file['batches'].values())
 
 def capture_open_failure(clip, session):
     # This lane only serves the allowlisted public fixtures, never private media locations.
@@ -141,22 +154,34 @@ for idx,clip in enumerate(clips):
                 raise SystemExit('Continuous playback did not start; preserve the first failure')
             continue
         attempted=0
-        for batch in range(batches):
+        old_batches = historical.get(clip['name'], {}).get('batches', {})
+        planned_batches = sorted(map(int, old_batches)) if historical else range(batches)
+        for batch in planned_batches:
             base_seed=int(os.environ.get('QA_SEED_BASE',str((11987311 if os.environ['QA_ENGINE']=='YCore' else 22987311)+shard*2017+idx*137)))
             seed=base_seed+batch if os.environ.get('QA_REPEAT_SESSION')=='true' else base_seed if os.environ.get('QA_REPEAT_SEED')=='true' else base_seed+session*19+batch
+            if historical:
+                seed = old_batches[str(batch)]['seed']
             try:
                 answer=adb('shell','am','instrument','-w','-e','mode','volume','-e','variant','original','-e','seed',seed,'-e','count',batch_count,'-e','duration',clip['duration'],'-e','stopOnFailure',os.environ.get('QA_STOP_ON_FAILURE','false'),'qa.yfuse.gesture/.Driver',timeout=350)
                 match=re.search(r'INSTRUMENTATION_RESULT: rows=([A-Za-z0-9+/=]+)',answer)
                 if not match:raise ValueError('missing instrumentation response')
                 rows=json.loads(base64.b64decode(match[1]))
                 for row in rows:row['seed']=seed
+                if historical:
+                    expected = old_batches[str(batch)]['failedTargets']
+                    assert [row['i'] for row in rows] == list(range(batch_count))
+                    for row in rows:
+                        index = str(row['i'])
+                        row['historicalUnconfirmed'] = index in expected
+                        if index in expected and row['target'] != expected[index]:
+                            raise AssertionError('Historical target differs from the recorded input')
                 detail['rows'].extend(rows)
                 n=sum(bool(r.get('issued')) for r in rows);good=sum(bool(r.get('ok')) for r in rows);attempted+=n
                 print('BATCH',clip['name'],session,batch,'issued',n,'verified',good,flush=True)
                 save()
                 if good!=len(rows):
                     capture_open_failure(clip,str(session)+'-batch-'+str(batch))
-                if n<8:break
+                if n<8 and not historical:break
             except (ValueError,subprocess.SubprocessError,RuntimeError) as e:
                 detail.setdefault('errors',[]).append(type(e).__name__);break
         detail['sessions'][-1]['issued']=attempted;save()

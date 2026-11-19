@@ -1,0 +1,83 @@
+name: Replay the 383 original gesture batches containing all 1971 unconfirmed seeks
+on:
+  push:
+    branches: [codex/two-engines-cloud-seek-20261113]
+    paths: [.github/workflows/qa-historical-seek-replay.yml]
+permissions: {contents: read, actions: read}
+env:
+  QA_APP_SHA: 382077026e5747530f320c0188ba2eeebd529b7e
+jobs:
+  input:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - name: Acquire the qualified app and verify the historical plan
+        env: {API_TOKEN: '${{ github.token }}'}
+        run: |
+          set -euo pipefail
+          bash qa-integrated/acquire-qualified-candidate.sh 44469657784 "$QA_APP_SHA"
+          python3 qa-historical-seeks/check.py
+          mkdir qa-driver
+          cp qa-arm-matrix/Driver.java qa-volume/input-driver.java
+          sed 's|adb install -r driver.apk|cp driver.apk "$GITHUB_WORKSPACE/qa-driver/driver.apk"|' qa-volume/build-driver.sh > "$RUNNER_TEMP/driver.sh"
+          bash "$RUNNER_TEMP/driver.sh"
+          (cd qa-driver && sha256sum driver.apk > driver.sha256)
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: historical-replay-input
+          path: |
+            preview/composeApp-release.apk
+            preview/provenance.txt
+            preview/apk.sha256
+            qa-driver/driver.apk
+            qa-driver/driver.sha256
+          retention-days: 7
+  replay:
+    needs: input
+    name: Original target batch shard ${{ matrix.shard }} on both engines
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: {shard: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,20,21,22,23]}
+    env:
+      QA_SHARD: ${{ matrix.shard }}
+      QA_SESSIONS: '1'
+      QA_BATCH_COUNT: '16'
+      QA_HISTORICAL_REPLAY: 'true'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: historical-replay-input, path: .}
+      - name: Regenerate the original codec, resolution, clock and source duration
+        run: |
+          set -euo pipefail
+          (cd preview && sha256sum -c apk.sha256)
+          (cd qa-driver && sha256sum -c driver.sha256)
+          grep -Fx "app=$QA_APP_SHA" preview/provenance.txt
+          sudo apt-get -qq update
+          sudo apt-get install -y ffmpeg python3-pil fonts-dejavu-core
+          /usr/bin/python3 qa-volume/fixtures.py "$QA_SHARD"
+      - run: bash qa-arm-dual/redroid.sh
+      - name: Match touches to original indices and preserve both independent results
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTIONS" = true
+          mkdir replay
+          cp preview/apk.sha256 preview/provenance.txt qa-media/fixtures.json replay/
+          status=0
+          for core in YCore SenPlayer; do
+            mkdir -p results
+            if [[ "$core" == SenPlayer ]]; then adb shell pm clear com.yfuse | tr -d '\r' | grep -Fx 'Success'; fi
+            QA_ENGINE="$core" bash qa-arm-matrix/run.sh || status=1
+            mv results "replay/$core"
+          done
+          python3 qa-historical-seeks/check.py --results replay --shard "$QA_SHARD" || status=1
+          exit "$status"
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: 'historical-targets-${{ matrix.shard }}', path: replay/, retention-days: 10}
