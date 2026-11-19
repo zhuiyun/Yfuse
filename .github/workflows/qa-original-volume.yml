@@ -5,7 +5,7 @@ on:
     paths: [.github/workflows/qa-original-volume.yml, qa-arm-original/original_volume.py, qa-arm-original/natural_frames.py, qa-arm-original/start_volume.sh, qa-arm-original/prepare_volume.sh]
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: 20c96e5eb929aedd9b38b19d9a20cbb3ee0bf326
+  QA_APP_SHA: e6f66482a1b498a650d152eef57c73bb3143f520
 jobs:
   driver:
     runs-on: ubuntu-24.04
@@ -33,28 +33,28 @@ jobs:
         with: {name: original-seek-driver, path: driver}
       - name: Verify the current release candidate
         env: {API_TOKEN: '${{ github.token }}'}
-        run: bash qa-arm-original/prepare_volume.sh 44414710658
+        run: bash qa-arm-original/prepare_volume.sh 44436887249
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with: {name: natural-original-input, path: candidate/, retention-days: 5}
   original_touch_control:
-    name: Repeat the failed original first touches with the identical earlier APK
+    name: Repeat the two disputed films and all 120 targets per core with their original APK
     needs: driver
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 100
+    timeout-minutes: 190
     env:
-      QA_STAGE: pilot
-      QA_APP_SHA: 94ec647fac5132b5f3ee92e1304b98f57084e078
+      QA_STAGE: reference-control
+      QA_APP_SHA: 92927caeedad906743f0d82097adb41d915d6f06
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with: {persist-credentials: false}
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with: {name: original-seek-driver, path: driver}
-      - name: Acquire the exact APK used for the failed pilot
+      - name: Acquire the exact APK from the original-film stress failures
         env: {API_TOKEN: '${{ github.token }}'}
         run: |
           set -euo pipefail
-          bash qa-arm-original/prepare_volume.sh 44369298786
-          echo '03058f533a38020fec500575a2ced18bc913bcde09934c6306cb35aa8b9d8d6a  candidate/composeApp-release.apk' | sha256sum -c -
+          bash qa-arm-original/prepare_volume.sh 44403005018
+          echo 'e0b4100b4a827b084833968ab18044df33ddffcf0a0446c1176c7e42cb641648  candidate/composeApp-release.apk' | sha256sum -c -
       - run: bash qa-arm-original/start_volume.sh
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9

@@ -1,5 +1,6 @@
 """Issue physical touch gestures on byte-identical public film and episode originals."""
 from collections import Counter
+import base64
 import hashlib
 import json
 import os
@@ -11,10 +12,11 @@ import sys
 import tempfile
 import time
 import urllib.request
+import zlib
 from urllib.parse import urlsplit
 
 import direct
-from natural_frames import OriginalFrames, RATE
+from natural_frames import OriginalFrames, sample_luma
 sys.path.insert(0, 'qa-power-ui')
 from media import MediaServer
 from power import engine, playing
@@ -31,6 +33,28 @@ def write(path, value):
     temporary.replace(path)
 
 
+def verified_publisher_range(url, offset, size, expected):
+    end = offset + len(expected) - 1
+    requested = f'bytes={offset}-{end}'
+    expected_range = f'bytes {offset}-{end}/{size}'
+    attempts = []
+    for attempt in range(2):
+        headers = {'Range': requested, 'Accept-Encoding': 'identity'}
+        if attempt:
+            headers['Cache-Control'] = 'no-cache'
+        with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=25) as response:
+            actual_range = response.headers.get('Content-Range')
+            attempts.append({'status': response.status, 'contentRange': actual_range})
+            if response.status != 206 or actual_range != expected_range:
+                continue
+            payload = response.read(len(expected) + 1)
+        if len(payload) != len(expected) or payload != expected:
+            raise ValueError(f'Publisher bytes at {offset} differ from the complete file despite an exact 206')
+        return {'offset': offset, 'bytes': len(payload), 'sha256': hashlib.sha256(payload).hexdigest(),
+                'attempts': attempts}
+    raise ValueError(f'Publisher range {offset}-{end} did not match in two responses: {attempts}')
+
+
 def reference_file(item, target):
     url = item['url']
     parts = urlsplit(url)
@@ -44,14 +68,11 @@ def reference_file(item, target):
     with target.open('rb') as data:
         digest = hashlib.file_digest(data, 'sha256').hexdigest()
         for offset in (0, size // 2, size - 4096):
-            request = urllib.request.Request(url, headers={'Range': f'bytes={offset}-{offset + 4095}', 'Accept-Encoding': 'identity'})
-            with urllib.request.urlopen(request, timeout=25) as response:
-                payload = response.read(4097)
-                data.seek(offset)
-                if (response.status != 206 or response.headers.get('Content-Range') != f'bytes {offset}-{offset + 4095}/{size}'
-                        or len(payload) != 4096 or data.read(4096) != payload):
-                    raise ValueError('An independent publisher range differed from the downloaded original')
-                ranges.append({'offset': offset, 'bytes': len(payload), 'sha256': hashlib.sha256(payload).hexdigest()})
+            data.seek(offset)
+            expected = data.read(4096)
+            if len(expected) != 4096:
+                raise ValueError(f'Complete file has no 4096-byte reference at {offset}')
+            ranges.append(verified_publisher_range(url, offset, size, expected))
     probe = subprocess.check_output(['ffprobe', '-v', 'error', '-show_entries',
                                     'format=duration,size,format_name:stream=codec_type,codec_name,width,height,display_aspect_ratio',
                                     '-of', 'json', str(target)])
@@ -71,32 +92,56 @@ def fractions(identifier, duration, count):
     return [round(rng.uniform(.60, upper) if index % 2 == 0 else rng.uniform(.10, .35), 6) for index in range(count)]
 
 
-def later_source_picture(compare, first_second):
-    started = time.monotonic()
-    deadline = started + 7
+def later_source_picture(compare, first_second, first_clock_observed):
+    deadline = first_clock_observed + 7
     while time.monotonic() < deadline:
         _, tree = direct.reveal()
         before = direct.media_clock(tree)
+        before_at = time.monotonic()
         if before is not None and before > first_second:
             frame = direct.screen()
-            elapsed = time.monotonic() - started
             after = direct.media_clock(direct.snapshot())
-            if elapsed <= 7 and after is not None and before <= after <= before + 2:
+            after_at = time.monotonic()
+            if after_at <= deadline and after is not None and before <= after <= before + 2:
+                elapsed = (before_at + after_at) / 2 - first_clock_observed
                 picture = compare(frame, (before + after) / 2)
                 picture.update(clockBeforeCapture=before, clockAfterCapture=after,
+                               beforeClockMonotonic=before_at, afterClockMonotonic=after_at,
                                secondsAfterFirstCheck=round(elapsed, 3))
                 return picture
         time.sleep(.2)
     return None
 
 
+def issue_seek(fraction, row):
+    def invoke():
+        reply = direct.adb('shell', 'am', 'instrument', '-w', '-e', 'mode', 'seekTo', '-e', 'fraction',
+                           str(fraction), 'qa.yfuse.gesture/.Driver')
+        return dict(re.findall(r'^INSTRUMENTATION_RESULT: (\w+)=([^\r\n]*)', reply, re.MULTILINE))
+
+    fields = invoke()
+    # Driver.seekTo emits this error before it calculates the release point or sends ACTION_DOWN.
+    if fields.get('outcome') == 'java.lang.IllegalStateException: Visible stable rail unavailable':
+        row['firstDriverOutcomeBeforeDown'] = fields['outcome']
+        direct.reveal()
+        fields = invoke()
+    return fields
+
+
 def measure_touch(index, fraction, duration, reference, case, save_source_pictures=False):
     row = {'index': index, 'fraction': fraction, 'issued': False, 'confirmed': False}
     images = []
+    retain_followup = False
 
     def compare(image, clock):
+        nonlocal retain_followup
         result = reference.compare(image, clock)
-        if save_source_pictures and (images or result['classification'] not in MATCHED_PICTURES):
+        if retain_followup or result['classification'] not in MATCHED_PICTURES:
+            retain_followup = True
+            pixels = sample_luma(image).tobytes()
+            result['luma96x54'] = base64.b64encode(zlib.compress(pixels)).decode('ascii')
+            result['lumaSha256'] = hashlib.sha256(pixels).hexdigest()
+        if save_source_pictures and retain_followup:
             path = OUT / f'{case}-source-{len(images)}.png'
             image.save(path)
             images.append(path.name)
@@ -104,9 +149,7 @@ def measure_touch(index, fraction, duration, reference, case, save_source_pictur
         return result
 
     try:
-        reply = direct.adb('shell', 'am', 'instrument', '-w', '-e', 'mode', 'seekTo', '-e', 'fraction',
-                           str(fraction), 'qa.yfuse.gesture/.Driver')
-        fields = dict(re.findall(r'^INSTRUMENTATION_RESULT: (\w+)=([^\r\n]*)', reply, re.MULTILINE))
+        fields = issue_seek(fraction, row)
         if fields.get('outcome') != 'seek-touch-issued':
             raise AssertionError('Touch not confirmed by input driver: ' + fields.get('outcome', 'missing receipt'))
         row['issued'] = True
@@ -138,7 +181,7 @@ def measure_touch(index, fraction, duration, reference, case, save_source_pictur
         row['sourceCorroborated'] = first_class in MATCHED_PICTURES
         second = None
         if not row['sourceCorroborated']:
-            second = later_source_picture(compare, out['laterPos'])
+            second = later_source_picture(compare, out['laterPos'], out['sourcePicture']['clockObservedMonotonic'])
             if second is None and first_class == 'different-scene':
                 row['reason'] = 'second picture clock unavailable after a conflicting scene'
                 return row
@@ -171,7 +214,7 @@ def exercise(item, original, path, core, count, reference):
     os.environ['QA_ENGINE'] = core
     plans = fractions(label, original['duration'], count)
     record = {'core': core, 'id': label, 'kind': item['kind'], 'original': original, 'planned': count, 'targets': plans,
-            'sessions': [], 'touches': [], 'referenceFramesPerSecond': RATE,
+            'sessions': [], 'touches': [], 'referenceTimeline': reference.timeline,
             'cachePolicy': 'clear on engine entry, retain between sessions'}
     result = OUT / f'{label}-{core}.json'
     write(result, record)
@@ -223,6 +266,11 @@ def main():
                 next(v['id'] for v in catalog if v['kind'] == 'episode' and v['id'].startswith('nasa-'))]
         items = [next(v for v in catalog if v['id'] == key) for key in chosen]
         count = 6
+    elif stage == 'reference-control':
+        selected = {'blender-ff8fe61b-026f-4f07-b66b-2a790d6f6ab1', 'blender-6402b77c-b61f-4a06-96ca-c8420a2becf4'}
+        items = [item for item in catalog if item['id'] in selected]
+        assert len(items) == len(selected)
+        count = 120
     elif stage == 'volume':
         shard = int(os.environ['QA_SHARD'])
         if not 0 <= shard < 22:

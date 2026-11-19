@@ -99,6 +99,7 @@ def decode_playback(label,target,duration,max_wait=None,*,tolerance=12,picture_c
             history.append({"flags":flags,"noRail":True,"elapsed":round(time.monotonic()-begin,1)})
             time.sleep(.5);continue
         pos=media_clock(tree)
+        clock_observed=time.monotonic()
         frame=screen()
         pix=patch(frame)
         elapsed=time.monotonic()-begin
@@ -116,6 +117,7 @@ def decode_playback(label,target,duration,max_wait=None,*,tolerance=12,picture_c
                         result={"firstPos":first[0],"laterPos":pos,"secToFirst":round(first[1],2),"secToConfirm":round(elapsed,2),"changes":speech[-3:]}
                         if picture_check is not None:
                             result["sourcePicture"]=picture_check(frame,pos)
+                            result["sourcePicture"]["clockObservedMonotonic"]=clock_observed
                         return result
             prev=(pos,pix)
         time.sleep(.8)

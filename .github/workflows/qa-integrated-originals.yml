@@ -14,7 +14,7 @@ jobs:
         with: {persist-credentials: false}
       - name: Wait for unit and actual ARM64 qualification
         env: {API_TOKEN: "${{ github.token }}"}
-        run: bash qa-integrated/acquire-qualified-candidate.sh 44414710658 20c96e5eb929aedd9b38b19d9a20cbb3ee0bf326
+        run: bash qa-integrated/acquire-qualified-candidate.sh 44436887249 e6f66482a1b498a650d152eef57c73bb3143f520
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with: {name: candidate-test-input, path: preview, retention-days: 7}
   originals:
@@ -38,13 +38,13 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with: {name: candidate-test-input, path: preview}
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with: {name: arm-input-driver, path: qa-driver, run-id: 43815842246, github-token: '${{ github.token }}'}
+        with: {name: arm-input-driver, path: qa-driver, run-id: 44418487066, github-token: '${{ github.token }}'}
       - name: Verify identical candidate and prepare original file checks
         run: |
           set -euo pipefail
           mkdir -p results
           (cd preview && sha256sum -c apk.sha256)
-          grep -Fx "app=20c96e5eb929aedd9b38b19d9a20cbb3ee0bf326" preview/provenance.txt
+          grep -Fx "app=e6f66482a1b498a650d152eef57c73bb3143f520" preview/provenance.txt
           cp preview/provenance.txt preview/apk.sha256 results/
           sudo apt-get update -qq
           sudo apt-get install -y ffmpeg python3-pil
