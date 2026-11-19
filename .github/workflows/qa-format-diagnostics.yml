@@ -59,7 +59,7 @@ jobs:
         with: {persist-credentials: false}
       - name: Acquire qualified current app
         env: {API_TOKEN: '${{ github.token }}'}
-        run: bash qa-integrated/acquire-qualified-candidate.sh 44414710658 20c96e5eb929aedd9b38b19d9a20cbb3ee0bf326
+        run: bash qa-integrated/acquire-qualified-candidate.sh 44436887249 e6f66482a1b498a650d152eef57c73bb3143f520
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with: {name: format-fixtures-and-driver, path: .}
       - run: |

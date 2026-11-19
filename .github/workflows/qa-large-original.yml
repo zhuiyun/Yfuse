@@ -15,7 +15,7 @@ jobs:
         env: {API_TOKEN: '${{ github.token }}'}
         run: |
           set -euo pipefail
-          bash qa-integrated/acquire-qualified-candidate.sh 44414710658 20c96e5eb929aedd9b38b19d9a20cbb3ee0bf326
+          bash qa-integrated/acquire-qualified-candidate.sh 44436887249 e6f66482a1b498a650d152eef57c73bb3143f520
           python3 qa-private-arm/build_input.py
           sed 's|adb install -r driver.apk|cp driver.apk "$GITHUB_WORKSPACE/preview/driver.apk"|' qa-source-trace/build-driver.sh > "$RUNNER_TEMP/driver.sh"
           bash "$RUNNER_TEMP/driver.sh"
@@ -35,7 +35,7 @@ jobs:
           set -euo pipefail
           test "$GITHUB_ACTIONS" = true
           (cd preview && sha256sum -c apk.sha256)
-          grep -Fx 'app=20c96e5eb929aedd9b38b19d9a20cbb3ee0bf326' preview/provenance.txt
+          grep -Fx 'app=e6f66482a1b498a650d152eef57c73bb3143f520' preview/provenance.txt
           sudo apt-get update -qq
           sudo apt-get install -y ffmpeg python3-pil python3-cryptography
           bash qa-arm-dual/redroid.sh
