@@ -1032,7 +1032,7 @@ fun ProfileScreen(component: ProfileComponent) {
             Sheet.Engine ->
                 OptionSheet(
                     title = "高级内核选择",
-                    subtitle = "普通使用建议保持自动选择，仅在兼容问题时锁定",
+                    subtitle = "遇到播放兼容问题时，可固定使用一个内核。",
                     options =
                         PlaybackEngineSelection.selectable.map {
                             it.playbackOptionCopy().label to (it == engineSelection)

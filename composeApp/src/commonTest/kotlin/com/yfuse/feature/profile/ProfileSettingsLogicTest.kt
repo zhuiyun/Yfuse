@@ -27,6 +27,13 @@ class ProfileSettingsLogicTest {
     }
 
     @Test
+    fun advanced_engine_choices_recommend_only_automatic_selection() {
+        val recommended = PlaybackEngineSelection.selectable.filter { "推荐" in it.playbackOptionCopy().label }
+        assertEquals(listOf(PlaybackEngineSelection.Auto), recommended)
+        assertEquals("YCore", PlaybackEngineSelection.LockYCore.playbackOptionCopy().label)
+    }
+
+    @Test
     fun root_playback_summary_uses_ycore_goals_instead_of_backend_names() {
         assertEquals(
             "自动均衡 · 硬件优先",

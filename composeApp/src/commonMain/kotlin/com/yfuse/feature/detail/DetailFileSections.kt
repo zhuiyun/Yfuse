@@ -771,21 +771,22 @@ private fun SourceCard(
                 DolbyChip("VISION", if (selected) stateColors.onPage else palette.sub)
             }
             source?.quality?.takeIf { it.isNotBlank() && source.dolbyVision != true }?.let { quality ->
+                val chipSurface =
+                    if (selected) {
+                        stateColors.iconSurface.copy(alpha = 1f)
+                    } else {
+                        palette.card3.compositeOver(palette.background)
+                    }
                 Text(
                     quality,
                     style = AppTypography.caption.strong,
-                    color = if (selected) stateColors.onPage else palette.sub,
+                    color = contentColorForSurface(chipSurface),
                     maxLines = 1,
                     modifier =
                         Modifier
                             .clip(AppShapes.chip)
-                            .background(
-                                if (selected) {
-                                    stateColors.iconSurface.copy(alpha = 0.72f)
-                                } else {
-                                    Color(0xFF141A26).copy(alpha = 0.05f)
-                                },
-                            ).padding(horizontal = 6.dp, vertical = 2.dp),
+                            .background(chipSurface)
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
                 )
             }
         }

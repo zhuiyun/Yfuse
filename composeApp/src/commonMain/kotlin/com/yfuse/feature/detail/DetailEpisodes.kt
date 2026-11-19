@@ -70,6 +70,7 @@ import com.yfuse.core.designsystem.ItemAction
 import com.yfuse.core.designsystem.LiftAnchor
 import com.yfuse.core.designsystem.LiftMenu
 import com.yfuse.core.designsystem.LiftScrub
+import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalRouteVisible
@@ -574,7 +575,7 @@ internal fun EpisodeSection(
 
     Column(Modifier.padding(top = Dimens.sectionGap)) {
         EpisodeHeader(
-            accent = accent,
+            accent = LocalAccentColors.current.accent,
             onSeeAll = onSeeAll,
             seasonLabel = seasonLabel,
             availableEpisodeCount = availableEpisodeCount,

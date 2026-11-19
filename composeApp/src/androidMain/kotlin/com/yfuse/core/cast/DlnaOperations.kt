@@ -10,6 +10,7 @@ import kotlinx.coroutines.sync.withLock
 /** Main-thread requests for one renderer load. A newer gesture owns the next transport write. */
 internal class DlnaSeekCommands {
     private val writes = Mutex()
+    private var transportRevision = 0L
     var revision = 0L
         private set
     private var targetMs = 0L
@@ -69,6 +70,38 @@ internal class DlnaSeekCommands {
                 it > 0L
         }
 
+    suspend fun <T> transport(
+        token: CastSessionToken,
+        state: () -> CastState,
+        seekWhilePaused: (suspend () -> Unit)?,
+        isPaused: suspend () -> Boolean,
+        send: suspend () -> T,
+    ): Result<T>? {
+        val request = ++transportRevision
+        val seekRevision = revision
+
+        fun current(): Boolean =
+            request == transportRevision &&
+                (seekWhilePaused == null || seekRevision == revision) &&
+                token.matches(state())
+
+        return writes.withLock {
+            if (!current()) return@withLock null
+            if (seekWhilePaused != null) {
+                val prepared =
+                    readDlnaSessionResult(token, state) {
+                        seekWhilePaused()
+                        // The decoder needs a paused preroll before Play can expose its first frame.
+                        delay(DLNA_PAUSED_SEEK_PREROLL_MS)
+                        if (current()) check(isPaused()) { "Renderer no longer paused" }
+                    }
+                if (prepared == null || !current()) return@withLock null
+                prepared.exceptionOrNull()?.let { return@withLock Result.failure(DlnaResumePositionException(it)) }
+            }
+            readDlnaSessionResult(token, state, send)?.takeIf { current() }
+        }
+    }
+
     suspend fun <T> whenCurrent(
         expected: Long,
         command: suspend () -> T,
@@ -78,6 +111,12 @@ internal class DlnaSeekCommands {
             command().takeIf { expected == revision }
         }
 }
+
+private const val DLNA_PAUSED_SEEK_PREROLL_MS = 1_100L
+
+internal class DlnaResumePositionException(
+    cause: Throwable,
+) : IllegalStateException("投屏设备未确认暂停位置，请重试或切回本机", cause)
 
 /** A receiver address alone cannot distinguish two loads on the same device. */
 internal data class CastSessionToken(

@@ -39,9 +39,9 @@ internal fun PlayerEngine.playbackOptionCopy(): PlaybackOptionCopy =
     when (this) {
         PlayerEngine.YCore ->
             PlaybackOptionCopy(
-                label = "YCore（推荐）",
+                label = "YCore",
                 summary = "YCore 自研内核",
-                description = "使用 Yfuse 自研原生解封装、解码与渲染管线；具体格式能力由运行时验证",
+                description = "固定使用 Yfuse 自研内核解封装、解码和渲染。",
             )
         PlayerEngine.SenPlayer ->
             PlaybackOptionCopy(
@@ -59,7 +59,7 @@ internal fun PlaybackEngineSelection.playbackOptionCopy(): PlaybackOptionCopy =
             PlaybackOptionCopy(
                 label = "自动选择（推荐）",
                 summary = "智能自动",
-                description = "使用 YCore 自研内核按片源选择解码路径；不会自动启用 $SEN_PLAYER_DISPLAY_NAME",
+                description = "由 YCore 按片源选择解码方式。$SEN_PLAYER_DISPLAY_NAME 需手动选择。",
             )
         PlaybackEngineSelection.LockYCore -> PlayerEngine.YCore.playbackOptionCopy()
         PlaybackEngineSelection.LockSenPlayer -> PlayerEngine.SenPlayer.playbackOptionCopy()

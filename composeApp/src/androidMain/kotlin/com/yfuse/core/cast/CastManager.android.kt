@@ -1618,46 +1618,26 @@ private class AndroidCastManager(
             val state = mutableState.value
             val token = state.castSessionToken()
             val seeks = dlnaSeeks
-            val revision = seeks.revision
-            val anchor =
-                if (action ==
-                    "Play"
-                ) {
-                    seeks.resumeAnchor(state, dlnaStart == null && dlnaClockTrusted)
-                } else {
-                    null
-                }
+            val anchor = seeks.resumeAnchor(state, dlnaStart == null && dlnaClockTrusted).takeIf { action == "Play" }
             val result =
-                readDlnaSessionResult(token, { mutableState.value }) {
+                seeks.transport(
+                    token = token,
+                    state = { mutableState.value },
+                    seekWhilePaused =
+                        anchor?.let { position ->
+                            {
+                                sendDlnaSeek(target, position)
+                                AppLog.info(
+                                    "cast",
+                                    "dlna_resume_seek",
+                                    "Requested the confirmed position while the renderer was paused",
+                                    attributes = mapOf("targetMs" to position.toString()),
+                                )
+                            }
+                        },
+                    isPaused = { queryDlnaTransportStatus(target).trim().equals("PAUSED_PLAYBACK", ignoreCase = true) },
+                ) {
                     soap(target.avTransportUrl, action, arguments)
-                    if (anchor != null) {
-                        seeks.whenCurrent(revision) {
-                            readDlnaSessionResult(token, { mutableState.value }) {
-                                sendDlnaSeek(target, anchor)
-                            }?.fold(
-                                onSuccess = {
-                                    AppLog.info(
-                                        "cast",
-                                        "dlna_resume_seek",
-                                        "Restored the paused renderer position on resume",
-                                        attributes =
-                                            mapOf(
-                                                "targetMs" to anchor.toString(),
-                                                "revision" to revision.toString(),
-                                            ),
-                                    )
-                                },
-                                onFailure = {
-                                    AppLog.warning(
-                                        "cast",
-                                        "dlna_resume_seek_failed",
-                                        "Renderer declined the resume position",
-                                        it,
-                                    )
-                                },
-                            )
-                        }
-                    }
                     confirmDlnaTransport(target, accepted) ?: error("设备未确认$label")
                 } ?: return@withContext false
             result
@@ -1678,7 +1658,13 @@ private class AndroidCastManager(
                     }
                 }.onFailure { error ->
                     AppLog.warning("cast", "dlna_command_failed", "DLNA $action failed", error)
-                    mutableState.update { it.commandFailed(dlnaNoResponse(label)) }
+                    mutableState.update {
+                        if (error is DlnaResumePositionException) {
+                            it.copy(error = error.message)
+                        } else {
+                            it.commandFailed(dlnaNoResponse(label))
+                        }
+                    }
                 }.isSuccess
         }
 

@@ -95,7 +95,7 @@ actual fun AppVersionFooter() {
         Text(
             text = "版本 ${BuildConfig.VERSION_NAME} · 构建 ${BuildConfig.VERSION_CODE}",
             style = mr(10f, 400),
-            color = palette.sub2.copy(alpha = 0.82f),
+            color = palette.sub,
             modifier = Modifier.padding(top = 3.dp),
         )
     }
