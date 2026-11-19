@@ -1,4 +1,4 @@
-name: Verify the original movie on the publisher and during a timed-out body read
+name: Verify publisher seeks and paired slow-range startup on the original movie
 'on':
   push:
     branches:
@@ -10,7 +10,7 @@ permissions:
   actions: read
 jobs:
   diagnose:
-    name: SenPlayer original movie seeks ${{ matrix.label }}
+    name: ${{ matrix.engine }} original movie seeks ${{ matrix.label }}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 75
     strategy:
@@ -18,16 +18,17 @@ jobs:
       max-parallel: 4
       matrix:
         include:
-        - {label: origin, path: origin, version: candidate, build: 44436887249, app: e6f66482a1b498a650d152eef57c73bb3143f520}
-        - {label: loopback, path: loopback, version: candidate, build: 44436887249, app: e6f66482a1b498a650d152eef57c73bb3143f520}
-        - {label: timeout-candidate, path: loopback-timeout, version: candidate, build: 44436887249, app: e6f66482a1b498a650d152eef57c73bb3143f520}
-        - {label: timeout-previous, path: loopback-timeout, version: previous, build: 44430653728, app: b83ae66285d300babf97da58a0adaaada9c815a2}
+        - {label: origin, engine: SenPlayer, path: origin, version: candidate}
+        - {label: loopback, engine: SenPlayer, path: loopback, version: candidate}
+        - {label: timeout-candidate, engine: SenPlayer, path: loopback-timeout, version: candidate}
+        - {label: origin-ycore, engine: YCore, path: origin, version: candidate}
+        - {label: latency-ycore-paired, engine: YCore, path: loopback-latency-pair, version: paired}
     env:
-      QA_ENGINE: SenPlayer
+      QA_ENGINE: ${{ matrix.engine }}
       QA_ORIGINAL_PATH: ${{ matrix.path }}
       QA_TIMEOUT_VERSION: ${{ matrix.version }}
-      QA_APP_SHA: ${{ matrix.app }}
-      QA_BUILD: ${{ matrix.build }}
+      QA_APP_SHA: fffb78aabaa0c0338af0f43842a0aaef4669ef30
+      QA_BUILD: '44462010482'
       QA_EXPECTED_FILE_SHA256: 91768e73427fb1e4a3d3a419cb173e7a9d97340190734c361ac56fe2bb6c8a0d
       QA_CAPTURE_FAILURE: 'true'
       QA_RANGE_CONTROL: 'true'
@@ -42,6 +43,17 @@ jobs:
       env:
         API_TOKEN: ${{ github.token }}
       run: bash qa-integrated/acquire-qualified-candidate.sh "$QA_BUILD" "$QA_APP_SHA"
+    - name: Acquire the previous qualified release for the same-guest range comparison
+      if: matrix.path == 'loopback-latency-pair'
+      env:
+        API_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        mkdir previous
+        cd previous
+        bash "$GITHUB_WORKSPACE/qa-integrated/acquire-qualified-candidate.sh" 44449353843 9ac1be659452b76d7ac5df1839f062ef7b8df379
+        mkdir -p "$GITHUB_WORKSPACE/results/previous"
+        cp preview/apk.sha256 preview/provenance.txt "$GITHUB_WORKSPACE/results/previous/"
     - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
       with:
         name: arm-input-driver
