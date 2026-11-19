@@ -5,7 +5,7 @@ on:
     paths: ['.github/workflows/qa-integrated-final.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: e6f66482a1b498a650d152eef57c73bb3143f520
+  QA_APP_SHA: 382077026e5747530f320c0188ba2eeebd529b7e
 jobs:
   build:
     name: Acquire the qualified identical release candidate
@@ -16,7 +16,7 @@ jobs:
         with: {persist-credentials: false}
       - name: Wait for unit and actual ARM64 qualification
         env: {API_TOKEN: "${{ github.token }}"}
-        run: bash qa-integrated/acquire-qualified-candidate.sh 44436887249 e6f66482a1b498a650d152eef57c73bb3143f520
+        run: bash qa-integrated/acquire-qualified-candidate.sh 44469657784 382077026e5747530f320c0188ba2eeebd529b7e
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with: {name: candidate-test-input, path: preview, retention-days: 7}
 
@@ -47,6 +47,7 @@ jobs:
         engine: [SenPlayer,YCore]
     env:
       QA_ENGINE: ${{ matrix.engine }}
+      QA_CACHE_PAIRED_CONTROLS: 'true'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with: {persist-credentials: false}

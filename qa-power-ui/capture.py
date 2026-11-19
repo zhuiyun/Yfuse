@@ -404,9 +404,14 @@ def main():
                 'A screenshot and successful navigation do not establish visual or accessibility compliance.',
                 'Account-gated and external-device flows require separate coverage.']}, ensure_ascii=False, indent=2), encoding='utf-8')
             print('UI_CAPTURE', key, row['status'], flush=True)
-    adb('shell', 'cmd', 'uimode', 'night', 'no')
-    adb('shell', 'settings', 'put', 'system', 'font_scale', '1.0')
-    library.close()
+    try:
+        if secondary and os.environ.get('QA_ACCOUNT_ENTRY_CHECKS') == 'true':
+            from account_entry import verify_forms
+            verify_forms(out, capture)
+    finally:
+        library.close()
+        adb('shell', 'cmd', 'uimode', 'night', 'no')
+        adb('shell', 'settings', 'put', 'system', 'font_scale', '1.0')
     if not tab_switches_ok or any(r['status'] != 'captured-needs-review' for r in rows):
         raise SystemExit('Some requested route captures are incomplete; inspect coverage.json')
 

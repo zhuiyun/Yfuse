@@ -18,4 +18,8 @@ adb shell settings put secure immersive_mode_confirmations confirmed
 adb shell settings put secure accessibility_interactive_ui_timeout_ms 60000
 adb shell wm dismiss-keyguard
 touch /tmp/yfuse-tree-active
-/usr/bin/python3 qa-arm-original/original_volume.py
+if [[ "$QA_STAGE" == charge-start-control ]]; then
+    /usr/bin/python3 qa-arm-original/startup_repeat.py
+else
+    /usr/bin/python3 qa-arm-original/original_volume.py
+fi

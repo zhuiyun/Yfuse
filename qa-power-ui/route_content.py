@@ -38,7 +38,7 @@ CONTENT = {
     'buffer-duration-choice': ('3 秒', '6 秒'), 'danmaku-source-list': ('弹幕链接', '还没有弹幕源'),
     'danmaku-source-add': ('编辑弹幕源', 'danmaku.example.com'),
     'danmaku-word-filter': ('弹幕屏蔽词', '输入一个词后按添加'),
-    'family-add': ('新建家庭资料', '资料名称'), 'family-pin': ('当前 PIN', '新 PIN'),
+    'family-add': ('新建家庭资料', '资料名称'), 'family-pin': ('家长 PIN', '新 PIN'),
     'account-encryption-info': ('加密说明', '服务器令牌、弹幕源链接'),
     'stremio-add': ('插件 URL', '读取插件'), 'calendar-followed': ('还没有加入追剧的剧集', '查看日历'),
     'calendar-resources': ('剧集的资源', '待补齐'), 'calendar-settings': ('排期数据源', '补充已公布的分集日期'),

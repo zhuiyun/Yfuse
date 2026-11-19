@@ -128,7 +128,7 @@ def issue_seek(fraction, row):
     return fields
 
 
-def measure_touch(index, fraction, duration, reference, case, save_source_pictures=False):
+def measure_touch(index, fraction, duration, reference, case, *, save_confirmed, save_failed):
     row = {'index': index, 'fraction': fraction, 'issued': False, 'confirmed': False}
     images = []
     retain_followup = False
@@ -141,11 +141,8 @@ def measure_touch(index, fraction, duration, reference, case, save_source_pictur
             pixels = sample_luma(image).tobytes()
             result['luma96x54'] = base64.b64encode(zlib.compress(pixels)).decode('ascii')
             result['lumaSha256'] = hashlib.sha256(pixels).hexdigest()
-        if save_source_pictures and retain_followup:
-            path = OUT / f'{case}-source-{len(images)}.png'
-            image.save(path)
-            images.append(path.name)
-            result.update(observedImage=path.name, imageSha256=hashlib.sha256(path.read_bytes()).hexdigest())
+        if retain_followup and (save_confirmed or save_failed):
+            images.append((image, result))
         return result
 
     try:
@@ -202,6 +199,12 @@ def measure_touch(index, fraction, duration, reference, case, save_source_pictur
         row['confirmed'] = True
     except (AssertionError, ValueError, RuntimeError, OSError, subprocess.SubprocessError) as error:
         row['reason'] = type(error).__name__ + ': ' + str(error)[:140]
+    finally:
+        if (save_confirmed if row['confirmed'] else save_failed):
+            for seq, (image, observation) in enumerate(images):
+                path = OUT / f'{case}-source-{seq}.png'
+                image.save(path)
+                observation.update(observedImage=path.name, imageSha256=hashlib.sha256(path.read_bytes()).hexdigest())
     return row
 
 
@@ -215,23 +218,36 @@ def exercise(item, original, path, core, count, reference):
     plans = fractions(label, original['duration'], count)
     record = {'core': core, 'id': label, 'kind': item['kind'], 'original': original, 'planned': count, 'targets': plans,
             'sessions': [], 'touches': [], 'referenceTimeline': reference.timeline,
+            'sourceImageExamplesPerOutcome': 2,
             'cachePolicy': 'clear on engine entry, retain between sessions'}
     result = OUT / f'{label}-{core}.json'
     write(result, record)
     endpoint = MediaServer(path, OUT / f'{label}-{core}-ranges.jsonl', content_type=item['mime'])
     url = f"http://127.0.0.1:18389/{original['sha256']}.{path.suffix.lstrip('.') or 'media'}"
     try:
-        captured_gestures = 0
+        captured_gestures = Counter()
         for first in range(0, count, 40):
             direct.adb('shell', 'am', 'force-stop', 'com.yfuse')
-            opened = playing(core, url, item['mime'], hide_controls=False)
+            observations = len(direct.ROWS)
+            try:
+                opened = playing(core, url, item['mime'], hide_controls=False)
+            except (AssertionError, ValueError, RuntimeError, OSError, subprocess.SubprocessError):
+                label_prefix = re.sub(r'[^A-Za-z0-9_.-]', '_', f'{label}-{core}-open-{first}')
+                record['failedOpen'] = {
+                    'firstPlannedTouch': first, 'diagnosticPrefix': label_prefix,
+                    'observations': [v for v in direct.ROWS[observations:] if v['case'] == f'power-{core}-observation'],
+                }
+                write(result, record)
+                direct.capture_failure(label_prefix)
+                raise
             record['sessions'].append({'firstTouch': first, 'opened': opened})
             for index in range(first, min(first + 40, count)):
                 case = f'{label}-{core}-{index}'
                 row = measure_touch(index, plans[index], original['duration'], reference, case,
-                                    save_source_pictures=captured_gestures < 2)
+                                    save_confirmed=captured_gestures[True] < record['sourceImageExamplesPerOutcome'],
+                                    save_failed=captured_gestures[False] < record['sourceImageExamplesPerOutcome'])
                 if row.get('output', {}).get('sourcePicture', {}).get('observedImage'):
-                    captured_gestures += 1
+                    captured_gestures[row['confirmed']] += 1
                 record['touches'].append(row)
                 if not row['confirmed'] and sum(not t['confirmed'] for t in record['touches']) <= 2:
                     direct.screen().save(OUT / (case + '-unconfirmed.png'))

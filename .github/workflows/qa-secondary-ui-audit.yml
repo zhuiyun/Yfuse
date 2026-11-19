@@ -9,8 +9,8 @@ permissions:
   contents: read
   actions: read
 env:
-  QA_APP_SHA: e6f66482a1b498a650d152eef57c73bb3143f520
-  QA_BUILD_RUN: 44436887249
+  QA_APP_SHA: 382077026e5747530f320c0188ba2eeebd529b7e
+  QA_BUILD_RUN: 44469657784
 jobs:
   acquire:
     runs-on: ubuntu-24.04
@@ -82,6 +82,7 @@ jobs:
     env:
       QA_UI_SCOPE: ${{ matrix.scope }}
       QA_UI_TRACE: true
+      QA_ACCOUNT_ENTRY_CHECKS: 'true'
       QA_UI_ROUTES: ${{ matrix.routes }}
       QA_UI_VARIANT: ${{ matrix.variant }}
     steps:
@@ -154,6 +155,30 @@ jobs:
     - name: Verify both themes on engine recommendations, text and source controls
       if: matrix.scope == 'primary'
       run: /usr/bin/python3 qa-power-ui/check_profile_detail_contrast.py results/ui --output results/ui/profile-detail-contrast.json
+    - name: Acquire the TV build that passed the same source revision
+      if: matrix.scope == 'secondary' && matrix.variant == 'light'
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      with:
+        name: yfuse-tv-debug-${{ env.QA_APP_SHA }}
+        run-id: 44469555825
+        github-token: ${{ github.token }}
+        path: build/tv-quality
+    - name: Verify signed-out TV remote navigation after finishing the phone capture
+      if: matrix.scope == 'secondary' && matrix.variant == 'light'
+      env:
+        API_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        test "$GITHUB_ACTIONS" = true
+        mkdir -p results/tv-signed-out
+        curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/44469555825" | jq -e --arg sha "$QA_APP_SHA" '{id,head_sha,path,conclusion} | select(.id==44469555825 and .head_sha==$sha and .path==".github/workflows/tv-quality-gates.yml" and .conclusion=="success")' > results/tv-signed-out/tv-build.json
+        sha256sum -c build/tv-quality/SHA256SUMS
+        sha256sum build/tv-quality/Yfuse-TV-debug.apk > results/tv-signed-out/tv-apk.sha256
+        adb uninstall com.yfuse
+        adb install -g build/tv-quality/Yfuse-TV-debug.apk
+        adb shell wm size 1280x720
+        adb shell wm density 200
+        /usr/bin/python3 qa-power-ui/tv_handoff_entry.py
     - if: always()
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
       with:

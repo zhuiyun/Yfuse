@@ -9,8 +9,8 @@ permissions:
   contents: read
   actions: read
 env:
-  QA_APP_SHA: e6f66482a1b498a650d152eef57c73bb3143f520
-  QA_BUILD_RUN: 44436887249
+  QA_APP_SHA: 382077026e5747530f320c0188ba2eeebd529b7e
+  QA_BUILD_RUN: 44469657784
   QA_EXPECT_NO_SUBTITLE_CONFIGURATION_ERRORS: 'true'
   QA_POWER_CPU_ATTRIBUTION: 'true'
   QA_POWER_LIBRARY_PLAYBACK: 'true'
@@ -143,6 +143,8 @@ jobs:
         '
     - name: Record short instrumentation pilot
       run: /usr/bin/python3 qa-power-ui/power.py
+    - name: Check quiet settings and prompt return to normal server status updates
+      run: /usr/bin/python3 qa-power-ui/profile_health.py
     - if: always()
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
       with:
