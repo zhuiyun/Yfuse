@@ -117,6 +117,42 @@ class ServerHealthScheduleTest {
         }
 
     @Test
+    fun profile_idle_pauses_repeated_probes_and_return_refreshes_only_due_servers() =
+        runTest {
+            val monitor = startedMonitor(registryOf(server("fine")))
+            monitor.setAppForeground(true)
+            runCurrent()
+            assertEquals(1, probes["fine.example"])
+
+            monitor.setStatusRelevant(false)
+            minutes(15)
+            assertEquals(1, probes["fine.example"])
+            monitor.refreshAll()
+            assertEquals(2, probes["fine.example"])
+            monitor.setStatusRelevant(true)
+            runCurrent()
+            assertEquals(2, probes["fine.example"])
+
+            monitor.setStatusRelevant(false)
+            minutes(15)
+            monitor.setStatusRelevant(true)
+            runCurrent()
+            assertEquals(3, probes["fine.example"])
+            minutes(1)
+            assertEquals(4, probes["fine.example"])
+
+            monitor.setAppForeground(false)
+            monitor.setStatusRelevant(false)
+            minutes(5)
+            monitor.setStatusRelevant(true)
+            runCurrent()
+            assertEquals(4, probes["fine.example"])
+            monitor.setAppForeground(true)
+            runCurrent()
+            assertEquals(5, probes["fine.example"])
+        }
+
+    @Test
     fun an_explicit_refresh_probes_every_server_whatever_its_last_verdict() =
         runTest {
             refused += "refused.example"

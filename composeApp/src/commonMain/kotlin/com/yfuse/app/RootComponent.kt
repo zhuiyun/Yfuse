@@ -101,6 +101,7 @@ class RootComponent(
         if (backgroundServicesStarted) return
         backgroundServicesStarted = true
         syncManager.start(scope)
+        dependencies.serverHealthMonitor.setStatusRelevant(activeTab.value != Tab.Profile)
         dependencies.serverHealthMonitor.start(scope)
     }
 
@@ -330,6 +331,7 @@ class RootComponent(
             themePreferences.rememberHome(tab == Tab.CustomHome)
         }
         _activeTab.value = tab
+        if (backgroundServicesStarted) dependencies.serverHealthMonitor.setStatusRelevant(tab != Tab.Profile)
     }
 
     /**

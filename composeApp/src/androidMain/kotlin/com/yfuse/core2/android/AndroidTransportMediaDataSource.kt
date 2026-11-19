@@ -409,13 +409,7 @@ internal class AndroidTransportMediaDataSource(
                         blockIndex,
                         requestedOffset = offsetInBlock,
                         requestedBytes = minOf(remaining, blockSize - offsetInBlock),
-                        startupOffset =
-                            offsetInBlock.takeIf {
-                                !persistReadBlocks &&
-                                    (!startupReadServed || !playbackWindow.playing) &&
-                                    blockSize > STARTUP_RANGE_BYTES &&
-                                    size <= STARTUP_RANGE_BYTES
-                            },
+                        startupOffset = startupRangeOffset(readPosition, offsetInBlock, size),
                     )
             val block = loaded.bytes
             val writer = scrubWriter ?: BufferedScrubMedia.lookup(uri, headers, credentials)?.also { scrubWriter = it }
@@ -448,6 +442,28 @@ internal class AndroidTransportMediaDataSource(
     /** The codec pump never waits on a range-read monitor to publish feedback. */
     fun updatePlaybackWindow(window: YTransportPlaybackWindow) {
         playbackWindow = window
+    }
+
+    private fun startupRangeOffset(
+        position: Long,
+        offsetInBlock: Int,
+        requestSize: Int,
+    ): Int? {
+        if (
+            persistReadBlocks ||
+            (startupReadServed && playbackWindow.playing) ||
+            blockSize <= STARTUP_RANGE_BYTES ||
+            requestSize > STARTUP_RANGE_BYTES
+        ) {
+            return null
+        }
+        // A queued prefetch can be promoted before its worker starts. Its foreground replacement
+        // should fetch the same whole block when the demuxer is already reading sequentially.
+        val continuingAtBoundary =
+            prioritizeStartupReads && offsetInBlock == 0 && position - contiguousReadStart >= STARTUP_RANGE_BYTES
+        return offsetInBlock.takeUnless {
+            continuingAtBoundary && !prefetchSuppressed && memoryCacheBytes >= blockSize && allowsSpeculativeWork()
+        }
     }
 
     private fun scheduleForwardCache() {

@@ -17,7 +17,17 @@ import java.util.concurrent.TimeUnit
 class YCoreStartupRangeHttpTest {
     @Test
     fun continuousDemuxReadsUseASingleHttpRangePerFollowingBlockWithoutAnEntityTag() {
+        verifyContinuousRanges(memoryMiB = 64)
+    }
+
+    @Test
+    fun continuousDemuxReadsUseFullForegroundRangeWhenNoSpeculativeBlockFits() {
+        verifyContinuousRanges(memoryMiB = 8)
+    }
+
+    private fun verifyContinuousRanges(memoryMiB: Int) {
         val blockSize = 2 * 1024 * 1024
+        val memoryBytes = memoryMiB.toLong() * 1024 * 1024
         val media = ByteArray(3 * blockSize) { (it % 251).toByte() }
         val ranges = CopyOnWriteArrayList<String>()
         val client = OkHttpClient()
@@ -45,9 +55,9 @@ class YCoreStartupRangeHttpTest {
                 createTransport = { AndroidHttpMediaTransport(client) },
                 prioritizeStartupReads = true,
                 memoryLeaseOverride =
-                    PlaybackMemoryPool(64L * 1024 * 1024).acquire(
+                    PlaybackMemoryPool(memoryBytes).acquire(
                         PlaybackBufferKind.Transport,
-                        64L * 1024 * 1024,
+                        memoryBytes,
                     ),
                 allowsSpeculativeWork = { true },
                 refreshMemoryPressure = {},
@@ -60,6 +70,7 @@ class YCoreStartupRangeHttpTest {
                     digest.update(chunk)
                 }
                 assertArrayEquals(MessageDigest.getInstance("SHA-256").digest(media.copyOf(length)), digest.digest())
+                if (memoryMiB == 8) assertEquals(0L, source.qoeSnapshot().hitCount)
                 for (first in listOf(blockSize, 2 * blockSize)) {
                     assertEquals(
                         "Sequential demux must use one HTTP exchange for the next block",
