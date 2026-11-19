@@ -10,6 +10,7 @@ import xml.etree.ElementTree as ET
 from library import LibraryServer
 from library_ui import connect
 from navigation import click, bounds, vertical_pane
+from route_content import ROOT_TABS, destination_visible
 
 sys.path.insert(0, 'qa-arm-matrix')
 import engine
@@ -60,7 +61,7 @@ POPULATED_ROUTES = [
 ]
 
 
-def capture(out, name, expected=None, timeout=12):
+def capture(out, name, expected=None, timeout=12, matches=None):
     tree = ui.snapshot()
     empty_samples = 0
     deadline = time.monotonic() + 3
@@ -71,10 +72,11 @@ def capture(out, name, expected=None, timeout=12):
         (out / (name + '-empty-' + str(empty_samples) + '.xml')).write_bytes(ET.tostring(tree, encoding='utf-8'))
         time.sleep(.25)
         tree = ui.snapshot()
-    if expected is not None:
+    if expected is not None or matches is not None:
         deadline = time.monotonic() + timeout
         while not (any(n.get('package') == 'com.yfuse' for n in ui.nodes(tree)) and
-                   any(expected in label for label in ui.page_info(tree))):
+                   (expected is None or any(expected in label for label in ui.page_info(tree))) and
+                   (matches is None or matches(tree))):
             if time.monotonic() >= deadline:
                 break  # Preserve the actual wrong state for the caller's coverage gate.
             time.sleep(.25)
@@ -102,6 +104,34 @@ def surface_signature(tree):
     # A set would lose which of two otherwise identical parents became selected.
     return tuple((n.get('text', ''), n.get('content-desc', ''), n.get('checked'), n.get('selected'),
                   n.get('state'), n.get('enabled')) for n in ui.nodes(tree))
+
+
+def verify_single_tap_tabs(out):
+    observations = []
+    try:
+        ui.launch()
+        ui.root('服务器')
+        for index, name in enumerate(('library-empty', 'watching', 'profile', 'servers') * 3, 1):
+            tab = ROOT_TABS[name]
+            before = ui.snapshot()
+            target = ui.dock(before, tab)
+            row = {'step': index, 'page': name, 'issued': False, 'verified': False}
+            observations.append(row)
+            if target is None or ui.selected_dock(before, tab):
+                raise AssertionError('Expected a visible unselected tab')
+            began = time.monotonic()
+            ui.tap(target)
+            row['issued'] = True
+            shot = capture(out, 'tab-switch-' + str(index), matches=lambda tree: destination_visible(tree, name, ui.selected_dock))
+            tree = ET.parse(out / shot['tree']).getroot()
+            row.update(verified=destination_visible(tree, name, ui.selected_dock), tree=shot['tree'],
+                       image=shot['image'], treeSha256=shot['treeSha256'], captureMs=round(1000 * (time.monotonic() - began)))
+            if not row['verified']:
+                raise AssertionError('The first tap did not open the requested destination')
+    except Exception as error:
+        observations.append({'error': type(error).__name__, 'verified': False})
+    (out / 'single-tap-tabs.json').write_text(json.dumps(observations, ensure_ascii=False, indent=2), encoding='utf-8')
+    return len(observations) == 12 and all(r['verified'] for r in observations)
 
 
 def verify_detail_clearance(tree_file, title):
@@ -249,6 +279,9 @@ def main():
         if requested - available:
             raise ValueError('Unknown requested routes')
         routes = [route for route in routes if route[0] in requested]
+    tab_switches_ok = True
+    if any(route[0] == 'library-empty' for route in routes):
+        tab_switches_ok = verify_single_tap_tabs(out)
     library = LibraryServer(out / 'fixture-requests.jsonl')
     adb('reverse', 'tcp:18196', 'tcp:18196')
     populated = False
@@ -302,7 +335,11 @@ def main():
                 if os.environ.get('QA_CAPTURE_HERO_PAGES') == 'true':
                     row['heroPages'] = capture_hero_pages(out, key)
             time.sleep(1)
-            row['top'] = capture(out, key + '-top')
+            row['top'] = capture(out, key + '-top', matches=lambda tree: destination_visible(tree, name, ui.selected_dock))
+            top_tree = ET.parse(out / row['top']['tree']).getroot()
+            if not destination_visible(top_tree, name, ui.selected_dock):
+                raise AssertionError('The saved view did not show the requested page content: ' + name)
+            row['destinationVerified'] = True
             if 'com.yfuse' not in row['top']['packages']:
                 raise AssertionError('Requested app is not the foreground screenshot subject')
             if os.environ.get('QA_REQUIRE_DETAIL_CLEARANCE') == 'true' and name in {'movie-detail', 'long-title-detail', 'series-detail'}:
@@ -370,7 +407,7 @@ def main():
     adb('shell', 'cmd', 'uimode', 'night', 'no')
     adb('shell', 'settings', 'put', 'system', 'font_scale', '1.0')
     library.close()
-    if any(r['status'] != 'captured-needs-review' for r in rows):
+    if not tab_switches_ok or any(r['status'] != 'captured-needs-review' for r in rows):
         raise SystemExit('Some requested route captures are incomplete; inspect coverage.json')
 
 

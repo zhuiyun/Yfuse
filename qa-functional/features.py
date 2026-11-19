@@ -82,8 +82,27 @@ def launch():
  except Exception:
   snap('startup-unavailable');raise
 def dock(t,tab):
- candidates=[n for n in nodes(t) if n.get('content-desc')==tab and n.get('package')==pkg]
+ candidates=[n for n in nodes(t) if n.get('content-desc')==tab and n.get('package')==pkg and n.get('visible')!='false']
  return max(candidates,key=lambda n:coords(n)[1]) if candidates else None
+def selected_dock(tree, tab):
+    item = dock(tree, tab)
+    parents = {child: parent for parent in tree.iter() for child in parent}
+    while item is not None and item.get('package') == pkg:
+        if item.get('selected') == 'true':
+            return True
+        if item.get('clickable') == 'true':
+            break
+        item = parents.get(item)
+    return False
+
+
+def at_root(tree, tab):
+    if not selected_dock(tree, tab):
+        return False
+    return not any(node.get('visible') != 'false' and node.get('content-desc') == '返回'
+                   for node in nodes(tree) if node.get('package') == pkg)
+
+
 def hide_keyboard():
  # WindowManager's current insets are authoritative. mImeWindowVis can retain
  # an old visible flag after dismissal; a second Back would leave the app page.
@@ -95,24 +114,36 @@ def hide_keyboard():
  state=shell('dumpsys','input_method')
  if re.search(r'(?:mInputShown|isInputViewShown|mIsInputViewShown)=true',state):shell('input','keyevent',4);time.sleep(.45)
 def root(tab):
- hide_keyboard()
- for _ in range(6):
-  t=snapshot()
-  if find(t,'切换服务器') is not None and find(t,'关闭') is not None:tap(find(t,'关闭'));continue
-  visible=page_info(t)
-  markers={'我的':['账号与同步','搜索设置'],'服务器':['我的服务器','浏览 NAS 与网盘里的视频','连接 Emby、Jellyfin 或 Plex 服务器'],'观看':['追剧日历','发现'],'媒体库':['Seek','ProbeA','ProbeB']}
-  if dock(t,tab) is not None and any(s in visible for s in markers.get(tab,[])):return
-  n=dock(t,tab)
-  if n is not None:
-   tap(n)
-   t=snapshot()
-   if find(t,'切换服务器') is not None and find(t,'关闭') is not None:tap(find(t,'关闭'))
-   if any(s in page_info(snapshot()) for s in markers.get(tab,[])):return
-   continue
-  shell('input','keyevent',4);time.sleep(.45)
- launch()
- n=dock(snapshot(),tab)
- if n is not None:tap(n)
+    hide_keyboard()
+    for attempt in range(7):
+        if attempt == 6:
+            launch()
+        tree = snapshot()
+        close = find(tree, '关闭')
+        if close is not None and find(tree, '切换服务器') is not None:
+            tap(close)
+            continue
+        if at_root(tree, tab):
+            return
+        target = dock(tree, tab)
+        if target is None:
+            shell('input', 'keyevent', 4)
+            time.sleep(.45)
+            continue
+        tap(target)
+        deadline = time.monotonic() + 4
+        while time.monotonic() < deadline:
+            tree = snapshot()
+            close = find(tree, '关闭')
+            if close is not None and find(tree, '切换服务器') is not None:
+                tap(close)
+                break
+            if at_root(tree, tab):
+                return
+            time.sleep(.15)
+    raise AssertionError('Navigation tab selection was not observed: ' + tab)
+
+
 def view(tab,keys,marker):
  root(tab);n=grab(keys,6);before=set(page_info(snapshot()));tap(n);expect(marker);after=set(page_info(snapshot()))
  if len(before.symmetric_difference(after))<2:raise RuntimeError('view transition not observed')
