@@ -172,7 +172,7 @@ def probe_file(url, label):
             raise ValueError('Public original source probe failed')
         time.sleep(2)
 
-def run(item):
+def run(item, before_seek=None):
     url=item['url'];label=item['id'];kind=item['kind']
     if urllib.parse.urlsplit(url).hostname not in ('download.blender.org','media.xiph.org','video.blender.org','images-assets.nasa.gov'):raise ValueError('unlisted source host')
     playback_url=item.get('testUrl',url)
@@ -206,6 +206,8 @@ def run(item):
     for fraction in (.63,.21):
         try:
             r,_=reveal();left,top,right,bottom=r;y=(top+bottom)//2
+            if before_seek is not None:
+                before_seek(fraction)
             adb('shell','input','swipe',round(left+(right-left)*(.83 if fraction<.5 else .17)),y,round(left+(right-left)*fraction),y,330)
             measured(label+'-issued',fraction=fraction)
             measured(label+'-seek',fraction=fraction,**decode_playback(label,observed['seconds']*fraction,observed['seconds']))
