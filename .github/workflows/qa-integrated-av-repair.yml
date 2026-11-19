@@ -5,7 +5,7 @@ on:
     paths: ['.github/workflows/qa-integrated-av-repair.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: e6f66482a1b498a650d152eef57c73bb3143f520
+  QA_APP_SHA: 9ac1be659452b76d7ac5df1839f062ef7b8df379
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: e6f66482a1b498a650d152eef57c73bb3143f520
+          ref: 9ac1be659452b76d7ac5df1839f062ef7b8df379
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
@@ -72,6 +72,21 @@ jobs:
           cp composeApp/build/outputs/mapping/release/mapping.txt preview/
           printf 'app=%s\nnative_built_from=%s\nsource_artifact=%s\n' "$app_sha" "$native_sha" "$artifact" > preview/provenance.txt
           (cd preview && sha256sum composeApp-release.apk > apk.sha256)
+      - name: Build the previous HTTP/2 recovery with the same test signing key
+        run: |
+          set -euo pipefail
+          calls=composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlaybackCacheCalls.kt
+          previous=e6f66482a1b498a650d152eef57c73bb3143f520
+          cp "$calls" "$RUNNER_TEMP/current-cache-calls.kt"
+          restore_cache_calls() { cp "$RUNNER_TEMP/current-cache-calls.kt" "$calls"; }
+          trap restore_cache_calls EXIT
+          git show "$previous:$calls" > "$calls"
+          ./gradlew :composeApp:assembleDebug -PyfuseIncludeMdk=false -PyfusePlaybackProfile=ycore-senplayer -PyfuseNativeOnlyRuntime=true -PallowDebugSigning=true -PyfuseBuildRevision="$QA_APP_SHA" -Pkotlin.compiler.execution.strategy=in-process '-Dorg.gradle.jvmargs=-Xmx8g -Dfile.encoding=UTF-8' --no-parallel --max-workers=2 --no-daemon
+          cp composeApp/build/outputs/apk/debug/composeApp-debug.apk preview/recovery-headers-negative.apk
+          (cd preview && sha256sum recovery-headers-negative.apk >> apk.sha256)
+          printf 'app=%s\ncache_recovery_from=%s\n' "$QA_APP_SHA" "$previous" > preview/recovery-headers-negative-provenance.txt
+          restore_cache_calls
+          git diff --exit-code -- .
       - name: Rebuild previous cast discovery and UI states for device negative controls
         run: |
           set -euo pipefail
@@ -175,6 +190,16 @@ jobs:
           grep -Fx "app=$QA_APP_SHA" preview/provenance.txt
           adb install -r -g preview/instrumentation-target.apk
           adb install -r -g preview/regressions.apk
+          adb install -r -g preview/recovery-headers-negative.apk
+          tls_contract='com.yfuse.feature.player.PlaybackHttp2BodyRecoveryTest#stalledHttp2BodyResumesOnIndependentTlsConnectionWithTheSamePinAndMissingRange'
+          adb shell am instrument -w -r -e class "$tls_contract" com.yfuse.test/androidx.test.runner.AndroidJUnitRunner | tee results/http2-recovery-negative.txt
+          if python3 qa-integrated/check-instrumentation.py results/http2-recovery-negative.txt 1; then
+            echo 'The previous body recovery unexpectedly passed the stalled HTTP/2 header control'; exit 1
+          fi
+          jq -e '.failed==1 and .completed==0 and .skipped==0' results/http2-recovery-negative.json
+          grep -F 'SocketTimeoutException' results/http2-recovery-negative.txt
+          grep -F 'Http2Stream.takeHeaders' results/http2-recovery-negative.txt
+          grep -F 'PlaybackResponseSource.resume' results/http2-recovery-negative.txt
           adb install -r -g preview/geometry-negative.apk
           body_contract='com.yfuse.feature.player.BufferedScrubDecodeInstrumentedTest#bodyTimeoutResumesAtTheFirstMissingByteAndCachesOnlyVerifiedBytes'
           adb shell am instrument -w -r -e class "$body_contract" com.yfuse.test/androidx.test.runner.AndroidJUnitRunner | tee results/body-timeout-negative.txt
@@ -218,6 +243,9 @@ jobs:
           adb shell mv /sdcard/Android/data/com.yfuse/files/problem-contrast /sdcard/Android/data/com.yfuse/files/problem-contrast-prior
           adb pull /sdcard/Android/data/com.yfuse/files/soft-feedback results/negative-soft-feedback
           adb install -r -g preview/instrumentation-target.apk
+          adb shell am instrument -w -r -e class "$tls_contract" com.yfuse.test/androidx.test.runner.AndroidJUnitRunner | tee results/http2-recovery.txt
+          python3 qa-integrated/check-instrumentation.py results/http2-recovery.txt 1
+          grep -F 'test=stalledHttp2BodyResumesOnIndependentTlsConnectionWithTheSamePinAndMissingRange' results/http2-recovery.txt
           sudo apt-get update -qq
           sudo apt-get install -y ffmpeg
           ffmpeg -v error -y -f lavfi -i testsrc2=size=320x180:rate=10 -f lavfi -i anullsrc=r=48000:cl=mono -t 20 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac -b:a 64k -movflags +faststart "$RUNNER_TEMP/enhanced-retry.mp4"
