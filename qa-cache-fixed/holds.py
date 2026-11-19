@@ -4,64 +4,41 @@ from engine import engine_evidence
 sys.path.insert(0,'qa-functional')
 from ext_run import screen,tap,rail,marker,adb
 from features import snapshot,find,coords
-from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+from fixture_origin import FixtureOrigin
+import atexit
 from PIL import Image
 import numpy as np
-root=pathlib.Path('qa-media');file=root/'ProbeA.mp4';out=pathlib.Path('results');out.mkdir(exist_ok=True);stats={'range':0,'image':0,'bytes':0,'GET':0,'HEAD':0}
-origin_lock=threading.Lock()
-received=[]
+root = pathlib.Path('qa-media')
+trial = os.environ.get('QA_CACHE_TRIAL', 'held-stalled')
+assert trial in {'held-stalled', 'idle-stalled', 'held-paced'}
+out = pathlib.Path('results') if trial == 'held-stalled' else pathlib.Path('results') / trial
+out.mkdir(exist_ok=True)
+limits = json.loads((root / 'boundary.json').read_text())
+srv = FixtureOrigin(root / 'ProbeA.mp4', limits, paced=trial == 'held-paced')
+threading.Thread(target=srv.serve_forever, daemon=True).start()
+origin_counters = srv.counters
+spans = srv.spans
+checkpoints = []
 
-def origin_counters():
-    with origin_lock:
-        return dict(stats)
-limits=json.loads((root/'boundary.json').read_text())
-def spans():
-    merged=[]
-    with origin_lock:
-        extents=sorted(received)
-    for a,b in extents:
-        if not merged or a>merged[-1][1]+1:merged.append([a,b])
-        else:merged[-1][1]=max(merged[-1][1],b)
-    return merged
+
+def checkpoint(name):
+    checkpoints.append({'name': name, 'atMs': srv.now(), 'counters': srv.counters()})
+
+
+def save_origin():
+    audit = {'trial': trial, 'cutoff': limits['before'], 'paceAfter': srv.pace_after,
+             'events': srv.events(), 'checkpoints': checkpoints, 'counters': srv.counters(), 'extents': srv.spans()}
+    (out / 'origin-timeline.json').write_text(json.dumps(audit, indent=2))
+
+
+atexit.register(save_origin)
+
+
 def packetsAvailable(which):
-    have=spans()
-    return all(any(a<=p and q<=b for a,b in have) for p,q in limits[which])
-class Origin(BaseHTTPRequestHandler):
-    def log_message(self,*a):pass
-    def do_HEAD(self):self.serve(False)
-    def do_GET(self):self.serve(True)
-    def serve(self,body):
-        with origin_lock:
-            stats[self.command]+=1
-            if self.path!='/film.mp4':
-                stats['image']+=1
-        if self.path!='/film.mp4':
-            self.send_error(404);return
-        size=file.stat().st_size;match=re.fullmatch(r'bytes=(\d+)-(\d*)',self.headers.get('Range',''))
-        start=int(match[1]) if match else 0;end=min(int(match[2]),size-1) if match and match[2] else size-1
-        if start>end:self.send_error(416);return
-        # Keep the remaining suffix unavailable until the measured gesture finishes.
-        if start>=limits['before']: self.send_error(503);return
-        if match:
-            with origin_lock:
-                stats['range']+=1
-        self.send_response(206 if match else 200);self.send_header('Content-Length',str(end-start+1));self.send_header('Content-Type','video/mp4');self.send_header('ETag','"qa-rail-preview-v1"');self.send_header('Accept-Ranges','bytes')
-        if match:self.send_header('Content-Range',f'bytes {start}-{end}/{size}')
-        self.end_headers()
-        if body:
-            with file.open('rb') as f:
-                f.seek(start)
-                try:
-                    while start<=end:
-                        if start>=limits['before']:time.sleep(25);return
-                        chunk=f.read(min(16384,end-start+1,limits['before']-start))
-                        self.wfile.write(chunk)
-                        with origin_lock:
-                            received.append((start,start+len(chunk)-1))
-                            stats['bytes']+=len(chunk)
-                        start+=len(chunk)
-                except OSError:pass
-srv=ThreadingHTTPServer(('127.0.0.1',18382),Origin);srv.daemon_threads=True;threading.Thread(target=srv.serve_forever,daemon=True).start()
+    ranges = srv.spans()
+    return all(any(start <= p and q <= end for start, end in ranges) for p, q in limits[which])
+
+
 adb('shell','am start -a android.intent.action.VIEW -n com.yfuse/com.yfuse.feature.player.ExternalPlaybackActivity -t video/mp4 -d http://127.0.0.1:18382/film.mp4')
 def show():
     for i in range(6):
@@ -130,15 +107,39 @@ def waitImage(name,sec,want=True):
 pause=find(tr,['暂停','Pause'])
 if pause is not None:tap(*coords(pause));time.sleep(.4)
 r,tr=show();x0,y0,x1,y1=r;y=(y0+y1)//2
-ts=marker(screen()) or 4
+paused = find(tr, ['播放', 'Play']) is not None
+checkpoint('paused-controls' if paused else 'pause-unconfirmed')
+ts=marker(screen())
 hot=10;cold=143;payload={'rail':r,'startPTS':ts,'hot':hot,'cold':cold,'baseCodes':thumbTimes(baseline),'phases':[]}
+payload['trial'] = trial
+payload['pauseConfirmed'] = paused
+
+
 def record(label,ok,observed):
+    checkpoint(label)
     payload['phases'].append({'case':label,'ok':bool(ok),'codes':observed,'http':origin_counters()})
     (out/'thumbnail-held.json').write_text(json.dumps(payload));print('THUMB',label,ok,observed,flush=True)
 before=origin_counters()
 record('hot-packets-delivered',packetsAvailable('hotPackets'),[])
 record('cold-packets-withheld',not packetsAvailable('coldPackets'),[])
+if trial == 'idle-stalled':
+    checkpoint('no-touch-start')
+    time.sleep(40)
+    checkpoint('no-touch-end')
+    idle = screen()
+    idle.save(out / 'paused-no-touch.png')
+    payload['endingPTS'] = marker(idle)
+    payload['stationaryPicture'] = (ts is not None and payload['endingPTS'] is not None and
+                                    abs(payload['endingPTS'] - ts) <= .25)
+    payload['noTouchSeconds'] = 40
+    payload['engine'] = identity
+    payload['httpAtEnd'] = origin_counters()
+    (out / 'thumbnail-held.json').write_text(json.dumps(payload))
+    raise SystemExit(int(not paused or not payload['stationaryPicture'] or
+                         not all(p['ok'] for p in payload['phases']) or bool(thumbTimes(idle))))
+
 try:
+    checkpoint('finger-down')
     motion('DOWN',px(max(1,hot-6)))
     for z in range(1,7):motion('MOVE',px(hot-6+z*6/6))
     time.sleep(.75)
@@ -153,6 +154,7 @@ finally:
     payload['httpMethodsWhileHeld']={method:held_end[method]-before[method] for method in ('GET','HEAD')}
     payload['originRequestsWhileHeld']=sum(payload['httpMethodsWhileHeld'].values())
     payload['deliveredExtentsBeforeRelease']=spans()
+    checkpoint('finger-up')
     motion('UP',px(hot+2))
 time.sleep(.5);ok,v=waitImage('released',hot+2,False);record('released',ok,v)
 after=origin_counters()
@@ -160,6 +162,6 @@ record('no-thumbnail-http-endpoint',after['image']==0,[])
 payload['rangeRequestsDuringGesture']=after['range']-before['range']
 payload['engine']=identity
 (out/'thumbnail-held.json').write_text(json.dumps(payload))
-passed=all(s['ok'] for s in payload['phases']) and payload['originRequestsWhileHeld']==0
+passed=paused and all(s['ok'] for s in payload['phases']) and payload['originRequestsWhileHeld']==0
 print('Origin requests while held',payload['httpMethodsWhileHeld'],flush=True)
 raise SystemExit(int(not passed))

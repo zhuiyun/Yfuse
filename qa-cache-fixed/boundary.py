@@ -6,5 +6,7 @@ for name,low,high in [('hotPackets',8,13),('coldPackets',142,144)]:
     data[name]=[[int(r['pos']),int(r['pos'])+int(r['size'])-1] for r in rows if low<=float(r['pts_time'])<=high]
     assert data[name]
 data['before']=min(int(r['pos']) for r in rows if float(r['pts_time'])>=115)
+data['paceAfter']=min(int(r['pos']) for r in rows if float(r['pts_time'])>=24)
 assert max(b for a,b in data['hotPackets'])<data['before']<min(a for a,b in data['coldPackets'])
+assert max(b for a,b in data['hotPackets']) < data['paceAfter'] < data['before']
 (p/'boundary.json').write_text(json.dumps(data))
