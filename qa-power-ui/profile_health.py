@@ -2,19 +2,23 @@
 import json
 import os
 import time
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from library import LibraryServer
-from library_ui import connect, ui
+from library_ui import ui
 
 
 def main():
     if os.environ.get('GITHUB_ACTIONS') != 'true' or ui.adb('get-serialno').strip() != '127.0.0.1:15555':
         raise RuntimeError('The profile health check requires disposable cloud Android')
-    if ui.adb('shell', 'pm', 'clear', 'com.yfuse').strip() != 'Success':
-        raise RuntimeError('Could not prepare a fresh cloud installation')
     out = Path('results/power')
+    pilot = json.loads((out / 'summary.json').read_text(encoding='utf-8'))
+    if not any(p['phase'] == 'playing' and p['status'] == 'recorded' and
+               p['entryEvidence'].get('source') == 'normal library detail and PlaybackInfo' for p in pilot['phases']):
+        raise RuntimeError('The pilot did not establish normal playback from its loopback library')
     log = out / 'profile-health-requests.jsonl'
+    log.touch()
     server = LibraryServer(log)
     ui.adb('reverse', 'tcp:18196', 'tcp:18196')
 
@@ -25,7 +29,11 @@ def main():
                 and row['route'] == '/System/Info' and row['status'] == 200]
 
     try:
-        connect()
+        # The pilot has already added this same fixture and verified playback through its detail page.
+        ui.pkg = 'com.yfuse'
+        ui.launch()
+        ui.root('服务器')
+        ui.wait('Cloud QA Library', 25)
         ui.root('我的')
         time.sleep(2)
         start = time.time()
@@ -60,6 +68,9 @@ def main():
             raise AssertionError('Expected a quiet profile, one due return probe and one periodic server probe')
         if not 55 <= returned[1]['time'] - returned[0]['time'] <= 75:
             raise AssertionError('The server list did not restore its regular one-minute refresh')
+    except Exception:
+        (out / 'profile-health-failure.xml').write_bytes(ET.tostring(ui.snapshot(), encoding='utf-8'))
+        raise
     finally:
         server.close()
 
