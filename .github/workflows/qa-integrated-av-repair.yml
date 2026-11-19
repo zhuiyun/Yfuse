@@ -5,7 +5,7 @@ on:
     paths: ['.github/workflows/qa-integrated-av-repair.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: 5a128944ed40edb4e30bb265ee414d63faa36721
+  QA_APP_SHA: fffb78aabaa0c0338af0f43842a0aaef4669ef30
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 5a128944ed40edb4e30bb265ee414d63faa36721
+          ref: fffb78aabaa0c0338af0f43842a0aaef4669ef30
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
@@ -216,6 +216,13 @@ jobs:
           fi
           jq -e '.failed==1 and .completed==0 and .skipped==0' results/range-startup-negative.json
           grep -F 'Sequential demux must use one HTTP exchange for the next block' results/range-startup-negative.txt
+          foreground_range='com.yfuse.core2.android.YCoreStartupRangeHttpTest#continuousDemuxReadsUseFullForegroundRangeWhenNoSpeculativeBlockFits'
+          adb shell am instrument -w -r -e class "$foreground_range" com.yfuse.test/androidx.test.runner.AndroidJUnitRunner | tee results/range-foreground-negative.txt
+          if python3 qa-integrated/check-instrumentation.py results/range-foreground-negative.txt 1; then
+            echo 'The previous range reader unexpectedly used a full foreground range with no prefetch slot'; exit 1
+          fi
+          jq -e '.failed==1 and .completed==0 and .skipped==0' results/range-foreground-negative.json
+          grep -F 'Sequential demux must use one HTTP exchange for the next block' results/range-foreground-negative.txt
           adb install -r -g preview/geometry-negative.apk
           body_contract='com.yfuse.feature.player.BufferedScrubDecodeInstrumentedTest#bodyTimeoutResumesAtTheFirstMissingByteAndCachesOnlyVerifiedBytes'
           adb shell am instrument -w -r -e class "$body_contract" com.yfuse.test/androidx.test.runner.AndroidJUnitRunner | tee results/body-timeout-negative.txt
@@ -263,6 +270,9 @@ jobs:
           python3 qa-integrated/check-instrumentation.py results/http2-recovery.txt 1
           adb shell am instrument -w -r -e class "$range_contract" com.yfuse.test/androidx.test.runner.AndroidJUnitRunner | tee results/range-startup.txt
           python3 qa-integrated/check-instrumentation.py results/range-startup.txt 1
+          adb shell am instrument -w -r -e class "$foreground_range" com.yfuse.test/androidx.test.runner.AndroidJUnitRunner | tee results/range-foreground.txt
+          python3 qa-integrated/check-instrumentation.py results/range-foreground.txt 1
+          grep -F 'test=continuousDemuxReadsUseFullForegroundRangeWhenNoSpeculativeBlockFits' results/range-foreground.txt
           grep -F 'test=continuousDemuxReadsUseASingleHttpRangePerFollowingBlockWithoutAnEntityTag' results/range-startup.txt
           grep -F 'test=stalledHttp2BodyResumesOnIndependentTlsConnectionWithTheSamePinAndMissingRange' results/http2-recovery.txt
           sudo apt-get update -qq
