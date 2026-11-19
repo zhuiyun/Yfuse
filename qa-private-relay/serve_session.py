@@ -53,9 +53,15 @@ def select_sources(resolver, labels, reference):
     if reference is not None and set(reference) != labels:
         raise ValueError("The reference must identify every requested source")
     for kind, prefix in (("Movie", "m-"), ("Episode", "e-")):
+        requested = sorted((label for label in labels if label.startswith(prefix)),
+                           key=lambda label: int(label[len(prefix):]))
+        if not requested:
+            continue
         catalog = resolver["candidates"](kind)
         if reference is None:
-            for index, item in enumerate(resolver["choose"](catalog, 20)):
+            # Preserve the existing sample order even when only later indices are requested.
+            floor = int(requested[-1][len(prefix):]) + 1
+            for index, item in enumerate(resolver["choose"](catalog, floor)):
                 label = prefix + str(index).zfill(3)
                 if label in labels:
                     selected[label] = item
@@ -63,9 +69,7 @@ def select_sources(resolver, labels, reference):
         by_identity = {}
         for item in catalog:
             by_identity.setdefault(catalog_identity(item), []).append(item)
-        for label in sorted(labels):
-            if not label.startswith(prefix):
-                continue
+        for label in requested:
             entry = reference[label]
             matches = by_identity.get((entry["bytes"], entry["seconds"], entry["container"]), [])
             if entry["kind"] != kind or len(matches) != 1:

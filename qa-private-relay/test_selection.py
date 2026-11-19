@@ -21,6 +21,15 @@ class SelectionTest(unittest.TestCase):
         new_sample = select_sources(self.resolver, {"e-000"}, None)
         self.assertEqual(new_sample[0][1]["Id"], "other")
 
+    def test_new_sample_can_request_later_episodes_without_a_fixed_collection_size(self):
+        self.catalog["Episode"] = [episode(str(i), 2048 + i) for i in range(1002)]
+        self.resolver["choose"] = lambda rows, count: rows[:count]
+        labels = {f"e-{i:03}" for i in range(61)} | {"e-074", "e-1001"}
+        result = select_sources(self.resolver, labels, None)
+        self.assertEqual({label for label, _ in result}, labels)
+        self.assertEqual(dict(result)["e-074"]["Id"], "74")
+        self.assertEqual(result[-1][1]["Id"], "1001")
+
     def test_absent_and_ambiguous_references_stop_before_resolving(self):
         for catalog in ([episode("replacement", 33)], [episode("a", 44), episode("b", 44)]):
             with self.subTest(catalog=catalog):

@@ -76,7 +76,7 @@ class RelayState:
             raise ValueError("Invalid bounded session")
         for label, media in sources.items():
             parsed = urlsplit(media["location"])
-            if not re.fullmatch(r"[me]-[0-9]{3}", label) or media["size"] <= 0:
+            if not re.fullmatch(r"[me]-[0-9]{3,}", label) or media["size"] <= 0:
                 raise ValueError("Invalid media allowlist")
             if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
                 raise ValueError("Only pre-resolved HTTPS media targets are accepted")

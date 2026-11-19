@@ -66,6 +66,13 @@ class RelayTest(unittest.TestCase):
             time.sleep(.01)
         self.fail("The request completed on the client but was never recorded by the server")
 
+    def test_large_library_indices_still_require_a_numeric_media_label(self):
+        media = self.state.sources["m-001"]
+        self.assertIn("e-1001", relay.RelayState({"e-1001": media}, self.token, 30, 100).sources)
+        for label in ("x-1001", "e-1001/a", "e-01"):
+            with self.subTest(label=label), self.assertRaises(ValueError):
+                relay.RelayState({label: media}, self.token, 30, 100)
+
     def test_auth_and_allowlist_never_reach_upstream(self):
         for path in ("/wrong/m-001", "/" + "b" * 43 + "/m-001", "/" + self.token + "/e-002",
                      "/" + self.token + "/m-001?url=https://other.invalid", "/" + self.token + "/../m-001"):

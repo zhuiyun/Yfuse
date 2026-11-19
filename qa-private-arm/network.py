@@ -13,7 +13,7 @@ state = runpy.run_path("qa-private-arm/test.py")
 items = state["load_envelope"]()
 rows = []
 for label, media in items.items():
-    if not re.fullmatch(r"[me]-[0-9]{3}", label):
+    if not re.fullmatch(r"[me]-[0-9]{3,}", label):
         raise SystemExit("Unexpected source label")
     positions = {"start": 0, "middle": media["size"] // 2, "end": media["size"] - 1024}
     routes = {"resolved-edge": media["location"]}
