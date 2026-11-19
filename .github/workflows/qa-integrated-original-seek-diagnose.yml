@@ -1,4 +1,4 @@
-name: Reopen the previously refused Blender episode on its origin and identical loopback bytes
+name: Compare the stalled Big Buck Bunny seeks on its origin and identical loopback bytes
 'on':
   push:
     branches:
@@ -10,7 +10,7 @@ permissions:
   actions: read
 jobs:
   diagnose:
-    name: SenPlayer original cold and retained-cache starts ${{ matrix.path }}
+    name: SenPlayer movie cold and retained-cache seeks ${{ matrix.path }}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 75
     strategy:
@@ -27,7 +27,7 @@ jobs:
       QA_RANGE_CONTROL: 'true'
       QA_DNS_CONTROL: 'false'
       QA_CACHE_PAIRS: 'true'
-      QA_ORIGINAL_ID: 'blender-fb70d459-48d2-4db5-adba-813c84f9200a'
+      QA_ORIGINAL_ID: 'blender-6402b77c-b61f-4a06-96ca-c8420a2becf4'
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with:
@@ -35,7 +35,7 @@ jobs:
     - name: Acquire the qualified read-retry candidate
       env:
         API_TOKEN: ${{ github.token }}
-      run: bash qa-integrated/acquire-qualified-candidate.sh 44366246881 ba340b12e150917e108403ab9b95a966abe96b62
+      run: bash qa-integrated/acquire-qualified-candidate.sh 44414710658 20c96e5eb929aedd9b38b19d9a20cbb3ee0bf326
     - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
       with:
         name: arm-input-driver
@@ -49,7 +49,7 @@ jobs:
 
         (cd preview && sha256sum -c apk.sha256)
 
-        grep -Fx "app=ba340b12e150917e108403ab9b95a966abe96b62" preview/provenance.txt
+        grep -Fx "app=20c96e5eb929aedd9b38b19d9a20cbb3ee0bf326" preview/provenance.txt
 
         cp preview/provenance.txt preview/apk.sha256 results/
 
