@@ -4,7 +4,7 @@ import json
 import unittest
 import urllib.error
 
-from admission import check_path
+from admission import check_path, measure_ranges
 
 
 class TestConnection:
@@ -25,6 +25,14 @@ class TestConnection:
 
 
 class AdmissionTest(unittest.TestCase):
+    def test_timing_rejects_an_unexpected_range_before_reading_or_sampling_further(self):
+        origin = TestConnection(b'short')
+        rows = measure_ranges({'location': 'https://example.invalid/private-capability', 'size': 8 * 1024 ** 2 + 1}, origin)
+        self.assertEqual(1, origin.calls)
+        self.assertEqual((False, 0, None, 'ValueError'),
+                         (rows[0]['complete'], rows[0]['bytes'], rows[0]['firstByteMs'], rows[0]['errorType']))
+        self.assertNotIn('private-capability', json.dumps(rows))
+
     def setUp(self):
         self.body = bytes(range(251)) * 19
         size = len(self.body)

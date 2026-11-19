@@ -98,6 +98,20 @@ class RelayTest(unittest.TestCase):
         self.assertEqual((200, "10", b""), (status, headers["Content-Length"], body))
         self.assertEqual([], self.origin.requests)
 
+    def test_first_byte_is_timed_before_the_remaining_range_arrives(self):
+        class DelayedRemainder(Response):
+            def read(self, size=-1):
+                if self.tell():
+                    time.sleep(.055)
+                return super().read(size)
+
+        self.origin.open = lambda request, timeout: DelayedRemainder(b'3456', 'bytes 3-6/10')
+        self.assertEqual((206, b'3456'), self.request(headers={'Range': 'bytes=3-6'})[::2])
+        row = self.wait_for_recorded_body()['retained'][0]
+        self.assertLessEqual(row['upstreamHeadersMs'], row['firstByteMs'])
+        self.assertGreaterEqual(row['firstChunkMs'] - row['firstByteMs'], 45)
+        self.assertEqual(4, self.state.bytes_sent)
+
     def test_conditional_range_validates_source_tag_before_sending_any_bytes(self):
         self.origin.etag = '"private-origin-tag"'
         status, headers, data = self.request(headers={'Range': 'bytes=0-2'})

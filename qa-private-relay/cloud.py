@@ -17,7 +17,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 sys.path.insert(0, str(Path(__file__).parent))
 from server import BoundedHTTPServer, RelayState, handler_for
-from admission import check_path
+from admission import check_path, measure_ranges
 
 if os.environ.get("GITHUB_ACTIONS") != "true":
     raise SystemExit("Cloud runner required")
@@ -39,6 +39,13 @@ if not admission["remoteAdmissionPassed"]:
         "appPlaybackAttempts": 0,
     }))
     raise SystemExit("The temporary relay must be reachable before starting player tests")
+timed_labels = set(os.environ.get("QA_TIMED_RANGE_LABELS", "").split(","))
+timings = {label: measure_ranges(media, opener) for label, media in items.items() if label in timed_labels}
+if timings:
+    Path("private-results/range-timing.json").write_text(json.dumps({
+        "path": "pinned-source-relay", "scenarios": timings,
+        "firstByteDefinition": "response headers and the first single body byte timed separately",
+    }, indent=2))
 token = secrets.token_urlsafe(32)
 state = RelayState(items, token, 4 * 3600, 32 * 1024 ** 3, opener)
 server = BoundedHTTPServer(("127.0.0.1", 18396), handler_for(state))

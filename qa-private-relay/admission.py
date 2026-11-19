@@ -56,3 +56,47 @@ def check_path(items, opener):
             break
     return {'remoteAdmissionPassed': any(row['matched'] for row in samples),
             'allSamplesMatched': bool(samples) and all(row['matched'] for row in samples), 'samples': samples}
+
+
+def measure_ranges(media, opener):
+    # Bounded transport measurements only; no bytes, titles, URLs or response headers leave the runner.
+    size = int(media.get("size", 0))
+    amount = 8 * 1024 * 1024
+    if size < amount:
+        return []
+    measurements = []
+    for position in (0, (size - amount) // 2, size - amount):
+        end = position + amount - 1
+        request = urllib.request.Request(media["location"], headers={
+            "Range": f"bytes={position}-{end}", "User-Agent": "Emby for Android Mobile", "Accept-Encoding": "identity",
+        })
+        begin = time.monotonic()
+        row = {"start": position, "end": end, "status": 0, "bytes": 0, "headersMs": None, "firstByteMs": None}
+        try:
+            with opener.open(request, timeout=15) as response:
+                row["status"] = response.status
+                row["headersMs"] = round((time.monotonic() - begin) * 1000)
+                if response.status != 206 or response.headers.get("Content-Range") != f"bytes {position}-{end}/{size}":
+                    raise ValueError("Range benchmark requires the exact partial response")
+                if response.read(1):
+                    row["bytes"] = 1
+                    row["firstByteMs"] = round((time.monotonic() - begin) * 1000)
+                while 0 < row["bytes"] < amount and time.monotonic() - begin < 25:
+                    data = response.read(min(262144, amount - row["bytes"]))
+                    if not data:
+                        break
+                    row["bytes"] += len(data)
+        except (OSError, EOFError, ValueError, http.client.HTTPException) as failure:
+            row.update(request_error_fields(failure))
+            if isinstance(failure, urllib.error.HTTPError):
+                row["status"] = failure.code
+                failure.close()
+            if isinstance(failure, ssl.SSLCertVerificationError):
+                row["tlsVerifyCode"] = failure.verify_code
+        elapsed = time.monotonic() - begin
+        row.update(elapsedMs=round(elapsed * 1000), bitsPerSecond=round(row["bytes"] * 8 / max(elapsed, .001)),
+                   complete=row["bytes"] == amount and "errorType" not in row)
+        measurements.append(row)
+        if row["status"] in (401, 403, 404, 410, 412, 429) or "tlsVerifyCode" in row or row.get("errorType") == "ValueError":
+            break
+    return measurements

@@ -11,6 +11,17 @@ import time
 from urllib.parse import parse_qs, urlparse
 
 
+def catalog_query_shape(query):
+    def selected(name, allowed):
+        values = {part for raw in query.get(name, ()) for part in raw.split(',')}
+        return sorted(values.intersection(allowed))
+
+    return {'types': selected('IncludeItemTypes', {'Movie', 'Series', 'Episode', 'Season'}),
+            'filters': selected('Filters', {'IsFavorite', 'IsPlayed', 'IsUnplayed', 'IsResumable'}),
+            'sort': selected('SortBy', {'DateCreated', 'DatePlayed', 'PremiereDate', 'SortName', 'LastPlayedDate'}),
+            'searchPresent': 'SearchTerm' in query, 'idsPresent': 'Ids' in query, 'parentPresent': 'ParentId' in query}
+
+
 def item(key, title, kind='Movie', **extra):
     return {'Id': key, 'Name': title, 'Type': kind, 'ProductionYear': 2026,
             'Overview': '本地界面测试内容，用于检查长标题、海报、操作层级和空状态。',
@@ -69,9 +80,11 @@ class LibraryServer:
                 status = 503 if owner.failure else 307 if media else 200
                 with owner.lock, owner.output.open('a', encoding='utf-8') as log:
                     owner.requests += 1
-                    # No headers, query parameters, credentials or user text are logged.
-                    log.write(json.dumps({'time': time.time(), 'method': self.command,
-                                          'route': path, 'status': status}) + '\n')
+                    row = {'time': time.time(), 'method': self.command, 'route': path, 'status': status}
+                    if path.endswith('/Items'):
+                        # Only fixed fixture categories and presence flags are saved.
+                        row['catalogShape'] = catalog_query_shape(query)
+                    log.write(json.dumps(row) + '\n')
                 if owner.failure:
                     self.send_error(503)
                     return

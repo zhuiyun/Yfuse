@@ -235,6 +235,7 @@ def handler_for(state):
                 return
             started = False
             self.response_status = 0
+            stage = "source-headers"
             try:
                 if not state.alive():
                     self.fail(410)
@@ -254,6 +255,7 @@ def handler_for(state):
                     return
                 with state.opener.open(request, timeout=12) as response:
                     metric["upstreamStatus"] = response.status
+                    metric["upstreamHeadersMs"] = round((time.monotonic() - began) * 1000)
                     # Bind the tag to this source and session. Only the relay sees the origin's tag.
                     tag = state.response_tag(label, response.headers.get("ETag"))
                     metric["strongValidator"] = tag is not None
@@ -265,6 +267,7 @@ def handler_for(state):
                     if response.status != 206 or response.headers.get("Content-Range") != expected:
                         self.fail(502)
                         return
+                    stage = "client-headers"
                     self.headers_for(lo, hi, partial, size, tag)
                     started = True
                     left = hi - lo + 1
@@ -272,17 +275,26 @@ def handler_for(state):
                         amount = min(65536, left)
                         if not state.reserve(amount):
                             break
-                        data = response.read(amount)
+                        stage = "source-body"
+                        if "firstByteMs" in metric:
+                            data = response.read(amount)
+                        else:
+                            data = response.read(1)
+                            if data:
+                                metric["firstByteMs"] = round((time.monotonic() - began) * 1000)
+                                if amount > 1:
+                                    data += response.read(amount - 1)
+                                metric["firstChunkMs"] = round((time.monotonic() - began) * 1000)
                         if not data or not state.alive():
                             break
-                        if "firstByteMs" not in metric:
-                            metric["firstByteMs"] = round((time.monotonic() - began) * 1000)
+                        stage = "client-body"
                         self.wfile.write(data)
                         state.sent(len(data))
                         metric["bytes"] += len(data)
                         left -= len(data)
             except Exception as error:
                 metric.update(request_error_fields(error))
+                metric["failureStage"] = stage
                 if not started:
                     self.fail(502)
             finally:
