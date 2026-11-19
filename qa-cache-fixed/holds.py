@@ -10,7 +10,7 @@ from PIL import Image
 import numpy as np
 root = pathlib.Path('qa-media')
 trial = os.environ.get('QA_CACHE_TRIAL', 'held-stalled')
-assert trial in {'held-stalled', 'idle-stalled', 'held-paced'}
+assert trial in {'held-stalled', 'idle-stalled', 'held-paced', 'held-settled'}
 out = pathlib.Path('results') if trial == 'held-stalled' else pathlib.Path('results') / trial
 out.mkdir(exist_ok=True)
 limits = json.loads((root / 'boundary.json').read_text())
@@ -113,6 +113,27 @@ ts=marker(screen())
 hot=10;cold=143;payload={'rail':r,'startPTS':ts,'hot':hot,'cold':cold,'baseCodes':thumbTimes(baseline),'phases':[]}
 payload['trial'] = trial
 payload['pauseConfirmed'] = paused
+
+if trial == 'held-settled':
+    # Let the existing playback read reach the same timeout as the no-touch control.
+    # Keep the finger up throughout. An unexpected request during the next gesture still fails.
+    checkpoint('settle-without-touch')
+    time.sleep(30)
+    quiet = origin_counters()
+    time.sleep(10)
+    current_rail = rail(snapshot())
+    stationary = marker(screen())
+    stayed_paused = (paused and ts is not None and stationary is not None and abs(stationary - ts) <= .25)
+    payload['settleEvidence'] = {'stationary': stayed_paused, 'startPts': ts, 'endPts': stationary,
+                                 'lastTenSecondsHadNoTraffic': origin_counters() == quiet}
+    checkpoint('settled-controls')
+    (out / 'thumbnail-held.json').write_text(json.dumps(payload))
+    if not stayed_paused or origin_counters() != quiet or not current_rail:
+        raise AssertionError('Missing stationary, network-quiet playback baseline with a visible seek bar')
+    if not any(e['event'] == 'body-stalled' and e['offset'] == limits['before'] for e in srv.events()):
+        raise AssertionError('Expected the actual ongoing response to reach the withheld boundary')
+    x0, y0, x1, y1 = current_rail
+    y = (y0 + y1) // 2
 
 
 def record(label,ok,observed):

@@ -16,7 +16,9 @@ adb shell wm dismiss-keyguard
 touch /tmp/yfuse-tree-active
 status=0
 trials=(held-stalled)
-if [[ "${QA_CACHE_PAIRED_CONTROLS:-false}" == true ]]; then
+if [[ "${QA_CACHE_SETTLED_CONTROL:-false}" == true ]]; then
+  trials=(idle-stalled held-settled held-paced)
+elif [[ "${QA_CACHE_PAIRED_CONTROLS:-false}" == true ]]; then
   trials+=(idle-stalled held-paced)
 fi
 for trial in "${trials[@]}"; do

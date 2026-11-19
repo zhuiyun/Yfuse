@@ -1,0 +1,43 @@
+name: Verify buffered-only thumbnails on a quiet paused source and an active paced source
+on:
+  push:
+    branches: [codex/two-engines-cloud-seek-20261113]
+    paths: [.github/workflows/qa-cache-quiet-current.yml]
+permissions: {contents: read, actions: read}
+jobs:
+  observe:
+    name: Check cached frames after source retries settle on ${{ matrix.engine }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: {engine: [SenPlayer, YCore]}
+    env:
+      QA_ENGINE: ${{ matrix.engine }}
+      QA_CACHE_SETTLED_CONTROL: 'true'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: arm-input-driver
+          run-id: 44438939370
+          github-token: ${{ github.token }}
+          path: qa-driver
+      - name: Verify the qualified R50 Android package and create timecoded media
+        env: {API_TOKEN: '${{ github.token }}'}
+        run: |
+          set -euo pipefail
+          bash qa-integrated/acquire-qualified-candidate.sh 44469657784 382077026e5747530f320c0188ba2eeebd529b7e
+          mkdir -p results
+          cp preview/apk.sha256 preview/provenance.txt results/
+          sudo apt-get -qq update
+          sudo apt-get install -y ffmpeg python3-pil python3-numpy fonts-dejavu-core
+          /usr/bin/python3 qa-scrub/fixture.py qa-media
+          /usr/bin/python3 qa-cache-fixed/boundary.py
+      - run: bash qa-arm-dual/redroid.sh
+      - name: Hold over buffered and cold targets and compare a paused run without touch
+        run: bash qa-cache-fixed/holds.sh
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: 'buffered-only-current-${{ matrix.engine }}', path: results/, retention-days: 10}
