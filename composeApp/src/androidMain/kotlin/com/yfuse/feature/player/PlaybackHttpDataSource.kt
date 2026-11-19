@@ -3,6 +3,7 @@ package com.yfuse.feature.player
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import com.yfuse.core.network.sharedOriginConnectionPool
 import com.yfuse.core.platform.AppBuildConfig
+import okhttp3.Call
 import okhttp3.OkHttpClient
 import java.io.IOException
 import java.util.concurrent.TimeUnit
@@ -23,7 +24,7 @@ internal object PlaybackHttpDataSource {
 
     fun factory(
         userAgent: String,
-        client: OkHttpClient = this.client,
+        client: Call.Factory = this.client,
     ): OkHttpDataSource.Factory =
         OkHttpDataSource.Factory(client).apply {
             userAgent.trim().takeIf(String::isNotEmpty)?.let(::setUserAgent)

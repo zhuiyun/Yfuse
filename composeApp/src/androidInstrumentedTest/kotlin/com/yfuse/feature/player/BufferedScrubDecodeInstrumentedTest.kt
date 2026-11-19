@@ -11,7 +11,11 @@ import com.yfuse.core2.api.YBufferSnapshot
 import com.yfuse.core2.api.YBufferedRange
 import okhttp3.Protocol
 import okhttp3.Response
+import okhttp3.ResponseBody.Companion.asResponseBody
 import okhttp3.ResponseBody.Companion.toResponseBody
+import okio.Buffer
+import okio.ForwardingSource
+import okio.buffer
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -22,15 +26,21 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.IOException
 import java.net.HttpURLConnection
+import java.net.SocketTimeoutException
 import java.net.URL
 import java.util.UUID
 import java.util.concurrent.CopyOnWriteArrayList
 
 @RunWith(AndroidJUnit4::class)
 class BufferedScrubDecodeInstrumentedTest {
-    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     @Test
-    fun refusedSourceReadReopensAtSameOffsetAndCommitsOnlyReturnedBytes() {
+    fun refusedSourceReadReopensAtSameOffsetAndCommitsOnlyReturnedBytes() = verifyCacheRead(false)
+
+    @Test
+    fun bodyTimeoutResumesAtTheFirstMissingByteAndCachesOnlyVerifiedBytes() = verifyCacheRead(true)
+
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    private fun verifyCacheRead(stallBody: Boolean) {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val url = "http://127.0.0.1:1/${UUID.randomUUID()}/episode.mp4"
         val key = secureMediaCacheKeyForUrl(url)
@@ -43,16 +53,37 @@ class BufferedScrubDecodeInstrumentedTest {
                 .addInterceptor { chain ->
                     val request = chain.request()
                     ranges.add(request.header("Range").orEmpty())
-                    if (ranges.size == 1) throw IOException("stream was reset: REFUSED_STREAM")
+                    val first = ranges.size == 1
+                    if (first && !stallBody) throw IOException("stream was reset: REFUSED_STREAM")
+                    val body =
+                        when {
+                            first -> {
+                                val prefix = Buffer().write(expected, 0, 2)
+                                object : ForwardingSource(prefix) {
+                                    override fun read(
+                                        sink: Buffer,
+                                        byteCount: Long,
+                                    ): Long {
+                                        if (prefix.exhausted()) throw SocketTimeoutException("fixture body timeout")
+                                        return super.read(sink, byteCount)
+                                    }
+                                }.buffer().asResponseBody(null, 4L)
+                            }
+                            stallBody -> expected.copyOfRange(2, 4).toResponseBody()
+                            else -> expected.toResponseBody()
+                        }
+                    val start = if (stallBody && !first) 5 else 3
+                    if (stallBody && !first) assertEquals("\"test-episode\"", request.header("If-Range"))
                     Response
                         .Builder()
                         .request(request)
                         .protocol(Protocol.HTTP_2)
                         .code(206)
                         .message("Partial Content")
-                        .header("Content-Range", "bytes 3-6/16")
-                        .header("Content-Length", "4")
-                        .body(expected.toResponseBody())
+                        .header("ETag", "\"test-episode\"")
+                        .header("Content-Range", "bytes $start-6/16")
+                        .header("Content-Length", body.contentLength().toString())
+                        .body(body)
                         .build()
                 }.build()
         AndroidPlaybackHttpProxy(context, "cache-range-test", limit, upstreamClient = client).use { proxy ->
@@ -72,7 +103,15 @@ class BufferedScrubDecodeInstrumentedTest {
             }
             requireNotNull(VideoCachePool.acquire(context, limit)).use { handle ->
                 try {
-                    assertArrayEquals(expected, readRange())
+                    val firstRead = runCatching { readRange() }
+                    if (stallBody) {
+                        assertEquals(
+                            "A body timeout must reopen the missing suffix",
+                            listOf("bytes=3-6", "bytes=5-6"),
+                            ranges.toList(),
+                        )
+                    }
+                    assertArrayEquals(expected, firstRead.getOrThrow())
                     val deadline = android.os.SystemClock.elapsedRealtime() + 2_000
                     while (!handle.cache.isCached(key, 3L, 4L) && android.os.SystemClock.elapsedRealtime() < deadline) {
                         Thread.sleep(20)
@@ -81,7 +120,8 @@ class BufferedScrubDecodeInstrumentedTest {
                     assertFalse(handle.cache.isCached(key, 2L, 1L))
                     assertFalse(handle.cache.isCached(key, 7L, 1L))
                     assertArrayEquals(expected, readRange())
-                    assertEquals(listOf("bytes=3-6", "bytes=3-6"), ranges.toList())
+                    val secondRange = if (stallBody) "bytes=5-6" else "bytes=3-6"
+                    assertEquals(listOf("bytes=3-6", secondRange), ranges.toList())
                 } finally {
                     handle.cache.removeResource(key)
                 }

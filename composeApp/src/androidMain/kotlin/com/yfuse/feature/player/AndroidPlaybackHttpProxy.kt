@@ -95,6 +95,7 @@ internal class AndroidPlaybackHttpProxy(
                     manager.put(uri, response.headers.toMultimap())
                 }
             }.build()
+    private val cacheCalls = PlaybackCacheCalls(upstreamClient)
     private val cacheHandle =
         if (videoCacheBytes >
             0L
@@ -339,7 +340,7 @@ internal class AndroidPlaybackHttpProxy(
                     ?.let { put("Cookie", it.joinToString("; ")) }
             }
         val upstreamFactory =
-            PlaybackHttpDataSource.factory(userAgent, upstreamClient)
+            PlaybackHttpDataSource.factory(userAgent, cacheCalls.forRequest(request))
         val cacheFactory =
             CacheDataSource
                 .Factory()
