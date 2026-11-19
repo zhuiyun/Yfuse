@@ -9,8 +9,8 @@ permissions:
   contents: read
   actions: read
 env:
-  QA_APP_SHA: 20c96e5eb929aedd9b38b19d9a20cbb3ee0bf326
-  QA_BUILD_RUN: 44414710658
+  QA_APP_SHA: b83ae66285d300babf97da58a0adaaada9c815a2
+  QA_BUILD_RUN: 44430653728
 jobs:
   acquire:
     runs-on: ubuntu-24.04
@@ -151,6 +151,9 @@ jobs:
     - name: Measure text on the painted movie and episode information cards
       if: matrix.scope == 'primary'
       run: /usr/bin/python3 qa-power-ui/check_detail_specs.py results/ui --output results/ui/file-info-contrast.json --count-only-audio
+    - name: Verify both themes on engine recommendations, text and source controls
+      if: matrix.scope == 'primary'
+      run: /usr/bin/python3 qa-power-ui/check_profile_detail_contrast.py results/ui --output results/ui/profile-detail-contrast.json
     - if: always()
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
       with:

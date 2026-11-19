@@ -15,7 +15,7 @@ jobs:
         env: {API_TOKEN: '${{ github.token }}'}
         run: |
           set -euo pipefail
-          bash qa-integrated/acquire-qualified-candidate.sh 44414710658 20c96e5eb929aedd9b38b19d9a20cbb3ee0bf326
+          bash qa-integrated/acquire-qualified-candidate.sh 44430653728 b83ae66285d300babf97da58a0adaaada9c815a2
           mkdir candidate
           cp preview/composeApp-release.apk preview/provenance.txt candidate/
           awk '$2 == "composeApp-release.apk" { print }' preview/apk.sha256 > candidate/apk.sha256
