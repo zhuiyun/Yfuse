@@ -16,7 +16,7 @@ jobs:
         with: {persist-credentials: false}
       - name: Require full current-candidate qualification before reserving source runners
         env: {API_TOKEN: '${{ github.token }}'}
-        run: bash qa-integrated/acquire-qualified-candidate.sh 44414710658 20c96e5eb929aedd9b38b19d9a20cbb3ee0bf326
+        run: bash qa-integrated/acquire-qualified-candidate.sh 44469657784 382077026e5747530f320c0188ba2eeebd529b7e
       - name: Build network and gesture recorder
         run: |
           mkdir qa-private-driver
@@ -38,7 +38,8 @@ jobs:
       QA_OPEN_DIAGNOSTIC_SECONDS: 60
       QA_OBSERVED_FAILED_SEEKS: 'true'
       QA_BENCHMARK_LABELS: m-029,e-027,m-012,m-005,e-004
-      QA_LATE_OPEN_LABELS: e-000,e-001,e-004,e-023,m-002,m-005,m-008,m-010,m-012,m-020,m-029,m-030
+      QA_TIMED_RANGE_LABELS: e-011,e-013,e-015,e-017
+      QA_LATE_OPEN_LABELS: e-025,m-003,m-021,m-023,m-025,e-000,e-001,e-004,e-023,m-002,m-005,m-008,m-010,m-012,m-020,m-029,m-030,e-011,e-013,e-015,e-017
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 360
     steps:
@@ -70,8 +71,8 @@ jobs:
         run: |
           set -euo pipefail
           api="https://api.github.com/repos/$GITHUB_REPOSITORY"
-          build=44414710658
-          expected=20c96e5eb929aedd9b38b19d9a20cbb3ee0bf326
+          build=44469657784
+          expected=382077026e5747530f320c0188ba2eeebd529b7e
           for i in $(seq 1 260); do
             artifact=$(curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/$build/artifacts" | jq -r '.artifacts[] | select(.name=="candidate-test-input" and .expired==false) | .id' | head -1)
             if [[ "$artifact" =~ ^[0-9]+$ ]]; then break; fi
