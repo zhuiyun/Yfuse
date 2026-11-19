@@ -172,7 +172,7 @@ def probe_file(url, label):
             raise ValueError('Public original source probe failed')
         time.sleep(2)
 
-def run(item, before_seek=None):
+def run(item, before_seek=None, before_open=None, first_picture=None):
     url=item['url'];label=item['id'];kind=item['kind']
     if urllib.parse.urlsplit(url).hostname not in ('download.blender.org','media.xiph.org','video.blender.org','images-assets.nasa.gov'):raise ValueError('unlisted source host')
     playback_url=item.get('testUrl',url)
@@ -190,9 +190,13 @@ def run(item, before_seek=None):
     adb('shell','am','force-stop','com.yfuse')
     since=time.time()
     seturl='am start -W -a android.intent.action.VIEW -n com.yfuse/com.yfuse.feature.player.ExternalPlaybackActivity -t '+item['mime']+' -d '+shlex.quote(playback_url)
+    if before_open is not None:
+        before_open()
     status=adb('shell',seturl,check=False)
     if 'Exception' in status or 'Error' in status:raise RuntimeError('intent rejected')
     result=decode_playback(label,None,observed['seconds'])
+    if first_picture is not None:
+        first_picture()
     measured(label+'-advancing-picture',**result)
     proof=engine_evidence(os.environ['QA_ENGINE'],since)
     identity_deadline=time.monotonic()+12

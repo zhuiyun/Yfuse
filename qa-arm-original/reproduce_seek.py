@@ -19,18 +19,20 @@ catalog += [dict(x, mime='video/mp4') for x in json.loads(Path('qa-titles/catalo
 requested_id = os.environ.get('QA_ORIGINAL_ID', 'sintel-blender-1080p-mkv')
 item = next(x for x in catalog if x['id'] == requested_id)
 mode = os.environ['QA_ORIGINAL_PATH']
-if mode not in ('origin', 'loopback', 'loopback-timeout'):
+if mode not in ('origin', 'loopback', 'loopback-timeout', 'loopback-latency-pair'):
     raise ValueError('Unknown control route')
 os.environ['QA_CAPTURE_FAILURE'] = 'true'
 server = None
 fault_mode = mode == 'loopback-timeout'
+latency_mode = mode == 'loopback-latency-pair'
 trial = None
+startup_trial = None
 
 if os.environ.get('QA_RANGE_CONTROL') == 'true':
     from range_control import record
     record(item['url'], direct.OUT / 'independent-origin-ranges.json')
 
-if mode in ('loopback', 'loopback-timeout'):
+if mode != 'origin':
     target = Path(os.environ['RUNNER_TEMP']) / 'public-original.media'
     subprocess.run(['curl', '--fail', '--location', '--retry', '3', '--max-time', '600',
                     '--output', str(target), item['url']], check=True)
@@ -48,6 +50,10 @@ if mode in ('loopback', 'loopback-timeout'):
         from body_timeout_control import BodyTimeoutTrial
         if not expected_sha or os.environ.get('QA_TIMEOUT_VERSION') not in ('previous', 'candidate'):
             raise ValueError('The timeout comparison requires a pinned movie and a named build')
+    if latency_mode:
+        from startup_range_control import StartupRangeTrial
+        if not expected_sha or os.environ['QA_ENGINE'] != 'YCore':
+            raise ValueError('The startup comparison requires YCore and a pinned original')
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):pass
@@ -64,6 +70,11 @@ if mode in ('loopback', 'loopback-timeout'):
             end = min(int(match[2]), size-1) if match and match[2] else size-1
             if start > end:
                 self.send_error(416);return
+            observer = startup_trial
+            if latency_mode:
+                if observer and body:
+                    observer.arrival(start, end)
+                direct.time.sleep(StartupRangeTrial.header_seconds)
             self.send_response(206 if match else 200)
             self.send_header('Content-Length', str(end-start+1))
             self.send_header('Content-Type', item['mime'])
@@ -90,9 +101,9 @@ if mode in ('loopback', 'loopback-timeout'):
                             self.wfile.flush()
                             request_trial.pause_after_prefix(self.connection)
                             should_pause = False
-                        if pace_open:
-                            # Keep the first real seek outside the bytes already read during startup.
-                            direct.time.sleep(len(data) / (2 * 1024 * 1024))
+                        if pace_open or latency_mode:
+                            rate = StartupRangeTrial.bytes_per_second if latency_mode else 2 * 1024 * 1024
+                            direct.time.sleep(len(data) / rate)
             except (BrokenPipeError,ConnectionResetError):pass
 
     server = ThreadingHTTPServer(('127.0.0.1', 18389), Handler)
@@ -131,20 +142,32 @@ def prepare_cache_pair(index, always_fresh=False):
 
 
 cache_pairs = []
-compare_cache = fault_mode or os.environ.get('QA_CACHE_PAIRS') == 'true'
-planned = 2 if fault_mode else 12
+compare_cache = fault_mode or latency_mode or os.environ.get('QA_CACHE_PAIRS') == 'true'
+order = ('previous', 'candidate', 'candidate', 'previous', 'candidate', 'previous', 'previous', 'candidate')
+planned = len(order) if latency_mode else (2 if fault_mode else 12)
 timeouts = []
+startup_results = []
 try:
     for index in range(planned):
         sample = dict(item, id=item['id']+'-'+mode+'-'+str(index))
-        cache_case = prepare_cache_pair(index, always_fresh=fault_mode) if compare_cache else None
+        if latency_mode:
+            if direct.adb('get-serialno').strip() != '127.0.0.1:15555':
+                raise RuntimeError('The paired comparison requires the isolated cloud guest')
+            # Debug signing keys can differ between qualified release artifacts.
+            direct.adb('uninstall', 'com.yfuse')
+            artifact = Path('previous/preview' if order[index] == 'previous' else 'preview') / 'composeApp-release.apk'
+            direct.adb('install', '-g', str(artifact))
+        cache_case = prepare_cache_pair(index, always_fresh=fault_mode or latency_mode) if compare_cache else None
         trial = BodyTimeoutTrial(target.stat().st_size, etag) if fault_mode else None
+        startup_trial = StartupRangeTrial() if latency_mode else None
         try:
-            direct.run(sample, before_seek=trial.before_seek if trial else None)
+            direct.run(sample, before_seek=trial.before_seek if trial else None,
+                       before_open=startup_trial.before_open if startup_trial else None,
+                       first_picture=startup_trial.first_picture if startup_trial else None)
         except Exception as error:
             direct.measured(sample['id']+'-incomplete', error=type(error).__name__)
             direct.capture_failure(sample['id'])
-            if not fault_mode:
+            if not compare_cache:
                 break
         finally:
             if cache_case is not None:
@@ -152,6 +175,13 @@ try:
                 cache_case['confirmed'] = any(r['case'] == sample['id'] + '-complete' and r.get('ok') for r in direct.ROWS)
                 cache_pairs.append(cache_case)
                 (direct.OUT / 'cache-open-pairs.json').write_text(json.dumps(cache_pairs, indent=2))
+            if startup_trial:
+                detail = startup_trial.result()
+                detail.update(attempt=index + 1, build=order[index], sourceSha256=original_sha,
+                              mediaBytesBefore=cache_case['before']['mediaBytes'],
+                              bothSeeksConfirmed=cache_case['confirmed'])
+                startup_results.append(detail)
+                (direct.OUT / 'startup-range-trials.json').write_text(json.dumps(startup_results, indent=2))
             if trial:
                 result = trial.result()
                 result.update(attempt=index + 1, sourceSha256=original_sha,
@@ -168,7 +198,7 @@ try:
                     'resolver': direct.adb('shell', 'dumpsys', 'dnsresolver', check=False)[:65536],
                 }
                 (direct.OUT / ('resolver-after-' + str(index) + '.json')).write_text(json.dumps(snapshot, indent=2))
-        if not fault_mode and not direct.ROWS[-1].get('ok'):
+        if not compare_cache and not direct.ROWS[-1].get('ok'):
             break
     passed = sum(row['case'].endswith('-complete') and row.get('ok',False) for row in direct.ROWS)
     direct.measured('repeat-summary', sourceId=requested_id, mode=mode, plannedOpens=planned, passedOpens=passed)
@@ -177,6 +207,14 @@ try:
         recovered = all(t['exactSuffixRequests'] == 1 and t['pictureConfirmed'] for t in timeouts)
         required = exposed and (os.environ['QA_TIMEOUT_VERSION'] == 'previous' or recovered)
         raise SystemExit(int(not required))
+    if latency_mode:
+        candidate = [r for r in startup_results if r['build'] == 'candidate']
+        previous = [r for r in startup_results if r['build'] == 'previous']
+        direct.measured('paired-source-summary', previousOpens=sum(r['firstPictureMs'] is not None for r in previous),
+                        candidateOpens=sum(r['firstPictureMs'] is not None for r in candidate),
+                        previousWithDuplicateBlocks=sum(bool(r['startupPrefixThenFullBeyondFirstBlock']) for r in previous),
+                        candidateWithDuplicateBlocks=sum(bool(r['startupPrefixThenFullBeyondFirstBlock']) for r in candidate))
+        raise SystemExit(int(len(candidate) != 4 or len(previous) != 4 or not all(r['bothSeeksConfirmed'] for r in candidate)))
     raise SystemExit(int(passed != planned))
 finally:
     if server:
