@@ -18,6 +18,12 @@ jobs:
         run: |
           set -euo pipefail
           bash qa-integrated/acquire-qualified-candidate.sh 44469657784 "$QA_APP_SHA"
+          # The qualified receipt also identifies negative-control APKs. Only the
+          # production candidate is carried into the replay workers.
+          awk '$2 == "composeApp-release.apk" {print}' preview/apk.sha256 > preview/replay.sha256
+          test "$(wc -l < preview/replay.sha256)" -eq 1
+          mv preview/replay.sha256 preview/apk.sha256
+          (cd preview && sha256sum -c apk.sha256)
           python3 qa-historical-seeks/check.py
           mkdir qa-driver
           cp qa-arm-matrix/Driver.java qa-volume/input-driver.java
