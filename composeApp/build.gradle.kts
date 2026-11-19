@@ -974,6 +974,7 @@ android {
         }
         getByName("androidTest") {
             kotlin.directories += "src/androidInstrumentedTest/kotlin"
+            kotlin.directories += "src/androidNetworkTest/kotlin"
             assets.directories += "src/androidInstrumentedTest/assets"
         }
         listOf("benchmark", "profile").forEach { variant ->
@@ -1370,6 +1371,8 @@ dependencies {
     androidTestCompileOnly(libs.google.cast.tv)
     androidTestImplementation(libs.androidx.test.junit)
     androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.okhttp.mockwebserver)
+    androidTestImplementation(libs.okhttp.tls)
 
     implementation(libs.ktor.okhttp)
     implementation(libs.okhttp)

@@ -57,7 +57,7 @@ kotlin {
             }
         }
         getByName("androidHostTest") {
-            kotlin.srcDirs("../composeApp/src/androidUnitTest/kotlin")
+            kotlin.srcDirs("../composeApp/src/androidUnitTest/kotlin", "../composeApp/src/androidNetworkTest/kotlin")
             resources.srcDir("../composeApp/src/androidMain/assets/widgets")
             dependencies {
                 runtimeOnly(

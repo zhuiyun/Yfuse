@@ -4,7 +4,9 @@ import com.yfuse.core.playback.PlaybackProxyRequest
 import com.yfuse.core2.android.YHttpContentRange
 import com.yfuse.core2.android.parseContentRange
 import okhttp3.Call
+import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
+import okhttp3.Protocol
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.asResponseBody
 import okio.Buffer
@@ -13,6 +15,7 @@ import okio.Timeout
 import okio.buffer
 import java.io.IOException
 import java.net.SocketTimeoutException
+import java.util.concurrent.TimeUnit
 
 /** A cached playback GET can recover one stalled body read without discarding its delivered prefix. */
 internal class PlaybackCacheCalls(
@@ -24,6 +27,13 @@ internal class PlaybackCacheCalls(
             .followRedirects(false)
             .followSslRedirects(false)
             .build()
+    private val http1ResumeClient by lazy {
+        resumeClient
+            .newBuilder()
+            .protocols(listOf(Protocol.HTTP_1_1))
+            .connectionPool(ConnectionPool(0, 1, TimeUnit.SECONDS))
+            .build()
+    }
     private val initialClient =
         client
             .newBuilder()
@@ -36,7 +46,8 @@ internal class PlaybackCacheCalls(
                         response
                     } else {
                         val owner = requireNotNull(chain.request().tag(PlaybackProxyRequest::class.java))
-                        val source = PlaybackResponseSource(response, window, tag, resumeClient, owner, chain.call())
+                        val source =
+                            PlaybackResponseSource(response, window, tag, recoveryClient(response), owner, chain.call())
                         response
                             .newBuilder()
                             .body(
@@ -48,6 +59,16 @@ internal class PlaybackCacheCalls(
                     }
                 }
             }.build()
+
+    private fun recoveryClient(response: Response): OkHttpClient =
+        if (response.protocol == Protocol.HTTP_2 &&
+            response.request.url.isHttps &&
+            Protocol.HTTP_1_1 in resumeClient.protocols
+        ) {
+            http1ResumeClient
+        } else {
+            resumeClient
+        }
 
     fun forRequest(owner: PlaybackProxyRequest): Call.Factory =
         Call.Factory { request ->
