@@ -279,6 +279,7 @@ internal class AndroidTransportMediaDataSource(
     private var maximumCacheLoadMs = 0L
     private var promotedPrefetchCount = 0L
     private var latestReadPosition = 0L
+    private var contiguousReadStart = 0L
     private val readHeads = YTransportReadHeads()
 
     private val activePrefetchTransports = mutableSetOf<YMediaTransport>()
@@ -383,6 +384,7 @@ internal class AndroidTransportMediaDataSource(
         validatePersistentCache()
         ensureRepresentationCurrent()
         if (knownSize >= 0L && position >= knownSize) return -1
+        if (position != latestReadPosition) contiguousReadStart = position
         // Returning to the other run of a non-interleaved file is not a seek.
         val continuesRun = readHeads.record(position / blockSize, System.nanoTime())
         if (!continuesRun && kotlin.math.abs(position - latestReadPosition) > blockSize.toLong() * 2L) {
@@ -417,13 +419,19 @@ internal class AndroidTransportMediaDataSource(
                     )
             val block = loaded.bytes
             val writer = scrubWriter ?: BufferedScrubMedia.lookup(uri, headers, credentials)?.also { scrubWriter = it }
-            if (!prefetchSuppressed) schedulePrefetch(blockIndex + 1L)
             val blockOffset = offsetInBlock - loaded.offsetInBlock
             if (blockOffset >= block.size) break
             val count = minOf(remaining, block.size - blockOffset)
             block.copyInto(buffer, outputOffset, blockOffset, blockOffset + count)
             writer?.put(readPosition, block, blockOffset, count, knownSize)
             readPosition += count
+            if (!prefetchSuppressed) {
+                val approachingBoundary =
+                    blockSize > STARTUP_RANGE_BYTES &&
+                        readPosition - contiguousReadStart >= STARTUP_RANGE_BYTES &&
+                        offsetInBlock + count >= blockSize - STARTUP_RANGE_BYTES
+                schedulePrefetch(blockIndex + 1L, approachingBoundary)
+            }
             outputOffset += count
             remaining -= count
         }
@@ -1094,7 +1102,10 @@ internal class AndroidTransportMediaDataSource(
         )
     }
 
-    private fun schedulePrefetch(blockIndex: Long) {
+    private fun schedulePrefetch(
+        blockIndex: Long,
+        approachingSequentialBoundary: Boolean = false,
+    ) {
         if (prefetchSuppressed) return
         if (!allowsSpeculativeWork()) {
             prefetchDepthBlocks = 0
@@ -1117,7 +1128,9 @@ internal class AndroidTransportMediaDataSource(
         val startupReadsOnly = prioritizeStartupReads && !window.playing
         val activeDepth =
             when {
-                startupReadsOnly -> 0
+                // A demuxer reading through a block can consume the next response progressively.
+                // Sparse header and index probes still request only their own block.
+                startupReadsOnly -> if (approachingSequentialBoundary) minOf(prefetchDepthBlocks, 1) else 0
                 !window.playing || window.bufferedUs / window.speed < 2_000_000L -> minOf(prefetchDepthBlocks, 2)
                 else -> prefetchDepthBlocks
             }
