@@ -7,12 +7,19 @@ from features import snapshot,find,coords
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from PIL import Image
 import numpy as np
-root=pathlib.Path('qa-media');file=root/'ProbeA.mp4';out=pathlib.Path('results');out.mkdir(exist_ok=True);stats={'range':0,'image':0,'bytes':0}
+root=pathlib.Path('qa-media');file=root/'ProbeA.mp4';out=pathlib.Path('results');out.mkdir(exist_ok=True);stats={'range':0,'image':0,'bytes':0,'GET':0,'HEAD':0}
+origin_lock=threading.Lock()
 received=[]
+
+def origin_counters():
+    with origin_lock:
+        return dict(stats)
 limits=json.loads((root/'boundary.json').read_text())
 def spans():
     merged=[]
-    for a,b in sorted(received):
+    with origin_lock:
+        extents=sorted(received)
+    for a,b in extents:
         if not merged or a>merged[-1][1]+1:merged.append([a,b])
         else:merged[-1][1]=max(merged[-1][1],b)
     return merged
@@ -24,14 +31,20 @@ class Origin(BaseHTTPRequestHandler):
     def do_HEAD(self):self.serve(False)
     def do_GET(self):self.serve(True)
     def serve(self,body):
+        with origin_lock:
+            stats[self.command]+=1
+            if self.path!='/film.mp4':
+                stats['image']+=1
         if self.path!='/film.mp4':
-            stats['image']+=1;self.send_error(404);return
+            self.send_error(404);return
         size=file.stat().st_size;match=re.fullmatch(r'bytes=(\d+)-(\d*)',self.headers.get('Range',''))
         start=int(match[1]) if match else 0;end=min(int(match[2]),size-1) if match and match[2] else size-1
         if start>end:self.send_error(416);return
         # Keep the remaining suffix unavailable until the measured gesture finishes.
         if start>=limits['before']: self.send_error(503);return
-        if match:stats['range']+=1
+        if match:
+            with origin_lock:
+                stats['range']+=1
         self.send_response(206 if match else 200);self.send_header('Content-Length',str(end-start+1));self.send_header('Content-Type','video/mp4');self.send_header('ETag','"qa-rail-preview-v1"');self.send_header('Accept-Ranges','bytes')
         if match:self.send_header('Content-Range',f'bytes {start}-{end}/{size}')
         self.end_headers()
@@ -42,7 +55,11 @@ class Origin(BaseHTTPRequestHandler):
                     while start<=end:
                         if start>=limits['before']:time.sleep(25);return
                         chunk=f.read(min(16384,end-start+1,limits['before']-start))
-                        self.wfile.write(chunk);received.append((start,start+len(chunk)-1));stats['bytes']+=len(chunk);start+=len(chunk)
+                        self.wfile.write(chunk)
+                        with origin_lock:
+                            received.append((start,start+len(chunk)-1))
+                            stats['bytes']+=len(chunk)
+                        start+=len(chunk)
                 except OSError:pass
 srv=ThreadingHTTPServer(('127.0.0.1',18382),Origin);srv.daemon_threads=True;threading.Thread(target=srv.serve_forever,daemon=True).start()
 adb('shell','am start -a android.intent.action.VIEW -n com.yfuse/com.yfuse.feature.player.ExternalPlaybackActivity -t video/mp4 -d http://127.0.0.1:18382/film.mp4')
@@ -116,9 +133,9 @@ r,tr=show();x0,y0,x1,y1=r;y=(y0+y1)//2
 ts=marker(screen()) or 4
 hot=10;cold=143;payload={'rail':r,'startPTS':ts,'hot':hot,'cold':cold,'baseCodes':thumbTimes(baseline),'phases':[]}
 def record(label,ok,observed):
-    payload['phases'].append({'case':label,'ok':bool(ok),'codes':observed,'http':dict(stats)})
+    payload['phases'].append({'case':label,'ok':bool(ok),'codes':observed,'http':origin_counters()})
     (out/'thumbnail-held.json').write_text(json.dumps(payload));print('THUMB',label,ok,observed,flush=True)
-before=dict(stats)
+before=origin_counters()
 record('hot-packets-delivered',packetsAvailable('hotPackets'),[])
 record('cold-packets-withheld',not packetsAvailable('coldPackets'),[])
 try:
@@ -131,12 +148,18 @@ try:
     motion('MOVE',px(hot+2));time.sleep(.7)
     ok,v=waitImage('held-back',hot+2);record('returned-to-buffer',ok,v)
 finally:
-    payload['requestsWhileHeld']=stats['range']-before['range']
+    held_end=origin_counters()
+    payload['requestsWhileHeld']=held_end['range']-before['range']
+    payload['httpMethodsWhileHeld']={method:held_end[method]-before[method] for method in ('GET','HEAD')}
+    payload['originRequestsWhileHeld']=sum(payload['httpMethodsWhileHeld'].values())
     payload['deliveredExtentsBeforeRelease']=spans()
     motion('UP',px(hot+2))
 time.sleep(.5);ok,v=waitImage('released',hot+2,False);record('released',ok,v)
-record('no-thumbnail-http-endpoint',stats['image']==0,[])
-payload['rangeRequestsDuringGesture']=stats['range']-before['range']
+after=origin_counters()
+record('no-thumbnail-http-endpoint',after['image']==0,[])
+payload['rangeRequestsDuringGesture']=after['range']-before['range']
 payload['engine']=identity
 (out/'thumbnail-held.json').write_text(json.dumps(payload))
-raise SystemExit(int(not all(s['ok'] for s in payload['phases'])))
+passed=all(s['ok'] for s in payload['phases']) and payload['originRequestsWhileHeld']==0
+print('Origin requests while held',payload['httpMethodsWhileHeld'],flush=True)
+raise SystemExit(int(not passed))
