@@ -5,7 +5,7 @@ on:
     paths: ['.github/workflows/qa-integrated-av-repair.yml']
 permissions: {contents: read, actions: read}
 env:
-  QA_APP_SHA: c4278a35dcd7bb4c2bae1ea5b186e9c357985e55
+  QA_APP_SHA: b83ae66285d300babf97da58a0adaaada9c815a2
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: c4278a35dcd7bb4c2bae1ea5b186e9c357985e55
+          ref: b83ae66285d300babf97da58a0adaaada9c815a2
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78

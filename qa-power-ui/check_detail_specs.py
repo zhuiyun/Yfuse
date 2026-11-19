@@ -17,6 +17,20 @@ LABELS = {'编码', '分辨率', '布局', '声道', 'H264', 'AAC', '640x360', '
 pixel_luma = lru_cache(maxsize=8192)(luminance)
 
 
+def painted_contrast(rgb, bounds):
+    colours = Counter(rgb.crop(tuple(bounds)).getdata())
+    background = colours.most_common(1)[0][0]
+    ranked = sorted(((contrast(pixel_luma(colour), pixel_luma(background)), n)
+                     for colour, n in colours.items()), reverse=True)
+    # Several covered glyph pixels avoid measuring only antialiasing or one noisy pixel.
+    pixels = 0
+    for ratio, count in ranked:
+        pixels += count
+        if pixels >= 7:
+            return background, round(ratio, 3)
+    raise ValueError('Text sample has fewer than seven pixels')
+
+
 def read_scene(folder, route, count_only_audio=False):
     assert route['scrollEndObserved']
     shot = (route['scrolls'] or [route['top']])[-1]
@@ -43,17 +57,8 @@ def read_scene(folder, route, count_only_audio=False):
         x1,y1,x2,y2 = map(int, re.findall(r'\d+', node.get('bounds')))
         if y1 < 60 or y2 >= rgb.height-40:
             continue
-        colours = Counter(rgb.crop((x1,y1,x2,y2)).getdata())
-        bg, _ = colours.most_common(1)[0]
-        # Several fully covered glyph pixels must provide readable contrast.
-        # Median/stroke averages would incorrectly penalise anti-aliased edges.
-        grouped = sorted(((contrast(pixel_luma(colour),pixel_luma(bg)),n) for colour,n in colours.items()), reverse=True)
-        pixels = 0
-        for ratio, n in grouped:
-            pixels += n
-            if pixels >= 7:
-                break
-        rows.append({'label':label, 'bounds':[x1,y1,x2,y2], 'backgroundRgb':bg, 'contrast':round(ratio,3)})
+        bg, ratio = painted_contrast(rgb, [x1, y1, x2, y2])
+        rows.append({'label':label, 'bounds':[x1,y1,x2,y2], 'backgroundRgb':bg, 'contrast':ratio})
     assert {'编码','分辨率','H264','AAC','MP4'} <= {row['label'] for row in rows}
     return {'scene':route['name'],'image':shot['image'], 'sha256':hashlib.sha256(photo.read_bytes()).hexdigest(),
             'rows':rows}
