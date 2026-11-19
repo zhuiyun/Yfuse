@@ -6,6 +6,7 @@ import re
 import subprocess
 import threading
 import time
+from collections import Counter
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from capture import capture, failure_diagnostics
 from library_ui import field
@@ -13,21 +14,54 @@ from navigation import click
 from power import engine, adb, ui
 
 
-def fixture_server(media):
+class FileFixtureServer(ThreadingHTTPServer):
+    def __init__(self, address, handler):
+        super().__init__(address, handler)
+        self.metrics_lock = threading.Lock()
+        self.methods = Counter()
+        self.statuses = Counter()
+        self.body_bytes = 0
+        self.interrupted_bodies = 0
+
+    def counters(self):
+        with self.metrics_lock:
+            return {'requests': sum(self.methods.values()), 'bytes': self.body_bytes,
+                    'methods': dict(self.methods), 'statuses': dict(self.statuses),
+                    'interruptedBodies': self.interrupted_bodies}
+
+
+def fixture_server(media, port=18198):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
             pass
+
+        def log_request(self, code='-', size='-'):
+            if isinstance(code, int) and code >= 200:
+                with self.server.metrics_lock:
+                    self.server.methods[self.command] += 1
+                    self.server.statuses[int(code)] += 1
+
+        def write_body(self, body):
+            if self.command == 'HEAD':
+                return
+            try:
+                written = self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError):
+                with self.server.metrics_lock:
+                    self.server.interrupted_bodies += 1
+            else:
+                with self.server.metrics_lock:
+                    self.server.body_bytes += written
+
+        def send_error(self, code, message=None, explain=None):
+            self.send(b'', 'text/plain', code)
 
         def send(self, body, mime, status=200):
             self.send_response(status)
             self.send_header('Content-Type', mime)
             self.send_header('Content-Length', str(len(body)))
             self.end_headers()
-            if self.command != 'HEAD':
-                try:
-                    self.wfile.write(body)
-                except (BrokenPipeError, ConnectionResetError):
-                    pass
+            self.write_body(body)
 
         def do_GET(self):
             if self.path == '/list.m3u':
@@ -49,8 +83,7 @@ def fixture_server(media):
                 self.send_header('Accept-Ranges', 'bytes')
                 self.send_header('Content-Length', str(end-start+1))
                 self.end_headers()
-                if self.command != 'HEAD':
-                    self.wfile.write(media[start:end+1])
+                self.write_body(media[start:end+1])
             else:
                 self.send(b'Not Found', 'text/plain', 404)
 
@@ -83,7 +116,7 @@ def fixture_server(media):
                 return
             self.send((body + '</D:multistatus>').encode(), 'application/xml', 207)
 
-    server = ThreadingHTTPServer(('127.0.0.1', 18198), Handler)
+    server = FileFixtureServer(('127.0.0.1', port), Handler)
     server.daemon_threads = True
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server

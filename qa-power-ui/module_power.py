@@ -46,9 +46,10 @@ def main():
     status = 'incomplete'
     recorder = Recorder(output)
     (output / 'conditions.json').write_text(json.dumps({
-        'protocol': 1, 'pilot': pilot, 'batteryIsSimulated': True, 'batteryLevelSetpoint': 80,
+        'protocol': 2, 'pilot': pilot, 'batteryIsSimulated': True, 'batteryLevelSetpoint': 80,
         'phaseSeconds': 45 if pilot else 600, 'moduleEnergyAttributionAvailable': False,
-        'networkScope': 'UID network counters; no invented controlled-endpoint byte totals',
+        'networkScope': 'Android UID network snapshots and local IPTV/WebDAV request, status and body-byte counters. '
+                        'The fixture counts complete writes. Interrupted writes are listed separately.',
         'scope': 'Actual module UI, generated local M3U/WebDAV; account signed out; no casting receiver',
         'receiverClosure': 'Verify actual guest TCP listener disappears after Home before sampling background',
     }, indent=2), encoding='utf-8')
@@ -59,7 +60,8 @@ def main():
         adb('shell', 'dumpsys', 'batterystats', '--reset')
         for name in PHASES:
             duration = 45 if pilot else 600
-            row = {'phase': name, 'plannedSeconds': duration, 'status': 'incomplete'}
+            row = {'phase': name, 'plannedSeconds': duration, 'status': 'incomplete',
+                   'localFixtureBeforeEntry': server.counters()}
             phases.append(row)
             try:
                 expected = None
@@ -129,15 +131,17 @@ def main():
                     if 'com.yfuse' not in shot['packages'] or not any(expected in text for text in shot['labels']):
                         raise AssertionError('Module entry not verified: ' + name)
                 adb('shell', 'dumpsys', 'gfxinfo', 'com.yfuse', 'reset')
+                row['localFixtureAfterEntry'] = server.counters()
                 began = time.monotonic()
                 count = 0
                 print('MODULE_POWER', name, duration, flush=True)
                 while time.monotonic() - began < duration:
-                    recorder.capture(name, {'requests': None, 'bytes': None}, heavy=count % 4 == 0,
+                    recorder.capture(name, server.counters(), heavy=count % 4 == 0,
                                      intervention=time.monotonic() - began < 60)
                     count += 1
                     time.sleep(min(30, max(0, duration - (time.monotonic() - began))))
-                row.update(status='recorded', measuredSeconds=round(time.monotonic() - began, 2))
+                row.update(status='recorded', measuredSeconds=round(time.monotonic() - began, 2),
+                           localFixtureAfterObservation=server.counters())
             except Exception as error:
                 row.update(status='failed', error=type(error).__name__ + ': ' + str(error)[:220])
                 failure_diagnostics(output, name)
