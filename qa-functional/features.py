@@ -103,16 +103,18 @@ def at_root(tree, tab):
                    for node in nodes(tree) if node.get('package') == pkg)
 
 
-def hide_keyboard():
+def keyboard_visible():
  # WindowManager's current insets are authoritative. mImeWindowVis can retain
  # an old visible flag after dismissal; a second Back would leave the app page.
  displays=shell('dumpsys','window','displays')
  ime=[line for line in displays.splitlines() if re.search(r'InsetsSource.*type=(?:ITYPE_IME|ime)\b',line)]
  if ime:
-  if any(re.search(r'(?:mVisible|visible)=true\b',line) for line in ime):shell('input','keyevent',4);time.sleep(.45)
-  return
+  return any(re.search(r'(?:mVisible|visible)=true\b',line) for line in ime)
  state=shell('dumpsys','input_method')
- if re.search(r'(?:mInputShown|isInputViewShown|mIsInputViewShown)=true',state):shell('input','keyevent',4);time.sleep(.45)
+ return bool(re.search(r'(?:mInputShown|isInputViewShown|mIsInputViewShown)=true',state))
+
+def hide_keyboard():
+ if keyboard_visible():shell('input','keyevent',4);time.sleep(.45)
 def root(tab):
     hide_keyboard()
     for attempt in range(7):

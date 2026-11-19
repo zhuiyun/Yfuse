@@ -40,6 +40,27 @@ def main():
         return {'账号', '密码'} <= set(ui.page_info(tree)) and any(
             n.get('package') == ui.pkg and n.get('class', '').endswith('EditText') for n in ui.nodes(tree))
 
+    def leave_account(entry):
+        keyboard = ui.keyboard_visible()
+        if keyboard:
+            ui.shell('input', 'keyevent', 4)
+            deadline = time.monotonic() + 5
+            while ui.keyboard_visible() and time.monotonic() < deadline:
+                time.sleep(.15)
+            if ui.keyboard_visible():
+                raise AssertionError('TV Back did not dismiss the keyboard')
+        shot = capture(out, entry + '-before-page-back', matches=is_account)
+        if not is_account(ET.parse(out / shot['tree']).getroot()):
+            raise AssertionError('TV left the account page before the page Back press')
+        visible_before_back = ui.keyboard_visible()
+        (out / (entry + '-ime.json')).write_text(json.dumps({
+            'keyboardWasVisible': keyboard, 'keyboardVisibleBeforePageBack': visible_before_back,
+            'accountTree': shot['tree'], 'accountImage': shot['image'],
+        }) + '\n', encoding='utf-8')
+        if visible_before_back:
+            raise AssertionError('TV keyboard reopened before page Back')
+        ui.shell('input', 'keyevent', 4)
+
     ui.adb('shell', 'am', 'start', '-W', '-n', 'com.yfuse/com.yfuse.tv.TvMainActivity', t=60)
     ui.wait('我的与设置', 60)
     click('我的与设置')
@@ -53,13 +74,13 @@ def main():
     save('login-focused', login_focused)
     ui.shell('input', 'keyevent', 23)
     save('remote-opened-account', is_account)
-    ui.shell('input', 'keyevent', 4)
+    leave_account('handoff')
     save('remote-back-to-handoff', is_handoff)
     ui.shell('input', 'keyevent', 4)
     save('remote-back-to-settings', lambda t: '搜索设置' in ui.page_info(t))
     click('账号与同步')
     save('direct-account', is_account)
-    ui.shell('input', 'keyevent', 4)
+    leave_account('direct')
     save('direct-account-back-to-settings', lambda t: '搜索设置' in ui.page_info(t))
 
 

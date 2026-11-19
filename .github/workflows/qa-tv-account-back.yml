@@ -1,0 +1,60 @@
+name: Verify the TV remote Back key with and without the account keyboard
+on:
+  push:
+    branches: [codex/two-engines-cloud-seek-20261113]
+    paths: [.github/workflows/qa-tv-account-back.yml]
+permissions:
+  actions: read
+  contents: read
+jobs:
+  remote:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: yfuse-tv-debug-382077026e5747530f320c0188ba2eeebd529b7e
+          run-id: 44469555825
+          github-token: ${{ github.token }}
+          path: build/tv-quality
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: power-ui-input-driver
+          run-id: 44472885693
+          github-token: ${{ github.token }}
+          path: qa-driver
+      - name: Check the TV build against the original device run
+        env:
+          API_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p results/tv-signed-out
+          printf '%s  %s\n' 0b3dc2ae5598b0211fd3365ced237fe34e86d668be85cd29392a373f024f1ad5 build/tv-quality/Yfuse-TV-debug.apk > results/tv-signed-out/tv-apk.sha256
+          sha256sum -c results/tv-signed-out/tv-apk.sha256
+          curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/44469555825" | \
+            jq -e '{id,head_sha,path,conclusion} | select(.id==44469555825 and .head_sha=="382077026e5747530f320c0188ba2eeebd529b7e" and .path==".github/workflows/tv-quality-gates.yml" and .conclusion=="success")' > results/tv-signed-out/tv-build.json
+          sudo apt-get update -qq
+          sudo apt-get install -y python3-pil
+      - run: bash qa-arm-dual/redroid.sh
+      - name: Check account navigation using the cloud remote
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTIONS" = true
+          adb install -g build/tv-quality/Yfuse-TV-debug.apk
+          adb install -r qa-driver/driver.apk
+          adb shell wm size 1280x720
+          adb shell wm density 200
+          adb shell settings put secure immersive_mode_confirmations confirmed
+          adb shell wm dismiss-keyguard
+          touch /tmp/yfuse-tree-active
+          /usr/bin/python3 qa-power-ui/tv_handoff_entry.py
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: tv-remote-account-navigation
+          path: results/tv-signed-out/
+          retention-days: 14
