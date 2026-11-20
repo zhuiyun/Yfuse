@@ -733,13 +733,13 @@ class PlayerStoreTest {
 
     @Test
     fun selected_source_id_survives_a_single_playback_info_source_that_omits_its_id() =
-        runTest {
+        runBlocking {
             val registry =
                 testRegistry().apply {
                     addOrUpdate(SavedServer("id", "http://host:8096", "server", "u1", "user", "tok"))
                 }
             val repo =
-                testRepo(dispatcher = UnconfinedTestDispatcher(testScheduler)) { request ->
+                testRepo { request ->
                     when {
                         request.url.encodedPath.endsWith("/PlaybackInfo") ->
                             json(
@@ -782,15 +782,18 @@ class PlayerStoreTest {
                     mediaSourceId = "source-182",
                 ).create()
 
-            val state = store.states.first { !it.loading && !it.enrichmentPending }
-            val item = state.items.single()
-
-            assertNull(state.error)
-            assertEquals("source-182", item.versionId)
-            assertEquals(195_738_044_172L, item.activeVersion?.sourceSizeBytes)
-            assertTrue("MediaSourceId=source-182" in item.url, item.url)
-            assertFalse("MediaSourceId=source-40" in item.url, item.url)
-            store.dispose()
+            try {
+                // The selected media source owns the initial playable URL, before optional enrichment.
+                val state = withTimeout(5_000L) { store.states.first { !it.loading } }
+                assertNull(state.error)
+                val item = state.items.single()
+                assertEquals("source-182", item.versionId)
+                assertEquals(195_738_044_172L, item.activeVersion?.sourceSizeBytes)
+                assertTrue("MediaSourceId=source-182" in item.url, item.url)
+                assertFalse("MediaSourceId=source-40" in item.url, item.url)
+            } finally {
+                store.dispose()
+            }
         }
 
     @Test
