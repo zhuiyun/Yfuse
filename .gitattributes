@@ -6,3 +6,6 @@
 *.apk binary
 *.dex binary
 *.so binary
+
+# The original-media range verifier checks the SHA-256 of this resolver's exact bytes.
+audit/legacy-engine-20261113/integrated-20261116/source_bridge_entry.py -text -eol whitespace=cr-at-eol
