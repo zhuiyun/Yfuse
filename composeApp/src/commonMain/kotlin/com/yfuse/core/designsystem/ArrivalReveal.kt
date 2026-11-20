@@ -210,7 +210,7 @@ internal fun Modifier.completionEdge(
         val arrived = !previous && complete
         previous = complete
         progress.snapTo(if (moving && arrived) 0f else 1f)
-        if (moving && arrived) progress.animateTo(1f, tween(240, easing = LinearEasing))
+        if (moving && arrived) progress.animateTo(1f, tween(Motion.COMPLETION_EDGE, easing = LinearEasing))
     }
     return drawWithContent {
         drawContent()

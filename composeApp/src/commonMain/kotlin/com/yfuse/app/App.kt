@@ -1380,12 +1380,7 @@ internal fun GlassTabBar(
                     )
                 val diameter = minOf(size.height - 8.dp.toPx(), cell * TAB_PILL_WIDTH_FRACTION).coerceAtLeast(0f)
                 if (diameter <= 0f) return@drawBehind
-                val stretch =
-                    if (liquid && highlights && liquidMotion != null) {
-                        (bounds.width / TAB_PILL_WIDTH_FRACTION).coerceIn(1f, 1.08f)
-                    } else {
-                        1f
-                    }
+                val stretch = liquidLensStretch(bounds.width, liquid && highlights && liquidMotion != null)
                 val pillWidth = (diameter * stretch).coerceAtMost(size.width)
                 val pillHeight = diameter
                 val logicalCenter = cell * (bounds.left + bounds.width / 2f)
@@ -1549,34 +1544,6 @@ private fun LiquidGlassTabIcon(
     }
 }
 
-internal data class TabIndicatorBounds(
-    val left: Float,
-    val width: Float,
-)
-
-internal fun tabIndicatorBounds(
-    rawLeft: Float,
-    rawRight: Float,
-    tabCount: Int,
-    maxScale: Float = TAB_PILL_MAX_SCALE,
-): TabIndicatorBounds {
-    require(tabCount > 0)
-    val center = (rawLeft + rawRight) / 2f
-    val width =
-        kotlin.math
-            .abs(rawRight - rawLeft)
-            .coerceIn(
-                TAB_PILL_WIDTH_FRACTION * TAB_PILL_MIN_SCALE,
-                (TAB_PILL_WIDTH_FRACTION * maxScale).coerceAtMost(tabCount.toFloat()),
-            )
-    val left = (center - width / 2f).coerceIn(0f, tabCount.toFloat() - width)
-    return TabIndicatorBounds(left = left, width = width)
-}
-
-internal fun tabPillTargetLeft(index: Float): Float = index + (1f - TAB_PILL_WIDTH_FRACTION) / 2f
-
-internal fun tabPillTargetRight(index: Float): Float = index + (1f + TAB_PILL_WIDTH_FRACTION) / 2f
-
 internal fun rootTabMotion(
     previous: Tab,
     current: Tab,
@@ -1600,10 +1567,6 @@ internal fun rootPopMotion(
     start: Tab,
     arrival: OfficialNavMotion,
 ): OfficialNavMotion = if (active != start) rootTabMotion(active, start) else arrival
-
-private const val TAB_PILL_WIDTH_FRACTION = 0.82f
-private const val TAB_PILL_MIN_SCALE = 0.94f
-private const val TAB_PILL_MAX_SCALE = 1.12f
 
 /** How far 搜索's island sits inside its rim, as the tab island sits inside the bar. */
 private val SEARCH_ISLAND_INSET = 3.dp

@@ -24,6 +24,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -169,7 +170,7 @@ internal fun SettingsPanel(
         val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
         // The list takes whatever height the drawer has left instead of the old fixed
         // 210dp window, which scrolled a short slot inside a mostly empty screen.
-        val panelScroll = rememberScrollState()
+        val panelScroll = key(kind, trackPanelMode) { rememberScrollState() }
         Column(
             Modifier
                 .weight(1f, fill = false)

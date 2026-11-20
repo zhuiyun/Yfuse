@@ -31,7 +31,6 @@ import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
@@ -41,7 +40,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -137,7 +135,6 @@ import com.yfuse.core.designsystem.rememberCarouselPageColor
 import com.yfuse.core.designsystem.rememberRefreshReveal
 import com.yfuse.core.designsystem.rememberRetainedArtworkPageColor
 import com.yfuse.core.designsystem.rememberScrolledPastHero
-import com.yfuse.core.designsystem.sharedMediaOnClick
 import com.yfuse.core.designsystem.skeletonSweep
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.zoomBackAnchor
@@ -1398,8 +1395,6 @@ private fun HomeSourceBadge(source: String) {
     )
 }
 
-internal val LocalShelfPosterCopy = staticCompositionLocalOf<MutableState<String?>?> { null }
-
 /** 继续观看 — Forward-style still, exact resume position and progress at first glance. */
 @Composable
 internal fun ContinueWatching(
@@ -1596,71 +1591,13 @@ internal fun SmartPlaylistLibraryShelf(
 
 private const val SMART_SHELF_LIMIT = 12
 
-@Composable
-internal fun LibraryMediaShelf(
-    title: String,
-    items: List<HomeResumeEntry>,
-    onSeeAll: () -> Unit,
-    onClick: (HomeResumeEntry) -> Unit,
-    liftMenu: (HomeResumeEntry) -> LiftMenu,
-    place: String = "home:library:$title",
-) {
-    Column {
-        HomeShelfHeader(title = title, source = "媒体库", onSeeAll = onSeeAll)
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            motionItems(items.take(12), key = { "library-${it.server.id}-${it.item.id}" }) { entry ->
-                val item = entry.item
-                val selection = LocalShelfPosterCopy.current
-                val artworkKey = MediaSharedElementKey(entry.server.id, item.id)
-                val open =
-                    sharedMediaOnClick(artworkKey) {
-                        selection?.value = libraryHomeCopy(entry.server.id, place, item.id)
-                        onClick(entry)
-                    }
-                CaptionedPoster(
-                    url =
-                        EmbyImages.poster(
-                            entry.server.baseUrl,
-                            item,
-                            accessToken = entry.server.accessToken,
-                        ),
-                    blurHash = item.posterBlurHash,
-                    title = item.title,
-                    rating = item.communityRating,
-                    year =
-                        listOfNotNull(
-                            item.year?.toString(),
-                            entry.server.serverName.takeIf(String::isNotBlank),
-                        ).joinToString(" · "),
-                    onClick = open,
-                    sharedTransitionKey =
-                        selection?.let {
-                            libraryHomeSharedKey(
-                                entry.server.id,
-                                place,
-                                item.id,
-                                it.value,
-                            )
-                        } ?: artworkKey,
-                    liftMenu = { liftMenu(entry) },
-                    modifier = Modifier.width(MediaSizing.posterRailWidth),
-                    posterModifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
-                )
-            }
-        }
-    }
-}
-
 /**
  * Shared by every home shelf that carries a source badge next to its title (继续观看, 追剧日历,
  * 媒体库, 为你推荐) — they had drifted into four inline copies of the same row, one of which
  * (this one) baked its chevron into the "全部 ›" string instead of drawing it.
  */
 @Composable
-private fun HomeShelfHeader(
+internal fun HomeShelfHeader(
     title: String,
     source: String,
     onSeeAll: () -> Unit,

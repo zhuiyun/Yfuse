@@ -8,6 +8,14 @@ import kotlin.test.assertTrue
 
 class RootTabMotionTest {
     @Test
+    fun liquid_lens_is_round_at_rest_and_stretches_by_at_most_eight_percent() {
+        assertEquals(1f, liquidLensStretch(0.82f, enabled = true))
+        assertEquals(1.04f, liquidLensStretch(0.82f * 1.04f, enabled = true), absoluteTolerance = 0.0001f)
+        assertEquals(1.08f, liquidLensStretch(1.8f, enabled = true))
+        assertEquals(1f, liquidLensStretch(1.8f, enabled = false))
+    }
+
+    @Test
     fun dragging_obeys_direction_and_bar_bounds() {
         assertEquals(2f, draggedTabIndex(1f, 100f, 400f, 4, rtl = false))
         assertEquals(0f, draggedTabIndex(1f, 100f, 400f, 4, rtl = true))
