@@ -36,6 +36,9 @@ internal data class DetailActionFacts(
     val downloadable: Boolean?,
     /** That file's copy on this device, finished or on its way. */
     val download: DownloadStatus? = null,
+    val favoriteConfirmed: Boolean = false,
+    val favoriteOwner: Any? = null,
+    val downloadOwner: Any? = null,
 )
 
 /**
@@ -63,6 +66,8 @@ internal fun detailActionKeys(
                     // 更多 also holds 个人收藏, so the key says whose list it is.
                     description = "服务器收藏",
                     checked = facts.favorite,
+                    completed = facts.favoriteConfirmed,
+                    completionOwner = facts.favoriteOwner,
                     stateDescription = if (facts.favorite) "已收藏" else "未收藏",
                     onClick = onToggleFavorite,
                 ),
@@ -104,6 +109,8 @@ internal fun detailActionKeys(
                     id = DetailActionKeyIds.DOWNLOAD,
                     icon = AppIcons.Download,
                     label = downloadKeyLabel(facts.download),
+                    completed = facts.download == DownloadStatus.Completed,
+                    completionOwner = facts.downloadOwner,
                     description = "下载",
                     stateDescription = episodeDownloadLabel(facts.download),
                     // Seen while 播放's file resolves, so the row does not reflow when it arrives.
@@ -146,6 +153,9 @@ internal fun detailPageActionKeys(
                     ?.capabilities()
                     ?.favorites != false,
             favorite = detail.isFavorite,
+            favoriteOwner = state.server?.id to detail.id,
+            favoriteConfirmed = detail.isFavorite && state.confirmedFavorite == (state.server?.id to detail.id),
+            downloadOwner = state.playServer?.id to target?.id,
             watchLater = state.watchLater,
             watchLaterMutating = state.watchLaterMutating,
             played = detail.played,

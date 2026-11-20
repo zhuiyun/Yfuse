@@ -76,7 +76,6 @@ import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.ItemAction
-import com.yfuse.core.designsystem.LightEffect
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
@@ -104,6 +103,7 @@ import com.yfuse.core.designsystem.TabBarInset
 import com.yfuse.core.designsystem.Tips
 import com.yfuse.core.designsystem.ToastAction
 import com.yfuse.core.designsystem.YfChip
+import com.yfuse.core.designsystem.completionEdge
 import com.yfuse.core.designsystem.controlBorder
 import com.yfuse.core.designsystem.controlSurface
 import com.yfuse.core.designsystem.coversAll
@@ -111,7 +111,6 @@ import com.yfuse.core.designsystem.dragSelect
 import com.yfuse.core.designsystem.dragSelectRow
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.glassSelection
-import com.yfuse.core.designsystem.lightOnChange
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.overlayAction
@@ -1141,11 +1140,7 @@ private fun DownloadTaskRow(
                         else -> palette.sub2
                     }
                 Box(
-                    Modifier.lightOnChange(
-                        item.status,
-                        if (item.status == DownloadStatus.Completed) LightEffect.Converge else LightEffect.Node,
-                        emitWhen = item.status != DownloadStatus.Failed,
-                    ),
+                    Modifier.completionEdge(item.id, item.status == DownloadStatus.Completed),
                 ) {
                     if (item.status == DownloadStatus.Downloading && item.totalBytes > 0L) {
                         Row(verticalAlignment = Alignment.CenterVertically) {

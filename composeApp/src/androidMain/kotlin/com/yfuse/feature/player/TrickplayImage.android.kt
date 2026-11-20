@@ -4,10 +4,8 @@ import android.graphics.BitmapFactory
 import android.graphics.BitmapRegionDecoder
 import android.graphics.Rect
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -17,12 +15,11 @@ import coil3.asImage
 import coil3.compose.AsyncImage
 import coil3.decode.DecodeResult
 import coil3.decode.Decoder
-import coil3.memory.MemoryCache
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalRouteVisible
-import com.yfuse.core.designsystem.Motion
+import com.yfuse.core.designsystem.calmMotion
 
 /** Uses Coil's existing authenticated fetch/disk cache, decoding only the requested sprite cell. */
 @Composable
@@ -37,10 +34,10 @@ internal actual fun TrickplayImage(
         return
     }
     val context = LocalContext.current
-    var lastFrameKey by remember(storyboard) { mutableStateOf<MemoryCache.Key?>(null) }
     val moving =
         LocalRouteVisible.current &&
             !LocalAccessibilityOptions.current.reduceMotion &&
+            !calmMotion() &&
             android.provider.Settings.Global.getFloat(
                 context.contentResolver,
                 android.provider.Settings.Global.ANIMATOR_DURATION_SCALE,
@@ -61,8 +58,7 @@ internal actual fun TrickplayImage(
             ImageRequest
                 .Builder(context)
                 .data(frame.url)
-                .placeholderMemoryCacheKey(lastFrameKey)
-                .crossfade(if (moving) Motion.QUICK else 0)
+                .crossfade(if (moving) 90 else 0)
                 .size(width, height)
                 .memoryCacheKeyExtra("trickplay-region-v1", "$columns,$rows,${frame.column},${frame.row}")
                 .decoderFactory { result, _, _ ->
@@ -93,11 +89,13 @@ internal actual fun TrickplayImage(
                     }
                 }.build()
         }
-    AsyncImage(
-        model = request,
-        contentDescription = description,
-        onSuccess = { lastFrameKey = it.result.memoryCacheKey },
-        contentScale = ContentScale.FillBounds,
-        modifier = modifier,
-    )
+    // Cells on one sprite share a URL. Never carry another cell's painter into this timestamp.
+    key(frame, columns, rows) {
+        AsyncImage(
+            model = request,
+            contentDescription = description,
+            contentScale = ContentScale.FillBounds,
+            modifier = modifier,
+        )
+    }
 }

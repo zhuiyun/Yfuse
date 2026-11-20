@@ -16,6 +16,7 @@ import com.yfuse.core.designsystem.OfficialNavDisplay
 import com.yfuse.core.designsystem.ThemeText
 import com.yfuse.core.designsystem.YfuseTheme
 import com.yfuse.launchMainActivityForInput
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -28,6 +29,11 @@ class PersonalSearchNavigationInstrumentedTest {
     @Test(timeout = 120_000L)
     fun repeated_search_collapse_keeps_the_current_list_and_back_returns_one_level() {
         val pages = mutableStateOf(listOf("profile", "personal"))
+        var backCalls = 0
+        val pop = {
+            backCalls++
+            pages.value = pages.value.dropLast(1)
+        }
         launchMainActivityForInput().use { scenario ->
             scenario.onActivity { activity ->
                 activity.setContent {
@@ -35,7 +41,7 @@ class PersonalSearchNavigationInstrumentedTest {
                     YfuseTheme(dark = true) {
                         OfficialNavDisplay(
                             backStack = pages.value,
-                            onBack = { pages.value = pages.value.dropLast(1) },
+                            onBack = pop,
                             contentKey = { it },
                         ) { page ->
                             if (page == "personal") {
@@ -43,7 +49,7 @@ class PersonalSearchNavigationInstrumentedTest {
                                     state = PersonalCenterState(),
                                     onIntent = {},
                                     servers = emptyList(),
-                                    onBack = { pages.value = pages.value.dropLast(1) },
+                                    onBack = pop,
                                     onOpenMedia = {},
                                     initialTab = PersonalCenterTab.WatchLater,
                                     onSwipeable = {},
@@ -71,9 +77,18 @@ class PersonalSearchNavigationInstrumentedTest {
                 }
             }
             instrumentation.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
-            await("Back returns to the immediate parent") { node("片单返回后的个人页") != null }
-            assertTrue("Personal list is still visible after Back", node("搜索片单") == null)
-            assertTrue("Back removed more than one route", pages.value == listOf("profile"))
+            // During predictive back the parent is drawn before navigation commits. Wait for
+            // the model as well as the visible page, then verify a single callback on Main.
+            await("Back commits the personal route and shows its parent") {
+                var committed = false
+                scenario.onActivity { committed = pages.value == listOf("profile") }
+                committed && node("片单返回后的个人页") != null && node("搜索片单") == null
+            }
+            instrumentation.waitForIdleSync()
+            scenario.onActivity {
+                assertEquals("Back callback count", 1, backCalls)
+                assertEquals("Back stack after one press", listOf("profile"), pages.value)
+            }
         }
     }
 

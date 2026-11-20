@@ -27,6 +27,43 @@ import kotlin.math.roundToInt
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.TimeSource
 
+internal const val TAB_PILL_WIDTH_FRACTION = 0.82f
+private const val TAB_PILL_MIN_SCALE = 0.94f
+internal const val TAB_PILL_MAX_SCALE = 1.12f
+
+internal data class TabIndicatorBounds(
+    val left: Float,
+    val width: Float,
+)
+
+internal fun tabIndicatorBounds(
+    rawLeft: Float,
+    rawRight: Float,
+    tabCount: Int,
+    maxScale: Float = TAB_PILL_MAX_SCALE,
+): TabIndicatorBounds {
+    require(tabCount > 0)
+    val center = (rawLeft + rawRight) / 2f
+    val width =
+        kotlin.math
+            .abs(rawRight - rawLeft)
+            .coerceIn(
+                TAB_PILL_WIDTH_FRACTION * TAB_PILL_MIN_SCALE,
+                (TAB_PILL_WIDTH_FRACTION * maxScale).coerceAtMost(tabCount.toFloat()),
+            )
+    val left = (center - width / 2f).coerceIn(0f, tabCount.toFloat() - width)
+    return TabIndicatorBounds(left = left, width = width)
+}
+
+internal fun tabPillTargetLeft(index: Float): Float = index + (1f - TAB_PILL_WIDTH_FRACTION) / 2f
+
+internal fun tabPillTargetRight(index: Float): Float = index + (1f + TAB_PILL_WIDTH_FRACTION) / 2f
+
+internal fun liquidLensStretch(
+    cellWidth: Float,
+    enabled: Boolean,
+): Float = if (enabled) (cellWidth / TAB_PILL_WIDTH_FRACTION).coerceIn(1f, 1.08f) else 1f
+
 internal fun draggedTabIndex(
     index: Float,
     delta: Float,
@@ -66,6 +103,7 @@ internal class LiquidTabMotion(
     val sweep: Animatable<Float, androidx.compose.animation.core.AnimationVector1D>,
     val gestures: Modifier,
     val dragging: Boolean,
+    val leadingRight: Boolean,
 )
 
 @Composable
@@ -121,7 +159,7 @@ internal fun rememberLiquidTabMotion(
         sweep.snapTo(1f)
         if (changed && selected >= 0 && dragIndex == null && !reduceMotion) {
             sweep.snapTo(0f)
-            sweep.animateTo(1f, tween(Motion.TAB_SWEEP, delayMillis = Motion.TAB_SWEEP_DELAY, easing = Motion.Curve))
+            sweep.animateTo(1f, tween(Motion.TAB_SWEEP, easing = Motion.Curve))
         }
     }
     val gestures =
@@ -168,5 +206,5 @@ internal fun rememberLiquidTabMotion(
                 dragIndex = null
             }
         }
-    return LiquidTabMotion(left, right, sweep, gestures, dragIndex != null)
+    return LiquidTabMotion(left, right, sweep, gestures, dragIndex != null, rightward != rtl)
 }

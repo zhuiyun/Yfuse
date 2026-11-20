@@ -67,6 +67,7 @@ import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.PressFeedback
+import com.yfuse.core.designsystem.completionEdge
 import com.yfuse.core.designsystem.glassButtonAlpha
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.liquidMotionEnabled
@@ -551,6 +552,8 @@ internal data class DetailActionKey(
     val busy: Boolean = false,
     /** There but not usable yet — 下载 while 播放's file resolves. */
     val enabled: Boolean = true,
+    val completed: Boolean? = null,
+    val completionOwner: Any? = null,
 )
 
 /**
@@ -618,7 +621,15 @@ private fun DetailActionKeyTile(
                 action.stateDescription?.let { stateDescription = it }
             }.shadow(GlassLift.control, AppShapes.card)
             .liquidGlass(shape = AppShapes.card, fill = fill, border = edge, sheen = 0.72f)
-            .waitingPulse(active = action.busy, shape = AppShapes.card, color = if (on) ink else accent)
+            .then(
+                if (action.completed !=
+                    null
+                ) {
+                    Modifier.completionEdge(action.completionOwner, action.completed)
+                } else {
+                    Modifier
+                },
+            ).waitingPulse(active = action.busy, shape = AppShapes.card, color = if (on) ink else accent)
             .padding(horizontal = 4.dp, vertical = 7.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),

@@ -23,6 +23,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -58,6 +59,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -70,6 +72,9 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
@@ -94,6 +99,7 @@ import com.yfuse.core.designsystem.DolbyChip
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LightEffect
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.LocalDialogMotionHost
 import com.yfuse.core.designsystem.LocalHaptics
 import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.LocalTips
@@ -777,10 +783,21 @@ private fun RefinedBottomBarContent(
             // In a 短剧's upright window 选集 is the key reached for most, so it leads there.
             if (compact) episodesKey(spec)
             BarKeyLabelled("字幕", spec) {
-                CircleControl(AppIcons.Subtitle, "字幕", spec.ring, spec.icon, onClick = onOpenSubtitles)
+                PlayerMenuKey(onOpenSubtitles) { bounds, open ->
+                    CircleControl(AppIcons.Subtitle, "字幕", spec.ring, spec.icon, onClick = open, ringModifier = bounds)
+                }
             }
             BarKeyLabelled("音轨", spec) {
-                CircleControl(AppIcons.AudioTrack, "音轨", spec.ring, spec.icon, onClick = onOpenAudio)
+                PlayerMenuKey(onOpenAudio) { bounds, open ->
+                    CircleControl(
+                        AppIcons.AudioTrack,
+                        "音轨",
+                        spec.ring,
+                        spec.icon,
+                        onClick = open,
+                        ringModifier = bounds,
+                    )
+                }
             }
             // 弹幕 is switched far more often than it is set up, so a tap switches it and the
             // panel waits behind a held press. Off is struck through: the lit fill alone, a 12%
@@ -802,7 +819,9 @@ private fun RefinedBottomBarContent(
                 )
             }
             BarKeyLabelled("倍速", spec) {
-                RefinedSpeedControl(speed, onOpenSpeed, spec.ring, speedUnavailableReason)
+                PlayerMenuKey(onOpenSpeed) { bounds, open ->
+                    RefinedSpeedControl(speed, open, spec.ring, speedUnavailableReason, bounds)
+                }
             }
             // Which of these three exist is decided by the item, and the item changes under
             // the bar every time the queue advances: a source list resolves, a series gains
@@ -912,6 +931,19 @@ internal fun barKeySpec(
 }
 
 private val BarLabelAllowance = 220.dp
+
+@Composable
+private fun PlayerMenuKey(
+    onOpen: () -> Unit,
+    content: @Composable (Modifier, () -> Unit) -> Unit,
+) {
+    val host = LocalDialogMotionHost.current
+    var coordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    content(Modifier.onGloballyPositioned { coordinates = it }) {
+        coordinates?.takeIf { it.isAttached }?.boundsInWindow()?.let(host::openFromControl)
+        onOpen()
+    }
+}
 
 /** [key] with its [label] underneath when [spec] has room for labels; read once, by the key itself. */
 @Composable
@@ -1059,7 +1091,9 @@ private fun RefinedSpeedControl(
     onClick: () -> Unit,
     ringSize: Dp,
     unavailableReason: String?,
+    ringModifier: Modifier = Modifier,
 ) {
+    val interactions = remember { MutableInteractionSource() }
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val figure = if (speed % 1f == 0f) "${speed.toInt()}" else "$speed"
     val label = if (unavailableReason == null) "$figure×" else "倍速"
@@ -1070,18 +1104,24 @@ private fun RefinedSpeedControl(
         Modifier
             // Named for what it sets, with the rate as its state: read out, 「1.25×」 alone was a
             // number with nothing to say what it was the rate of.
-            .pressable(enabled = unavailableReason == null, label = "播放速度", focusShape = keyFocus, onClick = onClick)
-            .touchTarget()
+            .pressable(
+                enabled = unavailableReason == null,
+                label = "播放速度",
+                focusShape = keyFocus,
+                interactionSource = interactions,
+                lightFeedback = false,
+                onClick = onClick,
+            ).touchTarget()
             .semantics { stateDescription = unavailableReason ?: "$figure 倍" }
             .graphicsLayer { alpha = if (unavailableReason == null) 1f else 0.44f }
             .size(ring + ControlTouchPadding * 2),
         contentAlignment = Alignment.Center,
     ) {
         Box(
-            Modifier
+            ringModifier
                 .size(ring)
                 .focusBody(keyFocus)
-                .border(1.dp, Color.White.copy(alpha = 0.62f), CircleShape),
+                .playerControlRim(interactions),
             contentAlignment = Alignment.Center,
         ) {
             AnimatedContent(
@@ -1164,7 +1204,8 @@ internal fun StandardSeekBar(
     val tips = LocalTips.current
     val light = rememberLightFeedback(enabled)
     val currentLight by rememberUpdatedState(light)
-    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val accessibility = LocalAccessibilityOptions.current
+    val reduceMotion = accessibility.reduceMotion
     val magnetRadiusPx = with(LocalDensity.current) { SeekMarkerMagnetRadius.toPx() }
     var dragFraction by remember { mutableFloatStateOf(0f) }
     var dragging by remember { mutableStateOf(false) }
@@ -1569,8 +1610,16 @@ internal fun StandardSeekBar(
                         scaleX = scale
                         scaleY = scale
                         translationY = 6.dp.toPx() * (1f - interaction.value)
-                    }.background(Color.Black.copy(alpha = 0.58f), AppShapes.pill)
-                    .border(1.dp, Color.White.copy(alpha = 0.20f), AppShapes.pill),
+                    }.background(
+                        Color(0xFF191E27).copy(alpha = if (accessibility.reduceTransparency) 1f else 0.92f),
+                        AppShapes.pill,
+                    ).border(
+                        0.75.dp,
+                        Brush.verticalGradient(
+                            listOf(Color.White.copy(alpha = 0.42f), Color.White.copy(alpha = 0.12f)),
+                        ),
+                        AppShapes.pill,
+                    ),
                 contentAlignment = Alignment.Center,
             ) {
                 val bubbleLabel by remember { derivedStateOf { formatTime(latestPositionMs()) } }

@@ -236,6 +236,7 @@ fun DrawScope.drawLensIsland(
     dark: Boolean,
     accent: Color,
     alpha: Float = 1f,
+    edgeLight: Float = 0f,
 ) {
     val a = navigationSelectionAlpha(alpha)
     if (a <= 0f) return
@@ -272,6 +273,21 @@ fun DrawScope.drawLensIsland(
         cornerRadius = CornerRadius(minOf(rimRect.width, rimRect.height) / 2f),
         style = Stroke(edgePx),
     )
+    if (edgeLight != 0f) {
+        val near = if (edgeLight > 0f) rimRect.right else rimRect.left
+        drawRoundRect(
+            brush =
+                Brush.radialGradient(
+                    listOf(Color.White.copy(alpha = 0.55f * a * kotlin.math.abs(edgeLight)), Color.Transparent),
+                    center = Offset(near, rimRect.top + rimRect.height * 0.33f),
+                    radius = rimRect.height.coerceAtLeast(1f) * 0.8f,
+                ),
+            topLeft = rimRect.topLeft,
+            size = rimRect.size,
+            cornerRadius = CornerRadius(rimRect.height / 2f),
+            style = Stroke(edgePx),
+        )
+    }
 }
 
 internal fun navigationSelectionAlpha(alpha: Float): Float = if (alpha.isFinite()) alpha.coerceIn(0f, 1f) else 0f

@@ -187,9 +187,14 @@ internal val LocalPanelPresence = compositionLocalOf<PanelPresenceSignal?> { nul
 internal fun <T : Any> PanelPresence(
     value: T?,
     modifier: Modifier = Modifier,
+    replaced: Boolean = false,
     content: @Composable BoxScope.(T) -> Unit,
 ) {
     var retained by remember { mutableStateOf(value) }
+    if (replaced && value == null) {
+        SideEffect { retained = null }
+        return
+    }
     SideEffect { if (value != null) retained = value }
     val shown = value ?: retained ?: return
     val visible = value != null

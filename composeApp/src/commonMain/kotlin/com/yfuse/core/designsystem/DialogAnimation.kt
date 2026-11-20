@@ -9,6 +9,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
@@ -83,8 +84,17 @@ internal class DialogMotionHost {
     var touch: Offset? = null
         set(value) {
             field = value
+            controlBounds = null
             touchedAt = value?.let { TimeSource.Monotonic.markNow() }
         }
+    private var controlBounds: Rect? = null
+    val recentControlBounds: Rect? get() = controlBounds?.takeIf { recentTouch != null }
+
+    fun openFromControl(bounds: Rect) {
+        touch = bounds.center
+        controlBounds = bounds
+    }
+
     private var touchedAt: TimeMark? = null
     var poster: DialogPosterSource? = null
 
@@ -275,6 +285,7 @@ private class DialogPanelPosition {
 internal fun Modifier.dialogMotion(
     animation: DialogAnimation,
     drag: DialogDragState? = null,
+    controlBounds: Rect? = null,
     progress: () -> Float,
 ): Modifier {
     val host = LocalDialogMotionHost.current
@@ -289,7 +300,10 @@ internal fun Modifier.dialogMotion(
     val frames = remember(animation, calm) { DialogMotionFrameCache(animation, calm) }
     val poster = remember { host.poster?.takeIf { animation == DialogAnimation.PosterMorph } }
     val posterLayer = if (animation == DialogAnimation.PosterMorph) rememberGraphicsLayer() else null
-    val layerOnly = animation == DialogAnimation.Slide || animation == DialogAnimation.Touch
+    val layerOnly =
+        animation == DialogAnimation.Slide ||
+            animation == DialogAnimation.Touch ||
+            (animation == DialogAnimation.Liquid && controlBounds != null)
     // A panel pushed away leaves along the finger, not along its style. Composing the two put the
     // flight on top of an exit that was already travelling — 底部升起 went the distance twice, and
     // 全息扫描 / 菱镜光圈 / 方格织入 / 双幕展开 / 风车开页 came apart mid-air. 磁吸归位 is the one
@@ -337,6 +351,15 @@ internal fun Modifier.dialogMotion(
                 translationX = frame.offsetX * density
                 rotationZ = frame.rotationZ
                 cameraDistance = 1200f * density
+                if (controlBounds != null && !flung && entered < 1f && size.width > 0f && size.height > 0f) {
+                    val hidden = 1f - entered
+                    val centre = controlBounds.center - position.origin - Offset(size.width / 2f, size.height / 2f)
+                    transformOrigin = TransformOrigin.Center
+                    scaleX = 1f - hidden * (1f - (controlBounds.width / size.width).coerceIn(0f, 1f))
+                    scaleY = 1f - hidden * (1f - (controlBounds.height / size.height).coerceIn(0f, 1f))
+                    translationX += centre.x * hidden
+                    translationY += centre.y * hidden
+                }
                 if (drag != null) {
                     translationY += drag.offset
                     if (drag.dismissedByDrag) {

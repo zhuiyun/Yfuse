@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -86,16 +87,22 @@ fun WatchingCenterScreen(
                 }
                 motionItem(key = "watching-layout") { MergedLibraryEditAction(hub) }
                 hub.visibleShelves.filter(hub::hasContent).forEach { shelf ->
-                    motionItem(key = "watching:$shelf") { MergedLibraryRail(hub, shelf) }
+                    motionItem(key = "watching:$shelf") {
+                        CompositionLocalProvider(
+                            LocalShelfPosterCopy provides component.openedShelfPoster,
+                        ) { MergedLibraryRail(hub, shelf) }
+                    }
                 }
                 smartShelves.forEach { (rule, query) ->
                     motionItem(key = "watching-smart:${rule.name}") {
-                        SmartPlaylistLibraryShelf(
-                            rule = rule,
-                            query = query,
-                            onClick = hub::detail,
-                            liftMenu = { hub.menu(it, MergedLibraryShelf.Recent) },
-                        )
+                        CompositionLocalProvider(LocalShelfPosterCopy provides component.openedShelfPoster) {
+                            SmartPlaylistLibraryShelf(
+                                rule = rule,
+                                query = query,
+                                onClick = hub::detail,
+                                liftMenu = { hub.menu(it, MergedLibraryShelf.Recent) },
+                            )
+                        }
                     }
                 }
                 if (!hasVisibleContent) {

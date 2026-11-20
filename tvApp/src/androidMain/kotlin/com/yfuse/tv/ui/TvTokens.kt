@@ -103,7 +103,7 @@ internal object TvFocusMotion {
     val focusBorder = 3.dp
 
     /** How far a focused poster or card grows; the more of the screen a surface takes, the less. */
-    const val CARD_SCALE = 1.055f
+    const val CARD_SCALE = 1.03f
 
     /** Action buttons. */
     const val BUTTON_SCALE = 1.035f

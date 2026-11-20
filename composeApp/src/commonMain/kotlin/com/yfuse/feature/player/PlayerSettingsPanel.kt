@@ -24,6 +24,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -169,13 +170,13 @@ internal fun SettingsPanel(
         val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
         // The list takes whatever height the drawer has left instead of the old fixed
         // 210dp window, which scrolled a short slot inside a mostly empty screen.
-        val panelScroll = rememberScrollState()
+        val panelScroll = key(kind, trackPanelMode) { rememberScrollState() }
         Column(
             Modifier
                 .weight(1f, fill = false)
                 .verticalScroll(panelScroll),
         ) {
-            SettingsKindHost(kind = kind, reduceMotion = reduceMotion) { currentKind ->
+            SettingsKindHost(kind, trackPanelMode, reduceMotion) { currentKind, currentMode ->
                 when (currentKind) {
                     SettingsPanelKind.Danmaku ->
                         DanmakuTab(
@@ -187,7 +188,7 @@ internal fun SettingsPanel(
 
                     SettingsPanelKind.Tracks ->
                         TracksPanel(
-                            trackPanelMode = trackPanelMode,
+                            trackPanelMode = currentMode,
                             state = state,
                             playback = playback,
                             panelScroll = panelScroll,
@@ -305,16 +306,16 @@ private fun settingsPanelTitle(
 @Composable
 private fun SettingsKindHost(
     kind: SettingsPanelKind,
+    mode: TrackPanelMode,
     reduceMotion: Boolean,
-    content: @Composable ColumnScope.(SettingsPanelKind) -> Unit,
+    content: @Composable ColumnScope.(SettingsPanelKind, TrackPanelMode) -> Unit,
 ) {
     AnimatedContent(
-        targetState = kind,
-        contentKey = { it },
+        targetState = kind to (if (kind == SettingsPanelKind.Tracks) mode else TrackPanelMode.Subtitle),
         transitionSpec = { settingsKindTransform(reduceMotion) },
         modifier = Modifier.fillMaxWidth(),
         label = "player-settings-kind",
-    ) { current ->
+    ) { (current, currentMode) ->
         val sizeAware =
             if (current == SettingsPanelKind.More) {
                 Modifier
@@ -325,7 +326,7 @@ private fun SettingsKindHost(
             Modifier.fillMaxWidth().then(sizeAware),
             verticalArrangement = Arrangement.spacedBy(5.dp),
         ) {
-            content(current)
+            content(current, currentMode)
         }
     }
 }

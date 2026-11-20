@@ -34,21 +34,23 @@ internal fun HomeResumeEntry.homeLiftMenu(
     inResume: Boolean = false,
     playsOnTap: Boolean = false,
     undoWatched: Boolean = false,
+    onOpenDetails: (() -> Unit)? = null,
     onShare: (() -> Unit)? = null,
 ): LiftMenu {
     val entry = this
     val item = entry.item
     // A series resolves its own next episode; only a single title has a place to go back to.
     val resumable = item.type != "Series" && (item.resumePositionTicks ?: 0L) > 0L
+    val open = onOpenDetails ?: { onIntent(HomeIntent.OpenResume(entry)) }
     return mediaItemLiftMenu(
         item = item,
         backdropUrl = EmbyImages.backdrop(entry.server.baseUrl, item, accessToken = entry.server.accessToken),
-        onOpen = { onIntent(HomeIntent.OpenResume(entry)) },
+        onOpen = open,
         actions =
             listOf(
                 listOfNotNull(
                     if (playsOnTap) {
-                        detailsLiftAction { onIntent(HomeIntent.OpenResume(entry)) }
+                        detailsLiftAction(open)
                     } else {
                         ItemAction(
                             label = if (resumable) "继续播放" else "播放",

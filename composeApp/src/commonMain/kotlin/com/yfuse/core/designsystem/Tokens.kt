@@ -722,8 +722,8 @@ object Motion {
     const val OLED_PROTECTION = 450
     const val PLAYER_CHROME_STAGGER = 40
     const val WATCH_REACTION = 2_600
-    const val TAB_SWEEP = 520
-    const val TAB_SWEEP_DELAY = 90
+    const val TAB_SWEEP = 220
+    const val COMPLETION_EDGE = 240
 
     /** Shared dialog timing slots; stored enum names and all existing durations stay intact. */
     object Dialog {
