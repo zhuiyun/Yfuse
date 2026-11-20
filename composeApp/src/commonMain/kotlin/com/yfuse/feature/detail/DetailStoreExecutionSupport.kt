@@ -128,6 +128,12 @@ internal sealed interface DetailMsg {
         val value: Boolean,
     ) : DetailMsg
 
+    data class FavoriteSaved(
+        val serverId: String,
+        val itemId: String,
+        val value: Boolean,
+    ) : DetailMsg
+
     data class PlayedChanged(
         val serverId: String,
         val itemId: String,

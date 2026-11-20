@@ -51,7 +51,9 @@ import com.yfuse.core.designsystem.GlassInk
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalDialogAnimation
 import com.yfuse.core.designsystem.LocalDialogContentMotion
+import com.yfuse.core.designsystem.LocalDialogMotionHost
 import com.yfuse.core.designsystem.LocalGlassMaterials
+import com.yfuse.core.designsystem.LocalMotionBudget
 import com.yfuse.core.designsystem.LocalMutedGlass
 import com.yfuse.core.designsystem.LocalOverlayComplete
 import com.yfuse.core.designsystem.LocalOverlayDismiss
@@ -75,6 +77,7 @@ internal val PlayerPanelWidth = 340.dp
 
 /** Compact floating settings popover. Search, chat, and episode lists keep their drawers. */
 internal val PlayerPopupWidth = 320.dp
+internal val PlayerPopupBottomClearance = 70.dp
 
 private val PlayerPopupCompactMinHeight = 124.dp
 
@@ -363,8 +366,16 @@ internal fun PlayerPopupPanel(
     var dismissed by remember { mutableStateOf(false) }
     val selectedAnimation = LocalDialogAnimation.current
     val animation = remember { selectedAnimation }
+    val host = LocalDialogMotionHost.current
+    val fromKey = animation == DialogAnimation.Touch || animation == DialogAnimation.Liquid
+    val origin = remember(paneTitle, host) { host.recentControlBounds.takeIf { fromKey } }
     val progress =
-        rememberOverlayTransition(leaving, animation) {
+        rememberOverlayTransition(
+            leaving,
+            animation,
+            enterMillis = if (origin == null) animation.enterMillis else 220,
+            exitMillis = if (origin == null) animation.exitMillis else 160,
+        ) {
             val owner = currentPresence
             if (owner != null && !owner.visible) {
                 // The owner has already let go; the way out was all that was left.
@@ -445,6 +456,7 @@ internal fun PlayerPopupPanel(
         Box(
             Modifier
                 .fillMaxSize()
+                .padding(bottom = PlayerPopupBottomClearance)
                 .pointerInput(requestDismiss) { detectTapGestures { requestDismiss() } },
         )
     }
@@ -452,7 +464,7 @@ internal fun PlayerPopupPanel(
     Column(
         modifier
             .width(PlayerPopupWidth)
-            .dialogMotion(animation, drag.takeIf { !reduceMotionByUser }) {
+            .dialogMotion(animation, drag.takeIf { !reduceMotionByUser }, controlBounds = origin) {
                 progress() * (1f - backOffset * 0.25f)
             }.heightIn(
                 min = (if (compact) PlayerPopupCompactMinHeight else PlayerPopupMinHeight) + handleHeight,
@@ -465,11 +477,14 @@ internal fun PlayerPopupPanel(
                 materialOverride =
                     LocalGlassMaterials.current.dark.copy(
                         tintRgb = 0x191E27,
-                        opacity = 1f,
+                        opacity = 0.92f,
                         ink = GlassInk.Light,
                     ),
+                translucentOverVideo = !LocalMotionBudget.current.reduced,
             ).dialogInteriorMotion(animation, progress)
-            .semantics { shownPaneTitle?.let { this.paneTitle = it } }
+            .graphicsLayer {
+                if (origin != null && !reduceMotion) alpha = ((progress() - 0.5f) * 2f).coerceIn(0f, 1f)
+            }.semantics { shownPaneTitle?.let { this.paneTitle = it } }
             // Taps inside the popup must not reach the dismiss catcher behind it.
             .pointerInput(Unit) { detectTapGestures { } }
             // Padding only; see [GlassDialog] for why the keyboard is not driven by scroll.

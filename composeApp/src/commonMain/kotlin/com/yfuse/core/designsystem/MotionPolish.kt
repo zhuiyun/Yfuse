@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 
 /** Small immutable labels/glyphs only: never duplicate a live player or a screen's effects. */
 @Composable
@@ -37,6 +38,19 @@ internal fun <T> MotionSwap(
         contentAlignment = Alignment.Center,
         label = "small-state-handoff",
     ) { content(it) }
+}
+
+/** A small image-only scroll offset. Overscan keeps its clipped viewport covered. */
+@Composable
+internal fun Modifier.homeArtworkParallax(scrollPixels: () -> Int): Modifier {
+    if (LocalAccessibilityOptions.current.reduceMotion || calmMotion() || !LocalRouteVisible.current) return this
+    return graphicsLayer {
+        val travel = (scrollPixels() * 0.05f).coerceIn(0f, 10.dp.toPx())
+        val scale = 1f + 2f * travel / size.height.coerceAtLeast(1f)
+        scaleX = scale
+        scaleY = scale
+        translationY = travel
+    }
 }
 
 /** Keep the scroll slot stable; only the rendered hero recedes as it leaves the viewport. */

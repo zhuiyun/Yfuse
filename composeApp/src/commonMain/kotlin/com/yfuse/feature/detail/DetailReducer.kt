@@ -98,11 +98,21 @@ internal object DetailReducer : Reducer<DetailState, DetailMsg> {
                 ) {
                     copy(
                         detail = detail.copy(isFavorite = msg.value),
+                        confirmedFavorite = null,
                         playSourceDetail =
                             playSourceDetail?.let { source ->
                                 if (source.id == msg.itemId) source.copy(isFavorite = msg.value) else source
                             },
                         actionMessage = null,
+                    )
+                } else {
+                    this
+                }
+            is DetailMsg.FavoriteSaved ->
+                if (server?.id == msg.serverId && detail?.id == msg.itemId && detail.isFavorite == msg.value) {
+                    copy(
+                        confirmedFavorite = if (msg.value) msg.serverId to msg.itemId else null,
+                        actionMessage = if (msg.value) "已加入收藏" else "已取消收藏",
                     )
                 } else {
                     this

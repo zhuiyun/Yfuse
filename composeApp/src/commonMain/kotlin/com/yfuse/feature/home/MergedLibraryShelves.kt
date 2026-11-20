@@ -94,9 +94,11 @@ internal class MergedLibraryShelves(
     fun menu(
         entry: HomeResumeEntry,
         shelf: MergedLibraryShelf,
+        onOpenDetails: (() -> Unit)? = null,
     ): LiftMenu =
         entry.homeLiftMenu(
             onIntent = ::accept,
+            onOpenDetails = onOpenDetails,
             inResume = shelf == MergedLibraryShelf.Resume,
             playsOnTap = shelf == MergedLibraryShelf.Resume || shelf == MergedLibraryShelf.NextUp,
             undoWatched = true,
@@ -172,7 +174,7 @@ internal fun MergedLibraryRail(
                 onEdit = if (shelf == MergedLibraryShelf.Resume) ({ hub.open(shelf, selecting = true) }) else null,
                 onPlay = hub::play,
                 onOpen = hub::detail,
-                liftMenu = { hub.menu(it, shelf) },
+                liftMenu = { entry, open -> hub.menu(entry, shelf, open) },
             )
         } else {
             LibraryMediaShelf(

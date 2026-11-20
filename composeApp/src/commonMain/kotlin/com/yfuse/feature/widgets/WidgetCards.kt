@@ -43,6 +43,7 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.controlBorder
 import com.yfuse.core.designsystem.controlSurface
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.homeArtworkParallax
 import com.yfuse.core.widget.WidgetMedia
 import com.yfuse.core.widget.WidgetStyle
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -561,6 +562,7 @@ private fun CoverStack(
     val covers = remember(item) { (listOf(item) + item.children).take(3) }
     Box(Modifier.fillMaxWidth().height(height).clip(AppShapes.thumb)) {
         if (fan) {
+            val scroll = LocalWidgetSectionScroll.current
             repeat(3) { layer ->
                 val cover = covers.getOrElse(2 - layer) { item }
                 Artwork(
@@ -569,6 +571,7 @@ private fun CoverStack(
                         .align(Alignment.BottomCenter)
                         .fillMaxHeight(.9f)
                         .fillMaxWidth(.68f)
+                        .then(if (layer == 0) Modifier.homeArtworkParallax(scroll) else Modifier)
                         .graphicsLayer {
                             rotationZ = (1 - layer) * 7f
                             translationX = (1 - layer) * 15.dp.toPx()

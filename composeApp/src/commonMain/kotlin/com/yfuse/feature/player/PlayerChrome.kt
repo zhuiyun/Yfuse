@@ -902,7 +902,7 @@ internal fun CircleControl(
                     when {
                         !bodyVisible -> it
                         filled -> it.background(PlayerTokens.playFill, CircleShape)
-                        else -> it.border(1.dp, Color.White.copy(alpha = 0.62f), CircleShape)
+                        else -> it.playerControlRim(interactions)
                     }
                 }.softSelectionSurface(
                     interactionSource = interactions,

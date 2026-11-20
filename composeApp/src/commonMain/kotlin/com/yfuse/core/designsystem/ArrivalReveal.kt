@@ -191,6 +191,44 @@ fun Modifier.attentionSweep(key: Any?): Modifier {
     }
 }
 
+/** A short rim reflection on a visible, newly completed action. Restored items start settled. */
+@Composable
+internal fun Modifier.completionEdge(
+    owner: Any?,
+    complete: Boolean,
+): Modifier {
+    val moving =
+        LocalRouteVisible.current &&
+            !LocalRouteTransitionRunning.current &&
+            !LocalAccessibilityOptions.current.reduceMotion &&
+            !LocalMotionBudget.current.reduced &&
+            !calmMotion()
+    val accent = LocalAccentColors.current.accent
+    val progress = remember(owner) { Animatable(1f) }
+    var previous by remember(owner) { mutableStateOf(complete) }
+    LaunchedEffect(owner, complete, moving) {
+        val arrived = !previous && complete
+        previous = complete
+        progress.snapTo(if (moving && arrived) 0f else 1f)
+        if (moving && arrived) progress.animateTo(1f, tween(240, easing = LinearEasing))
+    }
+    return drawWithContent {
+        drawContent()
+        val t = progress.value
+        if (!moving || t <= 0f || t >= 1f) return@drawWithContent
+        val half = size.width * 0.12f
+        val center = size.width * (0.2f + 0.6f * t)
+        val y = 0.5.dp.toPx()
+        val brush =
+            Brush.horizontalGradient(
+                listOf(Color.Transparent, accent.copy(alpha = 0.85f * sin(t * PI.toFloat())), Color.Transparent),
+                startX = center - half,
+                endX = center + half,
+            )
+        drawLine(brush, Offset(center - half, y), Offset(center + half, y), strokeWidth = 1.dp.toPx())
+    }
+}
+
 /** A 120° band whose head runs from before the top-left corner to past the bottom-right. */
 internal fun DrawScope.drawDiagonalSweep(
     band: Color,

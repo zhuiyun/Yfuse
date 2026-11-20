@@ -31,6 +31,7 @@ import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
@@ -40,6 +41,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -112,8 +114,8 @@ import com.yfuse.core.designsystem.fadeIntoPage
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.heroDurationLabel
 import com.yfuse.core.designsystem.heroMediaTypeLabel
-import com.yfuse.core.designsystem.heroScrollCollapse
 import com.yfuse.core.designsystem.heroTopScrim
+import com.yfuse.core.designsystem.homeArtworkParallax
 import com.yfuse.core.designsystem.liftable
 import com.yfuse.core.designsystem.liftedCardOpen
 import com.yfuse.core.designsystem.liveStatus
@@ -135,6 +137,7 @@ import com.yfuse.core.designsystem.rememberCarouselPageColor
 import com.yfuse.core.designsystem.rememberRefreshReveal
 import com.yfuse.core.designsystem.rememberRetainedArtworkPageColor
 import com.yfuse.core.designsystem.rememberScrolledPastHero
+import com.yfuse.core.designsystem.sharedMediaOnClick
 import com.yfuse.core.designsystem.skeletonSweep
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.zoomBackAnchor
@@ -150,6 +153,8 @@ import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.TmdbImages
 import com.yfuse.core.util.currentHourOfDay
 import com.yfuse.core.util.rememberPosterCardSharer
+import com.yfuse.feature.library.libraryHomeCopy
+import com.yfuse.feature.library.libraryHomeSharedKey
 import com.yfuse.feature.search.SearchRequests
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.koin.core.context.GlobalContext
@@ -246,7 +251,10 @@ private fun HomeContent(
     var editingShelves by remember { mutableStateOf(false) }
     // Remembered: a static local that changed identity each pass would recompose the whole page.
     val editShelves = remember { { editingShelves = true } }
-    CompositionLocalProvider(LocalHomeShelfEdit provides editShelves.takeIf { shelves != null }) {
+    CompositionLocalProvider(
+        LocalHomeShelfEdit provides editShelves.takeIf { shelves != null },
+        LocalShelfPosterCopy provides component.openedShelfPoster,
+    ) {
         HomeContentBody(
             state = state,
             calendarState = calendarState,
@@ -492,9 +500,10 @@ internal fun HomeContentBody(
                                 onBack = onBack,
                             )
                         } else {
-                            Box(Modifier.heroScrollCollapse(listState, heroHeight)) {
+                            Box {
                                 HomeHeroCarousel(
                                     items = heroSlides.take(8),
+                                    listState = listState,
                                     userName = state.server?.userName,
                                     height = heroHeight,
                                     showSidePreview = showSidePreview,
@@ -627,11 +636,12 @@ internal fun HomeContentBody(
                                                 },
                                                 onPlay = playEntry,
                                                 onOpen = openEntry,
-                                                liftMenu = { entry ->
+                                                liftMenu = { entry, openDetails ->
                                                     entry.homeLiftMenu(
                                                         onIntent,
                                                         inResume = true,
                                                         playsOnTap = true,
+                                                        onOpenDetails = openDetails,
                                                         undoWatched = true,
                                                         onShare = { sharer.sharePosterCard(entry.shareCard()) },
                                                     )
@@ -652,10 +662,11 @@ internal fun HomeContentBody(
                                                 onSeeAll = { openShelf(HomeLibraryShelf.NextUp, shelf) },
                                                 onPlay = playEntry,
                                                 onOpen = openEntry,
-                                                liftMenu = { entry ->
+                                                liftMenu = { entry, openDetails ->
                                                     entry.homeLiftMenu(
                                                         onIntent,
                                                         playsOnTap = true,
+                                                        onOpenDetails = openDetails,
                                                         undoWatched = true,
                                                         onShare = { sharer.sharePosterCard(entry.shareCard()) },
                                                     )
@@ -942,6 +953,7 @@ private fun MediaItem.isEpisodic(): Boolean =
  */
 @Composable
 private fun HomeHeroCarousel(
+    listState: LazyListState,
     items: List<TmdbItem>,
     userName: String?,
     height: androidx.compose.ui.unit.Dp,
@@ -981,6 +993,7 @@ private fun HomeHeroCarousel(
             lit = visible,
             empty = {
                 HeroSlide(
+                    listState = listState,
                     item = null,
                     onPlay = {},
                     onDetails = {},
@@ -1014,6 +1027,7 @@ private fun HomeHeroCarousel(
         ) { page ->
             val item = items[page.index]
             HeroSlide(
+                listState = listState,
                 item = item,
                 onPlay = { onPlay(item) },
                 onDetails = { onDetails(item) },
@@ -1045,6 +1059,7 @@ private fun tmdbHeroArtworkUrls(item: TmdbItem?): List<String?> =
 
 @Composable
 private fun HeroSlide(
+    listState: LazyListState,
     item: TmdbItem?,
     onPlay: () -> Unit,
     onDetails: () -> Unit,
@@ -1117,7 +1132,15 @@ private fun HeroSlide(
                     modifier =
                         Modifier
                             .fillMaxSize()
-                            .playerArtworkSource(playerArtworkKey, artworkUrls)
+                            .homeArtworkParallax {
+                                if (listState.firstVisibleItemIndex ==
+                                    0
+                                ) {
+                                    listState.firstVisibleItemScrollOffset
+                                } else {
+                                    0
+                                }
+                            }.playerArtworkSource(playerArtworkKey, artworkUrls)
                             .carouselArtworkMotion(pageOffset, LocalAccessibilityOptions.current.reduceMotion),
                 )
             }
@@ -1375,6 +1398,8 @@ private fun HomeSourceBadge(source: String) {
     )
 }
 
+internal val LocalShelfPosterCopy = staticCompositionLocalOf<MutableState<String?>?> { null }
+
 /** 继续观看 — Forward-style still, exact resume position and progress at first glance. */
 @Composable
 internal fun ContinueWatching(
@@ -1384,7 +1409,7 @@ internal fun ContinueWatching(
     onPlay: (HomeResumeEntry) -> Unit,
     /** Letting go on the lifted card: the title's page. */
     onOpen: (HomeResumeEntry) -> Unit,
-    liftMenu: (HomeResumeEntry) -> LiftMenu,
+    liftMenu: (HomeResumeEntry, () -> Unit) -> LiftMenu,
     /** 下一集 is the same rail of stills; only its title, and what each card announces, differ. */
     title: String = "继续观看",
     /** The header's 编辑: 全部, already selecting; null for a shelf 编辑 has nothing for. */
@@ -1402,7 +1427,7 @@ internal fun ContinueWatching(
                     shelfTitle = title,
                     onPlay = { onPlay(entry) },
                     onOpen = { onOpen(entry) },
-                    liftMenu = { liftMenu(entry) },
+                    liftMenu = { open -> liftMenu(entry, open) },
                 )
             }
         }
@@ -1415,7 +1440,7 @@ private fun ContinueWatchingCard(
     shelfTitle: String,
     onPlay: () -> Unit,
     onOpen: () -> Unit,
-    liftMenu: () -> LiftMenu,
+    liftMenu: (() -> Unit) -> LiftMenu,
 ) {
     val palette = LocalPalette.current
     val item = entry.item
@@ -1437,8 +1462,15 @@ private fun ContinueWatchingCard(
     // pulled back into. The tap therefore sits on the card rather than in [Poster], whose own click
     // would start the morph into 详情.
     val artworkKey = remember(entry.server.id, item.id) { MediaSharedElementKey(entry.server.id, item.id) }
-    val resume = playerArtworkOnClick(artworkKey, onPlay)
-    val open = liftedCardOpen(artworkKey, onOpen)
+    val selection = LocalShelfPosterCopy.current
+    val place = "home:resume:$shelfTitle"
+    val sourceKey = selection?.let { libraryHomeSharedKey(entry.server.id, place, item.id, it.value) } ?: artworkKey
+    val resume = playerArtworkOnClick(sourceKey, onPlay)
+    val open =
+        liftedCardOpen(artworkKey) {
+            selection?.value = libraryHomeCopy(entry.server.id, place, item.id)
+            onOpen()
+        }
     val artworkUrls = remember(backdropUrl, posterUrl) { listOfNotNull(backdropUrl, posterUrl).distinct() }
     val resumable = (item.resumePositionTicks ?: 0L) > 0L
     Column(modifier = Modifier.width(MediaSizing.landscapeCardWidth)) {
@@ -1447,7 +1479,7 @@ private fun ContinueWatchingCard(
                 .fillMaxWidth()
                 .height(MediaSizing.landscapeCardHeight)
                 // Outside the press, so the lift can take the stream over from the click; see [liftable].
-                .liftable(menu = { liftMenu().withArtwork(artworkUrls) }, onOpen = open)
+                .liftable(menu = { liftMenu(open).withArtwork(artworkUrls) }, onOpen = open)
                 .pressable(
                     tilt = true,
                     focusShape = AppShapes.card,
@@ -1466,7 +1498,7 @@ private fun ContinueWatchingCard(
                 progress = item.playedPercentage?.let { (it / 100.0).toFloat() },
                 blurHash = if (backdropUrl != null) item.backdropBlurHash else item.posterBlurHash,
                 contentDescription = "$shelfTitle ${item.title}${item.subtitle?.let { "，$it" }.orEmpty()}",
-                sharedTransitionKey = artworkKey,
+                sharedTransitionKey = sourceKey,
                 modifier = Modifier.fillMaxSize(),
             ) {
                 resumePositionLabel(item.resumePositionTicks)?.let { position ->
@@ -1554,6 +1586,7 @@ internal fun SmartPlaylistLibraryShelf(
     if (entries.isEmpty()) return
     LibraryMediaShelf(
         title = rule.name,
+        place = "home:playlist:${rule.name}",
         items = entries,
         onSeeAll = { requests.openPlaylist(rule) },
         onClick = onClick,
@@ -1570,6 +1603,7 @@ internal fun LibraryMediaShelf(
     onSeeAll: () -> Unit,
     onClick: (HomeResumeEntry) -> Unit,
     liftMenu: (HomeResumeEntry) -> LiftMenu,
+    place: String = "home:library:$title",
 ) {
     Column {
         HomeShelfHeader(title = title, source = "媒体库", onSeeAll = onSeeAll)
@@ -1579,6 +1613,13 @@ internal fun LibraryMediaShelf(
         ) {
             motionItems(items.take(12), key = { "library-${it.server.id}-${it.item.id}" }) { entry ->
                 val item = entry.item
+                val selection = LocalShelfPosterCopy.current
+                val artworkKey = MediaSharedElementKey(entry.server.id, item.id)
+                val open =
+                    sharedMediaOnClick(artworkKey) {
+                        selection?.value = libraryHomeCopy(entry.server.id, place, item.id)
+                        onClick(entry)
+                    }
                 CaptionedPoster(
                     url =
                         EmbyImages.poster(
@@ -1594,7 +1635,16 @@ internal fun LibraryMediaShelf(
                             item.year?.toString(),
                             entry.server.serverName.takeIf(String::isNotBlank),
                         ).joinToString(" · "),
-                    onClick = { onClick(entry) },
+                    onClick = open,
+                    sharedTransitionKey =
+                        selection?.let {
+                            libraryHomeSharedKey(
+                                entry.server.id,
+                                place,
+                                item.id,
+                                it.value,
+                            )
+                        } ?: artworkKey,
                     liftMenu = { liftMenu(entry) },
                     modifier = Modifier.width(MediaSizing.posterRailWidth),
                     posterModifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),

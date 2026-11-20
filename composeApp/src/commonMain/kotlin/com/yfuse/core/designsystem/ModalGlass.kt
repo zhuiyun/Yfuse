@@ -49,10 +49,15 @@ fun Modifier.mutedGlassPanel(
     samplePage: Boolean = true,
     dark: Boolean = LocalPalette.current.isDark,
     materialOverride: GlassMaterial? = null,
+    translucentOverVideo: Boolean = false,
 ): Modifier {
     // In-window player panels must never sample a root layer that contains themselves.
     val backdrop = LocalDialogBackdrop.current.takeIf { samplePage }
-    val opaque = LocalAccessibilityOptions.current.reduceTransparency || backdrop?.active != true
+    // Video already sits under the UI in the compositor. A dark tint can let it through
+    // without capturing the root layer (which would include the popup itself).
+    val opaque =
+        LocalAccessibilityOptions.current.reduceTransparency ||
+            (backdrop?.active != true && !(translucentOverVideo && !samplePage))
     val material = (materialOverride ?: LocalGlassMaterials.current.forTheme(dark)).normalized(dark)
     // One definition of the fill, shared with the ink decision in [GlassMaterial.resolvedInk], so
     // the text colour is always chosen against the surface that is actually painted.

@@ -45,6 +45,20 @@ class HomeLiftMenuTest {
     }
 
     @Test
+    fun both_detail_actions_use_the_selected_shelf_copy() {
+        var opens = 0
+        val menu =
+            entry().homeLiftMenu(
+                onIntent = { error("The shelf owns this navigation") },
+                playsOnTap = true,
+                onOpenDetails = { opens++ },
+            )
+        menu.actions.first().onSelect()
+        menu.onOpen?.invoke()
+        assertEquals(2, opens)
+    }
+
+    @Test
     fun a_card_whose_tap_opens_the_title_still_offers_play_first() {
         val sent = mutableListOf<HomeIntent>()
         val menu = entry().homeLiftMenu(onIntent = { sent += it })

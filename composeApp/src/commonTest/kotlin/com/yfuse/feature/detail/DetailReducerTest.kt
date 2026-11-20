@@ -34,6 +34,20 @@ class DetailReducerTest {
     )
 
     @Test
+    fun favorite_completion_requires_the_visible_titles_current_saved_value() {
+        val initial = DetailState(detail = movie, server = server)
+        val pending = initial.after(DetailMsg.FavoriteChanged("one", "m1", true))
+        assertNull(pending.confirmedFavorite)
+        assertSame(pending, pending.after(DetailMsg.FavoriteSaved("two", "m1", true)))
+        assertSame(pending, pending.after(DetailMsg.FavoriteSaved("one", "other", true)))
+        val saved = pending.after(DetailMsg.FavoriteSaved("one", "m1", true))
+        assertEquals("one" to "m1", saved.confirmedFavorite)
+        val removed = saved.after(DetailMsg.FavoriteChanged("one", "m1", false))
+        assertNull(removed.confirmedFavorite)
+        assertSame(removed, removed.after(DetailMsg.FavoriteSaved("one", "m1", true)))
+    }
+
+    @Test
     fun back_from_the_player_the_unchanged_target_resumes_from_where_it_was_left() {
         val before = DetailState(detail = movie, server = server, playServer = server, playTarget = movie)
 

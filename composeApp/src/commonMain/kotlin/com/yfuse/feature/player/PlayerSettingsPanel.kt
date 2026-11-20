@@ -175,7 +175,7 @@ internal fun SettingsPanel(
                 .weight(1f, fill = false)
                 .verticalScroll(panelScroll),
         ) {
-            SettingsKindHost(kind = kind, reduceMotion = reduceMotion) { currentKind ->
+            SettingsKindHost(kind, trackPanelMode, reduceMotion) { currentKind, currentMode ->
                 when (currentKind) {
                     SettingsPanelKind.Danmaku ->
                         DanmakuTab(
@@ -187,7 +187,7 @@ internal fun SettingsPanel(
 
                     SettingsPanelKind.Tracks ->
                         TracksPanel(
-                            trackPanelMode = trackPanelMode,
+                            trackPanelMode = currentMode,
                             state = state,
                             playback = playback,
                             panelScroll = panelScroll,
@@ -305,16 +305,16 @@ private fun settingsPanelTitle(
 @Composable
 private fun SettingsKindHost(
     kind: SettingsPanelKind,
+    mode: TrackPanelMode,
     reduceMotion: Boolean,
-    content: @Composable ColumnScope.(SettingsPanelKind) -> Unit,
+    content: @Composable ColumnScope.(SettingsPanelKind, TrackPanelMode) -> Unit,
 ) {
     AnimatedContent(
-        targetState = kind,
-        contentKey = { it },
+        targetState = kind to (if (kind == SettingsPanelKind.Tracks) mode else TrackPanelMode.Subtitle),
         transitionSpec = { settingsKindTransform(reduceMotion) },
         modifier = Modifier.fillMaxWidth(),
         label = "player-settings-kind",
-    ) { current ->
+    ) { (current, currentMode) ->
         val sizeAware =
             if (current == SettingsPanelKind.More) {
                 Modifier
@@ -325,7 +325,7 @@ private fun SettingsKindHost(
             Modifier.fillMaxWidth().then(sizeAware),
             verticalArrangement = Arrangement.spacedBy(5.dp),
         ) {
-            content(current)
+            content(current, currentMode)
         }
     }
 }

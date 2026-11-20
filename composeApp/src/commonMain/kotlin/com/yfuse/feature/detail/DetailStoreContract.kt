@@ -91,6 +91,7 @@ data class DetailState(
     val organizationError: String? = null,
     val addingContainerIds: Set<String> = emptySet(),
     val addedContainerIds: Set<String> = emptySet(),
+    val confirmedFavorite: Pair<String, String>? = null,
 ) {
     /** Compatibility/readiness view used by store tests and non-visual consumers. */
     val watchLaterBusy: Boolean

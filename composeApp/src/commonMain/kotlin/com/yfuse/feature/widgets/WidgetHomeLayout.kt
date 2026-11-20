@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
@@ -16,6 +17,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.widget.WidgetSection
+
+internal val LocalWidgetSectionScroll = staticCompositionLocalOf<() -> Int> { { 0 } }
 
 internal val LocalWidgetGalleryMaxHeight = staticCompositionLocalOf { Dp.Infinity }
 
@@ -109,7 +112,23 @@ internal fun WidgetHomeSections(
                 verticalArrangement = Arrangement.spacedBy(if (maxWidth >= 600.dp) 28.dp else 18.dp),
             ) {
                 if (sections.isEmpty()) item { empty() }
-                items(sections, key = { it.id }) { section -> content(section) }
+                items(sections, key = { it.id }) { section ->
+                    val scroll =
+                        remember(section.id, state) {
+                            {
+                                if (state.layoutInfo.visibleItemsInfo
+                                        .firstOrNull()
+                                        ?.key ==
+                                    section.id
+                                ) {
+                                    state.firstVisibleItemScrollOffset
+                                } else {
+                                    0
+                                }
+                            }
+                        }
+                    CompositionLocalProvider(LocalWidgetSectionScroll provides scroll) { content(section) }
+                }
             }
         }
     }

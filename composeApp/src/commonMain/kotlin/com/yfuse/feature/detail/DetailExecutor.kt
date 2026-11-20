@@ -60,6 +60,7 @@ internal class DetailExecutor(
     private var playFromStartWhenSelectionReady = false
     private val sourceLoad = LatestWins(scope)
     private val relatedLoad = LatestWins(scope)
+    private val favoriteWrite = LatestWins(scope)
 
     /** The page's own load. Its ticket is the page's: what is loaded for the page checks it too. */
     private val detailLoad = LatestWins(scope)
@@ -1246,6 +1247,7 @@ internal class DetailExecutor(
         val server = current.server ?: return
         val target = !detail.isFavorite
         val sync = syncManager
+        val request = favoriteWrite.outdate()
         // Optimistic: the heart flips at once. The sync manager queues the write before it
         // tries the server, so a failure here still ends with the shown state being the one
         // that will reach the server; only the message differs.
@@ -1254,15 +1256,11 @@ internal class DetailExecutor(
             sync
                 .setFavorite(server, detail.id, detail.title, target)
                 .onSuccess {
-                    if (isVisibleSource(server.id, detail.id)) {
-                        dispatch(
-                            DetailMsg.ActionMessage(
-                                if (target) "已加入收藏" else "已取消收藏",
-                            ),
-                        )
+                    if (request.isCurrent && isVisibleSource(server.id, detail.id)) {
+                        dispatch(DetailMsg.FavoriteSaved(server.id, detail.id, target))
                     }
                 }.onFailure {
-                    if (isVisibleSource(server.id, detail.id)) {
+                    if (request.isCurrent && isVisibleSource(server.id, detail.id)) {
                         dispatch(DetailMsg.ActionMessage("服务器暂不可用，收藏操作已排队同步"))
                     }
                 }

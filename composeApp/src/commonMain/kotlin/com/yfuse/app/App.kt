@@ -1336,12 +1336,12 @@ internal fun GlassTabBar(
         } else {
             null
         }
-    // Existing motion supplies the moving center; selection stays circular throughout travel.
+    // Keep the resting selection round; only the liquid lens stretches in transit.
     val defaultMotion = if (enhanced) null else rememberDefaultTabMotion(selectedIndex, reduceMotion)
     val phaseMoving by remember(liquidMotion?.sweep, liquidMotion?.dragging) {
         derivedStateOf { liquidMotion?.dragging == true || (liquidMotion?.sweep?.value ?: 1f) < 1f }
     }
-    val phaseLights = rememberPhaseLightCount(phaseMoving)
+    val phaseLights = rememberPhaseLightCount(!liquid && phaseMoving)
     val indicatorAlpha =
         animateFloatAsState(
             targetValue = if (hasSelection) 1f else 0f,
@@ -1370,8 +1370,7 @@ internal fun GlassTabBar(
                 // While the dock shows as liquid, the cells follow the capsule's right edge.
                 val span = dockLiquid?.frame()?.tabSpan?.times(density) ?: size.width
                 val cell = span / tabs.size
-                // Keep the selection square before applying its circular glass, independent
-                // of cell width, screen size, direction or the current motion stretch.
+                // The springs report logical cell edges; draw the lens in physical pixels.
                 val bounds =
                     tabIndicatorBounds(
                         rawLeft = liquidMotion?.left?.value ?: checkNotNull(defaultMotion).left.value,
@@ -1381,11 +1380,17 @@ internal fun GlassTabBar(
                     )
                 val diameter = minOf(size.height - 8.dp.toPx(), cell * TAB_PILL_WIDTH_FRACTION).coerceAtLeast(0f)
                 if (diameter <= 0f) return@drawBehind
-                val pillWidth = diameter
+                val stretch =
+                    if (liquid && highlights && liquidMotion != null) {
+                        (bounds.width / TAB_PILL_WIDTH_FRACTION).coerceIn(1f, 1.08f)
+                    } else {
+                        1f
+                    }
+                val pillWidth = (diameter * stretch).coerceAtMost(size.width)
                 val pillHeight = diameter
                 val logicalCenter = cell * (bounds.left + bounds.width / 2f)
                 val center = if (rtl) size.width - logicalCenter else logicalCenter
-                val left = (center - diameter / 2f).coerceIn(0f, (size.width - diameter).coerceAtLeast(0f))
+                val left = (center - pillWidth / 2f).coerceIn(0f, (size.width - pillWidth).coerceAtLeast(0f))
                 val top = (size.height - pillHeight) / 2f
                 val alpha = indicatorAlpha.value.coerceIn(0f, 1f)
                 if (liquid) {
@@ -1394,6 +1399,19 @@ internal fun GlassTabBar(
                         dark = palette.isDark,
                         accent = accent.accent,
                         alpha = alpha,
+                        edgeLight =
+                            if (liquidMotion != null && highlights) {
+                                val light =
+                                    if (liquidMotion.dragging) {
+                                        (stretch - 1f) * 12f
+                                    } else {
+                                        1f -
+                                            liquidMotion.sweep.value
+                                    }
+                                if (liquidMotion.leadingRight) light else -light
+                            } else {
+                                0f
+                            },
                     )
                 } else {
                     val selection = navigationGlass.selection
@@ -1403,7 +1421,7 @@ internal fun GlassTabBar(
                         center = Offset(left + diameter / 2f, size.height / 2f),
                     )
                 }
-                if (liquidMotion != null && highlights) {
+                if (liquidMotion != null && highlights && !liquid) {
                     drawMotionSweep(
                         Rect(left, top, left + pillWidth, top + pillHeight),
                         accent.accent,

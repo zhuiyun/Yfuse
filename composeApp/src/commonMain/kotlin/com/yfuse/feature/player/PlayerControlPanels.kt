@@ -71,11 +71,15 @@ internal fun BoxScope.PlayerSettingsLayers(
     val functionPopupModifier =
         Modifier
             .align(Alignment.BottomEnd)
-            .padding(end = 18.dp, bottom = 70.dp)
+            .padding(end = 18.dp, bottom = PlayerPopupBottomClearance)
 
     // The popovers and drawers below play their own way in and out; the presence only
     // keeps them composed while they do.
-    PanelPresence(chrome.settingsPanelKind, modifier = Modifier.fillMaxSize()) { kind ->
+    PanelPresence(
+        chrome.settingsPanelKind,
+        modifier = Modifier.fillMaxSize(),
+        replaced = chrome.quickPopup != null,
+    ) { kind ->
         BackOverlay(
             onBack = { chrome.settingsPanelKind = null },
             enabled = chrome.settingsPanelKind != null,
@@ -205,7 +209,11 @@ internal fun BoxScope.PlayerSettingsLayers(
         }
     }
 
-    PanelPresence(chrome.quickPopup, modifier = Modifier.fillMaxSize()) { popup ->
+    PanelPresence(
+        chrome.quickPopup,
+        modifier = Modifier.fillMaxSize(),
+        replaced = chrome.settingsPanelKind != null,
+    ) { popup ->
         BackOverlay(onBack = { chrome.quickPopup = null }, enabled = chrome.quickPopup != null) {
             // 线路 and 倍速 share this anchor and this shell, so going from one to the
             // other is a change of contents rather than of surface: the panel stays

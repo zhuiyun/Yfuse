@@ -487,6 +487,8 @@ private fun rememberOverlayAction(
 internal fun rememberOverlayTransition(
     leaving: Boolean,
     animation: DialogAnimation = LocalDialogAnimation.current,
+    enterMillis: Int = animation.enterMillis,
+    exitMillis: Int = animation.exitMillis,
     onLeft: () -> Unit,
 ): () -> Float {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
@@ -505,12 +507,12 @@ internal fun rememberOverlayTransition(
                 target,
                 if (leaving) {
                     tween(
-                        overlayRemainingDurationMillis(scaled(animation.exitMillis, scale), progress.value, target),
+                        overlayRemainingDurationMillis(scaled(exitMillis, scale), progress.value, target),
                         easing = Motion.Dialog.ExitCurve,
                     )
                 } else {
                     tween(
-                        overlayRemainingDurationMillis(scaled(animation.enterMillis, scale), progress.value, target),
+                        overlayRemainingDurationMillis(scaled(enterMillis, scale), progress.value, target),
                         easing = Motion.Dialog.EnterCurve,
                     )
                 },

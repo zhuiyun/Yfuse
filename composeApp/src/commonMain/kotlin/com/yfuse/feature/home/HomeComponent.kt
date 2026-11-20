@@ -70,6 +70,7 @@ class HomeComponent(
     // actual state object alive so the first frame on return is already at the old viewport;
     // restoring an index after recomposition briefly painted the hero and caused a flash.
     internal val listState = LazyListState()
+    internal val openedShelfPoster = androidx.compose.runtime.mutableStateOf<String?>(null)
 
     private val playbackSync = runCatching { GlobalContext.get().get<PlaybackSyncManager>() }.getOrNull()
 
