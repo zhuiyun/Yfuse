@@ -12,7 +12,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        area: [media, tv]
+        area: [cast, series, actions]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -32,7 +32,7 @@ jobs:
           name: yfuse-tv-debug-d2448e9b98cf6be8da919ca2b703f005e9543d07
           path: apk
       - name: Prepare isolated media fixture
-        if: matrix.area == 'media' || matrix.area == 'tv'
+        if: matrix.area == 'media' || matrix.area == 'player'
         run: |
           sudo apt-get -qq update && sudo apt-get -qq install -y ffmpeg
           bash audit/design358/fixture.sh
