@@ -1,50 +1,53 @@
-name: Yfuse build 358 visual audit
+name: Yfuse 358 private media UI review
 on:
   push:
     branches: [audit/build-358-visual-review]
+    paths: ['.github/workflows/visual-audit-358.yml','audit/design358/real_*.py']
 permissions:
   contents: read
   actions: read
 jobs:
-  capture:
+  review:
     runs-on: ubuntu-24.04
-    timeout-minutes: 55
-    strategy:
-      fail-fast: false
-      matrix:
-        area: [media, tv]
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - name: Prepare released phone APK
-        if: matrix.area != 'tv'
+      - name: Create single-run receiver
         run: |
-          mkdir -p apk evidence
+          python3 -m pip install --quiet cryptography uiautomator2==3.2.10 requests
+          python3 audit/design358/real_transfer.py key
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: receiver-public
+          path: public/receiver.pem
+          retention-days: 1
+      - name: Prepare official app
+        run: |
+          mkdir -p apk
           curl -fsSL --retry 3 https://github.com/zhuiyun/Yfuse/releases/download/build-358/Yfuse-358-2.0.6.apk -o apk/phone.apk
           echo '9e4d22d18b6cb9ad93a0968de8dd17a07caa5dc18f7c3fcab5161c9404b46652  apk/phone.apk' | sha256sum -c -
-      - name: Fetch TV artifact of the matching commit
-        if: matrix.area == 'tv'
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           github-token: ${{ github.token }}
           run-id: 44785532258
           name: yfuse-tv-debug-d2448e9b98cf6be8da919ca2b703f005e9543d07
-          path: apk
-      - name: Prepare isolated media fixture
-        if: matrix.area == 'media' || matrix.area == 'tv'
+          path: tvapk
+      - name: Wait for encrypted test input
+        env:
+          READ_TOKEN: ${{ github.token }}
+        run: python3 audit/design358/real_transfer.py receive
+      - name: Check real server and start read-only relay
         run: |
-          sudo apt-get -qq update && sudo apt-get -qq install -y ffmpeg
-          bash audit/design358/fixture.sh
-      - name: Set up accessibility tree inspection
-        run: python3 -m pip install --quiet uiautomator2==3.2.10
+          python3 audit/design358/real_relay.py check
+          python3 audit/design358/real_relay.py serve >/dev/null 2>&1 &
       - name: Enable KVM
         run: |
-          mkdir -p evidence
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - name: Drive installed Yfuse and capture each reached page
+      - name: Examine release UI on Android
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
           api-level: 30
@@ -53,16 +56,17 @@ jobs:
           profile: pixel_2
           ram-size: 2048M
           heap-size: 384M
-          disk-size: 3072M
-          emulator-boot-timeout: 600
+          disk-size: 4096M
           disable-animations: false
           emulator-options: -no-window -noaudio -no-boot-anim -no-snapshot -camera-back none -gpu swiftshader_indirect -accel on
-          script: python3 audit/design358/capture.py ${{ matrix.area }}
-      - name: Retain screenshots and navigation receipts
+          script: python3 audit/design358/real_capture.py
+      - name: Encrypt evidence for the requester
         if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        run: python3 audit/design358/real_transfer.py seal
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
         with:
-          name: design358-${{ matrix.area }}-${{ github.run_attempt }}
-          path: evidence/
+          name: encrypted-review
+          path: sealed/review.bin
+          retention-days: 1
           if-no-files-found: warn
-          retention-days: 5
