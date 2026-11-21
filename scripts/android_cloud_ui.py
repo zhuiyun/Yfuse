@@ -90,6 +90,8 @@ def center(node):
 
 
 class Session:
+    ui_package = PACKAGE
+
     def __init__(self, output, expected, source_run, expected_api=None):
         self.expected = expected
         self.expected_api = expected_api
@@ -291,22 +293,22 @@ class Session:
             raise RuntimeError("Invalid screenshot output")
         (self.output / f"{name}.png").write_bytes(png)
         root, value = self.tree()
-        if not any(node.get("package") == PACKAGE for node in root.iter("node")):
+        if not any(node.get("package") == self.ui_package for node in root.iter("node")):
             raise RuntimeError("Yfuse is not represented in the foreground UI hierarchy")
         windows = self.adb("shell", "dumpsys", "window")
         focus = [line.strip() for line in windows.splitlines() if "mCurrentFocus=" in line]
-        if not any(PACKAGE in line for line in focus):
+        if not any(f"{self.ui_package}/" in line for line in focus):
             raise RuntimeError("Yfuse is not the focused application: " + str(focus))
         (self.output / f"{name}.xml").write_text(value)
         width, height = struct.unpack(">II", png[16:24])
-        pid = self.adb("shell", "pidof", PACKAGE, check=False)
+        pid = self.adb("shell", "pidof", self.ui_package, check=False)
         if not pid:
             raise RuntimeError("App process is missing")
         return {"screenshot": f"{name}.png", "ui_tree": f"{name}.xml",
                 "width": width, "height": height, "pid": pid, "focus": focus}
 
     def launch(self):
-        result = self.adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/.MainActivity", timeout=90)
+        result = self.adb("shell", "am", "start", "-W", "-n", f"{self.ui_package}/{PACKAGE}.MainActivity", timeout=90)
         (self.output / "launch.txt").write_text(result)
         if "Status: ok" not in result:
             raise RuntimeError("Launch did not report Status: ok")
@@ -455,20 +457,20 @@ class Session:
         captures.append(self.settings_layout("layout-tablet-settings-restored", paired=True))
         return {"captures": captures, "limit": "viewport emulation and sampled frames; not physical tablet or continuous frame timing"}
 
-    def settings_layout(self, name, paired):
+    def settings_layout(self, name, paired, *, index_label="服务器与账号", detail_label="登录账号"):
         # Check distinct controls: the compact account page still has its own “账号与同步” title.
         # “服务器与账号” belongs to the category list; “登录账号” belongs to the selected detail.
         deadline = time.monotonic() + 45
         while time.monotonic() < deadline:
             root, _ = self.tree()
-            index = nodes_for(root, "服务器与账号")
-            detail = nodes_for(root, "登录账号")
+            index = nodes_for(root, index_label)
+            detail = nodes_for(root, detail_label)
             matches = (any(center(left)[0] < center(right)[0] for left in index for right in detail)
                        if paired else not index)
             if detail and matches:
                 return self.capture(name)
             time.sleep(1)
-        raise RuntimeError(f"Account detail or expected pane arrangement missing at {name}")
+        raise RuntimeError(f"Settings detail or expected pane arrangement missing at {name}")
 
     def diagnostics(self):
         if not self.serial:
