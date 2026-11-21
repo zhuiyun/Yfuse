@@ -6,10 +6,16 @@ expected_api="$1"
 shift
 evidence="composeApp/build/outputs/widget-layout-evidence"
 mkdir -p "$evidence"
+# Keep guest lifecycle and crash events on the host even if ADB disappears with the emulator.
+adb logcat -b crash -b events -v threadtime am_crash:I am_anr:I am_proc_died:I boot_progress_start:I AndroidRuntime:E DEBUG:F '*:S' \
+  > "$evidence/device-lifecycle.log" 2>&1 &
+device_log_pid=$!
 
 collect_evidence() {
   local result=$?
   trap - EXIT
+  kill "$device_log_pid" 2>/dev/null || true
+  wait "$device_log_pid" 2>/dev/null || true
   if (( result != 0 )); then
     # Host evidence survives even when the emulator process vanishes before ADB can pull logs.
     {

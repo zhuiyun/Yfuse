@@ -136,7 +136,9 @@ jobs:
           disk-size: 4096M
           emulator-boot-timeout: 600
           disable-animations: false
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -accel on
+          # Android 15 can lose the emulator process under the legacy SwiftShader renderer.
+          # Exercise the same UI and motion on Mesa software rendering on that image.
+          emulator-options: -no-window -gpu ${{ matrix.api == 35 && 'lavapipe' || 'swiftshader_indirect' }} -noaudio -no-boot-anim -no-snapshot -camera-back none -accel on
           # The runner executes each script line on its own, so this stays one folded line.
           script: >-
             python3 scripts/android_cloud_ui.py --apk-directory artifacts/cloud-input

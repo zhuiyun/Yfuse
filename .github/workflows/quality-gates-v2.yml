@@ -433,7 +433,9 @@ jobs:
           disk-size: 4096M
           emulator-boot-timeout: 600
           disable-animations: false
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -accel on
+          # Android 15 can lose the emulator process under the legacy SwiftShader renderer.
+          # Exercise the same UI and motion on Mesa software rendering on that image.
+          emulator-options: -no-window -gpu ${{ matrix.api == 35 && 'lavapipe' || 'swiftshader_indirect' }} -noaudio -no-boot-anim -no-snapshot -camera-back none -accel on
           # An app that stops responding (the launcher does now and then, just after boot) puts a
           # system dialog in front of every window. It keeps focus, answers rootInActiveWindow and
           # takes injected touches, so every test that needs the app's own window fails behind it,
