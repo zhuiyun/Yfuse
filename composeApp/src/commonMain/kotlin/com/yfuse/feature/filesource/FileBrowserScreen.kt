@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.yfuse.app.LocalWideWindow
 import com.yfuse.app.systemNavigationContentInset
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
@@ -83,7 +84,7 @@ internal fun FileBrowserScreen(controller: FileSourcesController) {
     val visitedFolders = remember(browser.source.id) { mutableStateMapOf<List<String>, String>() }
     var menuFor by remember { mutableStateOf<FolderRow?>(null) }
     var moveFor by remember { mutableStateOf<FolderRow?>(null) }
-    ReportOverlayVisible()
+    ReportOverlayVisible(enabled = !LocalWideWindow.current)
     StatusBarIconStyle(darkIcons = !palette.isDark)
 
     OfficialNavDisplay(

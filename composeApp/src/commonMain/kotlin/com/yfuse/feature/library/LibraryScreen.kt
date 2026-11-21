@@ -1,7 +1,5 @@
 package com.yfuse.feature.library
 
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -24,6 +22,7 @@ fun LibraryScreen(component: LibraryComponent) {
         onBack = component::navigateBack,
         contentKey = { routeKey(it.configuration) },
         modifier = Modifier.fillMaxSize(),
+        listPane = { it.instance !is LibraryComponent.Child.Detail },
         isLauncher = { it.instance is LibraryComponent.Child.Player },
         isDetail = { it.instance is LibraryComponent.Child.Detail },
     ) { entry ->
@@ -34,7 +33,7 @@ fun LibraryScreen(component: LibraryComponent) {
                     repository = component.repo,
                     registry = component.registry,
                     onBack = component::navigateBack,
-                    onOpenItem = { serverId, itemId -> component.openDetail(serverId, itemId) },
+                    onOpenItem = { serverId, itemId -> component.selectUnifiedItem(serverId, itemId) },
                 )
             is LibraryComponent.Child.Home ->
                 LibraryHomeScreen(instance.component)
@@ -61,21 +60,17 @@ fun LibraryScreen(component: LibraryComponent) {
                     onOpenHistory = instance.onOpenHistory,
                     onOpenDiscovery = instance.onOpenDiscovery,
                 )
-            is LibraryComponent.Child.Grid -> LibraryGridScreen(instance.component)
-            is LibraryComponent.Child.Detail -> {
-                val index = stack.items.indexOf(entry)
-                val grid = stack.items.getOrNull(index - 1)?.instance as? LibraryComponent.Child.Grid
-                Row(Modifier.fillMaxSize()) {
-                    if (LocalWideWindow.current && grid != null) {
-                        LibraryPreviewList(
-                            component = grid.component,
-                            selectedId = instance.component.itemId,
-                            onSelect = { component.selectGridPreview(grid.component.serverId, it) },
-                        )
-                    }
-                    Box(Modifier.weight(1f)) { DetailScreen(instance.component) }
-                }
-            }
+            is LibraryComponent.Child.Grid ->
+                LibraryGridScreen(
+                    instance.component,
+                    selectedItemId =
+                        if (LocalWideWindow.current) {
+                            (stack.active.instance as? LibraryComponent.Child.Detail)?.component?.itemId
+                        } else {
+                            null
+                        },
+                )
+            is LibraryComponent.Child.Detail -> DetailScreen(instance.component)
             is LibraryComponent.Child.Player -> PlayerScreen(instance.component)
         }
     }

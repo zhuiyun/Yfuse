@@ -22,6 +22,11 @@ fun HomeTabScreen(
         onBack = component::navigateBack,
         contentKey = { routeKey(it.configuration) },
         modifier = Modifier.fillMaxSize(),
+        listPane = {
+            it.instance is HomeTabComponent.Child.Home ||
+                it.instance is HomeTabComponent.Child.WidgetHome ||
+                it.instance is HomeTabComponent.Child.Calendar
+        },
         isLauncher = { it.instance is HomeTabComponent.Child.Player },
         isDetail = { it.instance is HomeTabComponent.Child.Detail || it.instance is HomeTabComponent.Child.Info },
     ) { entry ->

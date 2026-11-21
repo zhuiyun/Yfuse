@@ -158,6 +158,7 @@ fun SearchScreen(component: SearchComponent) {
         onBack = component::navigateBack,
         contentKey = { routeKey(it.configuration) },
         modifier = Modifier.fillMaxSize(),
+        listPane = { it.instance is SearchComponent.Child.Home || it.instance is SearchComponent.Child.Person },
         isLauncher = { it.instance is SearchComponent.Child.Player },
         isDetail = { it.instance is SearchComponent.Child.Detail },
     ) { entry ->

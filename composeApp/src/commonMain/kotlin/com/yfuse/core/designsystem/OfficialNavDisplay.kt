@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.ui.LocalNavAnimatedContentScope
 import androidx.navigation3.ui.NavDisplay
+import com.yfuse.app.LocalWideWindow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -71,6 +72,7 @@ fun <T : Any> OfficialNavDisplay(
     isLauncher: (T) -> Boolean = { false },
     /** Detail entry keeps its shared poster; return uses one opaque, predictive side slide. */
     isDetail: (T) -> Boolean = { false },
+    listPane: ((T) -> Boolean)? = null,
     content: @Composable (T) -> Unit,
 ) {
     val parentRouteVisible = LocalRouteVisible.current
@@ -78,12 +80,14 @@ fun <T : Any> OfficialNavDisplay(
     val currentContent by rememberUpdatedState(content)
     val launchers = backStack.filter(isLauncher)
     val shownStack = backStack.filterNot(isLauncher).ifEmpty { backStack }
+    val usePanes = listPane != null && LocalWideWindow.current
+    val listKeys = if (listPane != null && usePanes) shownStack.filter(listPane).map(contentKey).toSet() else emptySet()
     val currentTop by rememberUpdatedState(shownStack.last())
     val latestBack by rememberUpdatedState(onBack)
     val sharedMediaController = remember { SharedMediaTransitionController() }
     // Register each stack with Activity before its pages, preserving the deepest visible
     // handler's priority while NavDisplay receives the matching private scene events.
-    val zoom = rememberZoomBackNavHost(canGoBack = parentRouteVisible && shownStack.size > 1)
+    val zoom = if (usePanes) null else rememberZoomBackNavHost(canGoBack = parentRouteVisible && shownStack.size > 1)
     val liftMenu = LocalLiftMenu.current
     val screenReader = rememberScreenReaderActive()
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
@@ -152,8 +156,8 @@ fun <T : Any> OfficialNavDisplay(
             sharedMediaController.finish(key)
         }
         CompositionLocalProvider(
-            LocalSharedTransitionScope provides this,
-            LocalSharedMediaTransitionController provides sharedMediaController,
+            LocalSharedTransitionScope provides this.takeUnless { usePanes },
+            LocalSharedMediaTransitionController provides sharedMediaController.takeUnless { usePanes },
         ) {
             val entryProvider: (T) -> NavEntry<T> = { key ->
                 NavEntry(
@@ -218,8 +222,10 @@ fun <T : Any> OfficialNavDisplay(
                     modifier = Modifier.fillMaxSize(),
                     onBack = onBack,
                     sceneStrategies =
-                        remember(zoom, zoom?.pageKey, zoom?.controller?.active) {
-                            if (zoom == null) {
+                        remember(usePanes, listKeys, zoom, zoom?.pageKey, zoom?.controller?.active) {
+                            if (usePanes) {
+                                listOf(ListDetailSceneStrategy<T>(listKeys))
+                            } else if (zoom == null) {
                                 emptyList()
                             } else {
                                 listOf(ZoomBackSceneStrategy<T>(zoom.pageKey.takeIf { zoom.controller.active }))

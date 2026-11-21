@@ -33,6 +33,7 @@ fun ServersTabScreen(component: ServersTabComponent) {
     Box(Modifier.fillMaxSize()) {
         OfficialNavDisplay(
             backStack = listOfNotNull(ServersRoute.Grid, browsing?.let { ServersRoute.Files(it.source.id) }),
+            listPane = { it == ServersRoute.Grid },
             onBack = files::closeBrowser,
             contentKey = ServersRoute::key,
             modifier = Modifier.fillMaxSize(),

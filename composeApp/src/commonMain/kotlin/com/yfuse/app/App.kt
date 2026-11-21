@@ -32,7 +32,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.selection.selectableGroup
@@ -376,7 +375,7 @@ fun App(root: RootComponent) {
                     // The page's half of the player transitions draws over, and transforms, this whole
                     // shell — dock and capsules included — while a launch is under way; idle it adds nothing.
                     BoxWithConstraints(Modifier.fillMaxSize().playerHandoffStage()) {
-                        val wide = useNavigationRail(maxWidth, maxHeight)
+                        val wide = maxWidth > maxHeight && useNavigationRail(maxWidth, maxHeight)
                         val onSelectTab: (Tab) -> Unit = { tab ->
                             if (tab == active) {
                                 root.reselectTab(tab, atRoot)
@@ -386,9 +385,7 @@ fun App(root: RootComponent) {
                         }
                         // On a root page, unless the tab has opened a page over its root — 我的's
                         // settings pages, 首页's 查看全部 — which the dock steps aside for.
-                        val navigationVisible = showBottomBar && overlays?.coversShell != true
-                        val dockShown = navigationVisible && !wide
-                        val railShown = navigationVisible && wide
+                        val dockShown = (showBottomBar || (wide && active != Tab.Home)) && overlays?.coversShell != true
                         Box(
                             Modifier
                                 .fillMaxSize()
@@ -404,7 +401,7 @@ fun App(root: RootComponent) {
                                     },
                                 ).backdropSource(
                                     backdrop,
-                                    record = { railShown || dockOnScreen.value || liftMenu.isOpen },
+                                    record = { dockOnScreen.value || liftMenu.isOpen },
                                 ),
                         ) {
                             val previousRootTab = remember { arrayOf(active) }
@@ -413,7 +410,10 @@ fun App(root: RootComponent) {
                             // Top-level tabs are a real Navigation 3 back stack, while each tab's
                             // nested host continues to own its child routes. This host opts into
                             // equal-level root motion; nested stacks own their push/pop gestures.
-                            CompositionLocalProvider(LocalWideWindow provides wide) {
+                            CompositionLocalProvider(
+                                LocalWideWindow provides wide,
+                                LocalFloatingDockVisible provides dockShown,
+                            ) {
                                 ToastFloor(dockShown, activityCapsuleHeight) {
                                     OfficialNavDisplay(
                                         backStack = topLevelBackStack(active, root.startTab, root.discoveryReturnTab),
@@ -421,10 +421,7 @@ fun App(root: RootComponent) {
                                         // ready. Re-read the model before returning between tabs.
                                         onBack = { root.navigateBackFromModel() },
                                         contentKey = { "tab:${it.name}" },
-                                        modifier =
-                                            Modifier.fillMaxSize().padding(
-                                                start = if (railShown) RailContentInset else 0.dp,
-                                            ),
+                                        modifier = Modifier.fillMaxSize(),
                                         motion = rootMotion,
                                         popMotion = rootPopMotion(active, root.startTab, rootMotion),
                                     ) { tab ->
@@ -501,20 +498,6 @@ fun App(root: RootComponent) {
                                     animationSpec = tween(dockExit, easing = Motion.Curve),
                                     targetOffsetY = dockTravel,
                                 )
-                        if (railShown) {
-                            AdaptiveNavigationRail(
-                                items = navigationTabs(customHomeVisible) + searchKeyItem,
-                                active = active,
-                                backdrop = backdrop,
-                                onSelect = onSelectTab,
-                                modifier =
-                                    Modifier
-                                        .align(
-                                            Alignment.CenterStart,
-                                        ).statusBarsPadding()
-                                        .navigationBarsPadding(),
-                            )
-                        }
                         AnimatedVisibility(
                             visible = dockShown,
                             // The one piece of furniture that stays still across the whole app
@@ -583,7 +566,7 @@ fun App(root: RootComponent) {
                                 .padding(horizontal = Dimens.tabBarInset)
                                 // The dock's own height — it grows with the font scale — plus
                                 // its margin below and a step of air above it.
-                                .padding(bottom = if (wide) Dimens.sectionGap else activityCapsuleOffset(dockHeight()))
+                                .padding(bottom = activityCapsuleOffset(dockHeight()))
                         // Video backgrounding is represented by Android PiP. The old long,
                         // music-like mini controller duplicated transport controls and only
                         // appeared at tab roots, so it is intentionally not rendered here.
