@@ -24,7 +24,14 @@ if sys.argv[1]=='check':
         def rank(it):
             ss=it.get('MediaSources') or []; src=ss[0] if ss else {}; streams=src.get('MediaStreams') or it.get('MediaStreams') or [];vs=next((v for v in streams if v.get('Type')=='Video'),{})
             return (vs.get('Codec','').lower() in ['avc','h264'],(vs.get('Width') or 9999)<=1920, str(src.get('Container') or '').lower() in ['mp4','mkv'],bool(ss))
-        chosen=max(media,key=rank) if media else None
+        details=[]
+        for it in media[:16]:
+            try:
+                detail=sess.get(base+'/Users/'+uid+'/Items/'+it['Id'],timeout=5).json()
+                if detail.get('Id'):details.append(detail)
+                if rank(detail)==(True,True,True,True):break
+            except Exception:pass
+        chosen=max(details or media,key=rank) if media else None
         if chosen:
             (temp/'real-movie-session').write_text(json.dumps({'uid':uid,'token':res['AccessToken'],'id':chosen['Id'],'media':((chosen.get('MediaSources') or [{}])[0].get('Id') or chosen['Id'])}))
             result['sample_selected']=True

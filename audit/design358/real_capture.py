@@ -69,10 +69,15 @@ def login(tv=False):
         if not tap('仍然连接|继续连接|允许连接|允许'):break
     time.sleep(.9)
 def launch_search(name):
-    cold();tap('搜索');time.sleep(.6)
+    cold();time.sleep(1.6)
+    for _ in range(4):
+        e=ui(className='android.widget.EditText')
+        if e.exists(timeout=.25):break
+        if not tap('搜索'):tp(648,1276)
+        time.sleep(.8)
     e=ui(className='android.widget.EditText')
-    if not e.exists(timeout=3):return False
-    e.set_text(name);a('input','keyevent',66);time.sleep(1.7);return True
+    if not e.exists(timeout=1):return False
+    e.set_text(name);a('input','keyevent',66);time.sleep(2.8);return True
 def inspect():
     global ui,pkg,activity
     sh('reverse','tcp:8096','tcp:8096')
@@ -86,7 +91,14 @@ def inspect():
     if any(v=='连接到服务器' for v,b in texts(tree())):
         record('first-form-diagnostic',[clean(v) for v,b in texts(tree()) if any(t in v for t in ['连接','失败','错误','有效','无效','允许','密码','认证','请输入','HTTP'])][:18])
         tap('连接到服务器',3);time.sleep(1.4)
-    cold();tap('媒体库');time.sleep(2.1);snap('live-phone-library')
+    time.sleep(2);tp(355,375);time.sleep(3);snap('live-feature-detail')
+    if any('剧情简介' in v or '资源比较' in v for v,b in texts(tree())):
+        a('input','swipe',340,1120,340,480,500);time.sleep(1.4);snap('live-feature-lower')
+        if tap('查看全部剧集|选集|第 1 季',1):time.sleep(2);snap('live-feature-episodes')
+    cold();time.sleep(2);tap('媒体库');time.sleep(5);snap('live-phone-library')
+    a('input','swipe',350,1120,350,500,520);time.sleep(1.3);snap('live-library-rows')
+    if tap('全部',1):
+        time.sleep(1.4);snap('live-library-grid');tp(115,350);time.sleep(2.2);snap('live-grid-detail')
     candidates=json.loads((out/'candidates.json').read_text())
     for kind,k in [('Series','series'),('Movie','movie')]:
         try:
@@ -116,7 +128,7 @@ def inspect():
         a('am','force-stop',pkg)
         sh('shell','am','start','-W','-a','android.intent.action.VIEW','-d','http://127.0.0.1:8096/review/video.mp4','-t','video/mp4','-n',pkg+'/com.yfuse.feature.player.ExternalPlaybackActivity')
         time.sleep(.65);tap('打开');time.sleep(3);snap('live-source-a')
-        time.sleep(4);snap('live-source-b');time.sleep(3);snap('live-source-c')
+        time.sleep(12);snap('live-source-b');time.sleep(12);snap('live-source-c');time.sleep(12);snap('live-source-d');tp(650,310);time.sleep(.3);snap('live-source-time')
     except Exception as e:record('real-source',type(e).__name__)
     try:
         a('am','force-stop',pkg)
@@ -124,7 +136,8 @@ def inspect():
         packages=a('pm','list','packages','yfuse').strip().splitlines();pkg=next(x.split(':')[-1] for x in packages if x.startswith('package:'));activity=pkg+'/com.yfuse.tv.TvMainActivity'
         a('wm','size','1080x1920');a('wm','density',240);a('settings','put','system','accelerometer_rotation',0);a('settings','put','system','user_rotation',1)
         login(True);snap('live-tv-home');tap('媒体库');time.sleep(1);snap('live-tv-library')
-        if tap('详情',1):snap('live-tv-detail')
+        if tap('详情',1):
+            time.sleep(3);snap('live-tv-detail');time.sleep(4);snap('live-tv-detail-settled')
     except Exception as e:record('television',type(e).__name__)
 try:inspect()
 except Exception as e:record('capture',type(e).__name__)
