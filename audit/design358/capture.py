@@ -383,6 +383,70 @@ def public():
     for k,label in [('follow','追剧'),('resource','资源'),('setting','设置')]:
         try:choose(label);snap('calendar-'+k)
         except Exception as e:note('calendar-'+k,'blocked',str(e))
+def fast(k):
+    (OUT/(k+'.png')).write_bytes(adb('exec-out','screencap','-p',binary=True))
+    try:
+        x=tree();(OUT/(k+'.xml')).write_bytes(ET.tostring(x,encoding='utf-8'));note(k,'captured',labels(x)[:85]);return x
+    except Exception:note(k,'image only',[])
+def point(x,y):shell('input','tap',x,y)
+def take(k,x,y,t=.65):
+    point(x,y);time.sleep(t);return fast(k)
+def immersive():
+    shell('settings','put','secure','immersive_mode_confirmations','confirmed')
+    adb('reverse','tcp:8096','tcp:8096')
+    shell('am','start','-W','-a','android.intent.action.VIEW','-d','http://127.0.0.1:8096/Videos/m01/stream.mp4','-t','video/mp4','-n',PKG+'/com.yfuse.feature.player.ExternalPlaybackActivity')
+    time.sleep(1);choose('打开');time.sleep(2)
+    try:
+        for n in tree().iter('node'):
+            if n.get('text','').lower()=='got it' or 'confirmation' in n.get('resource-id',''):
+                tap(n);break
+    except Exception: pass
+    fast('sample-film')
+    def ctrl():
+        text=labels(tree())
+        if '更多' not in text:
+            point(1010,475);time.sleep(.15)
+    ctrl();fast('sample-controls')
+    for k,x,y in [('more',2092,104),('speed',0,0),('audio',0,0),('subs',0,0)]:
+        ctrl()
+        if k=='more':point(x,y)
+        else:
+            point(2092,104);time.sleep(.35)
+            matches=[(n,s) for n,s in visible(tree()) if s and any(v in s for v in {'speed':['倍速','播放速度'],'audio':['音轨','音频轨道'],'subs':['字幕']}[k])]
+            if not matches:back();continue
+            tap(matches[0][0])
+        time.sleep(.45);fast('sample-'+k);back();time.sleep(.6)
+    ctrl();shell('input','swipe','450','847','1040','847','320');time.sleep(.3);fast('sample-scrub')
+def catalog():
+    root('自定义首页');time.sleep(3);fast('trend-start')
+    if find('开始布置首页') is not None:
+        click('开始布置首页');time.sleep(1);back();time.sleep(1)
+    take('trend-info',595,700,2)
+    items=labels(tree())
+    if any('今日趋势' in s for s in items):
+        take('trend-grid',976,320,1.0);take('trend-info2',210,510,1.3)
+    else:
+        shell('input','swipe','540','1700','540','790','550');time.sleep(1);fast('trend-info-scrolled')
+        back();time.sleep(1);take('trend-grid',976,320,1.2)
+def dates():
+    root('观看');time.sleep(.5);choose('追剧日历');time.sleep(1);fast('dates-home')
+    for k,s in [('follow','追剧'),('resources','资源'),('prefs','设置'),('calendar','日历')]:
+        try:choose(s);fast('dates-'+k)
+        except Exception as e:note(k,'blocked',str(e))
+def online():
+    adb('reverse','tcp:8096','tcp:8096');root('服务器');click('添加服务器');choose('HTTP')
+    def edit(s, val):
+        n=find(s,5);tap(n);shell('input','keycombination','113','29');shell('input','text',val);back();time.sleep(.35)
+    edit('media.example.com','127.0.0.1')
+    if '8096' not in labels(tree()):edit('80|443','8096')
+    edit('输入用户名','Audit');n=find('连接到服务器',3);point(*mid(n));time.sleep(.8);fast('connected-initial');time.sleep(3);fast('connected-server')
+    for tab,k in [('媒体库','catalog-library'),('观看','catalog-history')]:
+        root(tab);time.sleep(1);fast(k)
+    root('媒体库');time.sleep(1)
+    for key,l in [('catalog-grid','Audit Library|电影'),('catalog-film','Audit Film'),('catalog-person','Audit Actor')]:
+        n=find(l,2)
+        if n is None:break
+        tap(n);time.sleep(.65);fast(key)
 try:
-    launch();time.sleep(1.8);{'liquid':pick,'player':sampleplayer,'media':server,'discovery':public}[AREA]()
-except Exception as e:note('audit-stop','blocked',str(e)[:180]);snap('last-window')
+    launch();{'player':immersive,'catalog':catalog,'calendar':dates,'media':online}[AREA]()
+except Exception as e:note('audit-stop','blocked',str(e)[:120])
