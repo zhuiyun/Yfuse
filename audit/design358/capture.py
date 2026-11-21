@@ -36,6 +36,11 @@ def tree():
             x=ET.fromstring(s)
             if len(list(x.iter('node')))>2:return x
         except Exception:pass
+        try:
+            shell('uiautomator','dump','--compressed','/sdcard/tree.xml')
+            x=ET.fromstring(shell('cat','/sdcard/tree.xml'))
+            if len(list(x.iter('node')))>2:return x
+        except Exception:pass
         time.sleep(.5)
     raise ValueError('UI tree unavailable')
 def rect(n):return tuple(map(int,re.findall(r'\d+',n.get('bounds',''))))
@@ -161,10 +166,84 @@ def tv():
     for k in [20,20,22,19]:
         shell('input','keyevent',str(k));time.sleep(.38)
     capture('tv-dpad')
+def snap(k):
+    try:return capture(k)
+    except Exception as e:
+        (OUT/(k+'.png')).write_bytes(adb('exec-out','screencap','-p',binary=True));note(k,'pixels-only',str(e))
+def safe(k,fn):
+    try:fn();time.sleep(.55);return snap(k)
+    except Exception as e:note(k,'blocked',str(e)[:180])
+def tvextra():
+    def start(k,*steps):
+        def visit():
+            shell('am','force-stop',PKG);launch();time.sleep(.6)
+            for i in steps:click(i,5)
+        return safe(k,visit)
+    start('tv-settings','我的与设置');start('tv-calendar','首页','追剧日历')
+    start('tv-add-server','服务器','添加服务器')
+    entries={'appearance':'外观与辅助','account':'账号与同步','personal':'个人中心','stats':'观影统计','family':'家庭资料','sync':'同步状态','handoff':'设备接力','phone-remote':'手机遥控','trakt':'Trakt','stremio':'Stremio 插件','engine':'高级播放','playback':'播放','comments':'弹幕','party':'一起看','download':'下载与离线库','backup':'服务器备份与迁移','permissions':'权限检查','diagnostics':'数据与诊断'}
+    for k,v in entries.items():start('tv-'+k,'我的与设置',v)
+def external():
+    adb('reverse','tcp:8096','tcp:8096')
+    adb('push','/tmp/yfuse-design-media/clip.mp4','/sdcard/Movies/audit.mp4')
+    shell('am','broadcast','-a','android.intent.action.MEDIA_SCANNER_SCAN_FILE','-d','file:///sdcard/Movies/audit.mp4')
+    def openclip():
+        shell('am','start','-W','-a','android.intent.action.VIEW','-d','file:///sdcard/Movies/audit.mp4','-t','video/mp4','-n',PKG+'/com.yfuse.feature.player.ExternalPlaybackActivity')
+        time.sleep(3)
+    openclip();snap('clip-open')
+    def ctr():
+        shell('input','tap',1030,450);time.sleep(.35)
+    ctr();snap('clip-controls')
+    for k,names in [('tracks','字幕|字幕设置|字幕选择'),('audio','音轨|音频|音轨选择'),('speed','倍速|1.0x|1.0×|播放速度'),('settings','设置|播放设置|更多|更多操作'),('playlist','播放列表|选集')]:
+        try:
+            n=find(names,0)
+            if n is None:ctr();n=find(names,0)
+            if n is None:raise ValueError('absent '+names)
+            tap(n);snap('clip-'+k);back()
+        except Exception as e:note('clip-'+k,'blocked',str(e))
+    ctr();shell('input','swipe','480','480','1160','480','420');snap('clip-after-seek')
+def gallery():
+    root('我的');click('外观与交互');click('动画与动效');click('弹窗动画');snap('gallery-first')
+    for _ in range(26):
+        x=tree();matches=[(n,s) for n,s in visible(x) if '液态成形' in s or '液态成型' in s]
+        if matches:
+            tap(matches[0][0]);snap('gallery-liquid-picked')
+            time.sleep(.5);snap('gallery-liquid-settled');return
+        cards=[n for n in x.iter('node') if n.get('scrollable')=='true' and rect(n)[2]-rect(n)[0]>500]
+        items=[n for n,s in visible(x) if s in ['柔和浮起','底部升起','磁悬停泊','光栅百叶']];y=mid(items[0])[1] if items else (mid(min(cards,key=lambda n:rect(n)[3]-rect(n)[1]))[1] if cards else 1140)
+        shell('input','swipe','935',y,'164',y,'440');time.sleep(.35)
+    snap('gallery-last')
+def widgets():
+    for k,tab,seq in [('widgets-home','自定义首页',[]),('widgets-manage','自定义首页',['组件管理|管理组件|管理']),('widgets-add','自定义首页',['组件管理|管理组件|管理','添加组件|添加']),('iptv-home','服务器',['IPTV · 电视直播']),('iptv-add','服务器',['IPTV · 电视直播','添加订阅|添加|新增订阅']),('search-text','搜索',[])]:
+        path(k,tab,seq)
+    if ui is not None:
+        try:ui(className='android.widget.EditText').set_text('Audit');shell('input','keyevent','66');time.sleep(1);snap('search-results')
+        except Exception as e:note('search-results','blocked',str(e))
+    root('观看');shell('cmd','uimode','night','yes');time.sleep(1);snap('night-watch')
+def form2():
+    adb('reverse','tcp:8096','tcp:8096');root('服务器');click('添加服务器');click('HTTP');time.sleep(1)
+    def edit(placeholder,text):
+        n=find(placeholder,5)
+        if n is None:raise ValueError(placeholder)
+        tap(n);shell('input','keycombination','113','29');time.sleep(.15);shell('input','text',text);time.sleep(.4);back();time.sleep(.4)
+    snap('form-http');edit('media.example.com','127.0.0.1');snap('form-host')
+    if '8096' not in labels(tree()): edit('80|443','8096')
+    edit('输入用户名','Audit');snap('form-ready');click('连接到服务器');time.sleep(2);snap('server-submitted')
+    for i in range(2):
+        for k in ['仍然连接|继续连接|确认连接|继续|允许|连接']:
+            n=find(k,0)
+            if n is not None:tap(n);time.sleep(1)
+    snap('server-final')
+    for tab,name in [('媒体库','filled-library'),('观看','filled-watch'),('搜索','filled-search'),('服务器','filled-servers')]:path(name,tab,[])
+    root('媒体库')
+    for k,l in [('collection','Audit Library|电影'),('film','Audit Film'),('actor','Audit Actor')]:
+        if safe('filled-'+k,lambda l=l:click(l,4)) is None:break
+    root('搜索')
+    if ui is not None:
+        ui(className='android.widget.EditText').set_text('Audit');shell('input','keyevent','66');time.sleep(1);snap('filled-results')
+    for k,l in [('series','Audit Series'),('seasons','第 1 季|Season 1|选集')]:
+        if safe('filled-'+k,lambda l=l:click(l,3)) is None:break
 try:
-    launch();time.sleep(3)
-    {'navigation':navigation,'profile':profile,'appearance':appearance,'playback-settings':playback_settings,'media':media,'tv':tv}[AREA]()
+    launch();time.sleep(2);{'tv':tvextra,'player':external,'gallery':gallery,'widgets':widgets,'media':form2}[AREA]()
 except Exception as e:
-    note('area-end','blocked',str(e)[:240])
-    try:capture('last-observed')
-    except Exception:pass
+    note('audit-stop','blocked',str(e)[:200]);snap('last-window')
