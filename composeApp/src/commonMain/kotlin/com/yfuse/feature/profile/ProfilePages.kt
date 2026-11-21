@@ -123,6 +123,15 @@ internal class ProfilePages<T : Any>(
         navigation.pushToFront(page)
     }
 
+    fun selectCategory(page: ProfilePage) {
+        if (page != ProfilePage.Root &&
+            page.availableInCurrentBuild(backend) &&
+            stack.value.active.configuration != page
+        ) {
+            navigation.replaceAll(ProfilePage.Root, page)
+        }
+    }
+
     /** Back from the page in front to the one under it; at the root there is nowhere to go. */
     fun close() = navigation.pop()
 

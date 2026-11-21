@@ -116,7 +116,8 @@ internal fun PlayerSidePanel(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    val initialWidthPx = with(LocalDensity.current) { PlayerPanelWidth.toPx() }
+    val panelWidth = playerPanelWidth(PlayerPanelWidth)
+    val initialWidthPx = with(LocalDensity.current) { panelWidth.toPx() }
     var widthPx by remember { mutableFloatStateOf(initialWidthPx) }
     var offsetPx by remember { mutableFloatStateOf(if (reduceMotion) 0f else initialWidthPx) }
     var directlyManipulating by remember { mutableStateOf(false) }
@@ -244,7 +245,7 @@ internal fun PlayerSidePanel(
     Column(
         modifier
             .fillMaxHeight()
-            .width(PlayerPanelWidth)
+            .width(panelWidth)
             .onSizeChanged {
                 val newWidth = it.width.toFloat().coerceAtLeast(1f)
                 offsetPx = offsetPx / widthPx.coerceAtLeast(1f) * newWidth
@@ -463,7 +464,7 @@ internal fun PlayerPopupPanel(
     val shownPaneTitle = paneTitle
     Column(
         modifier
-            .width(PlayerPopupWidth)
+            .width(playerPanelWidth(PlayerPopupWidth))
             .dialogMotion(animation, drag.takeIf { !reduceMotionByUser }, controlBounds = origin) {
                 progress() * (1f - backOffset * 0.25f)
             }.heightIn(
@@ -477,13 +478,18 @@ internal fun PlayerPopupPanel(
                 materialOverride =
                     LocalGlassMaterials.current.dark.copy(
                         tintRgb = 0x191E27,
-                        opacity = 0.92f,
+                        opacity = 0.72f,
                         ink = GlassInk.Light,
                     ),
                 translucentOverVideo = !LocalMotionBudget.current.reduced,
             ).dialogInteriorMotion(animation, progress)
             .graphicsLayer {
-                if (origin != null && !reduceMotion) alpha = ((progress() - 0.5f) * 2f).coerceIn(0f, 1f)
+                if (origin != null &&
+                    !reduceMotion &&
+                    animation != DialogAnimation.Liquid
+                ) {
+                    alpha = ((progress() - 0.5f) * 2f).coerceIn(0f, 1f)
+                }
             }.semantics { shownPaneTitle?.let { this.paneTitle = it } }
             // Taps inside the popup must not reach the dismiss catcher behind it.
             .pointerInput(Unit) { detectTapGestures { } }

@@ -149,6 +149,9 @@ internal fun Modifier.dialogInteriorMotion(
     animation: DialogAnimation,
     progress: () -> Float,
 ): Modifier {
+    if (animation == DialogAnimation.Liquid) {
+        return graphicsLayer { alpha = dialogStage(progress(), 0.45f) }
+    }
     if (animation == DialogAnimation.Cascade) {
         return graphicsLayer { translationY = 10.dp.toPx() * (1f - dialogStage(progress(), 0.1f)) }
     }

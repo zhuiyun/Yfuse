@@ -191,7 +191,7 @@ fun <T : Any> OfficialNavDisplay(
                                 }.drawBehind {
                                     // Glass content still needs a solid page beneath it while two
                                     // destinations share the host during a return gesture.
-                                    if (motion == OfficialNavMotion.Stack ||
+                                    if (zoom?.controller?.active == true ||
                                         entryTransition.currentState != entryTransition.targetState
                                     ) {
                                         drawRect(pageBackground)

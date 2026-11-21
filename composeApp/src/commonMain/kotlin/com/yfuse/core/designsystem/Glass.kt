@@ -293,9 +293,16 @@ fun Modifier.glass(
         // The cache observes paint state, so steady surfaces reuse their brush between draws.
         val surface =
             glassPlateSurface(animatedFill.value, palette, accessibility.reduceTransparency, frosted, weight)
+        val opticalRim =
+            if (resolvedBorder != null && !accessibility.reduceTransparency && !frosted) {
+                glassRim(palette.isDark, weight.liquidSheen)
+            } else {
+                null
+            }
         onDrawBehind {
             drawOutline(outline, brush = surface)
             if (resolvedBorder != null) drawOutline(outline, animatedBorder.value, style = stroke)
+            if (opticalRim != null) drawOutline(outline, brush = opticalRim, style = stroke)
         }
     }
 }
@@ -488,17 +495,17 @@ fun appBackdropBrushes(): List<Brush> {
         if (palette.isDark) {
             cssLinearGradient(
                 155f,
-                0f to Color(0xFF101D35),
+                0f to Color(0xFF172F30),
                 0.46f to palette.background,
-                1f to Color(0xFF170F2A),
+                1f to Color(0xFF102120),
             )
         } else {
             cssLinearGradient(
                 155f,
-                0f to Color(0xFFE7EFFB),
+                0f to Color(0xFFF5F0E5),
                 0.42f to palette.background,
-                0.72f to Color(0xFFF3EFF9),
-                1f to Color(0xFFEDF7F5),
+                0.72f to Color(0xFFE9EFE5),
+                1f to Color(0xFFDCECE7),
             )
         }
     val upperGlow =
@@ -508,7 +515,7 @@ fun appBackdropBrushes(): List<Brush> {
             endStop = 0.72f,
             inner =
                 if (palette.isDark) {
-                    Brand.PrimaryGradBottom.copy(alpha = 0.24f)
+                    Color(0xFF649991).copy(alpha = 0.24f)
                 } else {
                     Color.White.copy(alpha = 0.76f)
                 },
@@ -520,9 +527,9 @@ fun appBackdropBrushes(): List<Brush> {
             endStop = 0.68f,
             inner =
                 if (palette.isDark) {
-                    Color(0xFF704FBE).copy(alpha = 0.18f)
+                    Color(0xFF807365).copy(alpha = 0.14f)
                 } else {
-                    Color(0xFF9B7DE0).copy(alpha = 0.18f)
+                    Color(0xFF76A99B).copy(alpha = 0.17f)
                 },
         )
     return listOf(base, upperGlow, lowerGlow)
@@ -537,6 +544,7 @@ fun AppBackdrop(
     content: @Composable BoxScope.() -> Unit,
 ) {
     val layers = appBackdropBrushes()
+    val etching = imageUri == null && !LocalAccessibilityOptions.current.reduceTransparency && !frostedGlass()
     Box(modifier.fillMaxSize()) {
         if (imageUri != null) {
             // Cropped to fill: a wallpaper chosen on a phone is portrait and the window is
@@ -556,7 +564,8 @@ fun AppBackdrop(
             Modifier
                 .fillMaxSize()
                 .graphicsLayer { alpha = if (imageUri == null) 1f else dim.coerceIn(MIN_BACKGROUND_DIM, 1f) }
-                .drawBehind { layers.forEach { drawRect(it) } },
+                .drawBehind { layers.forEach { drawRect(it) } }
+                .then(if (etching) Modifier.glassStrata(LocalPalette.current.isDark) else Modifier),
         )
         content()
     }

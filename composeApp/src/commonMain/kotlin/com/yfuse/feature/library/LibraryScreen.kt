@@ -1,10 +1,13 @@
 package com.yfuse.feature.library
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import com.arkivanov.decompose.extensions.compose.subscribeAsState
+import com.yfuse.app.LocalWideWindow
 import com.yfuse.core.designsystem.OfficialNavDisplay
 import com.yfuse.feature.detail.DetailScreen
 import com.yfuse.feature.history.PlaybackHistoryScreen
@@ -59,7 +62,20 @@ fun LibraryScreen(component: LibraryComponent) {
                     onOpenDiscovery = instance.onOpenDiscovery,
                 )
             is LibraryComponent.Child.Grid -> LibraryGridScreen(instance.component)
-            is LibraryComponent.Child.Detail -> DetailScreen(instance.component)
+            is LibraryComponent.Child.Detail -> {
+                val index = stack.items.indexOf(entry)
+                val grid = stack.items.getOrNull(index - 1)?.instance as? LibraryComponent.Child.Grid
+                Row(Modifier.fillMaxSize()) {
+                    if (LocalWideWindow.current && grid != null) {
+                        LibraryPreviewList(
+                            component = grid.component,
+                            selectedId = instance.component.itemId,
+                            onSelect = { component.selectGridPreview(grid.component.serverId, it) },
+                        )
+                    }
+                    Box(Modifier.weight(1f)) { DetailScreen(instance.component) }
+                }
+            }
             is LibraryComponent.Child.Player -> PlayerScreen(instance.component)
         }
     }

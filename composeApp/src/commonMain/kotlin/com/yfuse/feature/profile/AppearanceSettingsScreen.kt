@@ -37,6 +37,7 @@ internal enum class AppearanceAction {
 @Composable
 internal fun AppearanceSettingsScreen(
     page: ProfilePage,
+    showBack: Boolean = true,
     preferences: ThemePreferences,
     brandSummary: String,
     onBack: () -> Unit,
@@ -47,7 +48,7 @@ internal fun AppearanceSettingsScreen(
         ProfilePage.AppearanceLayout -> LayoutSettingsPage(preferences, onBack, onAction)
         ProfilePage.AppearanceMotion -> MotionSettingsPage(preferences, onBack, onAction)
         ProfilePage.AppearanceAccessibility -> AccessibilitySettingsPage(preferences, onBack)
-        else -> AppearanceOverview(preferences, brandSummary, onBack, onOpenPage, onAction)
+        else -> AppearanceOverview(preferences, brandSummary, onBack, onOpenPage, onAction, showBack)
     }
 }
 
@@ -58,13 +59,14 @@ private fun AppearanceOverview(
     onBack: () -> Unit,
     onOpenPage: (ProfilePage) -> Unit,
     onAction: (AppearanceAction) -> Unit,
+    showBack: Boolean,
 ) {
     val mode by prefs.mode.collectAsState()
     val glass by prefs.glassStyle.collectAsState()
     val background by prefs.backgroundImage.collectAsState()
     val motion by prefs.motionTheme.collectAsState()
     val modes = listOf(ThemeMode.Light, ThemeMode.System, ThemeMode.Dark)
-    SettingsPage(title = "外观与交互", onBack = onBack) {
+    SettingsPage(title = "外观与交互", onBack = onBack, showBackButton = showBack) {
         motionItem(key = "appearance-theme") {
             Section("主题") {
                 SettingsCard {
