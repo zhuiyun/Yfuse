@@ -443,7 +443,32 @@ class Session:
         self.adb("shell", "wm", "density", "320")
         time.sleep(10)
         captures.append(self.capture("layout-tablet-viewport"))
+        self.back()
+        self.wait_label("播放记录")
+        self.tap(TAB_LABELS["Profile"])
+        self.tap("账号与同步")
+        captures.append(self.settings_layout("layout-tablet-settings", paired=True))
+        # 700 x 550 dp in landscape, approximating a resized tablet window.
+        self.adb("shell", "wm", "size", "1100x1400")
+        captures.append(self.settings_layout("layout-narrow-settings", paired=False))
+        self.adb("shell", "wm", "size", "1600x2560")
+        captures.append(self.settings_layout("layout-tablet-settings-restored", paired=True))
         return {"captures": captures, "limit": "viewport emulation and sampled frames; not physical tablet or continuous frame timing"}
+
+    def settings_layout(self, name, paired):
+        # Check distinct controls: the compact account page still has its own “账号与同步” title.
+        # “服务器与账号” belongs to the category list; “登录账号” belongs to the selected detail.
+        deadline = time.monotonic() + 45
+        while time.monotonic() < deadline:
+            root, _ = self.tree()
+            index = nodes_for(root, "服务器与账号")
+            detail = nodes_for(root, "登录账号")
+            matches = (any(center(left)[0] < center(right)[0] for left in index for right in detail)
+                       if paired else not index)
+            if detail and matches:
+                return self.capture(name)
+            time.sleep(1)
+        raise RuntimeError(f"Account detail or expected pane arrangement missing at {name}")
 
     def diagnostics(self):
         if not self.serial:

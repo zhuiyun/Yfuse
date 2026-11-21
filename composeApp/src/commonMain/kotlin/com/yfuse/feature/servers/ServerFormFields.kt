@@ -49,6 +49,8 @@ import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalOverlayEntrance
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.awaitOverlayEntered
+import com.yfuse.core.designsystem.controlBorder
+import com.yfuse.core.designsystem.controlSurface
 import com.yfuse.core.designsystem.flatGlass
 import com.yfuse.core.designsystem.formDivider
 import com.yfuse.core.designsystem.glass
