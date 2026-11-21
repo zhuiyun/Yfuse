@@ -482,7 +482,32 @@ def grids():
     tapref(200,580);shot('art-collection-detail',1.5);receipt('art-collection-detail')
 def datesdetail():
     root('观看');choose('追剧日历');time.sleep(2);tapref(770,1160);shot('episode-meta',1.2);receipt('episode-meta')
+def fill(base,val):
+    n=find(base,4)
+    if n is None:raise ValueError(base)
+    tap(n);shell('input','keycombination','113','29');shell('input','text',val);back();time.sleep(.32)
+def connect():
+    adb('reverse','tcp:8096','tcp:8096');root('服务器');time.sleep(.6);click('添加服务器|添加')
+    if AREA=='tv':
+        click('HTTPS',0);fill('主机或完整地址','127.0.0.1');fill('用户名','Audit')
+        x=tree()
+        if '8096' not in labels(x):fill('80|443','8096')
+        click('连接',1)
+    else:
+        click('HTTP');fill('media.example.com','127.0.0.1')
+        if '8096' not in labels(tree()):fill('80|443','8096')
+        fill('输入用户名','Audit');click('连接到服务器',2)
+    for i in range(4):shot('login-'+str(i),[.2,.65,1.0,2.0][i])
+    receipt('login-3')
+    for n,s in visible(tree()):
+        if any(t in s for t in ['仍然连接','继续连接','我已了解','允许此','仍要连接','确认使用','继续使用','允许连接']):
+            tap(n);break
+    time.sleep(1);shot('server-result');receipt('server-result')
+    for k,l in [('server-library','媒体库'),('server-view','Audit Library|电影'),('server-film','Audit Film'),('server-person','Audit Actor')]:
+        n=find(l,2)
+        if n is None:break
+        tap(n);shot(k,1.3);receipt(k)
 try:
-    shell('wm','size','720x1440');shell('wm','density','292');launch()
-    {'player':track,'catalog':movie,'grid':grids,'episode':datesdetail}[AREA]()
-except Exception as e:note('audit-stop','blocked',str(e)[:170])
+    if AREA!='tv':shell('wm','size','720x1440');shell('wm','density','292')
+    launch();connect()
+except Exception as e:note('audit-stop','blocked',str(e)[:180])
