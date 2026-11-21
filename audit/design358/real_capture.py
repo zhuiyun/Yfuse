@@ -87,58 +87,14 @@ def inspect():
     a('wm','size','720x1440');a('wm','density',292)
     sh('install','-r','-g','apk/phone.apk',t=150);pkg=a('pm','list','packages','yfuse').strip().split(':')[-1];activity=pkg+'/com.yfuse.MainActivity'
     ui=u2.connect();ui.settings['wait_timeout']=2
-    login();time.sleep(1.7);snap('live-phone-home')
-    if any(v=='连接到服务器' for v,b in texts(tree())):
-        record('first-form-diagnostic',[clean(v) for v,b in texts(tree()) if any(t in v for t in ['连接','失败','错误','有效','无效','允许','密码','认证','请输入','HTTP'])][:18])
-        tap('连接到服务器',3);time.sleep(1.4)
-    time.sleep(2);tp(355,375);time.sleep(3);snap('live-feature-detail')
-    if any('剧情简介' in v or '资源比较' in v for v,b in texts(tree())):
-        a('input','swipe',340,1120,340,480,500);time.sleep(1.4);snap('live-feature-lower')
-        if tap('查看全部剧集|选集|第 1 季',1):time.sleep(2);snap('live-feature-episodes')
-    cold();time.sleep(2);tap('媒体库');time.sleep(5);snap('live-phone-library')
-    a('input','swipe',350,1120,350,500,520);time.sleep(1.3);snap('live-library-rows')
-    if tap('全部',1):
-        time.sleep(1.4);snap('live-library-grid');tp(115,350);time.sleep(2.2);snap('live-grid-detail')
-    candidates=json.loads((out/'candidates.json').read_text())
-    for kind,k in [('Series','series'),('Movie','movie')]:
-        try:
-            if not candidates.get(kind):continue
-            options=[v for v in candidates[kind] if len(v['name'].strip())>=2] or candidates[kind]
-            name=options[0]['name']
-            if not launch_search(name):continue
-            snap('live-search-'+k)
-            if not tap(name,1):continue
-            snap('live-'+k+'-detail')
-            if kind=='Series':
-                a('input','swipe',360,1140,360,490,490);time.sleep(.75);snap('live-series-lower')
-                if tap('查看全部剧集|选集|第 1 季',2):snap('live-episodes')
-            else:
-                if tap('播放|继续播放|从头播放|立即播放',1):
-                    time.sleep(2);snap('live-play-intent')
-                    # Some releases expose a source or explicit "play" confirmation.
-                    nodes=texts(tree())
-                    if any(v in ['选择播放源','播放来源','选择播放版本'] for v,b in nodes):
-                        if not tap('立即播放|播放|继续观看',1):
-                            for v,b in nodes:
-                                if '1080' in v or '2160' in v:
-                                    tp((b[0]+b[2])/2,(b[1]+b[3])/2);break
-                    time.sleep(5);snap('live-playing-a');time.sleep(2);snap('live-playing-b')
-        except Exception as e:record(k,type(e).__name__)
-    try:
-        a('am','force-stop',pkg)
-        sh('shell','am','start','-W','-a','android.intent.action.VIEW','-d','http://127.0.0.1:8096/review/video.mp4','-t','video/mp4','-n',pkg+'/com.yfuse.feature.player.ExternalPlaybackActivity')
-        time.sleep(.65);tap('打开');time.sleep(3);snap('live-source-a')
-        time.sleep(12);snap('live-source-b');time.sleep(12);snap('live-source-c');time.sleep(12);snap('live-source-d');tp(650,310);time.sleep(.3);snap('live-source-time')
-    except Exception as e:record('real-source',type(e).__name__)
-    try:
-        a('am','force-stop',pkg)
-        apk=next(Path('tvapk').rglob('*.apk'));sh('uninstall',pkg,t=40);sh('install','-r','-g',str(apk),t=150)
-        packages=a('pm','list','packages','yfuse').strip().splitlines();pkg=next(x.split(':')[-1] for x in packages if x.startswith('package:'));activity=pkg+'/com.yfuse.tv.TvMainActivity'
-        a('wm','size','1080x1920');a('wm','density',240);a('settings','put','system','accelerometer_rotation',0);a('settings','put','system','user_rotation',1)
-        login(True);snap('live-tv-home');tap('媒体库');time.sleep(1);snap('live-tv-library')
-        if tap('详情',1):
-            time.sleep(3);snap('live-tv-detail');time.sleep(4);snap('live-tv-detail-settled')
-    except Exception as e:record('television',type(e).__name__)
+    cold()
+    sh('shell','am','start','-W','-a','android.intent.action.VIEW','-d','http://127.0.0.1:8096/review/video.mp4','-t','video/mp4','-n',pkg+'/com.yfuse.feature.player.ExternalPlaybackActivity')
+    time.sleep(.7);tap('打开');start=time.monotonic()
+    for i,deadline in enumerate([4,18,37,60,90]):
+        time.sleep(max(0,start+deadline-time.monotonic()))
+        snap('frame-'+str(i))
+        record('wall-'+str(i),round(time.monotonic()-start,1))
+    tp(650,310);time.sleep(.3);snap('frame-time')
 try:inspect()
 except Exception as e:record('capture',type(e).__name__)
-print('Real-media UI review finished.')
+print('First frame check finished.')

@@ -23,7 +23,8 @@ if sys.argv[1]=='check':
         media=sess.get(base+'/Users/'+uid+'/Items',params={'Limit':50,'Recursive':'true','IncludeItemTypes':'Movie,Episode','Fields':'MediaSources,MediaStreams,Path','SortBy':'DateCreated','SortOrder':'Descending'},timeout=18).json().get('Items',[])
         def rank(it):
             ss=it.get('MediaSources') or []; src=ss[0] if ss else {}; streams=src.get('MediaStreams') or it.get('MediaStreams') or [];vs=next((v for v in streams if v.get('Type')=='Video'),{})
-            return (vs.get('Codec','').lower() in ['avc','h264'],(vs.get('Width') or 9999)<=1920, str(src.get('Container') or '').lower() in ['mp4','mkv'],bool(ss))
+            secs=round((it.get('RunTimeTicks') or src.get('RunTimeTicks') or 0)/10000000)
+            return (abs(secs-2695)<=1, (vs.get('Width') or 0)>=3500,vs.get('Codec','').lower() in ['hevc','h265'],bool(ss))
         details=[]
         for it in media[:16]:
             try:
