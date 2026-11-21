@@ -10,12 +10,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.yfuse.app.RootComponent.Tab
@@ -28,6 +28,12 @@ import com.yfuse.core.designsystem.ThemeIcon
 import com.yfuse.core.designsystem.ThemeText
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.navigationGlass
+
+internal data class TabItem(
+    val tab: Tab,
+    val label: String,
+    val icon: ImageVector,
+)
 
 internal val LocalWideWindow = staticCompositionLocalOf { false }
 internal val RailContentInset = 96.dp
@@ -46,7 +52,7 @@ internal fun AdaptiveNavigationRail(
         modifier
             .width(RailContentInset)
             .padding(horizontal = 6.dp, vertical = 8.dp)
-            .navigationGlass(backdrop, RoundedCornerShape(28.dp))
+            .navigationGlass(backdrop, AppShapes.sheet)
             .selectableGroup()
             .verticalScroll(rememberScrollState())
             .padding(4.dp),

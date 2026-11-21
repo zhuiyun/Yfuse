@@ -87,6 +87,7 @@ import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassSlider
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccentColors
+import com.yfuse.core.designsystem.LocalGlassStyle
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.LocalSettingsLocator
@@ -311,7 +312,6 @@ fun ProfileScreen(component: ProfileComponent) {
     val focusManager = LocalFocusManager.current
     val state by component.store.states.collectAsState(component.store.state)
     val prefs = component.themePreferences
-    val mode by prefs.mode.collectAsState()
     val motionTheme by prefs.motionTheme.collectAsState()
     val particleLight by prefs.particleLight.collectAsState()
     val decoder by prefs.decoder.collectAsState()
@@ -382,6 +382,11 @@ fun ProfileScreen(component: ProfileComponent) {
     StatusBarIconStyle(darkIcons = !palette.isDark)
     val wide = LocalWideWindow.current
     ReportOverlayVisible(enabled = !wide && frontPage != ProfilePage.Root)
+    LaunchedEffect(wide) {
+        if (wide && component.pages.value.active.configuration == ProfilePage.Root) {
+            component.selectCategory(ProfilePage.Appearance)
+        }
+    }
 
     LaunchedEffect(watchAvailable) {
         if (!watchAvailable) {
@@ -466,7 +471,7 @@ fun ProfileScreen(component: ProfileComponent) {
                 if (settingsQuery.isBlank()) {
                     motionItem(key = "appearance", contentType = "settings-section") {
                         SettingsMaterialEntry(
-                            subtitle = "${mode.label} · ${motionTheme.label}",
+                            subtitle = "${LocalGlassStyle.current.label} · ${if (palette.isDark) "深色" else "浅色"}",
                             onClick = { selectCategory(ProfilePage.Appearance) },
                         )
                     }

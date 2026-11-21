@@ -40,6 +40,18 @@ class ProfilePagesTest {
     }
 
     @Test
+    fun selecting_a_sibling_in_the_wide_index_replaces_the_previous_category() {
+        val pages = pages()
+        pages.selectCategory(ProfilePage.Appearance)
+        pages.open(ProfilePage.AppearanceMotion)
+        pages.selectCategory(ProfilePage.Playback)
+        pages.selectCategory(ProfilePage.Playback)
+        assertEquals(listOf(ProfilePage.Root, ProfilePage.Playback), pages.shown())
+        pages.close()
+        assertEquals(listOf(ProfilePage.Root), pages.shown())
+    }
+
+    @Test
     fun a_page_opens_over_the_one_in_front_and_back_returns_to_it() {
         val pages = pages()
 
