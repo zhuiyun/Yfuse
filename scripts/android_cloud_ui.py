@@ -251,10 +251,20 @@ class Session:
         for attempt in range(5):
             self.adb("shell", "rm", "-f", path)
             try:
-                result = self.adb("shell", "uiautomator", "dump", "--compressed", path, timeout=30)
-                # uiautomator may exit zero after an idle/root failure and write no file.
+                # After rotation the active-window shortcut can return a null root while the
+                # app still owns the focused window. Ask the platform for that window directly.
+                flags = ("--windows",) if attempt % 2 else ()
+                result = self.adb("shell", "uiautomator", "dump", "--compressed", *flags, path, timeout=30)
+                if "dumped to:" not in result:
+                    raise RuntimeError(f"UI Automator did not produce a hierarchy: {result}")
                 value = self.adb("shell", "cat", path)
-                return ET.fromstring(value), value
+                root = ET.fromstring(value)
+                if flags:
+                    root = root.find("./display[@id='0']//window[@focused='true']/hierarchy")
+                    if root is None or not any(n.get("package") == self.ui_package for n in root.iter("node")):
+                        raise RuntimeError("The focused app window has no accessible hierarchy")
+                    value = ET.tostring(root, encoding="unicode")
+                return root, value
             except Exception as error:
                 errors.append(f"attempt {attempt + 1}: {error}")
                 time.sleep(2)

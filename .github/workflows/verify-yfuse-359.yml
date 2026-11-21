@@ -1,0 +1,78 @@
+name: Verify Yfuse 359 signed APK on Android 15
+on:
+  push:
+    branches: [ci/yfuse-359-focused-window-evidence]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Download the original production-signed APK
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          artifact-ids: "14712461784"
+          run-id: "44917571781"
+          github-token: ${{ github.token }}
+          path: artifacts/cloud-input
+      - name: Enable hardware acceleration
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/cloud-ui
+          test -c /dev/kvm
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm > artifacts/cloud-ui/kvm.txt
+      - name: Let the emulator runner install current command-line tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The runner image's command-line tools (12.0) record a minor-version image such as
+          # android-37.0 as target=android-0 in the AVD (actions/runner-images#14484), and the
+          # emulator then configures it as an ancient platform. The pinned emulator runner
+          # installs its own command-line tools 20.0, which read minor versions, only when
+          # $ANDROID_HOME/cmdline-tools is absent.
+          sudo rm -rf "${ANDROID_HOME:?}/cmdline-tools"
+      - name: Run real APK UI checks and retain evidence
+        env:
+          SOURCE_RUN: "44917571781"
+          EXPECTED_API: "35"
+          EXPECTED_SHA256: deb90c1f5d88c62da52f210b9de3d6b49e613e8b07dbe9881b59a1b840990507
+          EXPECTED_VERSION_CODE: "359"
+          EXPECTED_VERSION_NAME: "2.0.7"
+          LAYOUT_PROBE: ""
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: "35"
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          ram-size: 4096M
+          heap-size: 512M
+          disk-size: 4096M
+          emulator-boot-timeout: 600
+          disable-animations: false
+          # Android 15 can lose the emulator process under the legacy SwiftShader renderer.
+          # Exercise the same UI and motion on Mesa software rendering on that image.
+          emulator-options: -no-window -gpu lavapipe -noaudio -no-boot-anim -no-snapshot -camera-back none -accel on
+          # The runner executes each script line on its own, so this stays one folded line.
+          script: >-
+            python3 scripts/android_cloud_ui.py --apk-directory artifacts/cloud-input
+            --output artifacts/cloud-ui --source-run "$SOURCE_RUN" --expected-api "$EXPECTED_API"
+            --expected-sha256 "$EXPECTED_SHA256" --expected-version-code "$EXPECTED_VERSION_CODE"
+            --expected-version-name "$EXPECTED_VERSION_NAME" $LAYOUT_PROBE
+      - name: Save screenshots, UI trees, diagnostics and case results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: cloud-ui-api-35-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/cloud-ui/
+          if-no-files-found: error
+          retention-days: 7
