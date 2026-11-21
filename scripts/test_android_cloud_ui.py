@@ -226,16 +226,20 @@ class NavigationContractTest(unittest.TestCase):
     def test_display_restore_and_layout_navigation_respect_the_hidden_discovery_dock(self):
         class RouteSession(cloud.Session):
             route = "discovery"
+            wide = False
 
             def wait_label(self, label, timeout=45):
                 labels = ({"发现", "返回媒体库"} if self.route == "discovery" else
                           set(cloud.TAB_LABELS.values()) | {"播放记录", "发现", cloud.LIBRARY_EMPTY})
+                if self.route == "profile":
+                    labels.add("账号与同步")
                 if label not in labels:
                     raise AssertionError(f"{label} is not visible on {self.route}")
 
             def tap(self, label):
                 self.wait_label(label)
-                self.route = {"媒体库": "browse", "观看": "watching", "发现": "discovery"}[label]
+                self.route = {"媒体库": "browse", "观看": "watching", "发现": "discovery",
+                              "我的": "profile", "账号与同步": "account"}[label]
 
             def back(self):
                 if self.route != "discovery":
@@ -245,17 +249,30 @@ class NavigationContractTest(unittest.TestCase):
             def reset_configuration(self):
                 pass
 
+            def adb(self, *args, **kwargs):
+                if args[:3] == ("shell", "wm", "size"):
+                    self.wide = args[3] == "1600x2560"
+                return b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
+
+            def tree(self):
+                root = cloud.ET.Element("hierarchy")
+                if self.route == "account":
+                    if self.wide:
+                        cloud.ET.SubElement(root, "node", text="服务器与账号", bounds="[24,80][280,120]")
+                    cloud.ET.SubElement(root, "node", text="登录账号", bounds="[600,80][800,120]")
+                return root, cloud.ET.tostring(root, encoding="unicode")
+
             def capture(self, name):
-                return {"name": name, "route": self.route}
+                return {"name": name, "route": self.route, "wide": self.wide}
 
         with tempfile.TemporaryDirectory() as directory:
             session = RouteSession(Path(directory), {"versionName": "1.4.0", "versionCode": 292}, 1)
-            with patch.object(session, "adb", return_value=b"\x89PNG\r\n\x1a\n" + b"\x00" * 16), \
-                    patch.object(session, "tree", return_value=(None, "<hierarchy/>")), \
-                    patch.object(cloud.time, "sleep"):
+            with patch.object(cloud.time, "sleep"):
                 self.assertEqual("discovery", session.restore_display()["route"])
                 captures = session.layout_probe()["captures"]
         self.assertEqual(["browse", "discovery"], [capture["route"] for capture in captures[:2]])
+        self.assertEqual([("account", True), ("account", False), ("account", True)],
+                         [(capture["route"], capture["wide"]) for capture in captures[-3:]])
 
 
 class BootReadinessTest(unittest.TestCase):

@@ -300,6 +300,20 @@ fun GlassDialog(
             }
         val selectedAnimation = LocalDialogAnimation.current
         val chosenAnimation = remember { animation ?: selectedAnimation }
+        val liquidOrigin =
+            remember {
+                if (chosenAnimation == DialogAnimation.Liquid &&
+                    !properties.usePlatformDefaultWidth &&
+                    !properties.decorFitsSystemWindows
+                ) {
+                    parentMotionHost.recentControlBounds ?: parentMotionHost.recentTouch?.let {
+                        androidx.compose.ui.geometry
+                            .Rect(it, androidx.compose.ui.geometry.Size.Zero)
+                    }
+                } else {
+                    null
+                }
+            }
         val modalMotionHost =
             remember {
                 DialogMotionHost().apply {
@@ -396,6 +410,7 @@ fun GlassDialog(
                             .semantics { shownTitle?.let { this.paneTitle = it } }
                             .dialogMotion(
                                 chosenAnimation,
+                                controlBounds = liquidOrigin,
                                 progress = progress,
                             ).shadow(Shadows.sheet, shape)
                             .mutedGlassPanel(shape, dark = materialDark)

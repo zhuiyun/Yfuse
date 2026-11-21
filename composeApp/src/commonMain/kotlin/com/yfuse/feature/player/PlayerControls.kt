@@ -246,6 +246,12 @@ internal fun PlayerControls(
     val state by controlState
     // What the chrome has up and open; see [PlayerChromeState].
     val chrome = remember { PlayerChromeState() }
+    val reportPanel = LocalPlayerPanelVisibility.current
+    val supportingPaneOpen = chrome.settingsPanelKind != null || chrome.quickPopup != null || chrome.drawerOpen
+    DisposableEffect(reportPanel, supportingPaneOpen) {
+        reportPanel(supportingPaneOpen)
+        onDispose { reportPanel(false) }
+    }
     var ambientChromeCount by remember { mutableIntStateOf(0) }
     val latestAmbientVisibility by rememberUpdatedState(pictureActions.onAmbientChromeVisibleChange)
     val ambientPresenceChanged =

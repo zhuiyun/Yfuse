@@ -6,6 +6,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import com.yfuse.app.LocalWideWindow
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.DialogAnimation
@@ -64,7 +65,7 @@ private fun AppearanceOverview(
     val background by prefs.backgroundImage.collectAsState()
     val motion by prefs.motionTheme.collectAsState()
     val modes = listOf(ThemeMode.Light, ThemeMode.System, ThemeMode.Dark)
-    SettingsPage(title = "外观与交互", onBack = onBack) {
+    SettingsPage(title = "外观与交互", onBack = onBack, showBackButton = !LocalWideWindow.current) {
         motionItem(key = "appearance-theme") {
             Section("主题") {
                 SettingsCard {

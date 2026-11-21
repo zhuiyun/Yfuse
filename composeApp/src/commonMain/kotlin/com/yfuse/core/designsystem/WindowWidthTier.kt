@@ -23,15 +23,8 @@ fun windowWidthTier(width: Dp): WindowWidthTier =
         else -> WindowWidthTier.Expanded
     }
 
-/**
- * Whether navigation belongs at the side rather than along the bottom.
- *
- * Root navigation deliberately keeps the same floating bottom dock in portrait and landscape.
- * Retaining this policy seam makes that product rule explicit and prevents expanded tablets or
- * desktop-sized windows from silently switching the dock to a left-side rail again.
- */
-@Suppress("UNUSED_PARAMETER")
+/** A short landscape phone still needs the full width for its content. */
 fun useNavigationRail(
     width: Dp,
     height: Dp,
-): Boolean = false
+): Boolean = width >= WindowWidthBreakpoints.expanded && height >= 480.dp

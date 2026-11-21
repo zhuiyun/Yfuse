@@ -438,6 +438,7 @@ internal fun TvFocusableSurface(
     val focusScale = TvFocusMotion.scale(scaleWhenFocused, reduceMotion)
     // A 1dp accent edge alone was the selected state, and could not be told from the rest across
     // a room: selection now tints the plate too and draws the edge twice as wide.
+    val opaquePlate = LocalAccessibilityOptions.current.reduceTransparency
     val restPlate = if (selected) TvSelectedPlate else TvSurface
     val restEdge = if (selected) TvAccent.copy(alpha = 0.88f) else TvHairline
     val restEdgeWidth = if (selected) TvFocusMotion.selectedBorder else TvFocusMotion.restBorder
@@ -501,9 +502,15 @@ internal fun TvFocusableSurface(
             .drawWithCache {
                 val outline = shape.createOutline(size, layoutDirection, this)
                 val sweep = parallaxCard?.let { TvFocusSweep(size) }
+                val reflection =
+                    Brush.linearGradient(
+                        listOf(Color.White.copy(alpha = 0.19f), Color.Transparent, TvHairline),
+                    )
                 onDrawWithContent {
                     val amount = focusAmount.value.coerceIn(0f, 1f)
-                    drawOutline(outline, lerp(restPlate, TvSurfaceFocused, amount))
+                    val plate = lerp(restPlate, TvSurfaceFocused, amount)
+                    drawOutline(outline, if (opaquePlate) plate else plate.copy(alpha = 0.82f))
+                    if (!opaquePlate) drawOutline(outline, brush = reflection, style = Stroke(2.dp.toPx()))
                     drawContent()
                     // Over the artwork and under the edge, inside the clip.
                     if (parallaxCard != null && sweep != null) drawTvFocusSweep(sweep, parallaxCard.sweep.value)

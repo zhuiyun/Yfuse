@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.selection.selectableGroup
@@ -67,7 +68,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -139,6 +139,7 @@ import com.yfuse.core.designsystem.rememberPhaseLightCount
 import com.yfuse.core.designsystem.rememberRouteVisibility
 import com.yfuse.core.designsystem.resolveDark
 import com.yfuse.core.designsystem.searchDockSource
+import com.yfuse.core.designsystem.useNavigationRail
 import com.yfuse.core.network.LocalNetworkAccessNotice
 import com.yfuse.feature.home.HomeTabComponent
 import com.yfuse.feature.home.HomeTabScreen
@@ -161,12 +162,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import com.yfuse.core.designsystem.ThemeIcon as Icon
-
-internal data class TabItem(
-    val tab: Tab,
-    val label: String,
-    val icon: ImageVector,
-)
 
 internal data class NavigationGlassVisuals(
     val shell: Color,
@@ -380,7 +375,8 @@ fun App(root: RootComponent) {
                 ) {
                     // The page's half of the player transitions draws over, and transforms, this whole
                     // shell — dock and capsules included — while a launch is under way; idle it adds nothing.
-                    Box(Modifier.fillMaxSize().playerHandoffStage()) {
+                    BoxWithConstraints(Modifier.fillMaxSize().playerHandoffStage()) {
+                        val wide = useNavigationRail(maxWidth, maxHeight)
                         val onSelectTab: (Tab) -> Unit = { tab ->
                             if (tab == active) {
                                 root.reselectTab(tab, atRoot)
@@ -390,7 +386,9 @@ fun App(root: RootComponent) {
                         }
                         // On a root page, unless the tab has opened a page over its root — 我的's
                         // settings pages, 首页's 查看全部 — which the dock steps aside for.
-                        val dockShown = showBottomBar && overlays?.coversShell != true
+                        val navigationVisible = showBottomBar && overlays?.coversShell != true
+                        val dockShown = navigationVisible && !wide
+                        val railShown = navigationVisible && wide
                         Box(
                             Modifier
                                 .fillMaxSize()
@@ -404,7 +402,10 @@ fun App(root: RootComponent) {
                                     } else {
                                         Modifier
                                     },
-                                ).backdropSource(backdrop, record = { dockOnScreen.value || liftMenu.isOpen }),
+                                ).backdropSource(
+                                    backdrop,
+                                    record = { railShown || dockOnScreen.value || liftMenu.isOpen },
+                                ),
                         ) {
                             val previousRootTab = remember { arrayOf(active) }
                             val rootMotion = remember(active) { rootTabMotion(previousRootTab[0], active) }
@@ -412,42 +413,47 @@ fun App(root: RootComponent) {
                             // Top-level tabs are a real Navigation 3 back stack, while each tab's
                             // nested host continues to own its child routes. This host opts into
                             // equal-level root motion; nested stacks own their push/pop gestures.
-                            ToastFloor(dockShown, activityCapsuleHeight) {
-                                OfficialNavDisplay(
-                                    backStack = topLevelBackStack(active, root.startTab, root.discoveryReturnTab),
-                                    // A child route can be pushed before its Compose handler is
-                                    // ready. Re-read the model before returning between tabs.
-                                    onBack = { root.navigateBackFromModel() },
-                                    contentKey = { "tab:${it.name}" },
-                                    modifier = Modifier.fillMaxSize(),
-                                    motion = rootMotion,
-                                    popMotion = rootPopMotion(active, root.startTab, rootMotion),
-                                ) { tab ->
-                                    CompositionLocalProvider(LocalTabIdentity provides tab.name) {
-                                        tabStates.SaveableStateProvider(tab.name) {
-                                            when (tab) {
-                                                Tab.Home ->
-                                                    com.yfuse.feature.personal.PersonalDiscoveryGuard(
-                                                        onOpenLibrary = root::returnFromDiscovery,
-                                                    ) { HomeTabScreen(root.home) }
-                                                Tab.CustomHome ->
-                                                    HomeTabScreen(root.widgetHome) {
-                                                        com.yfuse.feature.widgets
-                                                            .CustomHomeScreen(
-                                                                root.themePreferences,
-                                                                onOpenTmdb = root::openWidgetTitle,
-                                                            )
-                                                    }
-                                                Tab.Browse -> LibraryScreen(root.browse)
-                                                Tab.Watching -> LibraryScreen(root.watching)
-                                                Tab.Servers -> ServersTabScreen(root.servers)
-                                                Tab.Search -> SearchScreen(root.search)
-                                                Tab.Profile -> ProfileTabScreen(root.profile)
+                            CompositionLocalProvider(LocalWideWindow provides wide) {
+                                ToastFloor(dockShown, activityCapsuleHeight) {
+                                    OfficialNavDisplay(
+                                        backStack = topLevelBackStack(active, root.startTab, root.discoveryReturnTab),
+                                        // A child route can be pushed before its Compose handler is
+                                        // ready. Re-read the model before returning between tabs.
+                                        onBack = { root.navigateBackFromModel() },
+                                        contentKey = { "tab:${it.name}" },
+                                        modifier =
+                                            Modifier.fillMaxSize().padding(
+                                                start = if (railShown) RailContentInset else 0.dp,
+                                            ),
+                                        motion = rootMotion,
+                                        popMotion = rootPopMotion(active, root.startTab, rootMotion),
+                                    ) { tab ->
+                                        CompositionLocalProvider(LocalTabIdentity provides tab.name) {
+                                            tabStates.SaveableStateProvider(tab.name) {
+                                                when (tab) {
+                                                    Tab.Home ->
+                                                        com.yfuse.feature.personal.PersonalDiscoveryGuard(
+                                                            onOpenLibrary = root::returnFromDiscovery,
+                                                        ) { HomeTabScreen(root.home) }
+                                                    Tab.CustomHome ->
+                                                        HomeTabScreen(root.widgetHome) {
+                                                            com.yfuse.feature.widgets
+                                                                .CustomHomeScreen(
+                                                                    root.themePreferences,
+                                                                    onOpenTmdb = root::openWidgetTitle,
+                                                                )
+                                                        }
+                                                    Tab.Browse -> LibraryScreen(root.browse)
+                                                    Tab.Watching -> LibraryScreen(root.watching)
+                                                    Tab.Servers -> ServersTabScreen(root.servers)
+                                                    Tab.Search -> SearchScreen(root.search)
+                                                    Tab.Profile -> ProfileTabScreen(root.profile)
+                                                }
                                             }
                                         }
                                     }
+                                    ServerNoticeToast(root.servers)
                                 }
-                                ServerNoticeToast(root.servers)
                             }
                         }
 
@@ -495,6 +501,20 @@ fun App(root: RootComponent) {
                                     animationSpec = tween(dockExit, easing = Motion.Curve),
                                     targetOffsetY = dockTravel,
                                 )
+                        if (railShown) {
+                            AdaptiveNavigationRail(
+                                items = navigationTabs(customHomeVisible) + searchKeyItem,
+                                active = active,
+                                backdrop = backdrop,
+                                onSelect = onSelectTab,
+                                modifier =
+                                    Modifier
+                                        .align(
+                                            Alignment.CenterStart,
+                                        ).statusBarsPadding()
+                                        .navigationBarsPadding(),
+                            )
+                        }
                         AnimatedVisibility(
                             visible = dockShown,
                             // The one piece of furniture that stays still across the whole app
@@ -563,7 +583,7 @@ fun App(root: RootComponent) {
                                 .padding(horizontal = Dimens.tabBarInset)
                                 // The dock's own height — it grows with the font scale — plus
                                 // its margin below and a step of air above it.
-                                .padding(bottom = activityCapsuleOffset(dockHeight()))
+                                .padding(bottom = if (wide) Dimens.sectionGap else activityCapsuleOffset(dockHeight()))
                         // Video backgrounding is represented by Android PiP. The old long,
                         // music-like mini controller duplicated transport controls and only
                         // appeared at tab roots, so it is intentionally not rendered here.

@@ -2,9 +2,12 @@ package com.yfuse.feature.player
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.yfuse.core.designsystem.useNavigationRail
 
 /** Narrower than this, an upright player window is a phone's. */
 private val UprightPhoneMaxWidth = 600.dp
@@ -20,5 +23,21 @@ internal fun rememberUprightPhoneWindow(): Boolean {
     val density = LocalDensity.current
     return remember(size, density) {
         size.height > size.width && with(density) { size.width.toDp() } < UprightPhoneMaxWidth
+    }
+}
+
+/** Shared with the picture layer so a tablet panel can sit alongside both engines. */
+internal val LocalPlayerPanelVisibility = staticCompositionLocalOf<(Boolean) -> Unit> { {} }
+
+@Composable
+internal fun playerPanelWidth(compactWidth: Dp): Dp {
+    val size = LocalWindowInfo.current.containerSize
+    return with(LocalDensity.current) {
+        val width = size.width.toDp()
+        if (useNavigationRail(width, size.height.toDp())) {
+            (width * 0.32f).coerceIn(320.dp, 420.dp)
+        } else {
+            compactWidth
+        }
     }
 }

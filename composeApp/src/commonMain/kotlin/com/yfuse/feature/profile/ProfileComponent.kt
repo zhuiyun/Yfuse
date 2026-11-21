@@ -197,6 +197,8 @@ class ProfileComponent(
         also { store -> context.lifecycle.doOnDestroy(store::dispose) }
 
     /** Opens [page] over whatever is showing; see [ProfilePages.open]. */
+    internal fun selectCategory(page: ProfilePage) = pageStack.selectCategory(page)
+
     fun openPage(page: ProfilePage) = pageStack.open(page)
 
     /** Back from the page in front — its back button, the gesture, system back. */

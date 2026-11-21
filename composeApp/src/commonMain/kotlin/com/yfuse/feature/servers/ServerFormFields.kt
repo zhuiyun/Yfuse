@@ -27,7 +27,6 @@ import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
@@ -50,6 +49,9 @@ import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalOverlayEntrance
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.awaitOverlayEntered
+import com.yfuse.core.designsystem.controlBorder
+import com.yfuse.core.designsystem.controlSurface
+import com.yfuse.core.designsystem.flatGlass
 import com.yfuse.core.designsystem.formDivider
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.glassControlHighlight
@@ -174,19 +176,27 @@ internal fun ServerFormInput(
                         if (outlined) {
                             Modifier
                                 .graphicsLayer { alpha = if (enabled) 1f else 0.5f }
-                                .background(
-                                    if (palette.isDark) {
-                                        palette.reducedFill.card3
-                                    } else if (focused) {
-                                        lerp(Color.White, accent.accent, 0.08f)
-                                    } else {
-                                        Color.White
-                                    },
-                                    AppShapes.control,
-                                ).border(
-                                    1.dp,
-                                    if (focused) glassControlHighlight(accent, palette.isDark) else palette.border,
-                                    AppShapes.control,
+                                .flatGlass(
+                                    shape = AppShapes.control,
+                                    fill =
+                                        if (focused) {
+                                            lerp(
+                                                palette.controlSurface,
+                                                accent.container,
+                                                0.16f,
+                                            )
+                                        } else {
+                                            palette.controlSurface
+                                        },
+                                    border =
+                                        if (focused) {
+                                            glassControlHighlight(
+                                                accent,
+                                                palette.isDark,
+                                            )
+                                        } else {
+                                            palette.controlBorder
+                                        },
                                 ).defaultMinSize(minHeight = 48.dp)
                                 .padding(horizontal = 12.dp, vertical = 10.dp)
                         } else {

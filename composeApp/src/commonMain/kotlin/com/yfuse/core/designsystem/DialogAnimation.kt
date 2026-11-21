@@ -302,8 +302,7 @@ internal fun Modifier.dialogMotion(
     val posterLayer = if (animation == DialogAnimation.PosterMorph) rememberGraphicsLayer() else null
     val layerOnly =
         animation == DialogAnimation.Slide ||
-            animation == DialogAnimation.Touch ||
-            (animation == DialogAnimation.Liquid && controlBounds != null)
+            animation == DialogAnimation.Touch
     // A panel pushed away leaves along the finger, not along its style. Composing the two put the
     // flight on top of an exit that was already travelling — 底部升起 went the distance twice, and
     // 全息扫描 / 菱镜光圈 / 方格织入 / 双幕展开 / 风车开页 came apart mid-air. 磁吸归位 is the one
@@ -355,8 +354,10 @@ internal fun Modifier.dialogMotion(
                     val hidden = 1f - entered
                     val centre = controlBounds.center - position.origin - Offset(size.width / 2f, size.height / 2f)
                     transformOrigin = TransformOrigin.Center
-                    scaleX = 1f - hidden * (1f - (controlBounds.width / size.width).coerceIn(0f, 1f))
-                    scaleY = 1f - hidden * (1f - (controlBounds.height / size.height).coerceIn(0f, 1f))
+                    if (animation != DialogAnimation.Liquid) {
+                        scaleX = 1f - hidden * (1f - (controlBounds.width / size.width).coerceIn(0f, 1f))
+                        scaleY = 1f - hidden * (1f - (controlBounds.height / size.height).coerceIn(0f, 1f))
+                    }
                     translationX += centre.x * hidden
                     translationY += centre.y * hidden
                 }
@@ -404,7 +405,7 @@ internal fun Modifier.dialogMotion(
                     DialogAnimation.Portal, DialogAnimation.Reconstruct,
                     -> drawSciFiDialog(animation, entered, anchor?.minus(position.origin), glow, cache)
                     DialogAnimation.Liquid, DialogAnimation.Blinds, DialogAnimation.Assemble, DialogAnimation.Radar ->
-                        drawMaterialDialog(animation, entered, glow, cache)
+                        drawMaterialDialog(animation, entered, glow, cache, controlBounds)
                     DialogAnimation.Ribbon, DialogAnimation.Iris, DialogAnimation.Mosaic, DialogAnimation.Curtain ->
                         drawExpressiveDialog(animation, entered, glow, cache)
                     DialogAnimation.Bloom, DialogAnimation.Diagonal, DialogAnimation.Capsule, DialogAnimation.Steps ->

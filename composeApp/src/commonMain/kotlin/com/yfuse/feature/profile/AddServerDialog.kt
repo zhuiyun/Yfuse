@@ -1,6 +1,5 @@
 package com.yfuse.feature.profile
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -40,6 +39,7 @@ import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.YfButton
 import com.yfuse.core.designsystem.YfButtonTone
 import com.yfuse.core.designsystem.contentHandoff
+import com.yfuse.core.designsystem.flatGlass
 import com.yfuse.core.designsystem.glassButtonLift
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.liveStatus
@@ -509,8 +509,7 @@ private fun ServerFormSection(content: @Composable ColumnScope.() -> Unit) {
         modifier =
             Modifier
                 .fillMaxWidth()
-                .background(palette.reducedFill.card2, AppShapes.card)
-                .border(1.dp, palette.border, AppShapes.card)
+                .flatGlass(AppShapes.card, palette.card2, palette.border)
                 .padding(vertical = 4.dp),
         content = content,
     )

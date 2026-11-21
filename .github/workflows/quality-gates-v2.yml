@@ -337,17 +337,29 @@ jobs:
   # costs the Kotlin build, one emulator boot and the tests, and it never delays the other gates.
   instrumented:
     needs: native
-    name: Instrumented tests on Android API ${{ matrix.api }}
+    name: Instrumented tests on Android API ${{ matrix.api }}${{ matrix.suffix }}
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
+        # The API 35 emulator disconnected at different points of the full suite. Each
+        # AndroidJUnitRunner shard gets its own fresh device; all shard indices must pass.
         include:
           - api: 35
             sdk: "35"
-            test_args: ""
+            suffix: "-shard0"
+            test_args: "-Pandroid.testInstrumentationRunnerArguments.numShards=3 -Pandroid.testInstrumentationRunnerArguments.shardIndex=0"
+          - api: 35
+            sdk: "35"
+            suffix: "-shard1"
+            test_args: "-Pandroid.testInstrumentationRunnerArguments.numShards=3 -Pandroid.testInstrumentationRunnerArguments.shardIndex=1"
+          - api: 35
+            sdk: "35"
+            suffix: "-shard2"
+            test_args: "-Pandroid.testInstrumentationRunnerArguments.numShards=3 -Pandroid.testInstrumentationRunnerArguments.shardIndex=2"
           - api: 37
             sdk: "37.0"
+            suffix: ""
             test_args: "-Pandroid.testInstrumentationRunnerArguments.class=com.yfuse.app.DetailBackNavigationInstrumentedTest,com.yfuse.app.PlatformNavigationBackInstrumentedTest,com.yfuse.feature.widgets.WidgetImmersiveLayoutsInstrumentedTest,com.yfuse.core.widget.WidgetCutoutRuntimeInstrumentedTest,com.yfuse.feature.widgets.PoofCutoutFlowInstrumentedTest"
     # A cold native dependency cache is bootstrapped here too, as in `verify`.
     timeout-minutes: 300
@@ -421,7 +433,9 @@ jobs:
           disk-size: 4096M
           emulator-boot-timeout: 600
           disable-animations: false
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -accel on
+          # Android 15 can lose the emulator process under the legacy SwiftShader renderer.
+          # Exercise the same UI and motion on Mesa software rendering on that image.
+          emulator-options: -no-window -gpu ${{ matrix.api == 35 && 'lavapipe' || 'swiftshader_indirect' }} -noaudio -no-boot-anim -no-snapshot -camera-back none -accel on
           # An app that stops responding (the launcher does now and then, just after boot) puts a
           # system dialog in front of every window. It keeps focus, answers rootInActiveWindow and
           # takes injected touches, so every test that needs the app's own window fails behind it,
@@ -459,7 +473,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: instrumented-tests-api${{ matrix.api }}-${{ github.sha }}-${{ github.run_attempt }}
+          name: instrumented-tests-api${{ matrix.api }}${{ matrix.suffix }}-${{ github.sha }}-${{ github.run_attempt }}
           path: |
             composeApp/build/reports/androidTests/
             composeApp/build/outputs/androidTest-results/

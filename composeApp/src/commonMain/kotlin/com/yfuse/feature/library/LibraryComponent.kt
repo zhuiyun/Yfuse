@@ -8,6 +8,7 @@ import com.arkivanov.decompose.router.stack.childStack
 import com.arkivanov.decompose.router.stack.pop
 import com.arkivanov.decompose.router.stack.popTo
 import com.arkivanov.decompose.router.stack.pushToFront
+import com.arkivanov.decompose.router.stack.replaceCurrent
 import com.arkivanov.decompose.value.Value
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.yfuse.app.AppDependencies
@@ -171,6 +172,26 @@ class LibraryComponent(
         autoPlay: Boolean = false,
     ) {
         navigation.pushToFront(Config.Detail(serverId, itemId, autoPlay))
+    }
+
+    /** A selection in the persistent list replaces its sibling detail. Back still leads to the grid. */
+    internal fun selectGridPreview(
+        serverId: String?,
+        itemId: String,
+    ) {
+        val target = Config.Detail(serverId, itemId)
+        val entries = stack.value.items
+        if (entries.last().configuration == target ||
+            entries.last().configuration !is Config.Detail ||
+            entries.getOrNull(entries.lastIndex - 1)?.configuration !is Config.Grid
+        ) {
+            return
+        }
+        if (entries.dropLast(1).any { it.configuration == target }) {
+            navigation.pushToFront(target)
+        } else {
+            navigation.replaceCurrent(target)
+        }
     }
 
     /**

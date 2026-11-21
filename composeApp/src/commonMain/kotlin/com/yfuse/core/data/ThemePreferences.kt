@@ -194,7 +194,7 @@ class ThemePreferences(
 
     // A name from a retired style falls back to Lift inside [load]; nothing here can throw.
     private val _dialogAnimation =
-        MutableStateFlow(load(KEY_DIALOG_ANIMATION, DialogAnimation.entries, DialogAnimation.Lift))
+        MutableStateFlow(load(KEY_DIALOG_ANIMATION, DialogAnimation.entries, DialogAnimation.Liquid))
     val dialogAnimation: StateFlow<DialogAnimation> = _dialogAnimation.asStateFlow()
 
     fun setDialogAnimation(animation: DialogAnimation) {

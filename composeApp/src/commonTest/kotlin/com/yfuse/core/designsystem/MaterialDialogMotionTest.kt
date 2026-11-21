@@ -28,6 +28,16 @@ class MaterialDialogMotionTest {
     }
 
     @Test
+    fun anchored_liquid_opens_from_a_round_seed_before_the_panel_grows_tall() {
+        val start = liquidDialogBounds(320f, 240f, 0f, 40f)
+        val stretch = liquidDialogBounds(320f, 240f, 0.20f, 40f)
+        assertEquals(40f, start.width)
+        assertEquals(40f, stretch.height)
+        assertTrue(stretch.width > stretch.height)
+        assertEquals(Rect(0f, 0f, 320f, 240f), liquidDialogBounds(320f, 240f, 1f, 40f))
+    }
+
+    @Test
     fun four_pieces_share_exact_edges_and_cover_odd_sized_panels() {
         val tiles = (0 until 4).map { dialogQuadrant(561f, 201f, it) }
         assertEquals(tiles[0].right, tiles[1].left)

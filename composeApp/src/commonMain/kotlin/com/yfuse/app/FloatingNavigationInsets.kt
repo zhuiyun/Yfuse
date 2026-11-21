@@ -19,11 +19,15 @@ import com.yfuse.core.designsystem.Dimens
  */
 @Composable
 fun floatingNavigationContentInset(): Dp =
-    floatingNavigationContentInset(
-        systemNavigationInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
-        // The dock grows with the font scale; the clearance has to grow with it.
-        dock = dockHeight(),
-    )
+    if (LocalWideWindow.current) {
+        systemNavigationContentInset()
+    } else {
+        floatingNavigationContentInset(
+            systemNavigationInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
+            // The dock grows with the font scale; the clearance has to grow with it.
+            dock = dockHeight(),
+        )
+    }
 
 internal fun floatingNavigationContentInset(
     systemNavigationInset: Dp,

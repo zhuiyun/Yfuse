@@ -39,7 +39,7 @@ class DialogAnimationTest {
             assertEquals(animation, ThemePreferences(settings).dialogAnimation.value)
         }
         settings.putString("appearance.dialogAnimation", "future-unknown-style")
-        assertEquals(DialogAnimation.Lift, ThemePreferences(settings).dialogAnimation.value)
+        assertEquals(DialogAnimation.Liquid, ThemePreferences(settings).dialogAnimation.value)
     }
 
     @Test

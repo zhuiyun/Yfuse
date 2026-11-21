@@ -19,16 +19,24 @@ internal fun liquidDialogBounds(
     width: Float,
     height: Float,
     progress: Float,
+    sourceDiameter: Float = 0f,
 ): Rect {
-    val p = progress.coerceIn(0f, 1f)
-    val growth = p * p * (3f - 2f * p)
-    val halfWidth = width * growth / 2f
-    val halfHeight = height * growth / 2f
+    val seed = sourceDiameter.coerceIn(0f, min(width, height))
+
+    fun extent(
+        full: Float,
+        delay: Float,
+    ): Float {
+        val t = dialogStage(progress, delay)
+        return seed + (full - seed) * (t * t * (3f - 2f * t))
+    }
+    val horizontal = extent(width, 0.04f)
+    val vertical = extent(height, 0.20f)
     return Rect(
-        width / 2f - halfWidth,
-        height / 2f - halfHeight,
-        width / 2f + halfWidth,
-        height / 2f + halfHeight,
+        (width - horizontal) / 2f,
+        (height - vertical) / 2f,
+        (width + horizontal) / 2f,
+        (height + vertical) / 2f,
     )
 }
 
@@ -47,13 +55,15 @@ internal fun ContentDrawScope.drawMaterialDialog(
     progress: Float,
     glow: Color,
     cache: DialogDrawCache,
+    control: Rect? = null,
 ): Boolean {
     val lineWidth = 1.5.dp.toPx() * sin(PI * progress).toFloat()
     when (animation) {
         DialogAnimation.Liquid -> {
-            val bounds = liquidDialogBounds(size.width, size.height, progress)
-            val roundness =
-                (1f - progress) * (min(bounds.width, bounds.height) / 2f + 24.dp.toPx() * progress)
+            val diameter = control?.let { min(it.width, it.height).takeIf { span -> span > 0f } ?: 20.dp.toPx() } ?: 0f
+            val bounds = liquidDialogBounds(size.width, size.height, progress, diameter)
+            val roundness = (1f - progress) * min(bounds.width, bounds.height) * 0.5f
+
             val aperture =
                 cache.aperture.apply {
                     rewind()
