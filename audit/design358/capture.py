@@ -312,6 +312,77 @@ def overlays3():
             try:click('添加订阅|添加|新增订阅|添加 M3U 订阅',1);pausecapture('iptv-form')
             except Exception as e:note('iptv-form','blocked',str(e))
     root('服务器');time.sleep(1);shell('input','swipe','580','1700','580','680','520');pausecapture('servers-bottom')
+def choose(label,wait=1):
+    n=find(label,4)
+    if n is None:raise ValueError(label)
+    tap(n);time.sleep(wait)
+def settings_route():
+    for attempt in range(3):
+        root('我的');time.sleep(1.8)
+        for step in range(6):
+            x=tree()
+            if labels(x)[:2]==['返回','外观与交互']:return
+            targets=[n for n,s in visible(x) if s.startswith('深色 · ') or s.startswith('跟随系统 · ') or s.startswith('浅色 · ')]
+            if targets and 200<mid(targets[-1])[1]<1780:
+                tap(targets[-1]);time.sleep(1.4)
+                if '背景图' in labels(tree()) or '视觉效果' in labels(tree()):return
+                break
+            shell('input','swipe','530','1570','530','1050','470');time.sleep(1)
+    raise ValueError('appearance destination')
+def pick():
+    settings_route();choose('动画与动效');choose('弹窗动画');snap('liquid-first')
+    for i in range(22):
+        n=find('液态成形')
+        if n is not None and 155<mid(n)[0]<914:
+            tap(n);time.sleep(1.1);snap('liquid-chosen');break
+        shell('input','swipe','885','965','260','965','560');time.sleep(.75)
+    else:snap('liquid-last');return
+    n=find('预览：液态成形')
+    if n is None:return
+    rec=subprocess.Popen(['adb','shell','screenrecord','--size','544x1088','--bit-rate','2200000','--time-limit','5','/sdcard/liquid.mp4'])
+    time.sleep(1);tap(n);time.sleep(1.3);snap('liquid-visible');rec.wait(timeout=24);adb('pull','/sdcard/liquid.mp4',str(OUT/'liquid-preview.mp4'))
+def sampleplayer():
+    adb('reverse','tcp:8096','tcp:8096')
+    shell('am','start','-W','-a','android.intent.action.VIEW','-d','http://127.0.0.1:8096/Videos/m01/stream.mp4','-t','video/mp4','-n',PKG+'/com.yfuse.feature.player.ExternalPlaybackActivity')
+    time.sleep(.7);snap('net-confirm')
+    n=find('打开')
+    if n is not None:tap(n)
+    time.sleep(6);snap('net-playing')
+    def ensure():
+        x=tree()
+        if any(any(k in s for k in ['倍速','音轨','字幕','更多设置','播放器设置','播放设置','暂停播放','播放速度']) for s in labels(x)):return
+        shell('input','tap','1000','460');time.sleep(.22)
+    ensure();snap('net-controls')
+    for k,ss in [('options',['更多','播放器设置','播放设置','设置']),('subtitle',['字幕','字幕轨道','字幕设置']),('audio',['音轨','音频','音轨选择']),('speed',['倍速','播放速度','1.0','1.0x','1x','1×','1.0×']),('queue',['播放列表','选集'])]:
+        ensure();x=tree()
+        hits=[n for n,s in visible(x) if s and any(s==t or s.startswith(t+'，') or s.startswith(t+' ') or s.startswith(t+'：') for t in ss)]
+        if hits:
+            tap(hits[0]);time.sleep(.8);snap('net-'+k);back();time.sleep(.5)
+        else:note('net-'+k,'blocked','no visible control')
+    shell('input','swipe','470','450','1150','450','600');time.sleep(.35);snap('net-seek')
+def server():
+    try:form2()
+    except Exception as e:
+        note('server-attempt','blocked',str(e));snap('server-window')
+    if any('连接到服务器'==s for s in labels(tree())):
+        for i in range(2):
+            n=find('连接到服务器',0)
+            if n is not None:tap(n);time.sleep(1.0)
+            snap('server-retry-'+str(i))
+    root('观看');time.sleep(3);snap('online-history')
+    root('媒体库');time.sleep(3);snap('online-library')
+    root('观看');time.sleep(1);choose('发现');time.sleep(5);snap('online-discovery')
+def public():
+    root('观看');time.sleep(1.8);choose('发现');time.sleep(6);snap('tmdb-cover')
+    shell('input','swipe','550','1780','550','830','650');time.sleep(1);snap('tmdb-rows')
+    items=[(n,s) for n,s in visible(tree()) if len(s)>1 and s not in ['影视推荐','返回媒体库','调整推荐栏目','正在加载','发现','播放','收藏'] and ('，满分' not in s and '今日精选' not in s)]
+    if items:
+        opts=[n for n,s in items if mid(n)[1]>1000 and mid(n)[1]<1750]
+        if opts:tap(opts[0]);time.sleep(2);snap('tmdb-info')
+    root('观看');time.sleep(1.5);choose('追剧日历');time.sleep(3);snap('calendar-landing')
+    for k,label in [('follow','追剧'),('resource','资源'),('setting','设置')]:
+        try:choose(label);snap('calendar-'+k)
+        except Exception as e:note('calendar-'+k,'blocked',str(e))
 try:
-    launch();time.sleep(2);{'appearance':appearance3,'gallery':gallery3,'settings':play3,'editor':editor3,'discover':discover3,'overlays':overlays3}[AREA]()
-except Exception as e:note('audit-stop','blocked',str(e));snap('last-window')
+    launch();time.sleep(1.8);{'liquid':pick,'player':sampleplayer,'media':server,'discovery':public}[AREA]()
+except Exception as e:note('audit-stop','blocked',str(e)[:180]);snap('last-window')
