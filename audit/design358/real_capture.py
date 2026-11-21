@@ -57,10 +57,13 @@ def login(tv=False):
     cold();tap('服务器');time.sleep(.6)
     if not tap('添加服务器|添加'):raise ValueError('server entry')
     if tv:
-        tap('HTTPS');edit('主机或完整地址','127.0.0.1');edit('用户名',cfg['user']);edit('密码',cfg['password'])
-        edit('8096|80|443','18096');tap('连接',2)
+        tap('HTTPS');edit('主机或完整地址','127.0.0.1');edit('用户名','Audit')
+        if not find('8096'):edit('80|443','8096')
+        tap('连接',2)
     else:
-        tap('HTTP');edit('media.example.com','127.0.0.1');edit('8096|80|443','18096');edit('输入用户名',cfg['user']);edit('留空表示无密码|输入密码',cfg['password']);tap('连接到服务器',3)
+        tap('HTTP');edit('media.example.com','127.0.0.1')
+        if not find('8096'):edit('80|443','8096')
+        edit('输入用户名','Audit');tap('连接到服务器',3)
     time.sleep(2.8)
     for _ in range(2):
         if not tap('仍然连接|继续连接|允许连接|允许'):break
@@ -72,14 +75,18 @@ def launch_search(name):
     e.set_text(name);a('input','keyevent',66);time.sleep(1.7);return True
 def inspect():
     global ui,pkg,activity
-    sh('reverse','tcp:18096','tcp:18096')
+    sh('reverse','tcp:8096','tcp:8096')
     a('settings','put','secure','immersive_mode_confirmations','confirmed');a('input','keyevent',82)
     if json.loads((out/'connectivity.json').read_text()).get('auth')!=200:
         record('real-server','Authentication or reachability incomplete');return
     a('wm','size','720x1440');a('wm','density',292)
     sh('install','-r','-g','apk/phone.apk',t=150);pkg=a('pm','list','packages','yfuse').strip().split(':')[-1];activity=pkg+'/com.yfuse.MainActivity'
     ui=u2.connect();ui.settings['wait_timeout']=2
-    login();snap('live-phone-home');cold();tap('媒体库');time.sleep(1.5);snap('live-phone-library')
+    login();time.sleep(1.7);snap('live-phone-home')
+    if any(v=='连接到服务器' for v,b in texts(tree())):
+        record('first-form-diagnostic',[clean(v) for v,b in texts(tree()) if any(t in v for t in ['连接','失败','错误','有效','无效','允许','密码','认证','请输入','HTTP'])][:18])
+        tap('连接到服务器',3);time.sleep(1.4)
+    cold();tap('媒体库');time.sleep(2.1);snap('live-phone-library')
     candidates=json.loads((out/'candidates.json').read_text())
     for kind,k in [('Series','series'),('Movie','movie')]:
         try:
@@ -107,8 +114,14 @@ def inspect():
         except Exception as e:record(k,type(e).__name__)
     try:
         a('am','force-stop',pkg)
-        apk=next(Path('tvapk').rglob('*.apk'));sh('install','-r','-g',str(apk),t=150)
-        packages=a('pm','list','packages','yfuse').strip().splitlines();pkg=next(x.split(':')[-1] for x in packages if 'tv' in x.lower());activity=pkg+'/com.yfuse.tv.TvMainActivity'
+        sh('shell','am','start','-W','-a','android.intent.action.VIEW','-d','http://127.0.0.1:8096/review/video.mp4','-t','video/mp4','-n',pkg+'/com.yfuse.feature.player.ExternalPlaybackActivity')
+        time.sleep(.65);tap('打开');time.sleep(3);snap('live-source-a')
+        time.sleep(4);snap('live-source-b');time.sleep(3);snap('live-source-c')
+    except Exception as e:record('real-source',type(e).__name__)
+    try:
+        a('am','force-stop',pkg)
+        apk=next(Path('tvapk').rglob('*.apk'));sh('uninstall',pkg,t=40);sh('install','-r','-g',str(apk),t=150)
+        packages=a('pm','list','packages','yfuse').strip().splitlines();pkg=next(x.split(':')[-1] for x in packages if x.startswith('package:'));activity=pkg+'/com.yfuse.tv.TvMainActivity'
         a('wm','size','1080x1920');a('wm','density',240);a('settings','put','system','accelerometer_rotation',0);a('settings','put','system','user_rotation',1)
         login(True);snap('live-tv-home');tap('媒体库');time.sleep(1);snap('live-tv-library')
         if tap('详情',1):snap('live-tv-detail')

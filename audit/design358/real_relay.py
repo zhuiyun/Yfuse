@@ -19,10 +19,25 @@ if sys.argv[1]=='check':
             r=sess.get(base+'/Users/'+uid+'/Items',params={'Recursive':'true','IncludeItemTypes':t,'Fields':'ProductionYear','SortBy':'SortName','Limit':12},timeout=20)
             data=r.json();result[t+'Exists']=bool(data.get('Items'));samples[t]=[{'id':x['Id'],'name':x['Name']} for x in data.get('Items',[]) if x.get('Name')][:8]
         save('candidates.json',samples)
+        # Material is transient and excluded from the evidence ZIP.
+        media=sess.get(base+'/Users/'+uid+'/Items',params={'Limit':50,'Recursive':'true','IncludeItemTypes':'Movie,Episode','Fields':'MediaSources,MediaStreams,Path','SortBy':'DateCreated','SortOrder':'Descending'},timeout=18).json().get('Items',[])
+        def rank(it):
+            ss=it.get('MediaSources') or []; src=ss[0] if ss else {}; streams=src.get('MediaStreams') or it.get('MediaStreams') or [];vs=next((v for v in streams if v.get('Type')=='Video'),{})
+            return (vs.get('Codec','').lower() in ['avc','h264'],(vs.get('Width') or 9999)<=1920, str(src.get('Container') or '').lower() in ['mp4','mkv'],bool(ss))
+        chosen=max(media,key=rank) if media else None
+        if chosen:
+            (temp/'real-movie-session').write_text(json.dumps({'uid':uid,'token':res['AccessToken'],'id':chosen['Id'],'media':((chosen.get('MediaSources') or [{}])[0].get('Id') or chosen['Id'])}))
+            result['sample_selected']=True
     except Exception as e:result['check_problem']=type(e).__name__
     save('connectivity.json',result)
     print('Server reachability check finished.')
     raise SystemExit()
+counts={};lock=threading.Lock()
+def count(k):
+    with lock:
+        counts[k]=counts.get(k,0)+1
+        try:save('relay-counts.json',counts)
+        except Exception:pass
 class Relay(BaseHTTPRequestHandler):
     def log_message(self,*args):pass
     def forward(self):
@@ -33,8 +48,17 @@ class Relay(BaseHTTPRequestHandler):
             self.send_response(204);self.end_headers();return
         headers={k:v for k,v in self.headers.items() if k.lower() not in ['connection','accept-encoding','host','transfer-encoding','content-length','proxy-connection']}
         headers['Accept-Encoding']='identity'
+        url=base+self.path;params=None
+        if path.endswith('/authenticatebyname') and method=='POST':
+            body=json.dumps({'Username':cfg['user'],'Pw':cfg['password']}).encode();headers['Content-Type']='application/json'
+        if path=='/review/video.mp4':
+            try:
+                v=json.loads((temp/'real-movie-session').read_text());url=base+'/Videos/'+v['id']+'/stream';params={'static':'true','MediaSourceId':v['media'],'UserId':v['uid'],'api_key':v['token']};headers['X-Emby-Token']=v['token']
+            except Exception:self.send_error(404);return
         try:
-            r=requests.request(method,base+self.path,headers=headers,data=body,stream=True,timeout=(15,40),allow_redirects=False)
+            r=requests.request(method,url,params=params,headers=headers,data=body,stream=True,timeout=(15,40),allow_redirects=False)
+            category=('login' if 'authenticatebyname' in path else 'sample-stream' if path=='/review/video.mp4' else 'views' if path.endswith('/views') else 'library-query' if '/items' in path else 'session')
+            count(category+'-'+str(r.status_code))
             self.send_response(r.status_code)
             for k,v in r.headers.items():
                 if k.lower() not in ['connection','keep-alive','transfer-encoding','proxy-authenticate','upgrade','server','date']:self.send_header(k,v)
@@ -47,4 +71,4 @@ class Relay(BaseHTTPRequestHandler):
             try:self.send_error(502)
             except Exception:pass
     do_GET=do_HEAD=do_POST=do_DELETE=do_PUT=do_PATCH=forward
-if sys.argv[1]=='serve':ThreadingHTTPServer(('127.0.0.1',18096),Relay).serve_forever()
+if sys.argv[1]=='serve':ThreadingHTTPServer(('127.0.0.1',8096),Relay).serve_forever()
