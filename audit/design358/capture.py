@@ -482,30 +482,17 @@ def grids():
     tapref(200,580);shot('art-collection-detail',1.5);receipt('art-collection-detail')
 def datesdetail():
     root('观看');choose('追剧日历');time.sleep(2);tapref(770,1160);shot('episode-meta',1.2);receipt('episode-meta')
-def capture2(k,t=.7):shot(k,t);receipt(k)
-def film():
-    root('自定义首页');time.sleep(2);tapref(625,680);time.sleep(2.5)
-def cast():
-    film();shell('input','swipe','400','1100','400','480','500');time.sleep(.7);point(92,1182);capture2('cast-page',1.7)
-    shell('input','swipe','400','1100','400','520','550');capture2('cast-work',1)
-def episodes():
-    root('自定义首页');time.sleep(2)
-    for i in range(15):
-        x=tree()
-        hits=[(n,s) for n,s in visible(x) if any(v in s for v in ['剧集','电视剧','剧榜','电视节目']) and ('查看' in s and '全部' in s)]
-        if hits:
-            tap(hits[0][0]);time.sleep(1.7);capture2('series-grid');point(130,310);time.sleep(1.8);capture2('series-info');break
-        shell('input','swipe','370','1190','370','462','530');time.sleep(.45)
-    for i in range(6):
-        hs=[(n,s) for n,s in visible(tree()) if '第 1 季' in s or '第1季' in s or '选集' in s or '第一季' in s]
-        if hs:tap(hs[0][0]);capture2('series-seasons');return
-        shell('input','swipe','370','1160','370','482','530');time.sleep(.35)
-def actions():
-    film();n=find('播放',1)
-    if n is not None:tap(n);capture2('metadata-play-action',1.3);back();time.sleep(.7)
-    n=find('更多操作',1)
-    if n is not None:tap(n);capture2('metadata-more-action',.8)
+def panels():
+    shell('settings','put','secure','immersive_mode_confirmations','confirmed');adb('reverse','tcp:8096','tcp:8096')
+    for key,(xx,yy) in [('subtitle',(999,618)),('audio',(1099,618)),('speed',(1297,618)),('more',(1396,70))]:
+        shell('am','force-stop',PKG)
+        shell('am','start','-W','-a','android.intent.action.VIEW','-d','http://127.0.0.1:8096/Videos/m01/stream.mp4','-t','video/mp4','-n',PKG+'/com.yfuse.feature.player.ExternalPlaybackActivity')
+        time.sleep(.65);n=find('打开')
+        if n is not None:tap(n)
+        time.sleep(1.5)
+        for i in range(3):
+            point(xx,yy);shot('pane-'+key+'-'+str(i),.45)
+        receipt('pane-'+key+'-2')
 try:
-    shell('wm','size','720x1440');shell('wm','density','292');launch()
-    {'cast':cast,'series':episodes,'actions':actions}[AREA]()
+    shell('wm','size','720x1440');shell('wm','density','292');launch();panels()
 except Exception as e:note('audit-stop','blocked',str(e)[:180])
