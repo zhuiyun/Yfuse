@@ -66,7 +66,7 @@ def find(label,scroll=0,choice='middle'):
             hits=[n for n,s in items if (s==name or (s.split('\n')[0]==name))]
             if not hits: hits=[n for n,s in items if s.startswith(name+'，') or s.startswith(name+' ·')]
             if hits:
-                return (max(hits,key=lambda n:mid(n)[1]) if choice=='bottom' else hits[0])
+                return max(hits,key=lambda n:mid(n)[1]) if (choice=='bottom' or name=='外观与交互') else hits[0]
     prev=None
     for direction in ([1,-1] if scroll else [1]):
         for _ in range(scroll+1):
@@ -243,7 +243,75 @@ def form2():
         ui(className='android.widget.EditText').set_text('Audit');shell('input','keyevent','66');time.sleep(1);snap('filled-results')
     for k,l in [('series','Audit Series'),('seasons','第 1 季|Season 1|选集')]:
         if safe('filled-'+k,lambda l=l:click(l,3)) is None:break
+def pausecapture(k):
+    time.sleep(1.1);return snap(k)
+def profilelink(section):
+    root('我的');time.sleep(1);swipe(1);time.sleep(.4);click(section,5);time.sleep(1.15)
+def appearance3():
+    profilelink('外观与交互');pausecapture('style-overview')
+    for k,l in [('glass','玻璃材质'),('splash','Logo 与开屏动画'),('layout','首页与导航'),('access','辅助功能'),('motion','动画与动效')]:
+        try:
+            click(l,5);pausecapture('style-'+k)
+            if k=='motion':
+                for key,lab in [('theme','动效主题'),('loading','加载动画'),('enter','播放器进出场'),('dialog','弹窗动画')]:
+                    try:click(lab,5);pausecapture('style-'+key);back();time.sleep(1)
+                    except Exception as e:note('style-'+key,'blocked',str(e))
+            back();time.sleep(.8)
+        except Exception as e:note('style-'+k,'blocked',str(e));profilelink('外观与交互')
+def gallery3():
+    profilelink('外观与交互');click('动画与动效',5);time.sleep(.9);click('弹窗动画',5);time.sleep(1);snap('picker-first')
+    for i in range(35):
+        x=tree()
+        opts=[(n,s) for n,s in visible(x) if s=='液态成形' or s=='液态成型']
+        if opts:
+            tap(opts[0][0]);time.sleep(1.05);snap('picker-selected')
+            prev=next((n for n,s in visible(tree()) if '预览' in s and (s.startswith('预览') or s.startswith('播放预览') or s.startswith('查看预览'))),None)
+            if prev is not None:
+                rec=subprocess.Popen(['adb','shell','screenrecord','--size','544x1088','--bit-rate','2000000','--time-limit','4','/sdcard/audit-motion.mp4'])
+                time.sleep(.85);tap(prev);time.sleep(1);snap('picker-preview');rec.wait(timeout=15);adb('pull','/sdcard/audit-motion.mp4',str(OUT/'liquid-preview.mp4'))
+            return
+        cards=[n for n in x.iter('node') if n.get('scrollable')=='true' and rect(n)[2]-rect(n)[0]>450]
+        if not cards: y=1080
+        else:y=mid(min(cards,key=lambda n:rect(n)[3]-rect(n)[1]))[1]
+        if i in (3,7,13):snap('picker-swipe-'+str(i))
+        shell('input','swipe','919',y,'170',y,'630');time.sleep(.55)
+    snap('picker-last')
+def play3():
+    for k,section,later in [('play','播放设置',[]),('advanced','播放设置',['高级播放设置']),('danmaku','弹幕设置',[]),('downloads','下载与离线库',['下载设置']),('links','打开链接',[]),('diagnostics','数据与诊断',[]),('family-add','家庭资料',['新建家庭资料']),('stremio-install','Stremio 插件',['安装插件']),('register','账号与同步',['没有账号？创建一个'])]:
+        try:
+            profilelink(section)
+            for l in later:click(l,6);time.sleep(1)
+            pausecapture('setting-'+k)
+        except Exception as e:note('setting-'+k,'blocked',str(e))
+def editor3():
+    root('自定义首页');time.sleep(2);snap('custom-home-empty');click('开始布置首页|编辑首页|编辑');time.sleep(1);snap('custom-manager')
+    for k,l in [('install','安装组件|添加组件'),('backup','备份与恢复'),('newpage','新建页面'),('builtin','恢复TMDB|恢复影视推荐')]:
+        try:
+            if k=='newpage':click('页面 0|页面 1|页面 2');time.sleep(.7)
+            click(l,4);pausecapture('custom-'+k)
+            if k!='builtin':back();time.sleep(.8)
+        except Exception as e:note('custom-'+k,'blocked',str(e))
+def discover3():
+    root('观看');click('发现');time.sleep(8);snap('discover-loaded')
+    try:
+        ts=labels(tree());n=next((n for n,s in visible(tree()) if s in ['查看详情','详情','海报'] or s.startswith('查看详情')),None)
+        if n:tap(n)
+        else:shell('input','tap','520','580')
+        time.sleep(4);snap('discover-tap');back();time.sleep(2)
+    except Exception as e:note('discover-tap','blocked',str(e))
+    root('观看');click('发现');time.sleep(4);swipe(1);time.sleep(1);snap('discover-rows')
+    try:click('查看全部|全部|更多',3);time.sleep(2);snap('discover-full-grid')
+    except Exception as e:note('discover-grid','blocked',str(e))
+    root('观看');click('追剧日历');time.sleep(4);snap('calendar-settled')
+    for k,l in [('tracked','追剧'),('resources','资源'),('options','设置')]:
+        safe('calendar-'+k,lambda l=l:click(l,0))
+def overlays3():
+    for k,lab in [('iptv','IPTV · 电视直播'),('wifi','Wi-Fi 导入视频')]:
+        root('服务器');click(lab);time.sleep(2);snap(k+'-content')
+        if k=='iptv':
+            try:click('添加订阅|添加|新增订阅|添加 M3U 订阅',1);pausecapture('iptv-form')
+            except Exception as e:note('iptv-form','blocked',str(e))
+    root('服务器');time.sleep(1);shell('input','swipe','580','1700','580','680','520');pausecapture('servers-bottom')
 try:
-    launch();time.sleep(2);{'tv':tvextra,'player':external,'gallery':gallery,'widgets':widgets,'media':form2}[AREA]()
-except Exception as e:
-    note('audit-stop','blocked',str(e)[:200]);snap('last-window')
+    launch();time.sleep(2);{'appearance':appearance3,'gallery':gallery3,'settings':play3,'editor':editor3,'discover':discover3,'overlays':overlays3}[AREA]()
+except Exception as e:note('audit-stop','blocked',str(e));snap('last-window')
