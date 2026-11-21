@@ -164,9 +164,10 @@ fun <T : Any> OfficialNavDisplay(
                     key = key,
                     contentKey = contentKey(key),
                 ) { entryKey ->
+                    val inListPane = LocalInListPane.current
                     val visibility =
-                        remember(entryKey, parentVisibility) {
-                            derivedStateOf { parentVisibility.value && entryKey == currentTop }
+                        remember(entryKey, parentVisibility, inListPane) {
+                            derivedStateOf { parentVisibility.value && (inListPane || entryKey == currentTop) }
                         }
                     val routeKey = contentKey(entryKey)
                     CompositionLocalProvider(

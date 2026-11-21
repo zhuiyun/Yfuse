@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -15,6 +17,8 @@ import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.scene.Scene
 import androidx.navigation3.scene.SceneStrategy
 import androidx.navigation3.scene.SceneStrategyScope
+
+internal val LocalInListPane = compositionLocalOf { false }
 
 /** Keep the nearest browsing destination alongside its selected child in the same NavDisplay. */
 internal class ListDetailSceneStrategy<T : Any>(
@@ -41,7 +45,9 @@ private data class ListDetailScene<T : Any>(
                     }
                     val fraction = if (index == 0) 0.45f else 0.55f
                     Box(Modifier.weight(fraction).fillMaxHeight().clipToBounds()) {
-                        entry.Content()
+                        CompositionLocalProvider(LocalInListPane provides (entries.size > 1 && index == 0)) {
+                            entry.Content()
+                        }
                     }
                 }
             }
