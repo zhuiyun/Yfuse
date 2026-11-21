@@ -12,7 +12,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        area: [player, catalog, calendar, media]
+        area: [player, catalog, grid, episode]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -47,13 +47,13 @@ jobs:
       - name: Drive installed Yfuse and capture each reached page
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
-          api-level: 35
+          api-level: 30
           target: google_apis
           arch: x86_64
           profile: pixel_2
-          ram-size: 3500M
+          ram-size: 2048M
           heap-size: 384M
-          disk-size: 3000M
+          disk-size: 3072M
           emulator-boot-timeout: 600
           disable-animations: false
           emulator-options: -no-window -noaudio -no-boot-anim -no-snapshot -camera-back none -gpu swiftshader_indirect -accel on

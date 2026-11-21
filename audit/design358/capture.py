@@ -447,6 +447,42 @@ def online():
         n=find(l,2)
         if n is None:break
         tap(n);time.sleep(.65);fast(key)
+def dims(x,y):
+    return (int(x*2/3),int(y*2/3))
+def tapref(x,y):point(*dims(x,y))
+def shot(k,t=.1):
+    time.sleep(t)
+    f=OUT/(k+'.png');f.write_bytes(adb('exec-out','screencap','-p',binary=True))
+def receipt(k):
+    try:
+        x=tree();(OUT/(k+'.xml')).write_bytes(ET.tostring(x,encoding='utf-8'));note(k,'captured',labels(x)[:90])
+    except Exception as e:note(k,'no tree',str(e)[:80])
+def track():
+    adb('reverse','tcp:8096','tcp:8096')
+    shell('settings','put','secure','immersive_mode_confirmations','confirmed')
+    for key,xr,yr in [('track-subtitle',1499,927),('track-audio',1648,927),('track-speed',1944,927),('track-options',2095,105),('track-skip',2095,927)]:
+        shell('am','force-stop',PKG)
+        shell('am','start','-W','-a','android.intent.action.VIEW','-d','http://127.0.0.1:8096/Videos/m01/stream.mp4','-t','video/mp4','-n',PKG+'/com.yfuse.feature.player.ExternalPlaybackActivity')
+        time.sleep(.7);n=find('打开')
+        if n is not None:tap(n)
+        time.sleep(4.1)
+        tapref(1030,525);time.sleep(.18);tapref(xr,yr);shot(key,.55);receipt(key)
+        actual=labels(tree())
+        if len(actual)<4 or '关闭播放器' in actual:
+            tapref(1010,525);time.sleep(.23);tapref(xr,yr);shot(key+'-b',.55);receipt(key+'-b')
+def movie():
+    root('自定义首页');time.sleep(3)
+    shot('art-before');tapref(630,690)
+    for i in [0,1,2,3]:
+        shot('art-page-'+str(i),[.6,1,1.5,2][i])
+    receipt('art-page-3')
+    shell('input','swipe','400','1100','400','480','500');shot('art-lower',.9);receipt('art-lower')
+def grids():
+    root('自定义首页');time.sleep(3);tapref(952,329);shot('art-collection',1.8);receipt('art-collection')
+    tapref(200,580);shot('art-collection-detail',1.5);receipt('art-collection-detail')
+def datesdetail():
+    root('观看');choose('追剧日历');time.sleep(2);tapref(770,1160);shot('episode-meta',1.2);receipt('episode-meta')
 try:
-    launch();{'player':immersive,'catalog':catalog,'calendar':dates,'media':online}[AREA]()
-except Exception as e:note('audit-stop','blocked',str(e)[:120])
+    shell('wm','size','720x1440');shell('wm','density','292');launch()
+    {'player':track,'catalog':movie,'grid':grids,'episode':datesdetail}[AREA]()
+except Exception as e:note('audit-stop','blocked',str(e)[:170])
