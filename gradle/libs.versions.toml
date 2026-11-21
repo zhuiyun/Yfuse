@@ -7,7 +7,7 @@ androidx-lifecycle = "2.10.0"
 cameraX = "1.6.1"
 androidx-navigation3 = "1.1.7"
 androidx-work = "2.12.0"
-decompose = "3.5.0"
+decompose = "3.6.2"
 mvikotlin = "4.4.0"
 # Effective version. Coil's ktor3 network module already pulled the Android classpaths to 3.1.0
 # while the declared 3.0.3 only survived on the metadata, mock-client and watch-server classpaths.
