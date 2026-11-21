@@ -482,17 +482,46 @@ def grids():
     tapref(200,580);shot('art-collection-detail',1.5);receipt('art-collection-detail')
 def datesdetail():
     root('观看');choose('追剧日历');time.sleep(2);tapref(770,1160);shot('episode-meta',1.2);receipt('episode-meta')
-def panels():
-    shell('settings','put','secure','immersive_mode_confirmations','confirmed');adb('reverse','tcp:8096','tcp:8096')
-    for key,(xx,yy) in [('subtitle',(999,618)),('audio',(1099,618)),('speed',(1297,618)),('more',(1396,70))]:
-        shell('am','force-stop',PKG)
-        shell('am','start','-W','-a','android.intent.action.VIEW','-d','http://127.0.0.1:8096/Videos/m01/stream.mp4','-t','video/mp4','-n',PKG+'/com.yfuse.feature.player.ExternalPlaybackActivity')
-        time.sleep(.65);n=find('打开')
-        if n is not None:tap(n)
-        time.sleep(1.5)
-        for i in range(3):
-            point(xx,yy);shot('pane-'+key+'-'+str(i),.45)
-        receipt('pane-'+key+'-2')
+def fill(base,val):
+    n=find(base,4)
+    if n is None:raise ValueError(base)
+    tap(n);shell('input','keycombination','113','29');shell('input','text',val);back();time.sleep(.32)
+def connect():
+    adb('reverse','tcp:8096','tcp:8096');root('服务器');time.sleep(.6);click('添加服务器|添加')
+    if AREA=='tv':
+        click('HTTPS',0);fill('主机或完整地址','127.0.0.1');fill('用户名','Audit')
+        x=tree()
+        if '8096' not in labels(x):fill('80|443','8096')
+        click('连接',1)
+    else:
+        click('HTTP');fill('media.example.com','127.0.0.1')
+        if '8096' not in labels(tree()):fill('80|443','8096')
+        fill('输入用户名','Audit');click('连接到服务器',2)
+    for i in range(4):shot('login-'+str(i),[.2,.65,1.0,2.0][i])
+    receipt('login-3')
+    for n,s in visible(tree()):
+        if any(t in s for t in ['仍然连接','继续连接','我已了解','允许此','仍要连接','确认使用','继续使用','允许连接']):
+            tap(n);break
+    time.sleep(1);shot('server-result');receipt('server-result')
+    def dest(k,l,scroll=3):
+        n=find(l,scroll)
+        if n is None:note(k,'blocked',l);return False
+        tap(n);shot(k,1.1);receipt(k);return True
+    if AREA=='tv':
+        dest('theater-film-details','详情',1)
+        dest('theater-film-play','播放|从头播放|立即播放|继续播放',2)
+        time.sleep(3);shot('theater-film-watch',.15);receipt('theater-film-watch')
+        return
+    dest('positive-library','媒体库',1)
+    dest('positive-grid','Audit Library|电影',2)
+    if dest('positive-series','Audit Series',2):
+        for c,labels2 in [('positive-seasons','第 1 季|第1季|Season 1|选集|第 1 季 · 1 集'),('positive-episode','First episode|第 1 集|第1集')]:
+            if not dest(c,labels2,3):break
+    root('观看');shot('positive-history',1.35);receipt('positive-history')
+    root('搜索');time.sleep(.75)
+    if ui:
+        ui(className='android.widget.EditText').set_text('Audit');shell('input','keyevent','66');shot('positive-search',2);receipt('positive-search')
 try:
-    shell('wm','size','720x1440');shell('wm','density','292');launch();panels()
+    if AREA!='tv':shell('wm','size','720x1440');shell('wm','density','292')
+    launch();connect()
 except Exception as e:note('audit-stop','blocked',str(e)[:180])
