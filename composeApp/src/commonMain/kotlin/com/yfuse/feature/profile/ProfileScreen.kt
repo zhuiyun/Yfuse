@@ -765,7 +765,6 @@ fun ProfileScreen(component: ProfileComponent) {
                         ->
                             AppearanceSettingsScreen(
                                 page = activePage,
-                                showBack = !defaultDetail,
                                 preferences = prefs,
                                 brandSummary = "${appIcon.label} · ${if (splashAnimation) "开屏已开启" else "开屏已关闭"}",
                                 onBack = component::closePage,

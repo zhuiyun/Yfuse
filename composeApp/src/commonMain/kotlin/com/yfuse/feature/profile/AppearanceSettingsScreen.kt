@@ -6,6 +6,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import com.yfuse.app.LocalWideWindow
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.DialogAnimation
@@ -37,7 +38,6 @@ internal enum class AppearanceAction {
 @Composable
 internal fun AppearanceSettingsScreen(
     page: ProfilePage,
-    showBack: Boolean = true,
     preferences: ThemePreferences,
     brandSummary: String,
     onBack: () -> Unit,
@@ -48,7 +48,7 @@ internal fun AppearanceSettingsScreen(
         ProfilePage.AppearanceLayout -> LayoutSettingsPage(preferences, onBack, onAction)
         ProfilePage.AppearanceMotion -> MotionSettingsPage(preferences, onBack, onAction)
         ProfilePage.AppearanceAccessibility -> AccessibilitySettingsPage(preferences, onBack)
-        else -> AppearanceOverview(preferences, brandSummary, onBack, onOpenPage, onAction, showBack)
+        else -> AppearanceOverview(preferences, brandSummary, onBack, onOpenPage, onAction)
     }
 }
 
@@ -59,14 +59,13 @@ private fun AppearanceOverview(
     onBack: () -> Unit,
     onOpenPage: (ProfilePage) -> Unit,
     onAction: (AppearanceAction) -> Unit,
-    showBack: Boolean,
 ) {
     val mode by prefs.mode.collectAsState()
     val glass by prefs.glassStyle.collectAsState()
     val background by prefs.backgroundImage.collectAsState()
     val motion by prefs.motionTheme.collectAsState()
     val modes = listOf(ThemeMode.Light, ThemeMode.System, ThemeMode.Dark)
-    SettingsPage(title = "外观与交互", onBack = onBack, showBackButton = showBack) {
+    SettingsPage(title = "外观与交互", onBack = onBack, showBackButton = !LocalWideWindow.current) {
         motionItem(key = "appearance-theme") {
             Section("主题") {
                 SettingsCard {
