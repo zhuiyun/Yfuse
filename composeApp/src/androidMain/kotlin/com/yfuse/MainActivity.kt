@@ -87,38 +87,26 @@ class MainActivity : ComponentActivity() {
             savedInstanceState?.getBoolean(STATE_LAUNCH_INTENT_HANDLED) == true ||
             (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0
 
-        // Registered before Decompose and Compose create their route callbacks, so those later
-        // callbacks keep priority. This fallback only runs when every visible navigation stack
-        // is already at the point where Android would otherwise finish the launcher activity.
-        //
-        // Only below Android 13. From 13 the system owns back at the root — it sends the task to
-        // the background instead of finishing it, and 14+ previews the return to the launcher as
-        // the gesture moves. An always-enabled callback here swallowed that preview and turned
-        // every back from a root page into two presses for nothing.
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-            onBackPressedDispatcher.addCallback(
-                this,
-                object : OnBackPressedCallback(true) {
-                    override fun handleOnBackPressed() {
-                        isEnabled = false
-                        exitRearmJob?.cancel()
-                        exitRearmJob =
-                            lifecycleScope.launch {
-                                delay(EXIT_CONFIRMATION_WINDOW_MS)
-                                isEnabled = true
-                            }
-                        exitConfirmationToast?.cancel()
-                        exitConfirmationToast =
-                            Toast
-                                .makeText(
-                                    this@MainActivity,
-                                    "再按一次返回键退出 Yfuse",
-                                    Toast.LENGTH_SHORT,
-                                ).also(Toast::show)
-                    }
-                }.also { exitBackCallback = it },
-            )
-        }
+        // Register first so menus, details and the model back stack keep priority. After the
+        // first committed root back, Android handles the second, including its launcher preview.
+        onBackPressedDispatcher.addCallback(
+            this,
+            object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    // A deep link can open a detail after this gesture started at the root.
+                    if (rootComponent?.backNavigationState()?.enabled == true) return
+                    isEnabled = false
+                    exitRearmJob =
+                        lifecycleScope.launch {
+                            delay(EXIT_CONFIRMATION_WINDOW_MS)
+                            resetExitConfirmation()
+                        }
+                    exitConfirmationToast =
+                        Toast.makeText(this@MainActivity, "再按一次返回键退出 Yfuse", Toast.LENGTH_SHORT)
+                            .also(Toast::show)
+                }
+            }.also { exitBackCallback = it },
+        )
         preferHighRefreshRateForUi()
         enableEdgeToEdge()
         if (ServerSessionRecovery.showIfNeeded(this)) return
@@ -208,7 +196,7 @@ class MainActivity : ComponentActivity() {
             }
 
         rootComponent = root
-        if (rootBackFallback == null) rootBackFallback = RootBackFallback(this, root)
+        if (rootBackFallback == null) rootBackFallback = RootBackFallback(this, root, ::resetExitConfirmation)
         observeCalendarNotificationPermission(koin.get())
         observeDownloadNotificationPermission(koin.get())
 
@@ -453,13 +441,16 @@ class MainActivity : ComponentActivity() {
             }
     }
 
-    override fun onStop() {
-        // A second press must belong to the same foreground interaction. Opening the player,
-        // switching apps, or locking the phone must not arm an immediate exit on return.
+    private fun resetExitConfirmation() {
         exitRearmJob?.cancel()
+        exitRearmJob = null
         exitBackCallback?.isEnabled = true
         exitConfirmationToast?.cancel()
         exitConfirmationToast = null
+    }
+
+    override fun onStop() {
+        resetExitConfirmation()
         jankMonitor?.stop()
         playerVisibilityJob?.cancel()
         playerVisibilityJob = null

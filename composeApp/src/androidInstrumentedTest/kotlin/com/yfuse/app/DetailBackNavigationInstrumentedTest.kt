@@ -491,7 +491,7 @@ class DetailBackNavigationInstrumentedTest {
     }
 
     @Test(timeout = 60_000L)
-    fun real_model_handles_system_back_without_a_route_ui_and_releases_the_root() {
+    fun real_model_handles_back_without_a_route_ui_and_requires_two_backs_to_exit() {
         withGestureNavigation {
             launchMainActivityForInput().use { scenario ->
                 val root = AtomicReference<RootComponent>()
@@ -521,10 +521,11 @@ class DetailBackNavigationInstrumentedTest {
                         "The start tab's root must leave system back available",
                         model.backNavigationState().enabled,
                     )
-                    assertFalse(
-                        "A UI callback survived the minimal host",
-                        activity.onBackPressedDispatcher.hasEnabledCallbacks(),
-                    )
+                    val dispatcher = activity.onBackPressedDispatcher
+                    assertTrue("The root must offer exit confirmation", dispatcher.hasEnabledCallbacks())
+                    dispatcher.onBackPressed()
+                    assertFalse("The first back must arm system exit", dispatcher.hasEnabledCallbacks())
+                    assertFalse(activity.isFinishing)
                     model.browse.openDetail(null, "gesture-model-detail-a")
                     model.browse.openDetail(null, "gesture-model-detail-b")
                     model.selectTab(Tab.Browse)
@@ -609,13 +610,32 @@ class DetailBackNavigationInstrumentedTest {
                         "The actual start-tab root still enabled the model fallback",
                         model.backNavigationState().enabled,
                     )
+                    val dispatcher = it.onBackPressedDispatcher
+                    assertTrue(
+                        "Returning from details must require a fresh confirmation",
+                        dispatcher.hasEnabledCallbacks(),
+                    )
+                    dispatcher.dispatchOnBackStarted(BackEventCompat(1f, 300f, 0f, BackEventCompat.EDGE_LEFT))
+                    dispatcher.dispatchOnBackCancelled()
+                    assertTrue("A cancelled gesture must not arm exit", dispatcher.hasEnabledCallbacks())
+                    dispatcher.onBackPressed()
+                    assertFalse("First root back must release the system callback", dispatcher.hasEnabledCallbacks())
+                }
+                awaitCondition("The root exit confirmation did not expire") {
+                    var rearmed = false
+                    scenario.onActivity { rearmed = it.onBackPressedDispatcher.hasEnabledCallbacks() }
+                    rearmed
+                }
+                scenario.onActivity {
+                    it.onBackPressedDispatcher.onBackPressed()
+                    assertFalse("The activity finished on the first back", it.isFinishing)
                     assertFalse(
-                        "A callback at the actual root would swallow Android's exit gesture",
+                        "Second back must be handled by Android",
                         it.onBackPressedDispatcher.hasEnabledCallbacks(),
                     )
                 }
                 injectEdgeSwipe(scenario, fromRight = true, cancel = false)
-                // The real root belongs to Android. Whether the launcher task is retained
+                // The confirmed exit belongs to Android. Whether the launcher task is retained
                 // or finished depends on platform policy; every detail above must stay alive.
                 awaitCondition("The root did not return system back to Android") {
                     scenario.state != Lifecycle.State.RESUMED &&
