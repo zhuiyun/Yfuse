@@ -12,6 +12,7 @@ import com.arkivanov.decompose.router.stack.pushToFront
 import com.arkivanov.decompose.value.Value
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.yfuse.app.AppDependencies
+import com.yfuse.app.openFrom
 import com.yfuse.core.data.AiringCalendarRepository
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
@@ -286,18 +287,18 @@ class HomeTabComponent(
                         libraryEnabled = false,
                         initialRecommendationsLoad = false,
                         onOpenEmbyItem = { serverId, itemId ->
-                            navigation.pushToFront(Config.Detail(serverId, itemId))
+                            navigation.openFrom(config, Config.Detail(serverId, itemId))
                         },
                         onPlayEmbyItem = { serverId, itemId, isSeries, startPositionTicks ->
                             openPlayer(Config.Player(serverId, itemId, startPositionTicks, isSeriesLaunch = isSeries))
                         },
                         onOpenTmdbItem = { item, embyItemId ->
-                            navigation.pushToFront(Config.Info(item, embyItemId))
+                            navigation.openFrom(config, Config.Info(item, embyItemId))
                         },
                         onOpenSearch = onOpenSearch,
                         onOpenLibrary = onOpenLibrary,
                         onOpenProfile = onOpenProfile,
-                        onOpenCalendar = { navigation.pushToFront(Config.Calendar) },
+                        onOpenCalendar = { navigation.openFrom(config, Config.Calendar) },
                     ),
                 )
             is Config.Detail ->
@@ -312,7 +313,7 @@ class HomeTabComponent(
                         dependencies = dependencies,
                         onBack = ::navigateBack,
                         onOpenRelated = { serverId, itemId ->
-                            navigation.pushToFront(Config.Detail(serverId, itemId))
+                            navigation.openFrom(config, Config.Detail(serverId, itemId))
                         },
                         onPlay = { serverId, id, ticks, mediaSourceId ->
                             openPlayer(Config.Player(serverId, id, ticks, mediaSourceId))
@@ -351,7 +352,7 @@ class HomeTabComponent(
                         registry = registry,
                         onBack = ::navigateBack,
                         onOpenItem = { serverId, itemId ->
-                            navigation.pushToFront(Config.Detail(serverId ?: registry.defaultServer?.id, itemId))
+                            navigation.openFrom(config, Config.Detail(serverId ?: registry.defaultServer?.id, itemId))
                         },
                         onPlayItem = { serverId, itemId ->
                             val server = if (serverId == null) registry.defaultServer else registry.serverById(serverId)
@@ -361,7 +362,7 @@ class HomeTabComponent(
                                     if (detail != null) {
                                         openPlayer(Config.Player(server.id, itemId, detail.resumePositionTicks ?: 0L))
                                     } else {
-                                        navigation.pushToFront(Config.Detail(server.id, itemId))
+                                        navigation.openFrom(config, Config.Detail(server.id, itemId))
                                     }
                                 }
                             }
@@ -406,7 +407,7 @@ class HomeTabComponent(
                         relatedServer,
                         relatedId,
                     ->
-                    navigation.pushToFront(Config.Detail(relatedServer, relatedId))
+                    navigation.openFrom(config, Config.Detail(relatedServer, relatedId))
                 },
                 onPlay = {
                         targetServer,

@@ -14,6 +14,7 @@ import com.arkivanov.decompose.value.Value
 import com.arkivanov.essenty.lifecycle.doOnDestroy
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.yfuse.app.AppDependencies
+import com.yfuse.app.openFrom
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.SearchHistory
 import com.yfuse.core.data.ServerRegistry
@@ -219,7 +220,7 @@ class SearchComponent(
                         dependencies = dependencies,
                         onOpenServerSettings = onOpenServerSettings,
                         onOpenItem = { serverId, itemId ->
-                            navigation.pushToFront(Config.Detail(serverId, itemId))
+                            navigation.openFrom(config, Config.Detail(serverId, itemId))
                         },
                         onPlayItem = { serverId, itemId, ticks ->
                             openPlayer(Config.Player(serverId, itemId, ticks))
@@ -238,7 +239,7 @@ class SearchComponent(
                         dependencies = dependencies,
                         onBack = { navigation.pop() },
                         onOpenRelated = { serverId, itemId ->
-                            navigation.pushToFront(Config.Detail(serverId, itemId))
+                            navigation.openFrom(config, Config.Detail(serverId, itemId))
                         },
                         onPlay = { serverId, itemId, ticks, mediaSourceId ->
                             openPlayer(Config.Player(serverId, itemId, ticks, mediaSourceId))
@@ -275,9 +276,9 @@ class SearchComponent(
                         // Through navigateBack, so an 演员页 opened for another tab goes back there.
                         onBack = ::navigateBack,
                         onOpenItem = { serverId, itemId ->
-                            navigation.pushToFront(Config.Detail(serverId, itemId))
+                            navigation.openFrom(config, Config.Detail(serverId, itemId))
                         },
-                        onOpenTmdbItem = { item -> navigation.pushToFront(Config.Info(item)) },
+                        onOpenTmdbItem = { item -> navigation.openFrom(config, Config.Info(item)) },
                     ),
                 )
             is Config.Info ->

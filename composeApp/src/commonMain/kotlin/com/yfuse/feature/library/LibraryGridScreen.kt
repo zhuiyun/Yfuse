@@ -2,6 +2,7 @@ package com.yfuse.feature.library
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -154,7 +155,10 @@ private val sortLabels =
     )
 
 @Composable
-fun LibraryGridScreen(component: LibraryGridComponent) {
+fun LibraryGridScreen(
+    component: LibraryGridComponent,
+    selectedItemId: String? = null,
+) {
     val state by component.store.states.collectAsState(component.store.state)
     val baseUrl = component.serverBaseUrl
     val accessToken = component.serverAccessToken
@@ -492,7 +496,18 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                                             // appearing mid-scroll, and a sort change cross-dissolves
                                             // instead of swapping the grid between two frames. A pinch
                                             // flows each poster from its old place to its new one.
-                                            modifier = Modifier.gridReflowItem(gridDensity, item.id),
+                                            modifier =
+                                                Modifier.gridReflowItem(gridDensity, item.id).then(
+                                                    if (item.id == selectedItemId) {
+                                                        Modifier.border(
+                                                            2.dp,
+                                                            LocalAccentColors.current.accent,
+                                                            AppShapes.card,
+                                                        )
+                                                    } else {
+                                                        Modifier
+                                                    },
+                                                ),
                                         ) {
                                             val lift = {
                                                 gridLiftMenu(

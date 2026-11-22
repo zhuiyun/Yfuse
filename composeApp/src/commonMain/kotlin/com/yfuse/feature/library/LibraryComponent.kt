@@ -8,10 +8,10 @@ import com.arkivanov.decompose.router.stack.childStack
 import com.arkivanov.decompose.router.stack.pop
 import com.arkivanov.decompose.router.stack.popTo
 import com.arkivanov.decompose.router.stack.pushToFront
-import com.arkivanov.decompose.router.stack.replaceCurrent
 import com.arkivanov.decompose.value.Value
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.yfuse.app.AppDependencies
+import com.yfuse.app.openFrom
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.TmdbRepository
@@ -147,7 +147,7 @@ class LibraryComponent(
     fun openCalendar() = onOpenCalendar()
 
     private fun openHistory() {
-        if (historyIsRoot) popToRoot() else navigation.pushToFront(Config.History)
+        if (historyIsRoot) popToRoot() else navigation.openFrom(Config.WatchingCenter, Config.History)
     }
 
     /**
@@ -174,25 +174,10 @@ class LibraryComponent(
         navigation.pushToFront(Config.Detail(serverId, itemId, autoPlay))
     }
 
-    /** A selection in the persistent list replaces its sibling detail. Back still leads to the grid. */
-    internal fun selectGridPreview(
+    internal fun selectUnifiedItem(
         serverId: String?,
         itemId: String,
-    ) {
-        val target = Config.Detail(serverId, itemId)
-        val entries = stack.value.items
-        if (entries.last().configuration == target ||
-            entries.last().configuration !is Config.Detail ||
-            entries.getOrNull(entries.lastIndex - 1)?.configuration !is Config.Grid
-        ) {
-            return
-        }
-        if (entries.dropLast(1).any { it.configuration == target }) {
-            navigation.pushToFront(target)
-        } else {
-            navigation.replaceCurrent(target)
-        }
-    }
+    ) = navigation.openFrom(Config.Unified, Config.Detail(serverId, itemId))
 
     /**
      * The Player route is only a short-lived launcher for PlayerActivity. Auto-play completion and
@@ -247,7 +232,12 @@ class LibraryComponent(
                         registry = registry,
                         repo = repo,
                         onBack = ::navigateBack,
-                        onOpenItem = { serverId, itemId -> openDetail(serverId, itemId) },
+                        onOpenItem = {
+                                serverId,
+                                itemId,
+                            ->
+                            navigation.openFrom(config, Config.Detail(serverId, itemId))
+                        },
                         onContinue = { serverId, itemId, ticks -> openPlayer(Config.Player(serverId, itemId, ticks)) },
                         onOpenMetadata = { onOpenDiscoveryTitle(it, null) },
                         onOpenWidget = onOpenWidgetTitle,
@@ -266,7 +256,12 @@ class LibraryComponent(
                             syncManager = dependencies.serverSyncManager,
                             calendarRepository = dependencies.calendarRepository,
                             recommendationsEnabled = false,
-                            onOpenEmbyItem = { serverId, itemId -> openDetail(serverId, itemId) },
+                            onOpenEmbyItem = {
+                                    serverId,
+                                    itemId,
+                                ->
+                                navigation.openFrom(config, Config.Detail(serverId, itemId))
+                            },
                             onPlayEmbyItem = { serverId, itemId, _, ticks ->
                                 openPlayer(Config.Player(serverId, itemId, ticks))
                             },
@@ -290,15 +285,16 @@ class LibraryComponent(
                         onAddServer = onAddServer,
                         onReauthenticate = onReauthenticate,
                         serverHealth = dependencies.serverHealthMonitor.health,
-                        onOpenUnified = { navigation.pushToFront(Config.Unified) },
+                        onOpenUnified = { navigation.openFrom(config, Config.Unified) },
                         onSeeAll = { libraryId, title ->
-                            navigation.pushToFront(Config.Grid(libraryId, title))
+                            navigation.openFrom(config, Config.Grid(libraryId, title))
                         },
                         onOpenItem = {
-                            navigation.pushToFront(Config.Detail(registry.defaultServer?.id, it))
+                            navigation.openFrom(config, Config.Detail(registry.defaultServer?.id, it))
                         },
                         onPlayItem = {
-                            navigation.pushToFront(
+                            navigation.openFrom(
+                                config,
                                 Config.Detail(
                                     serverId = registry.defaultServer?.id,
                                     itemId = it,
@@ -327,10 +323,11 @@ class LibraryComponent(
                         libraryId = config.libraryId,
                         title = config.title,
                         onOpenItem = {
-                            navigation.pushToFront(Config.Detail(gridServerId, it))
+                            navigation.openFrom(config, Config.Detail(gridServerId, it))
                         },
                         onOpenContainer = { container ->
-                            navigation.pushToFront(
+                            navigation.openFrom(
+                                config,
                                 Config.Grid(
                                     LibraryContainerRoute.from(container).encode(),
                                     container.title,
@@ -354,7 +351,7 @@ class LibraryComponent(
                         dependencies = dependencies,
                         onBack = { navigation.pop() },
                         onOpenRelated = { serverId, itemId ->
-                            navigation.pushToFront(Config.Detail(serverId, itemId))
+                            navigation.openFrom(config, Config.Detail(serverId, itemId))
                         },
                         onPlay = { serverId, itemId, ticks, mediaSourceId ->
                             openPlayer(

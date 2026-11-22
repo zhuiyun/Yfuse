@@ -19,15 +19,10 @@ import com.yfuse.core.designsystem.Dimens
  */
 @Composable
 fun floatingNavigationContentInset(): Dp =
-    if (LocalWideWindow.current) {
-        systemNavigationContentInset()
-    } else {
-        floatingNavigationContentInset(
-            systemNavigationInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
-            // The dock grows with the font scale; the clearance has to grow with it.
-            dock = dockHeight(),
-        )
-    }
+    floatingNavigationContentInset(
+        systemNavigationInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
+        dock = dockHeight(),
+    )
 
 internal fun floatingNavigationContentInset(
     systemNavigationInset: Dp,
@@ -67,8 +62,10 @@ internal fun activityCapsuleOffset(dock: Dp): Dp = dock + Dimens.tabBarInset + D
 /** Bottom space for full-screen child pages where the shell has already hidden its dock. */
 @Composable
 fun systemNavigationContentInset(): Dp =
-    systemNavigationContentInset(
-        systemNavigationInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
-    )
+    if (LocalFloatingDockVisible.current) {
+        floatingNavigationContentInset()
+    } else {
+        systemNavigationContentInset(WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding())
+    }
 
 internal fun systemNavigationContentInset(systemNavigationInset: Dp): Dp = systemNavigationInset + Dimens.sectionGap

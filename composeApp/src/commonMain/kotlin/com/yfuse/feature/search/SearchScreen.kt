@@ -77,6 +77,7 @@ import com.yfuse.core.designsystem.LiftAnchor
 import com.yfuse.core.designsystem.LiftMenu
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.LocalInListPane
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.MediaSharedElementKey
@@ -158,6 +159,7 @@ fun SearchScreen(component: SearchComponent) {
         onBack = component::navigateBack,
         contentKey = { routeKey(it.configuration) },
         modifier = Modifier.fillMaxSize(),
+        listPane = { it.instance is SearchComponent.Child.Home || it.instance is SearchComponent.Child.Person },
         isLauncher = { it.instance is SearchComponent.Child.Player },
         isDetail = { it.instance is SearchComponent.Child.Detail },
     ) { entry ->
@@ -256,8 +258,9 @@ private fun SearchHomeScreen(
     StatusBarIconStyle(darkIcons = !palette.isDark)
     ScrollToTopOnReselect(component.listState)
 
-    LaunchedEffect(focusRequest, routeVisible) {
-        if (!routeVisible) {
+    val inListPane = LocalInListPane.current
+    LaunchedEffect(focusRequest, routeVisible, inListPane) {
+        if (!routeVisible || inListPane) {
             focusManager.clearFocus(force = true)
             keyboard?.hide()
         } else if (consumeFocusRequest(focusRequest)) {
