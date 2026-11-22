@@ -61,6 +61,7 @@ import com.yfuse.core.designsystem.sharedMediaArtwork
 import com.yfuse.core.designsystem.sharedMediaOnClick
 import com.yfuse.feature.library.LibraryComponent
 import com.yfuse.launchMainActivityForInput
+import com.yfuse.tapWindowAt
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
@@ -88,26 +89,13 @@ class DetailBackNavigationInstrumentedTest {
                 awaitCondition("The library did not compose behind the splash") { probe.hostComposed.get() }
                 scenario.onActivity { probe.parentVisible.value = true }
                 awaitComposedRoute("library", probe)
-                tapPoster(probe)
+                tapPoster(scenario, probe)
                 awaitComposedRoute("detail-a", probe)
-                awaitCondition("The first poster's entry did not settle") { !probe.transitionActive.get() }
+                awaitCondition("The first poster's entry did not settle") {
+                    probe.routeSettled.get() && !probe.sharedMoving.get() && !probe.transitionActive.get()
+                }
                 // This must be the first system gesture, without warming another page's handler.
-                injectEdgeSwipe(scenario, fromRight = false, cancel = true, duringGesture = {
-                    val frame = checkNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot())
-                    try {
-                        val row = IntArray(frame.width) { frame.getPixel(it, frame.height * 4 / 5) }
-                        assertTrue(
-                            "The first poster return did not preview the library after the splash",
-                            row.count { it == PREVIEW_UNDERLAY } > frame.width / 20,
-                        )
-                        assertTrue(
-                            "The first detail faded during back",
-                            row.count { it == PREVIEW_DETAIL } > frame.width / 20,
-                        )
-                    } finally {
-                        frame.recycle()
-                    }
-                })
+                injectEdgeSwipe(scenario, fromRight = false, cancel = true) { assertOpaqueSidePreview() }
                 assertStack(scenario, probe, listOf("library", "detail-a"), pops = 0)
                 injectEdgeSwipe(scenario, fromRight = false, cancel = false)
                 awaitComposedRoute("library", probe)
@@ -132,23 +120,13 @@ class DetailBackNavigationInstrumentedTest {
                 for (fromRight in listOf(false, true)) {
                     injectEdgeSwipe(scenario, fromRight = fromRight, cancel = true, duringGesture = {
                         val instrumentation = InstrumentationRegistry.getInstrumentation()
-                        val frame = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
-                        try {
+                        assertOpaqueSidePreview(rowFraction = .5f) { frame, row ->
                             val file =
                                 java.io.File(
                                     instrumentation.targetContext.getExternalFilesDir(null),
                                     "detail-system-back-$fromRight.png",
                                 )
                             file.outputStream().use { frame.compress(Bitmap.CompressFormat.PNG, 100, it) }
-                            val row = IntArray(frame.width) { frame.getPixel(it, frame.height / 2) }
-                            assertTrue(
-                                "System gesture never revealed the destination",
-                                row.count { it == PREVIEW_UNDERLAY } > frame.width / 20,
-                            )
-                            assertTrue(
-                                "Detail disappeared before gesture release",
-                                row.count { it == PREVIEW_DETAIL } > frame.width / 20,
-                            )
                             // System UI's back bubble can cover a few pixels at either edge.
                             assertTrue(
                                 "Either edge must reveal the destination on the left",
@@ -158,8 +136,6 @@ class DetailBackNavigationInstrumentedTest {
                                 "The outgoing detail must move to the right",
                                 row.drop(frame.width / 2).none { it == PREVIEW_UNDERLAY },
                             )
-                        } finally {
-                            frame.recycle()
                         }
                     })
                     SystemClock.sleep(700L)
@@ -189,22 +165,15 @@ class DetailBackNavigationInstrumentedTest {
                     scenario.onActivity {
                         it.onBackPressedDispatcher.dispatchOnBackProgressed(BackEventCompat(400f, 500f, 0.4f, edge))
                     }
-                    SystemClock.sleep(150L)
-                    val frame = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
-                    try {
+                    awaitRenderedFrame("$theme/$edge: destination and opaque detail at 40% back progress") { frame ->
                         val y = frame.height / 2
                         val destinationX = (frame.width * 0.2f).toInt()
                         val detailX = frame.width - destinationX
-                        assertEquals(
-                            "$theme/$edge: destination must be visible during the gesture",
-                            PREVIEW_UNDERLAY,
-                            frame.getPixel(destinationX, y),
-                        )
-                        assertEquals(
-                            "$theme/$edge: detail must remain fully opaque",
-                            PREVIEW_DETAIL,
-                            frame.getPixel(detailX, y),
-                        )
+                        if (frame.getPixel(destinationX, y) != PREVIEW_UNDERLAY ||
+                            frame.getPixel(detailX, y) != PREVIEW_DETAIL
+                        ) {
+                            return@awaitRenderedFrame false
+                        }
                         // Classic/Cinema shrink by 4% over a complete gesture; Calm stays full size.
                         val stripeY = frame.height / 3
                         var stripeWidth = 0
@@ -221,8 +190,7 @@ class DetailBackNavigationInstrumentedTest {
                             "$theme/$edge: wrong preview scale (expected $expectedWidth, got $stripeWidth)",
                             kotlin.math.abs(expectedWidth - stripeWidth) <= 2,
                         )
-                    } finally {
-                        frame.recycle()
+                        true
                     }
                     scenario.onActivity { it.onBackPressedDispatcher.dispatchOnBackCancelled() }
                     SystemClock.sleep(700L)
@@ -256,14 +224,14 @@ class DetailBackNavigationInstrumentedTest {
         launchMainActivityForInput().use { scenario ->
             installNavigation(scenario, probe)
             awaitComposedRoute("library", probe)
-            tapPoster(probe)
+            tapPoster(scenario, probe)
             awaitComposedRoute("detail-a", probe)
             awaitCondition("The first poster did not expand into the detail") {
                 probe.sharedOpeningRoute.get() ==
                     "detail-a"
             }
             awaitCondition("The first poster's forward morph did not settle") { !probe.transitionActive.get() }
-            tapPoster(probe)
+            tapPoster(scenario, probe)
             awaitComposedRoute("detail-b", probe)
             awaitCondition("The nested poster did not expand into the detail") {
                 probe.sharedOpeningRoute.get() ==
@@ -298,7 +266,7 @@ class DetailBackNavigationInstrumentedTest {
         launchMainActivityForInput().use { scenario ->
             installNavigation(scenario, probe)
             awaitComposedRoute("library", probe)
-            tapPoster(probe)
+            tapPoster(scenario, probe)
             awaitComposedRoute("detail-a", probe)
             awaitCondition("The poster entry did not settle") {
                 !probe.transitionActive.get() &&
@@ -346,10 +314,10 @@ class DetailBackNavigationInstrumentedTest {
             launchMainActivityForInput().use { scenario ->
                 installNavigation(scenario, probe)
                 awaitComposedRoute("library", probe)
-                tapPoster(probe)
+                tapPoster(scenario, probe)
                 awaitComposedRoute("detail-a", probe)
                 awaitCondition("The first poster's forward morph did not settle") { !probe.transitionActive.get() }
-                tapPoster(probe)
+                tapPoster(scenario, probe)
                 awaitComposedRoute("detail-b", probe)
                 awaitCondition("The nested poster's forward morph did not settle") { !probe.transitionActive.get() }
                 injectEdgeSwipe(scenario, fromRight = false, cancel = true)
@@ -810,26 +778,46 @@ class DetailBackNavigationInstrumentedTest {
         }
     }
 
-    private fun tapPoster(probe: NavigationProbe) {
+    private fun tapPoster(
+        scenario: ActivityScenario<MainActivity>,
+        probe: NavigationProbe,
+    ) {
         val poster = probe.posterBounds.get()
         assertTrue("The source poster did not lay out", poster.width > 0f && poster.height > 0f)
-        val down = SystemClock.uptimeMillis()
-        injectPointer(MotionEvent.ACTION_DOWN, poster.center.x, poster.center.y, down)
-        SystemClock.sleep(40L)
-        injectPointer(MotionEvent.ACTION_UP, poster.center.x, poster.center.y, down)
+        scenario.tapWindowAt(poster.center.x, poster.center.y)
     }
 
-    private fun assertOpaqueSidePreview() {
-        awaitCondition("The side preview did not show the list and opaque detail in the same frame") {
-            val frame = checkNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot())
-            try {
-                val row = IntArray(frame.width) { frame.getPixel(it, frame.height * 4 / 5) }
+    private fun assertOpaqueSidePreview(
+        rowFraction: Float = .8f,
+        checkFrame: (Bitmap, IntArray) -> Unit = { _, _ -> },
+    ) {
+        awaitRenderedFrame("The side preview did not show the list and opaque detail in the same frame") { frame ->
+            val y = (frame.height * rowFraction).toInt()
+            val row = IntArray(frame.width) { frame.getPixel(it, y) }
+            val ready =
                 row.count { it == PREVIEW_UNDERLAY } > frame.width / 20 &&
                     row.count { it == PREVIEW_DETAIL } > frame.width / 20
+            if (ready) checkFrame(frame, row)
+            ready
+        }
+    }
+
+    private fun awaitRenderedFrame(
+        failure: String,
+        matches: (Bitmap) -> Boolean,
+    ) {
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        val deadline = SystemClock.uptimeMillis() + 5_000L
+        do {
+            val frame = checkNotNull(automation.takeScreenshot())
+            try {
+                if (matches(frame)) return
             } finally {
                 frame.recycle()
             }
-        }
+            SystemClock.sleep(20L)
+        } while (SystemClock.uptimeMillis() < deadline)
+        throw AssertionError(failure)
     }
 
     private fun predictiveGesture(
