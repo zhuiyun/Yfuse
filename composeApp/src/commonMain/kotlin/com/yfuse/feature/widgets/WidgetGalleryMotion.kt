@@ -196,6 +196,7 @@ internal fun rememberWidgetGalleryMotion(
                 }
             }
         }
+
     // A positive pitch lifts the front face, while screen Y increases downwards.
     fun rotateVertically(screenDegrees: Float) {
         pitchDegrees = normalizedPrismPitch(pitchDegrees - screenDegrees)

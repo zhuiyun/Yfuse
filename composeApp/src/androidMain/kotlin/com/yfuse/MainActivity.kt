@@ -102,7 +102,8 @@ class MainActivity : ComponentActivity() {
                             resetExitConfirmation()
                         }
                     exitConfirmationToast =
-                        Toast.makeText(this@MainActivity, "再按一次返回键退出 Yfuse", Toast.LENGTH_SHORT)
+                        Toast
+                            .makeText(this@MainActivity, "再按一次返回键退出 Yfuse", Toast.LENGTH_SHORT)
                             .also(Toast::show)
                 }
             }.also { exitBackCallback = it },
