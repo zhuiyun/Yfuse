@@ -3,11 +3,14 @@ package com.yfuse
 import android.app.Activity
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
+import android.view.InputDevice
+import android.view.MotionEvent
 import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
 import com.yfuse.core.security.ServerSessionRecovery
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 
 /**
@@ -55,6 +58,33 @@ internal fun <A : Activity> awaitWindowFocus(
         SystemClock.sleep(FOCUS_POLL_MS)
     }
     fail("The activity's window did not take focus in $timeoutMs ms; the window manager has ${focusedWindow()}")
+}
+
+/** Deliver a single tap at a Compose boundsInWindow coordinate in the focused activity. */
+internal fun <A : Activity> ActivityScenario<A>.tapWindowAt(
+    x: Float,
+    y: Float,
+) {
+    awaitWindowFocus(this)
+    var downTime = 0L
+
+    fun send(action: Int) {
+        onActivity { activity ->
+            assertTrue("Tap target lost window focus", activity.hasWindowFocus())
+            val now = SystemClock.uptimeMillis()
+            if (action == MotionEvent.ACTION_DOWN) downTime = now
+            val event = MotionEvent.obtain(downTime, now, action, x, y, 0)
+            try {
+                event.source = InputDevice.SOURCE_TOUCHSCREEN
+                assertTrue("Activity did not handle tap event $action", activity.dispatchTouchEvent(event))
+            } finally {
+                event.recycle()
+            }
+        }
+    }
+    send(MotionEvent.ACTION_DOWN)
+    SystemClock.sleep(40L)
+    send(MotionEvent.ACTION_UP)
 }
 
 /** The window manager's own account of the focused window and app, from `dumpsys window`. */

@@ -6,8 +6,6 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.SystemClock
 import android.view.FrameMetrics
-import android.view.InputDevice
-import android.view.MotionEvent
 import android.view.ViewParent
 import android.view.Window
 import androidx.activity.compose.setContent
@@ -44,6 +42,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.yfuse.MainActivity
 import com.yfuse.launchMainActivityForInput
+import com.yfuse.tapWindowAt
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertTrue
@@ -139,7 +138,7 @@ class DialogMotionQualityInstrumentedTest {
                         counter.reset()
                         measured.set(pass > 0)
                         val rect = requireNotNull(openBounds.get())
-                        injectTap(rect.center.x, rect.center.y)
+                        scenario.tapWindowAt(rect.center.x, rect.center.y)
                         waitUntil { close.get() != null }
                         SystemClock.sleep(animation.enterMillis + 100L)
                         scenario.onActivity { requireNotNull(close.get()).invoke() }
@@ -287,29 +286,6 @@ class DialogMotionQualityInstrumentedTest {
             captured.size == styles.size * 2 * shapes.size * fractions.size,
         )
         assertTrue("Captured images must not be empty", captured.all { it.length() > 0L })
-    }
-
-    private fun injectTap(
-        x: Float,
-        y: Float,
-    ) {
-        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
-        val downTime = SystemClock.uptimeMillis()
-        val down = MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, x, y, 0)
-        down.source = InputDevice.SOURCE_TOUCHSCREEN
-        try {
-            assertTrue(automation.injectInputEvent(down, true))
-        } finally {
-            down.recycle()
-        }
-        SystemClock.sleep(40)
-        val up = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), MotionEvent.ACTION_UP, x, y, 0)
-        up.source = InputDevice.SOURCE_TOUCHSCREEN
-        try {
-            assertTrue(automation.injectInputEvent(up, true))
-        } finally {
-            up.recycle()
-        }
     }
 
     private fun waitUntil(condition: () -> Boolean) {
