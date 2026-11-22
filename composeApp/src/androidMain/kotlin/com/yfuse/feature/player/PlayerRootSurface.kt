@@ -14,12 +14,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -28,7 +26,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -37,7 +34,6 @@ import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.PlatformPredictiveBackHandler
-import com.yfuse.core.designsystem.useNavigationRail
 import com.yfuse.core2.legacy.YPlayerVideoEngineAdapter
 import kotlin.math.roundToInt
 
@@ -146,15 +142,6 @@ internal fun PlayerRootSurface(
             ?.takeUnless { inPictureInPicture }
             ?.let { tabletopSplit(it.first, it.last, containerHeightPx) }
     val density = LocalDensity.current
-    var panelOpen by remember { mutableStateOf(false) }
-    val reportPanel: (Boolean) -> Unit = remember { { open -> panelOpen = open } }
-    val window = LocalWindowInfo.current.containerSize
-    val separatePanel =
-        panelOpen &&
-            tabletop == null &&
-            !inPictureInPicture &&
-            with(density) { useNavigationRail(window.width.toDp(), window.height.toDp()) }
-    val panelInset = if (separatePanel) playerPanelWidth(PlayerPopupWidth) + 24.dp else 0.dp
     // 画中画 grows out of the picture, not the player: an upright 短剧 fitted in a landscape
     // window is a third of it, and the whole player as the hint drew the wrong shape. The
     // server's size knows the file's rotation; a decoded frame stands in for it.
@@ -174,16 +161,15 @@ internal fun PlayerRootSurface(
             },
     ) {
         // 片尾接管: whichever engine draws, its surface moves the same way; the controls decide when.
+        val pictureArea =
+            if (tabletop == null) {
+                Modifier.fillMaxSize()
+            } else {
+                Modifier.fillMaxWidth().height(with(density) { tabletop.pictureBottomPx.toDp() })
+            }
         val pictureModifier =
-            Modifier
-                .padding(end = panelInset)
-                .then(
-                    if (tabletop == null) {
-                        Modifier.fillMaxSize()
-                    } else {
-                        Modifier.fillMaxWidth().height(with(density) { tabletop.pictureBottomPx.toDp() })
-                    },
-                ).onGloballyPositioned { coordinates ->
+            pictureArea
+                .onGloballyPositioned { coordinates ->
                     val bounds = coordinates.boundsInWindow()
                     val picture =
                         fittedPictureBounds(bounds.left, bounds.top, bounds.right, bounds.bottom, latestPictureAspect)
@@ -346,7 +332,7 @@ internal fun PlayerRootSurface(
             enter = fadeIn(Motion.tween(pictureInPictureFadeMs)),
             exit = ExitTransition.None,
         ) {
-            CompositionLocalProvider(LocalPlayerPanelVisibility provides reportPanel) { controls(ambient) }
+            controls(ambient)
         }
 
         // Over the chrome: 点弹幕's menu, and whatever a held 聊天 or 投屏 key has open.
