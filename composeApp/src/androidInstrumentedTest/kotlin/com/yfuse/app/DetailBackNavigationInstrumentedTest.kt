@@ -165,22 +165,15 @@ class DetailBackNavigationInstrumentedTest {
                     scenario.onActivity {
                         it.onBackPressedDispatcher.dispatchOnBackProgressed(BackEventCompat(400f, 500f, 0.4f, edge))
                     }
-                    SystemClock.sleep(150L)
-                    val frame = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
-                    try {
+                    awaitRenderedFrame("$theme/$edge: destination and opaque detail at 40% back progress") { frame ->
                         val y = frame.height / 2
                         val destinationX = (frame.width * 0.2f).toInt()
                         val detailX = frame.width - destinationX
-                        assertEquals(
-                            "$theme/$edge: destination must be visible during the gesture",
-                            PREVIEW_UNDERLAY,
-                            frame.getPixel(destinationX, y),
-                        )
-                        assertEquals(
-                            "$theme/$edge: detail must remain fully opaque",
-                            PREVIEW_DETAIL,
-                            frame.getPixel(detailX, y),
-                        )
+                        if (frame.getPixel(destinationX, y) != PREVIEW_UNDERLAY ||
+                            frame.getPixel(detailX, y) != PREVIEW_DETAIL
+                        ) {
+                            return@awaitRenderedFrame false
+                        }
                         // Classic/Cinema shrink by 4% over a complete gesture; Calm stays full size.
                         val stripeY = frame.height / 3
                         var stripeWidth = 0
@@ -197,8 +190,7 @@ class DetailBackNavigationInstrumentedTest {
                             "$theme/$edge: wrong preview scale (expected $expectedWidth, got $stripeWidth)",
                             kotlin.math.abs(expectedWidth - stripeWidth) <= 2,
                         )
-                    } finally {
-                        frame.recycle()
+                        true
                     }
                     scenario.onActivity { it.onBackPressedDispatcher.dispatchOnBackCancelled() }
                     SystemClock.sleep(700L)
@@ -799,25 +791,33 @@ class DetailBackNavigationInstrumentedTest {
         rowFraction: Float = .8f,
         checkFrame: (Bitmap, IntArray) -> Unit = { _, _ -> },
     ) {
+        awaitRenderedFrame("The side preview did not show the list and opaque detail in the same frame") { frame ->
+            val y = (frame.height * rowFraction).toInt()
+            val row = IntArray(frame.width) { frame.getPixel(it, y) }
+            val ready =
+                row.count { it == PREVIEW_UNDERLAY } > frame.width / 20 &&
+                    row.count { it == PREVIEW_DETAIL } > frame.width / 20
+            if (ready) checkFrame(frame, row)
+            ready
+        }
+    }
+
+    private fun awaitRenderedFrame(
+        failure: String,
+        matches: (Bitmap) -> Boolean,
+    ) {
         val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
         val deadline = SystemClock.uptimeMillis() + 5_000L
         do {
             val frame = checkNotNull(automation.takeScreenshot())
             try {
-                val y = (frame.height * rowFraction).toInt()
-                val row = IntArray(frame.width) { frame.getPixel(it, y) }
-                if (row.count { it == PREVIEW_UNDERLAY } > frame.width / 20 &&
-                    row.count { it == PREVIEW_DETAIL } > frame.width / 20
-                ) {
-                    checkFrame(frame, row)
-                    return
-                }
+                if (matches(frame)) return
             } finally {
                 frame.recycle()
             }
             SystemClock.sleep(20L)
         } while (SystemClock.uptimeMillis() < deadline)
-        throw AssertionError("The side preview did not show the list and opaque detail in the same frame")
+        throw AssertionError(failure)
     }
 
     private fun predictiveGesture(
