@@ -6,6 +6,7 @@ import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import android.util.Log
 import android.view.InputDevice
+import android.view.KeyEvent
 import android.view.MotionEvent
 import androidx.activity.BackEventCompat
 import androidx.activity.compose.setContent
@@ -524,7 +525,6 @@ class DetailBackNavigationInstrumentedTest {
                     val dispatcher = activity.onBackPressedDispatcher
                     assertTrue("The root must offer exit confirmation", dispatcher.hasEnabledCallbacks())
                     dispatcher.onBackPressed()
-                    assertFalse("The first back must arm system exit", dispatcher.hasEnabledCallbacks())
                     assertFalse(activity.isFinishing)
                     model.browse.openDetail(null, "gesture-model-detail-a")
                     model.browse.openDetail(null, "gesture-model-detail-b")
@@ -617,27 +617,19 @@ class DetailBackNavigationInstrumentedTest {
                     )
                     dispatcher.dispatchOnBackStarted(BackEventCompat(1f, 300f, 0f, BackEventCompat.EDGE_LEFT))
                     dispatcher.dispatchOnBackCancelled()
-                    assertTrue("A cancelled gesture must not arm exit", dispatcher.hasEnabledCallbacks())
-                    dispatcher.onBackPressed()
-                    assertFalse("First root back must release the system callback", dispatcher.hasEnabledCallbacks())
-                }
-                awaitCondition("The root exit confirmation did not expire") {
-                    var rearmed = false
-                    scenario.onActivity { rearmed = it.onBackPressedDispatcher.hasEnabledCallbacks() }
-                    rearmed
-                }
-                scenario.onActivity {
-                    it.onBackPressedDispatcher.onBackPressed()
-                    assertFalse("The activity finished on the first back", it.isFinishing)
-                    assertFalse(
-                        "Second back must be handled by Android",
-                        it.onBackPressedDispatcher.hasEnabledCallbacks(),
-                    )
                 }
                 injectEdgeSwipe(scenario, fromRight = true, cancel = false)
-                // The confirmed exit belongs to Android. Whether the launcher task is retained
-                // or finished depends on platform policy; every detail above must stay alive.
-                awaitCondition("The root did not return system back to Android") {
+                assertForeground(scenario)
+                // Let the first confirmation expire; the following key must keep the app open.
+                SystemClock.sleep(2_100L)
+                val instrumentation = InstrumentationRegistry.getInstrumentation()
+                instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+                scenario.onActivity {
+                    assertFalse("An expired confirmation finished the activity", it.isFinishing)
+                    assertTrue("An expired confirmation backgrounded the activity", it.hasWindowFocus())
+                }
+                injectEdgeSwipe(scenario, fromRight = false, cancel = false)
+                awaitCondition("The confirmed root back did not leave the foreground") {
                     scenario.state != Lifecycle.State.RESUMED &&
                         InstrumentationRegistry
                             .getInstrumentation()
@@ -828,14 +820,15 @@ class DetailBackNavigationInstrumentedTest {
     }
 
     private fun assertOpaqueSidePreview() {
-        SystemClock.sleep(100L)
-        val frame = checkNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot())
-        try {
-            val row = IntArray(frame.width) { frame.getPixel(it, frame.height * 4 / 5) }
-            assertTrue("Side preview must reveal the list", row.count { it == PREVIEW_UNDERLAY } > frame.width / 20)
-            assertTrue("The detail must remain opaque", row.count { it == PREVIEW_DETAIL } > frame.width / 20)
-        } finally {
-            frame.recycle()
+        awaitCondition("The side preview did not show the list and opaque detail in the same frame") {
+            val frame = checkNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot())
+            try {
+                val row = IntArray(frame.width) { frame.getPixel(it, frame.height * 4 / 5) }
+                row.count { it == PREVIEW_UNDERLAY } > frame.width / 20 &&
+                    row.count { it == PREVIEW_DETAIL } > frame.width / 20
+            } finally {
+                frame.recycle()
+            }
         }
     }
 

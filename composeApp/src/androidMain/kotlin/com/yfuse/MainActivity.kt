@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.graphics.drawable.ColorDrawable
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
@@ -50,7 +51,6 @@ import com.yfuse.update.AppUpdateManager
 import com.yfuse.update.AppUpdateOverlay
 import com.yfuse.update.LocalAppUpdateManager
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -67,8 +67,7 @@ class MainActivity : ComponentActivity() {
     private var jankMonitor: AppJankMonitor? = null
     private var calendarNotificationPermissionRequested = false
     private var downloadNotificationPermissionRequested = false
-    private var exitRearmJob: Job? = null
-    private var exitBackCallback: OnBackPressedCallback? = null
+    private var exitConfirmationUntil = 0L
     private var exitConfirmationToast: Toast? = null
 
     /** Whether [getIntent] has been acted on, here or by the instance this one replaces. */
@@ -87,26 +86,30 @@ class MainActivity : ComponentActivity() {
             savedInstanceState?.getBoolean(STATE_LAUNCH_INTENT_HANDLED) == true ||
             (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0
 
-        // Register first so menus, details and the model back stack keep priority. After the
-        // first committed root back, Android handles the second, including its launcher preview.
+        // Register first so menus, details and the model back stack keep priority. Use the
+        // same callback for both root gestures so the platform never has to switch mid-pair.
         onBackPressedDispatcher.addCallback(
             this,
             object : OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {
                     // A deep link can open a detail after this gesture started at the root.
                     if (rootComponent?.backNavigationState()?.enabled == true) return
-                    isEnabled = false
-                    exitRearmJob =
-                        lifecycleScope.launch {
-                            delay(EXIT_CONFIRMATION_WINDOW_MS)
-                            resetExitConfirmation()
+                    val now = SystemClock.elapsedRealtime()
+                    if (now < exitConfirmationUntil) {
+                        resetExitConfirmation()
+                        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || !moveTaskToBack(false)) {
+                            finishAfterTransition()
                         }
+                        return
+                    }
+                    exitConfirmationUntil = now + EXIT_CONFIRMATION_WINDOW_MS
+                    exitConfirmationToast?.cancel()
                     exitConfirmationToast =
                         Toast
                             .makeText(this@MainActivity, "再按一次返回键退出 Yfuse", Toast.LENGTH_SHORT)
                             .also(Toast::show)
                 }
-            }.also { exitBackCallback = it },
+            },
         )
         preferHighRefreshRateForUi()
         enableEdgeToEdge()
@@ -443,9 +446,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun resetExitConfirmation() {
-        exitRearmJob?.cancel()
-        exitRearmJob = null
-        exitBackCallback?.isEnabled = true
+        exitConfirmationUntil = 0L
         exitConfirmationToast?.cancel()
         exitConfirmationToast = null
     }
