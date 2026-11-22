@@ -15,6 +15,7 @@ import com.yfuse.core.logging.AppLog
 internal class RootBackFallback(
     private val activity: ComponentActivity,
     private val root: RootComponent,
+    private val resetExitConfirmation: () -> Unit,
 ) {
     private var closed = false
     private var navigationGeneration = 0L
@@ -68,7 +69,9 @@ internal class RootBackFallback(
     }
 
     private fun refreshEnabled() {
-        if (!closed) callback.isEnabled = root.backNavigationState().enabled
+        if (closed) return
+        callback.isEnabled = root.backNavigationState().enabled
+        if (callback.isEnabled) resetExitConfirmation()
     }
 
     fun close() {

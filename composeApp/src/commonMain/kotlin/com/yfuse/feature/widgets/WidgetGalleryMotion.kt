@@ -196,6 +196,12 @@ internal fun rememberWidgetGalleryMotion(
                 }
             }
         }
+
+    // A positive pitch lifts the front face, while screen Y increases downwards.
+    fun rotateVertically(screenDegrees: Float) {
+        pitchDegrees = normalizedPrismPitch(pitchDegrees - screenDegrees)
+    }
+
     val dragInput =
         if (twoAxis) {
             Modifier.pointerInput(styleKey, step, rtl, lastIndex) {
@@ -215,7 +221,7 @@ internal fun rememberWidgetGalleryMotion(
                     velocity.addPosition(change.uptimeMillis, change.position)
                     val horizontal = amount.x * if (rtl) -1f else 1f
                     rawPosition = (rawPosition - horizontal / step).coerceIn(0f, lastIndex.toFloat())
-                    pitchDegrees = normalizedPrismPitch(pitchDegrees + amount.y / step * 90f)
+                    rotateVertically(amount.y / step * 90f)
                 }
             }
         } else {
@@ -234,8 +240,7 @@ internal fun rememberWidgetGalleryMotion(
                     false
                 } else if (twoAxis && (event.key == Key.DirectionUp || event.key == Key.DirectionDown)) {
                     selectionJob?.cancel()
-                    pitchDegrees =
-                        normalizedPrismPitch(pitchDegrees + if (event.key == Key.DirectionDown) 30f else -30f)
+                    rotateVertically(if (event.key == Key.DirectionDown) 30f else -30f)
                     true
                 } else {
                     val direction =
@@ -264,7 +269,8 @@ internal fun rememberWidgetGalleryMotion(
                     scrollBy { x, y ->
                         if (twoAxis && y != 0f) {
                             selectionJob?.cancel()
-                            pitchDegrees = normalizedPrismPitch(pitchDegrees + if (y > 0f) 30f else -30f)
+                            // Scrolling forward moves the artwork up.
+                            rotateVertically(if (y > 0f) -30f else 30f)
                             true
                         } else if (x == 0f || items.size <= 1) {
                             false
@@ -279,14 +285,14 @@ internal fun rememberWidgetGalleryMotion(
                                 add(
                                     CustomAccessibilityAction("向上旋转") {
                                         selectionJob?.cancel()
-                                        pitchDegrees = normalizedPrismPitch(pitchDegrees - 30f)
+                                        rotateVertically(-30f)
                                         true
                                     },
                                 )
                                 add(
                                     CustomAccessibilityAction("向下旋转") {
                                         selectionJob?.cancel()
-                                        pitchDegrees = normalizedPrismPitch(pitchDegrees + 30f)
+                                        rotateVertically(30f)
                                         true
                                     },
                                 )

@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.graphics.drawable.ColorDrawable
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
@@ -50,7 +51,6 @@ import com.yfuse.update.AppUpdateManager
 import com.yfuse.update.AppUpdateOverlay
 import com.yfuse.update.LocalAppUpdateManager
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -67,8 +67,7 @@ class MainActivity : ComponentActivity() {
     private var jankMonitor: AppJankMonitor? = null
     private var calendarNotificationPermissionRequested = false
     private var downloadNotificationPermissionRequested = false
-    private var exitRearmJob: Job? = null
-    private var exitBackCallback: OnBackPressedCallback? = null
+    private var exitConfirmationUntil = 0L
     private var exitConfirmationToast: Toast? = null
 
     /** Whether [getIntent] has been acted on, here or by the instance this one replaces. */
@@ -87,38 +86,31 @@ class MainActivity : ComponentActivity() {
             savedInstanceState?.getBoolean(STATE_LAUNCH_INTENT_HANDLED) == true ||
             (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0
 
-        // Registered before Decompose and Compose create their route callbacks, so those later
-        // callbacks keep priority. This fallback only runs when every visible navigation stack
-        // is already at the point where Android would otherwise finish the launcher activity.
-        //
-        // Only below Android 13. From 13 the system owns back at the root — it sends the task to
-        // the background instead of finishing it, and 14+ previews the return to the launcher as
-        // the gesture moves. An always-enabled callback here swallowed that preview and turned
-        // every back from a root page into two presses for nothing.
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-            onBackPressedDispatcher.addCallback(
-                this,
-                object : OnBackPressedCallback(true) {
-                    override fun handleOnBackPressed() {
-                        isEnabled = false
-                        exitRearmJob?.cancel()
-                        exitRearmJob =
-                            lifecycleScope.launch {
-                                delay(EXIT_CONFIRMATION_WINDOW_MS)
-                                isEnabled = true
-                            }
-                        exitConfirmationToast?.cancel()
-                        exitConfirmationToast =
-                            Toast
-                                .makeText(
-                                    this@MainActivity,
-                                    "再按一次返回键退出 Yfuse",
-                                    Toast.LENGTH_SHORT,
-                                ).also(Toast::show)
+        // Register first so menus, details and the model back stack keep priority. Use the
+        // same callback for both root gestures so the platform never has to switch mid-pair.
+        onBackPressedDispatcher.addCallback(
+            this,
+            object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    // A deep link can open a detail after this gesture started at the root.
+                    if (rootComponent?.backNavigationState()?.enabled == true) return
+                    val now = SystemClock.elapsedRealtime()
+                    if (now < exitConfirmationUntil) {
+                        resetExitConfirmation()
+                        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || !moveTaskToBack(false)) {
+                            finishAfterTransition()
+                        }
+                        return
                     }
-                }.also { exitBackCallback = it },
-            )
-        }
+                    exitConfirmationUntil = now + EXIT_CONFIRMATION_WINDOW_MS
+                    exitConfirmationToast?.cancel()
+                    exitConfirmationToast =
+                        Toast
+                            .makeText(this@MainActivity, "再按一次返回键退出 Yfuse", Toast.LENGTH_SHORT)
+                            .also(Toast::show)
+                }
+            },
+        )
         preferHighRefreshRateForUi()
         enableEdgeToEdge()
         if (ServerSessionRecovery.showIfNeeded(this)) return
@@ -208,7 +200,7 @@ class MainActivity : ComponentActivity() {
             }
 
         rootComponent = root
-        if (rootBackFallback == null) rootBackFallback = RootBackFallback(this, root)
+        if (rootBackFallback == null) rootBackFallback = RootBackFallback(this, root, ::resetExitConfirmation)
         observeCalendarNotificationPermission(koin.get())
         observeDownloadNotificationPermission(koin.get())
 
@@ -453,13 +445,14 @@ class MainActivity : ComponentActivity() {
             }
     }
 
-    override fun onStop() {
-        // A second press must belong to the same foreground interaction. Opening the player,
-        // switching apps, or locking the phone must not arm an immediate exit on return.
-        exitRearmJob?.cancel()
-        exitBackCallback?.isEnabled = true
+    private fun resetExitConfirmation() {
+        exitConfirmationUntil = 0L
         exitConfirmationToast?.cancel()
         exitConfirmationToast = null
+    }
+
+    override fun onStop() {
+        resetExitConfirmation()
         jankMonitor?.stop()
         playerVisibilityJob?.cancel()
         playerVisibilityJob = null
