@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with: {ref: 382077026e5747530f320c0188ba2eeebd529b7e, persist-credentials: false}
-      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880
         with: {distribution: temurin, java-version: '17'}
       - name: Inspect the exact installed file, signature and alignment
         env: {API_TOKEN: "${{ github.token }}"}
