@@ -29,7 +29,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -49,7 +48,6 @@ import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.DialogPresence
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
-import com.yfuse.core.designsystem.HeroPageFade
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MediaSharedElementKey
@@ -66,9 +64,7 @@ import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.playerArtworkOnClick
 import com.yfuse.core.designsystem.rememberAnimatedArtworkAccent
 import com.yfuse.core.designsystem.rememberAnimatedColorState
-import com.yfuse.core.designsystem.rememberArtworkPageColor
 import com.yfuse.core.designsystem.rememberBackdropState
-import com.yfuse.core.designsystem.rememberRetainedArtworkPageColor
 import com.yfuse.core.designsystem.windowWidthTier
 import com.yfuse.core.designsystem.zoomBackAnchor
 import com.yfuse.core.model.CalendarDay
@@ -569,33 +565,11 @@ fun DetailScreen(component: DetailComponent) {
             val heroHeight = preferredHeroHeight.coerceAtLeast(captionLift + statusBarHeight + TopBarHeight)
             val heroHeightPx = with(density) { heroHeight.toPx() }
 
-            val artworkAspectRatio = maxWidth.value / heroHeight.value.coerceAtLeast(1f)
-            val artworkFadeFraction =
-                (HeroPageFade.value / heroHeight.value.coerceAtLeast(1f)).coerceIn(0.02f, 1f)
-            val sampledPageColor =
-                rememberArtworkPageColor(
-                    url = resolvedHeroUrl,
-                    targetAspectRatio = artworkAspectRatio,
-                    fadeFraction = artworkFadeFraction,
-                )
-            val retainedPageColor =
-                rememberRetainedArtworkPageColor(
-                    "detail:${state.server?.id ?: component.serverId}:${detail?.id ?: component.itemId}",
-                )
-            LaunchedEffect(sampledPageColor) {
-                sampledPageColor?.let(retainedPageColor::update)
-            }
-            val detailSurface =
-                retainedPageColor.value
-                    ?.let { sampled ->
-                        // Keep the artwork hue without washing the entire detail page in the
-                        // sampled colour. Light pages need more neutral ground than dark pages.
-                        lerp(sampled, palette.background, if (palette.isDark) 0.18f else 0.34f)
-                    } ?: palette.background
+            // The artwork fades into the theme ground. Body text and technical panels keep the
+            // same contrast when the selected artwork changes.
+            val detailSurface = palette.background
             val detailPlayColor =
                 remember(detailAccent, detailSurface) {
-                    // The primary key must be visibly separate from the artwork-tinted page,
-                    // not merely another rectangle of the same purple/green/blue.
                     readableStateAccent(detailAccent, detailSurface, minimumRatio = 3.0f)
                 }
 
@@ -756,10 +730,6 @@ fun DetailScreen(component: DetailComponent) {
                                         }
                                     }
 
-                                    // The personal lists live in the 更多操作 sheet: as buttons under the play key
-                                    // they pushed the synopsis and the sources below the fold. The one compact row
-                                    // of keys there carries 收藏 / 稍后看 / 已看 / 下载 instead, and the title block
-                                    // still says which lists hold the title.
                                     val overview = detail.overview
                                     if (!overview.isNullOrBlank()) {
                                         motionItem(key = "overview") {
@@ -773,8 +743,7 @@ fun DetailScreen(component: DetailComponent) {
                                         }
                                     }
 
-                                    // Choose an episode directly after the synopsis, before comparing sources.
-                                    // A season with none keeps the section while other seasons can be picked.
+                                    // A season with no episodes still has a section so other seasons can be picked.
                                     if (detail.type.equals("Series", ignoreCase = true) ||
                                         state.episodes.isNotEmpty() ||
                                         state.seasons.size > 1

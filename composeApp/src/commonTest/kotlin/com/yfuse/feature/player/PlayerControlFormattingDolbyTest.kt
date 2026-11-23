@@ -139,7 +139,7 @@ class PlayerControlFormattingDolbyTest {
                         engine = "YCore",
                     ),
             )
-        val readout = state.readoutLine(sourceLabel = null, containerLabel = null)
+        val readout = state.readoutLine(sourceLabel = null)
 
         assertEquals(PlaybackMethod.DirectPlay.label, state.playbackMethodReadoutLabel())
         assertFalse(PlaybackMethod.Transcode.label in readout)

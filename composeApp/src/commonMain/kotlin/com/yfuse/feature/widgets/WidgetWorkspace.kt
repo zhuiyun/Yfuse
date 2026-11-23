@@ -1,5 +1,6 @@
 package com.yfuse.feature.widgets
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -21,6 +22,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
@@ -29,7 +31,6 @@ import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.PlatformBackHandler
-import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.widget.BUNDLED_RECOMMENDATIONS_ID
 import com.yfuse.core.widget.BUNDLED_TMDB_ID
@@ -189,7 +190,7 @@ fun WidgetWorkspaceScreen(
                                 Row(
                                     Modifier
                                         .fillMaxWidth()
-                                        .glass(AppShapes.card, palette.card, palette.border)
+                                        .background(palette.card.compositeOver(palette.background), AppShapes.card)
                                         .pressable(onClick = { page = item })
                                         .padding(start = 14.dp, top = 10.dp, end = 6.dp, bottom = 10.dp),
                                     verticalAlignment = Alignment.CenterVertically,
@@ -203,7 +204,7 @@ fun WidgetWorkspaceScreen(
                                             item.title,
                                             color = palette.text,
                                             style = AppTypography.body.strong,
-                                            maxLines = 1,
+                                            maxLines = 2,
                                             overflow = TextOverflow.Ellipsis,
                                         )
                                         Text(
@@ -234,7 +235,7 @@ fun WidgetWorkspaceScreen(
                                 Row(
                                     Modifier
                                         .fillMaxWidth()
-                                        .glass(AppShapes.card, palette.card, palette.border)
+                                        .background(palette.card.compositeOver(palette.background), AppShapes.card)
                                         .pressable(onClick = { widgetActions = widget })
                                         .padding(horizontal = 14.dp, vertical = 10.dp),
                                     verticalAlignment = Alignment.CenterVertically,
@@ -248,7 +249,7 @@ fun WidgetWorkspaceScreen(
                                             widget.metadata.title,
                                             color = palette.text,
                                             style = AppTypography.body.strong,
-                                            maxLines = 1,
+                                            maxLines = 2,
                                             overflow = TextOverflow.Ellipsis,
                                         )
                                         Text(

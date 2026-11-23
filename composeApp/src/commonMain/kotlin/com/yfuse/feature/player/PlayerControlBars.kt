@@ -48,8 +48,8 @@ internal fun BoxScope.PlayerTopChrome(
             onAmbientPresence(true)
             onDispose { onAmbientPresence(false) }
         }
-        val readout by remember(playback, source.sourceLabel, source.containerLabel) {
-            derivedStateOf { playback.value.readoutLine(source.sourceLabel, source.containerLabel) }
+        val readout by remember(playback, source.sourceLabel) {
+            derivedStateOf { playback.value.readoutLine(source.sourceLabel) }
         }
         RefinedTopBar(
             title =

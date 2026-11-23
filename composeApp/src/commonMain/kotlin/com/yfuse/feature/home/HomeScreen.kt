@@ -1,8 +1,5 @@
 package com.yfuse.feature.home
 
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -44,7 +41,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
@@ -89,7 +85,6 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.MediaSharedElementKey
 import com.yfuse.core.designsystem.MediaSizing
-import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.OrbProgressDefaults
 import com.yfuse.core.designsystem.OverlayPage
@@ -106,6 +101,7 @@ import com.yfuse.core.designsystem.Tips
 import com.yfuse.core.designsystem.ToastAction
 import com.yfuse.core.designsystem.ZoomBackAnchor
 import com.yfuse.core.designsystem.arrivalSweep
+import com.yfuse.core.designsystem.artworkReelGround
 import com.yfuse.core.designsystem.carouselArtworkMotion
 import com.yfuse.core.designsystem.carouselCaptionEntry
 import com.yfuse.core.designsystem.fadeIntoPage
@@ -196,22 +192,19 @@ private val HomeHeroContentBottom = LivingPosterDefaults.CAPTION_BOTTOM
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(component: HomeComponent) {
-    // The carousel owns which slide is settled, so it reports the colour up rather than the
-    // page trying to work it out from an index it does not hold. Hoisted above the content
-    // so 跟随封面 can hand it to every control on the page — see [ArtworkPageTheme].
+    // The carousel reports the settled artwork colour for its own background and the accent.
     val navigationState by component.store.states.collectAsState(component.store.state)
     val retainedPageColor =
         rememberRetainedArtworkPageColor("home:${navigationState.server?.id.orEmpty()}")
     val pageColor = rememberCarouselPageColor(retainedPageColor.value)
     var heroAccent by remember { mutableStateOf<Color?>(null) }
     ArtworkPageTheme(
-        background = retainedPageColor.value,
+        background = null,
         artworkAccent = heroAccent,
     ) {
         HomeContent(
             component = component,
             heroPageColor = pageColor,
-            heroPageSampled = retainedPageColor.value != null,
             onHeroAccent = { heroAccent = it },
             onHeroPageColor = retainedPageColor::update,
         )
@@ -223,7 +216,6 @@ fun HomeScreen(component: HomeComponent) {
 private fun HomeContent(
     component: HomeComponent,
     heroPageColor: State<Color>,
-    heroPageSampled: Boolean,
     onHeroAccent: (Color) -> Unit,
     onHeroPageColor: (Color) -> Unit,
 ) {
@@ -253,7 +245,6 @@ private fun HomeContent(
             calendarState = calendarState,
             listState = listState,
             heroPageColor = heroPageColor,
-            heroPageSampled = heroPageSampled,
             onHeroAccent = onHeroAccent,
             onHeroPageColor = onHeroPageColor,
             onIntent = component.store::accept,
@@ -304,8 +295,6 @@ internal fun HomeContentBody(
     onOpenProfile: () -> Unit,
     onOpenCalendar: () -> Unit,
     onOpenCalendarEntry: (CalendarEntry) -> Unit,
-    /** False until a slide's artwork has been sampled: there is no page colour to paint yet. */
-    heroPageSampled: Boolean = true,
     /** The order and visibility 编辑首页 gave the shelves. */
     shelfLayout: HomeShelfLayout = HomeShelfLayout(),
     /** Opens 编辑首页; null where the page cannot be edited. */
@@ -399,34 +388,6 @@ internal fun HomeContentBody(
         // under the glass with three-button navigation or large text.
         val bottomContentInset = floatingNavigationContentInset()
         val showSidePreview = maxWidth >= 600.dp || maxWidth > maxHeight
-        // The artwork alpha dissolves directly into this one opaque, poster-derived colour.
-        // No seam overlay or local colour band exists between the hero and the page.
-        //
-        // Until a slide has been sampled there is no such colour, only the palette's own
-        // ground — the very colour the shared app backdrop already draws, under the ambient
-        // field and the user's wallpaper. Painting it hid both behind an opaque slab, on
-        // every root tab, for as long as the hero took to decode. The ground now arrives
-        // instead: it fades up over the backdrop on the theme crossfade's own clock once a
-        // poster has earned it, and snaps under 减弱动态效果. Both the colour and the fade are
-        // read in the draw phase, so neither a settled slide nor the fade recomposes the feed.
-        val pageGround =
-            animateFloatAsState(
-                targetValue = if (heroPageSampled) 1f else 0f,
-                animationSpec =
-                    if (LocalAccessibilityOptions.current.reduceMotion) {
-                        snap()
-                    } else {
-                        tween(Motion.THEME_CROSSFADE, easing = Motion.Curve)
-                    },
-                label = "home-page-ground",
-            )
-        Box(
-            Modifier.fillMaxSize().drawBehind {
-                val amount = pageGround.value
-                if (amount > 0f) drawRect(heroPageColor.value, alpha = amount)
-            },
-        )
-
         val scrolledPastHero by rememberScrolledPastHero(listState, heroHeight)
         val heroVisible = !scrolledPastHero
         val rowPageOpen = expandedRow != null || expandedShelf != null
@@ -510,6 +471,8 @@ internal fun HomeContentBody(
                                     onFavorite = { onIntent(HomeIntent.Favorite(it)) },
                                     onAccent = onHeroAccent,
                                     onPageColor = onHeroPageColor,
+                                    groundColor = heroPageColor,
+                                    canResolvePlayback = state.server != null,
                                     onBack = onBack,
                                 )
                             }
@@ -959,6 +922,8 @@ private fun HomeHeroCarousel(
     onFavorite: (TmdbItem) -> Unit,
     onAccent: (Color) -> Unit,
     onPageColor: (Color) -> Unit,
+    groundColor: State<Color>,
+    canResolvePlayback: Boolean,
     onBack: (() -> Unit)? = null,
 ) {
     val hero = rememberHomeRecommendationHeroState(items)
@@ -978,7 +943,7 @@ private fun HomeHeroCarousel(
             // A 浮起菜单 holds it too, from inside the reel.
             held = held || !visible,
             ambientUrls = ambientUrls,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().artworkReelGround(groundColor),
             lit = visible,
             empty = {
                 HeroSlide(
@@ -1019,6 +984,7 @@ private fun HomeHeroCarousel(
                 onPlay = { onPlay(item) },
                 onDetails = { onDetails(item) },
                 onFavorite = { onFavorite(item) },
+                canResolvePlayback = canResolvePlayback,
                 settled = page.settled,
                 pageOffset = page.offset,
                 onAccent = onAccent,
@@ -1050,6 +1016,7 @@ private fun HeroSlide(
     onPlay: () -> Unit,
     onDetails: () -> Unit,
     onFavorite: () -> Unit,
+    canResolvePlayback: Boolean = false,
     settled: Boolean = false,
     pageOffset: () -> Float = { 0f },
     onAccent: (Color) -> Unit = {},
@@ -1130,9 +1097,9 @@ private fun HeroSlide(
             HeroCaption(
                 item = item,
                 selected = settled,
-                onPlay = playerArtworkOnClick(playerArtworkKey, onPlay),
-                onDetails = onDetails,
+                onPlay = if (canResolvePlayback) playerArtworkOnClick(playerArtworkKey, onPlay) else onDetails,
                 onFavorite = onFavorite,
+                canResolvePlayback = canResolvePlayback,
                 modifier = Modifier.align(Alignment.BottomStart),
             )
         }
@@ -1248,8 +1215,8 @@ private fun HeroCaption(
     item: TmdbItem,
     selected: Boolean,
     onPlay: () -> Unit,
-    onDetails: () -> Unit,
     onFavorite: () -> Unit,
+    canResolvePlayback: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val captionProgress = rememberCarouselCaptionProgress(selected)
@@ -1283,7 +1250,7 @@ private fun HeroCaption(
             modifier = Modifier.carouselCaptionEntry(captionProgress, stage = 0),
             style = AppTypography.display.strong.copy(shadow = HeroTextShadow),
             color = Color.White,
-            maxLines = 1,
+            maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
         Spacer(Modifier.height(6.dp))
@@ -1339,6 +1306,8 @@ private fun HeroCaption(
             modifier = Modifier.carouselCaptionEntry(captionProgress, stage = 2),
             onPlay = onPlay,
             onFavorite = onFavorite,
+            playActionLabel = if (canResolvePlayback) "播放" else "查看详情",
+            primaryIcon = if (canResolvePlayback) AppIcons.Play else AppIcons.Info,
         )
     }
 }

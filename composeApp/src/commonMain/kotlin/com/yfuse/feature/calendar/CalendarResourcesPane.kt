@@ -1,6 +1,6 @@
 package com.yfuse.feature.calendar
 
-import androidx.compose.foundation.border
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +22,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.data.missingCount
@@ -40,7 +42,6 @@ import com.yfuse.core.model.CalendarEntry
 import com.yfuse.core.model.LibraryStatus
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
-import com.yfuse.core.designsystem.flatGlass as glass
 
 private data class CalendarResourceSummary(
     val title: String,
@@ -128,7 +129,7 @@ internal fun CalendarResourcesPane(
                 end = Dimens.pageHorizontal,
                 bottom = bottomContentInset,
             ),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
         motionItem {
             Column(Modifier.padding(vertical = 4.dp)) {
@@ -154,19 +155,21 @@ internal fun CalendarResourcesPane(
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .glass(AppShapes.card, palette.card2, palette.border)
-                    .then(
+                    .drawBehind {
+                        val bottom = size.height - 0.5f
+                        drawLine(palette.border, Offset(0f, bottom), Offset(size.width, bottom))
+                    }.then(
                         summary.entry.openItemId?.let { itemId ->
                             Modifier.pressable {
                                 component.onOpenItem(summary.entry.serverId, itemId)
                             }
                         } ?: Modifier,
-                    ).padding(13.dp),
+                    ).padding(horizontal = 8.dp, vertical = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(
-                    Modifier.size(34.dp).glass(AppShapes.thumb, accent.container, palette.border),
+                    Modifier.size(34.dp).background(accent.container, AppShapes.thumb),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(AppIcons.Series, null, tint = accent.accent, modifier = Modifier.size(18.dp))
@@ -176,7 +179,7 @@ internal fun CalendarResourcesPane(
                         summary.title,
                         style = AppTypography.body.strong,
                         color = palette.text,
-                        maxLines = 1,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Spacer(Modifier.height(4.dp))

@@ -102,32 +102,14 @@ internal fun PlaybackState.playbackMethodReadoutLabel(): String? {
     }
 }
 
-/**
- * `alphatv · 1080P · YCORE · HEVC · 18.1 Mbps · 60.0 fps` — the line under the title.
- *
- * Every part is dropped the moment it has nothing to say: one server means no server name,
- * a first frame that has not arrived means no resolution, an engine that has not measured a
- * bitrate yet means no bitrate. The line grows into itself over the first second or two
- * rather than printing 未知 six times.
- */
-internal fun PlaybackState.readoutLine(
-    sourceLabel: String?,
-    containerLabel: String?,
-): String {
-    val dolbyVisionLabel = dolbyVisionReadoutLabel()
-    return listOfNotNull(
-        sourceLabel?.takeIf { it.isNotBlank() },
-        playbackMethodReadoutLabel(),
+/** Short context under the title. Per-stream diagnostics live in 媒体信息. */
+internal fun PlaybackState.readoutLine(sourceLabel: String?): String =
+    listOfNotNull(
         resolutionLabel(videoHeight),
-        dolbyVisionLabel,
-        diagnostics.dynamicRange.takeIf { it.isNotBlank() && dolbyVisionLabel == null }?.uppercase(),
-        containerLabel?.takeIf { it.isNotBlank() },
         diagnostics.engine.takeIf { it.isNotBlank() }?.let(::engineShortLabel),
-        diagnostics.videoCodec.takeIf { it.isNotBlank() && it != "未知" }?.let(::codecReadoutLabel),
-        diagnostics.bitrateBitsPerSecond.takeIf { it > 0L }?.asBitrate(),
-        diagnostics.frameRate.takeIf { it > 0f }?.asFrameRate(),
+        PlaybackMethod.Transcode.label.takeIf { transcoding },
+        sourceLabel?.takeIf { it.isNotBlank() },
     ).joinToString(" · ")
-}
 
 /**
  * The readout uses a short engine label.

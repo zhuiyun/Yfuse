@@ -17,8 +17,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
@@ -47,16 +50,18 @@ import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
 /** 更多's levels: the list of destinations, and the page behind each of them. */
-internal enum class AdvancedPage {
-    Root,
-    Playback,
-    Picture,
-    Gestures,
-    SleepTimer,
-    Engine,
-    Media,
-    Bookmarks,
-    Handoff,
+internal enum class AdvancedPage(
+    val title: String,
+) {
+    Root("更多"),
+    Playback("播放设置"),
+    Picture("画面设置"),
+    Gestures("手势设置"),
+    SleepTimer("睡眠定时"),
+    Engine("播放内核"),
+    Media("媒体信息"),
+    Bookmarks("时间书签"),
+    Handoff("设备接力"),
 }
 
 internal val AdvancedPage.parentPage: AdvancedPage
@@ -126,14 +131,22 @@ internal fun MorePanel(
         reduceMotion = reduceMotion,
         pushTravelPx = pushTravelPx,
         popTravelPx = popTravelPx,
+        header = { page ->
+            if (page == AdvancedPage.Root) {
+                GroupLabel(page.title)
+            } else {
+                PopupBackLabel(
+                    title = page.title,
+                    trailing = "仅当前视频 · 切换后重新加载".takeIf { page == AdvancedPage.Engine },
+                ) { onAdvancedPage(page.parentPage) }
+            }
+        },
     ) { page ->
         when (page) {
             AdvancedPage.Bookmarks -> {
-                PopupBackLabel("时间书签") { onAdvancedPage(AdvancedPage.Root) }
                 PlaybackBookmarkPanel(bookmarks, bookmarkActions)
             }
             AdvancedPage.Handoff -> {
-                PopupBackLabel("设备接力") { onAdvancedPage(AdvancedPage.Root) }
                 PlayerDeviceHandoffPanel(watch.connected)
             }
             AdvancedPage.Root -> {
@@ -186,7 +199,6 @@ internal fun MorePanel(
             }
 
             AdvancedPage.Playback -> {
-                PopupBackLabel("播放设置") { onAdvancedPage(AdvancedPage.Root) }
                 // Native HDMV provides menu and angle information in addition to chapters:
                 // it owns menu/angle state and is pushed from libbluray callbacks.
                 // Observing the revision the shell collects makes menu availability and
@@ -373,7 +385,6 @@ internal fun MorePanel(
             }
 
             AdvancedPage.Picture -> {
-                PopupBackLabel("画面设置") { onAdvancedPage(AdvancedPage.Playback) }
                 val animePreferences = remember { GlobalContext.get().get<PlaybackPreferences>() }
                 val animeMode by animePreferences.anime4KMode.collectAsState()
                 val showFrameRate by animePreferences.showFrameRate.collectAsState()
@@ -415,13 +426,10 @@ internal fun MorePanel(
                 )
             }
             AdvancedPage.Gestures -> {
-                PopupBackLabel("手势设置") { onAdvancedPage(AdvancedPage.Playback) }
                 val preferences = remember { GlobalContext.get().get<PlaybackPreferences>() }
                 PlayerGestureSettingsSection(preferences)
             }
             AdvancedPage.SleepTimer -> {
-                PopupBackLabel("睡眠定时") { onAdvancedPage(AdvancedPage.Playback) }
-                GroupLabel("睡眠定时")
                 SleepTimerOption.entries.forEach { option ->
                     OptionRow(
                         option.label,
@@ -432,9 +440,6 @@ internal fun MorePanel(
             }
 
             AdvancedPage.Engine -> {
-                PopupBackLabel("播放内核", "仅当前视频 · 切换后重新加载") {
-                    onAdvancedPage(AdvancedPage.Root)
-                }
                 engineOptions.forEachIndexed { index, (label, selected) ->
                     EngineChoiceRow(
                         label = label,
@@ -462,13 +467,12 @@ internal fun MorePanel(
                 // stay off it.
                 val liveDiagnostics = playback.value.diagnostics
                 val ycoreDiagnostics = liveDiagnostics.engine.contains("YCore", ignoreCase = true)
-                PopupBackLabel("媒体信息") { onAdvancedPage(AdvancedPage.Root) }
                 PopupMenuRow(
                     icon = AppIcons.Info,
                     title = "播放问题说明与诊断导出",
                     onClick = onOpenProblem,
                 )
-                DiagnosticRow("容器", containerLabel ?: "未知")
+                containerLabel?.takeIf(String::isNotBlank)?.let { DiagnosticRow("容器", it) }
                 if (ycoreDiagnostics) {
                     DiagnosticRow(
                         "YCore 管线",
@@ -496,13 +500,13 @@ internal fun MorePanel(
                         else -> "未知"
                     },
                 )
-                DiagnosticRow(
-                    "视频",
-                    listOf(
-                        codecReadoutLabel(liveDiagnostics.videoCodec),
-                        liveDiagnostics.dynamicRange.uppercase(),
-                    ).filter(String::isNotBlank).joinToString(" · "),
-                )
+                val videoFacts =
+                    listOfNotNull(
+                        liveDiagnostics.videoCodec.takeIf { it.isNotBlank() && it != "未知" }?.let(::codecReadoutLabel),
+                        playback.value.dolbyVisionReadoutLabel()
+                            ?: liveDiagnostics.dynamicRange.takeIf(String::isNotBlank)?.uppercase(),
+                    )
+                if (videoFacts.isNotEmpty()) DiagnosticRow("视频", videoFacts.joinToString(" · "))
                 DiagnosticRow("码率", liveDiagnostics.bitrateBitsPerSecond.asBitrate())
                 DiagnosticRow("实时网络", liveDiagnostics.networkBitsPerSecond.asBitrate())
                 DiagnosticRow(
@@ -603,6 +607,7 @@ private fun AdvancedPageHost(
     reduceMotion: Boolean,
     pushTravelPx: Int,
     popTravelPx: Int,
+    header: @Composable (AdvancedPage) -> Unit,
     content: @Composable ColumnScope.(AdvancedPage) -> Unit,
 ) {
     AnimatedContent(
@@ -623,7 +628,13 @@ private fun AdvancedPageHost(
             Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(5.dp),
         ) {
-            content(current)
+            header(current)
+            Column(
+                Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                content(current)
+            }
         }
     }
 }
@@ -671,7 +682,11 @@ private fun PopupBackLabel(
     onBack: () -> Unit,
 ) {
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 3.dp, vertical = 6.dp),
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .noRippleClickable(onBack)
+            .padding(horizontal = 3.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -679,7 +694,6 @@ private fun PopupBackLabel(
             "‹  $title",
             style = AppTypography.body.strong,
             color = Color.White.copy(alpha = 0.90f),
-            modifier = Modifier.noRippleClickable(onBack),
         )
         trailing?.let {
             Text(

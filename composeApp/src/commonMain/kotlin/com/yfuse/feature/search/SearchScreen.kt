@@ -210,6 +210,10 @@ private fun SearchHomeScreen(
     val includeServers = sourceFilter == "all" || sourceFilter == "servers"
     LaunchedEffect(includeServers) { component.store.accept(SearchIntent.SetRemoteSearchEnabled(includeServers)) }
     val fileResults = rememberFileSourceSearch(component, state, sourceFilter, access.canManageServers)
+    val showFileSearch =
+        access.canManageServers && fileSources.isNotEmpty() && sourceFilter != "servers" && state.query.isNotBlank()
+    val hasFileCoverage = fileResults.matches > 0 || fileResults.unindexedSources > 0 || fileResults.partialSources > 0
+    val showFileCoverage = showFileSearch && (!includeServers || hasFileCoverage)
     LaunchedEffect(access.canManageServers, fileSources) {
         if (!access.canManageServers) {
             component.fileSources.closeBrowser()
@@ -328,25 +332,6 @@ private fun SearchHomeScreen(
                     }
                 }
             }
-            if (access.canManageServers && sourceFilter != "servers" && state.query.isNotBlank()) {
-                motionItem(key = "search-file-coverage") {
-                    FileSourceSearchCoverage(fileResults, state.sort == SearchSort.RecentlyAdded)
-                }
-                motionItemsIndexed(
-                    fileResults.hits,
-                    key = { _, hit -> "indexed:${hit.id}" },
-                    contentType = { _, _ -> "indexed-file-result" },
-                ) { _, hit ->
-                    FileSourceSearchResult(hit) {
-                        if (component.access.value.canManageServers) {
-                            component.fileSources.playIndexed(
-                                hit.source.id,
-                                hit.file.path,
-                            )
-                        }
-                    }
-                }
-            }
             state.person?.let { person ->
                 motionItem(key = "search-person-banner") {
                     PersonBanner(
@@ -420,7 +405,9 @@ private fun SearchHomeScreen(
                         }
 
                     // 没有找到相关内容 — `400 12px Manrope`, `--pg-hint`, `padding:20px 0`.
-                    visibleGroups.all { it.items.isEmpty() } && !state.loading ->
+                    visibleGroups.all { it.items.isEmpty() } &&
+                        !state.loading &&
+                        (!showFileSearch || fileResults.hits.isEmpty()) ->
                         motionItem(key = "search-results-empty") {
                             Box(
                                 Modifier
@@ -500,6 +487,23 @@ private fun SearchHomeScreen(
                                     ),
                             )
                         }
+                }
+            }
+
+            if (showFileCoverage) {
+                motionItem(key = "search-file-coverage") {
+                    FileSourceSearchCoverage(fileResults, state.sort == SearchSort.RecentlyAdded)
+                }
+                motionItemsIndexed(
+                    fileResults.hits,
+                    key = { _, hit -> "indexed:${hit.id}" },
+                    contentType = { _, _ -> "indexed-file-result" },
+                ) { _, hit ->
+                    FileSourceSearchResult(hit) {
+                        if (component.access.value.canManageServers) {
+                            component.fileSources.playIndexed(hit.source.id, hit.file.path)
+                        }
+                    }
                 }
             }
 

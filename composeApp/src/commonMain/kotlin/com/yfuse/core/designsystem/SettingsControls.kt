@@ -20,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalDensity
@@ -48,7 +49,7 @@ fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
         Modifier
             .fillMaxWidth()
             .motionAwareAnimateContentSize()
-            .flatGlass(AppShapes.card, palette.card2, palette.border),
+            .background(palette.card2.compositeOver(palette.background), AppShapes.card),
         content = content,
     )
 }
@@ -71,8 +72,8 @@ fun Section(
         ) {
             Text(
                 title,
-                style = AppTypography.caption.medium,
-                color = palette.sub2,
+                style = AppTypography.caption.strong,
+                color = palette.sub,
                 modifier = Modifier.weight(1f).semantics { heading() },
             )
             if (action != null) {

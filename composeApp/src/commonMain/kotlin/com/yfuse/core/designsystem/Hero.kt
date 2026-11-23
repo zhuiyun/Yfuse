@@ -1,8 +1,9 @@
 package com.yfuse.core.designsystem
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListState
@@ -13,6 +14,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
@@ -67,19 +69,15 @@ val HeroTextShadow: Shadow =
         blurRadius = 12f,
     )
 
-private val HeroDockFill = HeroInk.copy(alpha = 0.58f)
-private val HeroDockBorder = Color.White.copy(alpha = 0.22f)
-private val HeroPlayFill = HeroInk.copy(alpha = 0.68f)
-private val HeroPlayBorder = Color.White.copy(alpha = 0.30f)
-private val HeroPlayInk = Color.White.copy(alpha = 0.94f)
-private val HeroToolSelectedFill = Color.White.copy(alpha = 0.20f)
+private val HeroDockFill = HeroInk.copy(alpha = 0.46f)
+private val HeroPlayFill = Color(0xFFF5F6FA)
+private val HeroToolSelectedFill = HeroInk.copy(alpha = 0.78f)
 
 /**
  * Artwork-safe action row shared by the 首页 and 媒体库 reels.
  *
- * Play uses a wider dark-glass pill; secondary tools use matching glass circles. Keeping each
- * control to one material layer avoids both a white block over the artwork and the previous
- * toolbar-inside-toolbar look.
+ * The solid primary action stays legible across different artwork. Secondary actions use a
+ * quieter surface with the same touch height.
  */
 @Composable
 fun HeroActionDock(
@@ -93,6 +91,7 @@ fun HeroActionDock(
      */
     playActionLabel: String = "播放",
     favoriteActionLabel: String = if (favorite == true) "取消收藏" else "加入收藏",
+    primaryIcon: androidx.compose.ui.graphics.vector.ImageVector = AppIcons.Play,
 ) {
     Row(
         modifier = modifier,
@@ -101,31 +100,26 @@ fun HeroActionDock(
     ) {
         Row(
             Modifier
-                .height(46.dp)
-                .playerHandoffKey(corner = 23.dp, glass = true)
+                .heightIn(min = 48.dp)
+                .playerHandoffKey(corner = 24.dp, glass = false)
                 .pressable(
                     focusShape = AppShapes.pill,
                     lightEffect = LightEffect.Converge,
                     onClickLabel = playActionLabel,
                     onClick = onPlay,
-                ).shadow(GlassLift.control, AppShapes.pill)
-                .liquidGlass(
-                    shape = AppShapes.pill,
-                    fill = HeroPlayFill,
-                    border = HeroPlayBorder,
-                    over = HeroInk,
-                    sheen = 0.68f,
-                ).padding(horizontal = 16.dp),
+                ).clip(AppShapes.pill)
+                .background(HeroPlayFill)
+                .padding(horizontal = 18.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
-                AppIcons.Play,
+                primaryIcon,
                 contentDescription = null,
-                tint = HeroPlayInk,
+                tint = HeroInk,
                 modifier = Modifier.size(17.dp),
             )
-            Text(playActionLabel, style = AppTypography.body.strong, color = HeroPlayInk, maxLines = 1)
+            Text(playActionLabel, style = AppTypography.body.strong, color = HeroInk)
         }
         HeroFavoriteButton(
             icon = if (favorite == true) AppIcons.HeartFilled else AppIcons.Heart,
@@ -146,7 +140,7 @@ private fun HeroFavoriteButton(
     val shape = AppShapes.pill
     Row(
         Modifier
-            .height(46.dp)
+            .heightIn(min = 48.dp)
             .pressable(
                 haptic = HapticSignal.Confirm.takeIf { active != null },
                 role = if (active == null) Role.Button else Role.Checkbox,
@@ -159,14 +153,9 @@ private fun HeroFavoriteButton(
                 } else {
                     Modifier.semantics { toggleableState = ToggleableState(active) }
                 },
-            ).shadow(GlassLift.control, shape)
-            .liquidGlass(
-                shape = shape,
-                fill = if (active == true) HeroToolSelectedFill else HeroDockFill,
-                border = HeroDockBorder,
-                over = HeroInk,
-                sheen = 0.58f,
-            ).padding(horizontal = 14.dp),
+            ).clip(shape)
+            .background(if (active == true) HeroToolSelectedFill else HeroDockFill)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -184,12 +173,26 @@ private fun HeroFavoriteButton(
         }
         Text(
             text = if (active == true) "已收藏" else "收藏",
-            style = AppTypography.body.strong,
+            style = AppTypography.body.medium,
             color = Color.White.copy(alpha = 0.92f),
             maxLines = 1,
         )
     }
 }
+
+/** A sampled colour belongs to the artwork area and fades out before the content rail. */
+internal fun Modifier.artworkReelGround(color: State<Color>): Modifier =
+    drawWithCache {
+        val tint = color.value
+        val wash =
+            Brush.verticalGradient(
+                0.30f to Color.Transparent,
+                0.72f to tint.copy(alpha = 0.54f),
+                1f to Color.Transparent,
+                endY = size.height,
+            )
+        onDrawBehind { drawRect(wash) }
+    }
 
 /**
  * Scrim for a hero whose lower edge dissolves into the page — dark at the top, where the

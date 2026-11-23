@@ -227,6 +227,8 @@ fun GlassDialog(
      * the bottom edge rises from it. Null follows the person's 弹窗动画 choice.
      */
     animation: DialogAnimation? = null,
+    /** Reading and entry surfaces can use a stable body with no sampled backdrop. */
+    opaqueSurface: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val parentSystemBarStyle = rememberDialogSystemBarStyle(fallbackDarkIcons = !LocalPalette.current.isDark)
@@ -293,7 +295,8 @@ fun GlassDialog(
         // The grey pane is not the page: `body` and `sub2` were measured against `background`
         // and landed at about 3:1 on the light dialog. Every dialog reads the recalibrated pair
         // from here, so the 48 call sites keep writing `palette.body` and get the right ink.
-        val opaqueGlass = LocalAccessibilityOptions.current.reduceTransparency || !backdropBlurAvailable()
+        val opaqueGlass =
+            opaqueSurface || LocalAccessibilityOptions.current.reduceTransparency || !backdropBlurAvailable()
         val dialogPalette =
             remember(palette, material, opaqueGlass) {
                 material.contentPalette(recipePalette.copy(background = palette.background), opaqueGlass)
@@ -398,7 +401,7 @@ fun GlassDialog(
                                 chosenAnimation,
                                 progress = progress,
                             ).shadow(Shadows.sheet, shape)
-                            .mutedGlassPanel(shape, dark = materialDark)
+                            .mutedGlassPanel(shape, samplePage = !opaqueSurface, dark = materialDark)
                             .dialogInteriorMotion(chosenAnimation, progress)
                             .phaseLightEdge(progress, phaseLights)
                             .pointerInput(Unit) { detectTapGestures { } }

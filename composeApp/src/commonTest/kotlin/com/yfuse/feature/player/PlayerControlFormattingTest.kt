@@ -10,10 +10,27 @@ class PlayerControlFormattingTest {
     fun scoreReadoutUsesTheSameNameForCurrentAndLegacyDiagnostics() {
         for (reported in listOf("SCore（实验）", "SCore", "SenPlayer（实验）", "SenPlayer")) {
             val state = PlaybackState(diagnostics = PlaybackDiagnostics(engine = reported))
-            val labels = state.readoutLine(sourceLabel = null, containerLabel = null).split(" · ")
+            val labels = state.readoutLine(sourceLabel = null).split(" · ")
             assertTrue("SCore" in labels, reported)
             assertFalse(labels.any { it.contains("SenPlayer") }, reported)
         }
+    }
+
+    @Test
+    fun compactHeaderKeepsPlaybackContextAndOmitsStreamDiagnostics() {
+        val state =
+            PlaybackState(
+                videoHeight = 1080,
+                diagnostics =
+                    PlaybackDiagnostics(
+                        engine = "YCore",
+                        videoCodec = "HEVC",
+                        bitrateBitsPerSecond = 12_000_000L,
+                        frameRate = 24f,
+                    ),
+            )
+
+        assertEquals("1080P · YCORE · 客厅", state.readoutLine(sourceLabel = "客厅"))
     }
 
     @Test

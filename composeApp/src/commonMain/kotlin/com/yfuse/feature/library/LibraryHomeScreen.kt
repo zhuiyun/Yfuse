@@ -42,7 +42,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalDensity
@@ -99,6 +98,7 @@ import com.yfuse.core.designsystem.SkeletonRail
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.ToastAction
 import com.yfuse.core.designsystem.arrivalSweep
+import com.yfuse.core.designsystem.artworkReelGround
 import com.yfuse.core.designsystem.carouselArtworkMotion
 import com.yfuse.core.designsystem.carouselCaptionEntry
 import com.yfuse.core.designsystem.fadeIntoPage
@@ -129,7 +129,6 @@ import com.yfuse.core.designsystem.pressableTarget
 import com.yfuse.core.designsystem.refreshAction
 import com.yfuse.core.designsystem.rememberArtworkAccentTarget
 import com.yfuse.core.designsystem.rememberArtworkPageColor
-import com.yfuse.core.designsystem.rememberArtworkPagePalette
 import com.yfuse.core.designsystem.rememberCarouselCaptionProgress
 import com.yfuse.core.designsystem.rememberCarouselPageColor
 import com.yfuse.core.designsystem.rememberLaunchWave
@@ -284,7 +283,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     val showSmartPlaylists =
         com.yfuse.feature.search
             .hasPinnedSmartPlaylists()
-    val palette = rememberArtworkPagePalette(retainedPageColor.value)
+    val palette = LocalPalette.current
     val accent =
         rememberArtworkAccentTarget(
             url = slideUrl,
@@ -323,14 +322,13 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
 
     val bottomContentInset = floatingNavigationContentInset()
     ArtworkPageTheme(
-        background = retainedPageColor.value,
+        background = null,
         artworkAccent = accent,
     ) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val heroHeight = libraryHeroHeight(maxHeight, wideLayout = maxWidth >= 600.dp)
             // The reel is switched on, but the first load has not brought anything to show in it.
             val heroPending = libraryCarousel && state.loading && state.content.isEmpty
-            Box(Modifier.fillMaxSize().drawBehind { drawRect(sampledPageColor.value) })
             val lightPageReached by rememberScrolledPastHero(listState, heroHeight)
             val showSidePreview = maxWidth >= 600.dp || maxWidth > maxHeight
             val artwork = livingPosterArtwork(maxWidth, heroHeight, showSidePreview)
@@ -440,7 +438,8 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                                 Modifier
                                                     .fillMaxWidth()
                                                     .height(heroHeight)
-                                                    .heroScrollCollapse(listState, heroHeight),
+                                                    .heroScrollCollapse(listState, heroHeight)
+                                                    .artworkReelGround(sampledPageColor),
                                             beyondViewportPageCount = if (showSidePreview) 1 else 0,
                                         ) { page ->
                                             val animatedItem = slides.getOrNull(page.index) ?: slide
@@ -656,7 +655,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                     Modifier
                         .fillMaxWidth()
                         .windowInsetsTopHeight(WindowInsets.statusBars)
-                        .drawBehind { drawRect(sampledPageColor.value) },
+                        .background(palette.background),
                 )
             }
 
@@ -803,7 +802,7 @@ private fun HeroCarousel(
     var resolvedArtworkUrl by remember(item.id) { mutableStateOf<String?>(null) }
     val artworkPageColor =
         rememberArtworkPageColor(
-            url = resolvedArtworkUrl,
+            url = resolvedArtworkUrl.takeIf { settled },
             targetAspectRatio = artworkAspectRatio,
             fadeFraction = artworkFadeFraction,
         )

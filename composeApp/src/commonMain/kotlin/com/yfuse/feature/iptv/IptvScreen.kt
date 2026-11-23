@@ -114,13 +114,14 @@ private fun IptvDialog(onDismiss: () -> Unit) {
                     (query.isBlank() || it.name.contains(query.trim(), true))
             }
         }
-    GlassDialog(onDismiss = onDismiss, scrollable = false) {
+    GlassDialog(onDismiss = onDismiss, scrollable = false, opaqueSurface = true) {
         OverlayHeader(title = "IPTV · 电视直播", subtitle = "支持 HTTP / HTTPS 频道；刷新失败会保留旧列表", onClose = onDismiss)
         LazyColumn(
             Modifier.fillMaxWidth().weight(1f, fill = false).heightIn(max = 650.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             item {
+                Text("订阅管理", style = AppTypography.section.strong, color = palette.text)
                 ServerFormInput(label = "订阅名称", value = name, divider = true, enabled = !busy, onValueChange = {
                     name =
                         it
@@ -179,6 +180,7 @@ private fun IptvDialog(onDismiss: () -> Unit) {
             }
             if (selected != null) {
                 item {
+                    Text("频道浏览", style = AppTypography.section.strong, color = palette.text)
                     ServerFormInput(label = "搜索频道", value = query, divider = false, onValueChange = { query = it })
                     Row {
                         TextButton(

@@ -72,6 +72,7 @@ private fun FileSourceFormDialog(
     val holdsInput = draft != openedDraft
     var confirmDiscard by remember { mutableStateOf(false) }
     val address = draft.resolveAddress()
+    val addressError = (address as? FileSourceAddress.Invalid)?.message?.takeIf { it == state.error }
     val submit = {
         if (!state.submitting) {
             val origin = (address as? FileSourceAddress.Valid)?.origin
@@ -82,6 +83,8 @@ private fun FileSourceFormDialog(
     GlassDialog(
         onDismiss = controller::dismissForm,
         scrollable = false,
+        opaqueSurface = true,
+        liquidButtons = false,
         confirmDismiss = {
             if (holdsInput) confirmDiscard = true
             !holdsInput
@@ -105,9 +108,9 @@ private fun FileSourceFormDialog(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            FormLabel("来源信息")
+            FormLabel("来源类型")
             Column(Modifier.fillMaxWidth().glass(AppShapes.card, palette.card2, palette.border)) {
-                ServerFormRow(label = "类型", divider = true, labelBottomPadding = 6.dp) {
+                ServerFormRow(label = "类型", divider = false, labelBottomPadding = 6.dp) {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         FileSourceKind.entries.chunked(3).forEach { kinds ->
                             Row(
@@ -125,6 +128,9 @@ private fun FileSourceFormDialog(
                         }
                     }
                 }
+            }
+            FormLabel("连接")
+            Column(Modifier.fillMaxWidth().glass(AppShapes.card, palette.card2, palette.border)) {
                 if (draft.kind == FileSourceKind.WebDav || draft.kind == FileSourceKind.Alist) {
                     ServerFormRow(label = "协议", divider = true, labelBottomPadding = 6.dp) {
                         Row(modifier = Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -177,6 +183,14 @@ private fun FileSourceFormDialog(
                     divider = false,
                 ) { name -> controller.editDraft { it.copy(name = name) } }
             }
+            addressError?.let { message ->
+                Text(
+                    message,
+                    style = AppTypography.caption.medium,
+                    color = palette.error,
+                    modifier = Modifier.padding(horizontal = 4.dp).liveStatus(assertive = true),
+                )
+            }
             Spacer(Modifier.height(4.dp))
             FormLabel("账号")
             if (draft.kind == FileSourceKind.Pan123 || draft.kind == FileSourceKind.Baidu) {
@@ -213,7 +227,7 @@ private fun FileSourceFormDialog(
 
         // Outside the scrolling fields, right above the button, so a failed connection is read
         // where the eye already is — the lesson 添加服务器 learned the hard way.
-        state.error?.let { error ->
+        state.error?.takeUnless { it == addressError }?.let { error ->
             Text(
                 error,
                 style = AppTypography.caption.medium,
