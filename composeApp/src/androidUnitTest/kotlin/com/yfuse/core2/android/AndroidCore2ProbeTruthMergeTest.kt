@@ -1,6 +1,11 @@
 package com.yfuse.core2.android
 
 import com.yfuse.core2.api.YChapter
+import com.yfuse.core2.api.YMediaItem
+import com.yfuse.core2.api.YMediaSourceHints
+import com.yfuse.core2.api.YPlaybackException
+import com.yfuse.core2.api.YPlaybackFailureCategory
+import com.yfuse.core2.api.YPlaybackFailureStage
 import com.yfuse.core2.capability.YAudioCodec
 import com.yfuse.core2.capability.YAudioRequirement
 import com.yfuse.core2.capability.YContainer
@@ -10,10 +15,37 @@ import com.yfuse.core2.capability.YVideoRequirement
 import com.yfuse.core2.strategy.YPlaybackRequest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class AndroidCore2ProbeTruthMergeTest {
+    @Test
+    fun opaque_declared_video_cannot_silently_take_the_audio_only_route() {
+        val base = probe(true, YAudioCodec.Aac)
+        val audioOnly =
+            base.copy(
+                playbackRequest = base.playbackRequest.copy(audioOnly = true, container = YContainer.Unknown),
+            )
+        for (item in listOf(
+            YMediaItem("one", "https://example.test/opaque", mimeType = "video/mp2t"),
+            YMediaItem("two", "https://example.test/opaque", mimeType = "video/*"),
+            YMediaItem("three", "https://example.test/opaque", sourceHints = YMediaSourceHints(videoCodec = "hevc")),
+        )) {
+            assertTrue(audioOnly.requiresEnhancedTruthProbe(item))
+            val failure =
+                assertFailsWith<YPlaybackException> { validateNativeDirectVideoTrack(item, hasVideoTrack = false) }
+            assertEquals(YPlaybackFailureCategory.Container, failure.category)
+            assertEquals(YPlaybackFailureStage.Demux, failure.stage)
+            validateNativeDirectVideoTrack(item, hasVideoTrack = true)
+        }
+        validateNativeDirectVideoTrack(
+            YMediaItem("audio", "https://example.test/opaque", mimeType = "audio/aac"),
+            false,
+        )
+        validateNativeDirectVideoTrack(YMediaItem("unknown", "https://example.test/opaque"), false)
+    }
+
     @Test
     fun enhancedAudioTruthPreservesSuccessfulPlatformDemux() {
         val platform = probe(platformDemux = true, audioCodec = YAudioCodec.Unknown)
@@ -83,6 +115,33 @@ class AndroidCore2ProbeTruthMergeTest {
         assertFalse(platform.requiresEnhancedAudioDemux(sourceAudioTrackCount = 0))
         assertFalse(probe(true, YAudioCodec.Ac3).requiresEnhancedAudioDemux(1))
         assertTrue(probe(false, YAudioCodec.Ac3).requiresEnhancedAudioDemux(1))
+    }
+
+    @Test
+    fun transportAudioOnlyResultRequiresVideoTruthBeforeRouting() {
+        val base = probe(true, YAudioCodec.Aac)
+        val platform =
+            base.copy(
+                playbackRequest = base.playbackRequest.copy(audioOnly = true, container = YContainer.MpegTs),
+            )
+        assertTrue(platform.requiresEnhancedTruthProbe())
+        val enhanced = probe(false, YAudioCodec.Aac)
+        val combined = enhanced.preservingPlatformDemuxCapability(platform)
+        assertTrue(combined.materiallyOverrides(platform))
+        assertFalse(combined.playbackRequest.platformDemuxSupported)
+        assertTrue(combined.playbackRequest.platformAudioDemuxSupported)
+        assertFalse(combined.playbackRequest.audioOnly)
+    }
+
+    @Test
+    fun confirmedAudioOnlyProbeKeepsTheWorkingPlatformPath() {
+        val base = probe(true, YAudioCodec.Aac)
+        val platform = base.copy(playbackRequest = base.playbackRequest.copy(audioOnly = true))
+        val deep = platform.copy(playbackRequest = platform.playbackRequest.copy(platformDemuxSupported = false))
+        val combined = deep.preservingPlatformDemuxCapability(platform)
+        assertTrue(combined.playbackRequest.platformDemuxSupported)
+        assertTrue(combined.playbackRequest.audioOnly)
+        assertFalse(combined.materiallyOverrides(platform))
     }
 
     private fun probe(

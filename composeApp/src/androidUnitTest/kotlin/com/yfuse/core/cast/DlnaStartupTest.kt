@@ -99,11 +99,22 @@ class DlnaStartupTest {
     @Test
     fun a_clock_left_untrusted_at_start_is_trusted_once_it_moves() {
         val watch = DlnaClockWatch()
-        assertEquals(false, watch.moved(playing, 0L))
-        assertEquals(false, watch.moved(playing, 0L))
-        assertEquals(false, watch.moved(CastPlaybackStatus.Paused, 9_000L))
-        assertEquals(false, watch.moved(playing, null))
-        assertEquals(true, watch.moved(playing, 1_600L))
+        assertEquals(false, watch.moved(playing, 0L, 500L))
+        assertEquals(false, watch.moved(playing, 0L, 1_000L))
+        assertEquals(false, watch.moved(CastPlaybackStatus.Paused, 9_000L, 1_500L))
+        assertEquals(false, watch.moved(playing, null, 2_000L))
+        assertEquals(true, watch.moved(playing, 1_600L, 2_500L))
+    }
+
+    @Test
+    fun read_ahead_jumping_to_the_end_is_not_a_playing_clock() {
+        val monitor = DlnaStartMonitor(startedAtMs = 0L)
+        assertEquals(DlnaStartVerdict.Waiting, monitor.observe(playing, 20_000L, 1_000L))
+        assertEquals(DlnaStartVerdict.Waiting, monitor.observe(playing, 95_000L, 1_500L))
+        assertEquals(DlnaStartVerdict.Waiting, monitor.observe(playing, 95_000L, 2_000L))
+        assertEquals(DlnaStartVerdict.Waiting, monitor.observe(CastPlaybackStatus.Paused, 21_000L, 2_500L))
+        assertEquals(DlnaStartVerdict.Waiting, monitor.observe(playing, 22_000L, 12_000L))
+        assertEquals(DlnaStartVerdict.Started(24_000L), monitor.observe(playing, 24_000L, 14_000L))
     }
 
     @Test

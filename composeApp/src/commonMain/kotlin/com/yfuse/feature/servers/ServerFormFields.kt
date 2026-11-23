@@ -211,7 +211,7 @@ internal fun ServerFormInput(
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
                         if (value.isEmpty() && placeholder != null) {
-                            Text(placeholder, style = AppTypography.body.medium, color = palette.hint)
+                            Text(placeholder, style = AppTypography.body.medium, color = palette.sub)
                         }
                         innerTextField()
                     }
@@ -219,7 +219,7 @@ internal fun ServerFormInput(
                         Text(
                             if (revealPassword) "隐藏" else "显示",
                             style = AppTypography.caption.strong,
-                            color = accent.accent,
+                            color = palette.text,
                             modifier =
                                 Modifier
                                     .pressable(

@@ -124,7 +124,7 @@ private class ConstantGain(
 }
 
 /**
- * FFmpeg's acompressor (af_sidechaincompress.c) with mpv's night settings: RMS detection of the
+ * FFmpeg's acompressor (af_sidechaincompress.c) with night-mode RMS detection of the
  * channel average, its default 2.83 (9 dB) soft knee, downward compression, then the makeup gain.
  */
 private class NightCompressor(
@@ -173,8 +173,7 @@ private class NightCompressor(
 
 /**
  * Loudness over the last three seconds (BS.1770 K-weighting, gated like its integrated measure)
- * steering a slow gain toward -16 LUFS. mpv's loudnorm looks three seconds ahead; YCore has no delay
- * to spend on that, so the gain follows the measurement instead: down within about a second when a
+ * steering a slow gain toward -16 LUFS. The gain follows the measurement without lookahead: down within about a second when a
  * scene gets louder, up over about three when it gets quieter.
  *
  * Only 100 ms blocks above -45 LUFS, and within 10 LU of the window's level, are measured, and the
@@ -383,7 +382,7 @@ private const val CEILING_DB = -1.0
 private const val LOUDNESS_CEILING_DB = -1.5
 private const val LIMITER_RELEASE_SECONDS = 0.15
 
-// mpv: acompressor=threshold=-20dB:ratio=4:attack=5:release=200:makeup=5dB (FFmpeg's default knee).
+// acompressor=threshold=-20dB:ratio=4:attack=5:release=200:makeup=5dB (FFmpeg's default knee).
 private const val NIGHT_THRESHOLD_DB = -20.0
 private const val NIGHT_RATIO = 4.0
 private const val NIGHT_ATTACK_MS = 5.0

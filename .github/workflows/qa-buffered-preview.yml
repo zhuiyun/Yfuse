@@ -1,0 +1,99 @@
+name: Buffered scrub preview - actual Android decode and cache holes
+on:
+  push:
+    branches: [codex/cloud-playback-resilience-20261113]
+    paths:
+      - '.github/workflows/qa-buffered-preview.yml'
+      - 'qa-buffered-preview/**'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 79c0ae559f7deeebe756e49dc0e9d2f44437e258
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
+        with: {distribution: temurin, java-version: '17', cache: gradle}
+      - name: Verify native inputs and build the release candidate
+        env: {API_TOKEN: "${{ github.token }}"}
+        run: |
+          set -euo pipefail
+          api="https://api.github.com/repos/$GITHUB_REPOSITORY"
+          app_sha=$(git rev-parse HEAD)
+          test "$app_sha" = "79c0ae559f7deeebe756e49dc0e9d2f44437e258"
+          native_sha=$(git rev-parse HEAD^)
+          test "$native_sha" = "224c838b53dff9f323f830ae64bfbc310288dd20"
+          printf '%s\n' 'composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidTransportMediaDataSource.kt' 'composeApp/src/androidMain/kotlin/com/yfuse/core2/android/BufferedScrubMedia.kt' | LC_ALL=C sort > "$RUNNER_TEMP/expected-files"
+          git diff --name-only "$native_sha" "$app_sha" | LC_ALL=C sort | diff -u "$RUNNER_TEMP/expected-files" -
+          git worktree add --detach "$RUNNER_TEMP/native-parent" "$native_sha"
+          artifact=14008644829
+          curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/artifacts/$artifact" | jq -e --arg n "ycore-source-$native_sha-43362570869-1" '.name==$n and .expired==false and .workflow_run.id==43362570869' > /dev/null
+          curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/artifacts/$artifact/zip" -o "$RUNNER_TEMP/native.zip"
+          mkdir "$RUNNER_TEMP/native-in"
+          unzip -q "$RUNNER_TEMP/native.zip" -d "$RUNNER_TEMP/native-in"
+          (
+            cd "$RUNNER_TEMP/native-parent"
+            export YCORE_NATIVE_AAR_PATH="$RUNNER_TEMP/native-in/ycore-native.aar"
+            export YCORE_SOURCE_RECEIPT="$RUNNER_TEMP/native-in/source-build.json"
+            export YCORE_SOURCE_COMMIT="$native_sha" SOURCE_COMMIT="$native_sha"
+            export YCORE_SOURCE_AAR_SHA256=$(sha256sum "$YCORE_NATIVE_AAR_PATH" | cut -d' ' -f1)
+            export YCORE_SOURCE_PROVENANCE_SHA256=$(sha256sum "$RUNNER_TEMP/native-in/NATIVE-SOURCES.txt" | cut -d' ' -f1)
+            python3 scripts/prepare-playback-inputs.py
+          )
+          mkdir -p composeApp/libs
+          for item in ycore-native.aar ycore-native.aar.sha256 ycore-native.sources.txt; do
+            cp "$RUNNER_TEMP/native-parent/composeApp/libs/$item" "composeApp/libs/$item"
+            cmp "$RUNNER_TEMP/native-parent/composeApp/libs/$item" "composeApp/libs/$item"
+          done
+          (cd composeApp/libs && sha256sum -c ycore-native.aar.sha256)
+          printf 'Instrumented QA only; app commit %s; unchanged native inputs compiled and receipt-verified at parent %s, Actions artifact %s.\n' "$app_sha" "$native_sha" "$artifact" | tee -a "$GITHUB_STEP_SUMMARY"
+          test "$(git rev-parse HEAD)" = "$app_sha"
+          git diff --exit-code -- .
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-37.0'
+          ./gradlew :composeApp:assembleRelease :phoneShared:testAndroidHostTest --tests 'com.yfuse.core2.android.ScrubByteWindowTest' :composeApp:assembleDebug :composeApp:assembleDebugAndroidTest -PyfuseIncludeMdk=false -PyfusePlaybackProfile=ycore-senplayer -PyfuseNativeOnlyRuntime=true -PallowDebugSigning=true '-Dorg.gradle.jvmargs=-Xmx6g -Dfile.encoding=UTF-8' --no-daemon
+          mkdir preview
+          cp composeApp/build/outputs/apk/release/composeApp-release.apk preview/
+          mkdir instrumented
+          cp composeApp/build/outputs/apk/debug/*.apk instrumented/app.apk
+          cp composeApp/build/outputs/apk/androidTest/debug/*.apk instrumented/test.apk
+          printf '%s\n' "$GITHUB_SHA 79c0ae559f7deeebe756e49dc0e9d2f44437e258" > preview/source.txt
+          printf 'app=%s\nnative_built_from=%s\nsource_artifact=%s\n' "$app_sha" "$native_sha" "$artifact" > preview/provenance.txt
+          (cd preview && sha256sum composeApp-release.apk > apk.sha256)
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: candidate-test-input, path: preview, retention-days: 2}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: instrumentation-input, path: instrumented, retention-days: 1}
+  device:
+    needs: build
+    strategy: {fail-fast: false, matrix: {api: [35, 36, '37.0']}}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with: {name: instrumentation-input, path: instrumented}
+      - run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - if: matrix.api == '37.0'
+        run: sudo mv "$ANDROID_HOME/cmdline-tools" "$RUNNER_TEMP/old-cmdline-tools"
+      - uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: ${{ matrix.api }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          ram-size: 4096M
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -accel on
+          script: |
+            adb install -r -g instrumented/app.apk
+            adb install -r -g instrumented/test.apk
+            adb shell am instrument -w -e class com.yfuse.feature.player.BufferedScrubDecodeInstrumentedTest "$(adb shell pm list instrumentation | tr -d '\r' | sed -n 's/^instrumentation:\([^ ]*\).*yfuse.*/\1/p' | head -1)" | tee results.txt
+            grep -Eq 'OK \([1-9][0-9]* tests?\)' results.txt

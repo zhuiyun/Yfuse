@@ -9,7 +9,6 @@ data class AppBuildValues(
     val BUILD_REVISION: String,
     val TMDB_TOKEN: String,
     val UPDATE_MANIFEST_PUBLIC_KEY: String,
-    val YFUSE_MDK_INCLUDED: Boolean,
     val YFUSE_NATIVE_ONLY_RUNTIME: Boolean,
     val YFUSE_YCORE_GPU_INCLUDED: Boolean,
     val YFUSE_CAST_RECEIVER_APPLICATION_ID: String,
@@ -35,10 +34,6 @@ object AppBuildConfig {
     val BUILD_REVISION: String get() = values.BUILD_REVISION
     val TMDB_TOKEN: String get() = values.TMDB_TOKEN
     val UPDATE_MANIFEST_PUBLIC_KEY: String get() = values.UPDATE_MANIFEST_PUBLIC_KEY
-
-    // Preference defaults can query capabilities before Android startup (including host tests).
-    // Never advertise an optional runtime until the application confirms it is packaged.
-    val YFUSE_MDK_INCLUDED: Boolean get() = installed?.YFUSE_MDK_INCLUDED == true
 
     val YFUSE_NATIVE_ONLY_RUNTIME: Boolean get() = values.YFUSE_NATIVE_ONLY_RUNTIME
     val YFUSE_YCORE_GPU_INCLUDED: Boolean get() = values.YFUSE_YCORE_GPU_INCLUDED

@@ -40,6 +40,7 @@ import com.yfuse.core2.api.trackSelectionSkipReason
 import com.yfuse.core2.capability.YAudioOutputPath
 import com.yfuse.core2.capability.YContainer
 import com.yfuse.core2.capability.YHdrType
+import com.yfuse.core2.dolby.YDolbyVisionConfig
 import com.yfuse.core2.learning.YPlaybackLearningEngine
 import com.yfuse.core2.learning.YPlaybackLearningKey
 import com.yfuse.core2.learning.YPlaybackObservation
@@ -119,8 +120,11 @@ internal class AndroidAdaptiveCore2YPlayer(
 ) : YPlayer,
     YNativeSubtitleStyleTarget,
     AndroidVideoOutputDetach,
+    AndroidVideoOutputRenewal,
     AndroidSerializedPlayerRelease {
     private val queueLock = Any()
+    private val videoOutputReplacement = AndroidVideoOutputReplacement<YVideoOutput>()
+    override val videoOutputGeneration = videoOutputReplacement.generation
 
     /**
      * Owned here rather than inside [runLoop] so a caller can wait for the last child decoder
@@ -261,12 +265,19 @@ internal class AndroidAdaptiveCore2YPlayer(
     override fun setVideoOutput(output: YVideoOutput?): Boolean {
         if (released) return false
         requestedVideoOutput = output
+        if (videoOutputReplacement.accept(output)) return true
         commands.trySend(Command.SetVideoOutput(output))
         return true
     }
 
     /** The detach travels the command loop to the child, which confirms once its codec let go. */
     override fun detachVideoOutput(detached: CompletableDeferred<Unit>) {
+        if (videoOutputReplacement.awaitingReplacement) {
+            // Renewal starts only after stopChild awaited every outgoing decoder's release.
+            requestedVideoOutput = null
+            detached.complete(Unit)
+            return
+        }
         confirmVideoDetachAfterWorkerRelease(worker, this, detached)
         if (released) return
         requestedVideoOutput = null
@@ -711,6 +722,7 @@ internal class AndroidAdaptiveCore2YPlayer(
 
         /** The output the active child was last given, so a queued duplicate is not re-applied. */
         var childVideoOutput: YVideoOutput? = null
+        var softwareOutputProducer: Boolean? = null
         var requestedPlay = request.autoPlay
         var speed = 1f
         var audioDelayMs = 0L
@@ -1133,8 +1145,9 @@ internal class AndroidAdaptiveCore2YPlayer(
                     ?.video
                     ?.hdrType
                     ?: item.hintedHdrType()
-            val plan = yCoreInternalSoftwareRecoveryPlan(inputHdrType)
-            if (plan == null || !yCoreSoftwarePlanExecutable(plan)) {
+            val config = decision?.probe?.dolbyVisionConfig
+            val plan = yCoreInternalSoftwareRecoveryPlan(inputHdrType, config)
+            if (plan == null || !yCoreSoftwarePlanExecutable(plan, config)) {
                 AppLog.warning(
                     category = "player.core2",
                     event = "internal_route_unavailable",
@@ -1167,6 +1180,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                 allowAudioPassthrough = false,
                 frameRateSwitchMode = frameRateSwitchMode,
                 forcedPlan = plan,
+                requireDolbyVisionIdentity = plan.usesHdrFallback,
                 preferredRemoteBufferTargetUs = preferredRemoteBufferTargetUs,
             )
         }
@@ -1247,7 +1261,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                     !decision.audioOnly &&
                     plan.demuxPath == YDemuxPath.Enhanced &&
                     item.drmConfiguration == null &&
-                    yCoreSoftwarePlanExecutable(plan) ->
+                    yCoreSoftwarePlanExecutable(plan, decision.probe.dolbyVisionConfig) ->
                     AndroidNativeEnhancedYPlayer(
                         context = context,
                         request = singleRequest,
@@ -1257,9 +1271,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                         allowAudioPassthrough = false,
                         frameRateSwitchMode = frameRateSwitchMode,
                         forcedPlan = plan,
-                        // Only hardware video decode reaches here with Dolby Vision (see the
-                        // guard); the demux must then still prove the Dolby configuration.
-                        requireDolbyVisionIdentity = plan.inputHdrType == YHdrType.DolbyVision,
+                        requireDolbyVisionIdentity = plan.inputHdrType == YHdrType.DolbyVision || plan.usesHdrFallback,
                         preferredRemoteBufferTargetUs = preferredRemoteBufferTargetUs,
                     )
                 plan.route == YPlaybackRoute.GpuEnhanced -> {
@@ -1425,6 +1437,14 @@ internal class AndroidAdaptiveCore2YPlayer(
                 return createForcedEnhancedChild(item, singleRequest)
             }
 
+            if (forceSoftwareFallback) {
+                val previous = lastRouteDecision?.takeIf { it.first == item }?.second
+                videoHandoff.close()
+                routeEvaluator.closePreparedExtractor()
+                // The failed platform path already spent its probe budget. The software
+                // session validates the actual demuxed track before configuring a decoder.
+                return createInternalSoftwareRoute(item, singleRequest, previous)
+            }
             val warmedRoute = adoptPreloadedRoute(item, positionMs, target, tunnelAllowed)
             // A route this device already rendered for exactly this media skips the probes and
             // starts at planning; the device-side gates below still run on it.
@@ -1458,11 +1478,6 @@ internal class AndroidAdaptiveCore2YPlayer(
                 pendingInputHdrType = it.probe.playbackRequest.video.hdrType
                 pendingChapters = it.probe.chapters
             }
-            if (forceSoftwareFallback) {
-                videoHandoff.close()
-                routeEvaluator.closePreparedExtractor()
-                return createInternalSoftwareRoute(item, singleRequest, decision)
-            }
             if (decision == null) return createInconclusiveSourceRoute(item, singleRequest)
             recordPlannedChild(item, target, decision)
             return createPlannedChild(item, singleRequest, decision, tunnelAllowed)
@@ -1470,6 +1485,12 @@ internal class AndroidAdaptiveCore2YPlayer(
 
         suspend fun attachChild(next: YPlayer) {
             stopChild()
+            try {
+                renewVideoOutputFor(next)
+            } catch (error: Throwable) {
+                next.release()
+                throw error
+            }
             val attachedTarget = adaptiveTarget
             val attachedProbeBudget = activeProbeBudget
             val attachedFeedbackGeneration = adaptiveFeedbackGeneration.incrementAndGet()
@@ -1497,11 +1518,9 @@ internal class AndroidAdaptiveCore2YPlayer(
             if (!next.setAudioDelayMs(audioDelayMs)) reportRejectedSetting(next, "audioDelay")
             if (!next.setAudioEffect(audioEffect)) reportRejectedSetting(next, "audioEffect")
             applyChildSettings(next)
-            // NativeDirect gets the caller's newest output rather than the command copy, which may
-            // still be queued behind this very start (see requestedVideoOutput): before prepare()
-            // it only records the Surface and then configures its decoder with it. The enhanced
-            // child starts a full prepare for any valid Surface, and the prepare() below would then
-            // open the source a second time, so it keeps receiving the output by command.
+            // Both native children record the initial Surface without opening until Prepare.
+            // Direct uses the caller's latest output; enhanced keeps the route-selected Surface,
+            // including a replacement requested when switching to a software producer.
             val attachedOutput = if (next is AndroidNativeDirectYPlayer) requestedVideoOutput else output
             next.setVideoOutput(attachedOutput)
             childVideoOutput = attachedOutput
@@ -1516,6 +1535,18 @@ internal class AndroidAdaptiveCore2YPlayer(
                 next.seekTo(attachedTarget?.localPositionMs ?: pendingPositionMs)
             }
             if (requestedPlay) next.play()
+        }
+
+        private suspend fun renewVideoOutputFor(next: YPlayer) {
+            val software = (next as? AndroidNativeEnhancedYPlayer)?.usesSoftwareVideoOutput == true
+            val previous = output as? AndroidSurfaceVideoOutput
+            if (previous?.renewable == true && softwareOutputProducer?.let { it != software } == true) {
+                // A failed MediaCodec can leave its Surface queue unusable by a CPU producer.
+                // Retire that consumer too; a second Java Surface reference keeps the same queue.
+                output = videoOutputReplacement.awaitReplacement(previous)
+                childVideoOutput = null
+            }
+            softwareOutputProducer = software
         }
 
         /**
@@ -1547,6 +1578,8 @@ internal class AndroidAdaptiveCore2YPlayer(
 
             /** What the latest failure of this child tells the recovery decision. */
             var attemptDeterministic = false
+            var platformDecoderOutputRejected = false
+            private var hasPresentedVideo = false
             var attemptRanOutOfTime = false
             val networkRecoveryWindow = AndroidNetworkRecoveryWindow()
             val learningStartPositionMs = next.currentPositionMs() + (attachedTarget?.presentationOffsetMs ?: 0L)
@@ -1644,7 +1677,10 @@ internal class AndroidAdaptiveCore2YPlayer(
                     activeProbeBudget?.let(probes::complete)
                     keptRouteFailure = null
                 }
-                if (localChildState.diagnostics.videoOutputVerified) verifiedRouteSuspicion.onVideoOutput()
+                if (localChildState.diagnostics.videoOutputVerified) {
+                    hasPresentedVideo = true
+                    verifiedRouteSuspicion.onVideoOutput()
+                }
                 if (activeChild !== next) return
                 val reportedChildState = presentedChildState(next, localChildState, attachedTarget)
                 if (queueNextPeriod(localChildState)) return
@@ -1910,7 +1946,16 @@ internal class AndroidAdaptiveCore2YPlayer(
                     verifiedRouteSuspicion.onFailure(category)
                     val reportedFailure =
                         if (prematureEnd) null else (next as? YPlaybackFailureReporter)?.lastPlaybackFailure
-                    attemptDeterministic = (reportedFailure as? YPlaybackException)?.deterministic == true
+                    val typedFailure = reportedFailure as? YPlaybackException
+                    // No registered candidate can appear by reopening the same decoder profile.
+                    val configurationFailure = typedFailure?.cause as? YVideoDecoderConfigurationException
+                    attemptDeterministic =
+                        typedFailure?.deterministic == true ||
+                        configurationFailure?.failures?.isEmpty() == true
+                    platformDecoderOutputRejected =
+                        generateSequence(reportedFailure) { it.cause }
+                            .take(16)
+                            .any { it is VideoCodecOutputStateException || it is VideoDecoderNoOutputException }
                     attemptRanOutOfTime =
                         yCoreAttemptRanOutOfTime(
                             reported = reportedFailure,
@@ -1982,10 +2027,18 @@ internal class AndroidAdaptiveCore2YPlayer(
                                 protectedContent = failedItem.drmConfiguration != null,
                                 softwareFallbackAttempted = childSoftwareFallbackAttempted,
                                 deterministic = attemptDeterministic,
+                                platformDecoderOutputRejected = platformDecoderOutputRejected,
+                                videoOutputPreviouslyVerified = hasPresentedVideo,
                                 softwareFallbackAvailable =
                                     yCoreSoftwareRecoveryAvailable(
                                         protectedContent = failedItem.drmConfiguration != null,
                                         inputHdrType = childInputHdrType,
+                                        dolbyConfig =
+                                            lastRouteDecision
+                                                ?.takeIf { it.first == failedItem }
+                                                ?.second
+                                                ?.probe
+                                                ?.dolbyVisionConfig,
                                     ),
                             ),
                         )
@@ -1995,6 +2048,10 @@ internal class AndroidAdaptiveCore2YPlayer(
                     // Every recovery attempt gets time to run, except after an attempt
                     // that failed only because the start ran out of time.
                     val renewProbeBudget = !attemptRanOutOfTime
+                    // The audio or wall clock may run several seconds before the very first video
+                    // frame. Carry the requested start/seek into recovery until a picture exists.
+                    val recoveryPositionMs =
+                        if (hasPresentedVideo || childAudioOnly) childState.positionMs else pendingPositionMs
                     when (action) {
                         YPlaybackRecoveryAction.RetrySameRoute -> {
                             sameRouteRecoveryAttempts[recoveryKey] =
@@ -2003,7 +2060,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                             commands.trySend(
                                 Command.RecoverSameRoute(
                                     index = childIndex(),
-                                    positionMs = childState.positionMs,
+                                    positionMs = recoveryPositionMs,
                                     route = childState.diagnostics.route,
                                     renewProbeBudget = renewProbeBudget,
                                 ),
@@ -2014,7 +2071,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                             commands.trySend(
                                 Command.FallbackFromTunnel(
                                     index = childIndex(),
-                                    positionMs = childState.positionMs,
+                                    positionMs = recoveryPositionMs,
                                     renewProbeBudget = renewProbeBudget,
                                 ),
                             )
@@ -2024,7 +2081,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                             commands.trySend(
                                 Command.FallbackToEnhanced(
                                     index = childIndex(),
-                                    positionMs = childState.positionMs,
+                                    positionMs = recoveryPositionMs,
                                     renewProbeBudget = renewProbeBudget,
                                 ),
                             )
@@ -2034,7 +2091,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                             commands.trySend(
                                 Command.FallbackToSoftware(
                                     index = childIndex(),
-                                    positionMs = childState.positionMs,
+                                    positionMs = recoveryPositionMs,
                                     renewProbeBudget = renewProbeBudget,
                                 ),
                             )
@@ -2248,11 +2305,18 @@ internal class AndroidAdaptiveCore2YPlayer(
                     ),
                 )
                 pendingPositionMs = positionMs
-                if (adaptiveTarget != null) {
+                val target = adaptiveTarget
+                val active = child
+                if (target != null && (target.periodEndGlobalMs != null || active == null)) {
+                    // Static DASH resolves the destination Period before opening its decoder.
+                    // Retiring a still-starting decoder must not cancel the new probe.
+                    invalidateProbe("superseded")
                     pausedSeekPreviewRequested = !requestedPlay
                     rebuild(positionMs)
                 } else {
-                    child?.seekTo(positionMs)
+                    // A managed HLS VOD exposes its entire playlist on the active graph.
+                    // Keeping its demuxer also preserves the seek ordering and segment cache.
+                    active?.seekTo(positionMs)
                 }
             }
             if (pendingSeekMs.get() >= 0L) queuePendingSeek()
@@ -2562,10 +2626,19 @@ internal class AndroidAdaptiveCore2YPlayer(
                     // guarantees releaseMedia() finishes before the same decoder is
                     // configured again; rebuilding here allowed the replacement
                     // child to race the outgoing MediaCodec release on OEM devices.
-                    if (active is AndroidNativeEnhancedYPlayer) {
-                        active.retryWithProbeBudget(activeProbeBudget)
-                    } else {
-                        checkNotNull(active).retry()
+                    val localPositionMs =
+                        (command.positionMs - (adaptiveTarget?.presentationOffsetMs ?: 0L))
+                            .coerceAtLeast(
+                                0L,
+                            )
+                    when (active) {
+                        is AndroidNativeEnhancedYPlayer ->
+                            active.retryWithProbeBudget(
+                                activeProbeBudget,
+                                localPositionMs,
+                            )
+                        is AndroidNativeDirectYPlayer -> active.retryAt(localPositionMs)
+                        else -> checkNotNull(active).retry()
                     }
                     // Ended/failed children may have cleared their own play intent.
                     // Restore the router's latest user intent after serialized prepare.
@@ -2699,7 +2772,12 @@ internal class AndroidAdaptiveCore2YPlayer(
                     "command" to command.javaClass.simpleName,
                     "exceptionType" to root.diagnosticTypeName(),
                     "origin" to root.diagnosticOrigin(),
-                ),
+                ) +
+                    root.stackTrace.take(8).mapIndexed { index, frame ->
+                        // Only source symbols, never exception messages, URLs or local file paths.
+                        "frame$index" to
+                            "${frame.className.substringAfterLast('.')}.${frame.methodName}:${frame.lineNumber}"
+                    },
         )
     }
 
@@ -3036,14 +3114,15 @@ internal fun yCoreUnavailableError(
 
 /**
  * Whether FallbackToSoftware has a route to build for this input (see createInternalSoftwareRoute).
- * Dolby Vision and protected input have no software recovery: YCore never decodes them in software.
+ * Dolby input needs a compatible base or an identified single-layer Profile 5 stream for RPU conversion.
  */
 internal fun yCoreSoftwareRecoveryAvailable(
     protectedContent: Boolean,
     inputHdrType: YHdrType,
+    dolbyConfig: YDolbyVisionConfig? = null,
 ): Boolean =
     !protectedContent &&
-        yCoreInternalSoftwareRecoveryPlan(inputHdrType) != null
+        yCoreInternalSoftwareRecoveryPlan(inputHdrType, dolbyConfig) != null
 
 private fun AndroidProbeBudget.remainingMsOrZero(): Long =
     try {
@@ -3141,21 +3220,35 @@ internal fun yCoreInternalEnhancedRecoveryPlan(
         reason = "YCore internal enhanced demux and MediaCodec recovery",
     )
 
-internal fun yCoreInternalSoftwareRecoveryPlan(inputHdrType: YHdrType): YPlaybackPlan? {
-    if (inputHdrType == YHdrType.DolbyVision) return null
+internal fun yCoreInternalSoftwareRecoveryPlan(
+    inputHdrType: YHdrType,
+    dolbyConfig: YDolbyVisionConfig? = null,
+): YPlaybackPlan? {
+    val compatibleBase = dolbyConfig?.takeIf { it.profile == 7 || it.profile == 8 }?.compatibleBaseHdr
+    val decodeHdr =
+        when {
+            inputHdrType != YHdrType.DolbyVision -> inputHdrType
+            dolbyConfig?.singleLayerProfile5WithRpu == true -> YHdrType.DolbyVision
+            else -> compatibleBase ?: return null
+        }
     return YPlaybackPlan(
         route = YPlaybackRoute.SoftwareFallback,
         demuxPath = YDemuxPath.Enhanced,
         decodePath = YDecodePath.Software,
         renderPath = YRenderPath.Gpu,
         outputHdrType = YHdrType.Sdr,
-        inputHdrType = inputHdrType,
+        inputHdrType = decodeHdr,
         nativeAudio = false,
         audioPath = YAudioOutputPath.DecodePcm,
         softwareAudioDecode = true,
-        softwareVideoToneMap = inputHdrType != YHdrType.Sdr,
-        usesHdrFallback = false,
-        reason = "YCore internal FFmpeg software decode recovery",
+        softwareVideoToneMap = decodeHdr != YHdrType.Sdr,
+        usesHdrFallback = inputHdrType == YHdrType.DolbyVision,
+        reason =
+            if (decodeHdr == YHdrType.DolbyVision) {
+                "YCore HEVC software decode with Profile 5 RPU colour conversion to SDR"
+            } else {
+                "YCore internal FFmpeg software decode recovery"
+            },
     )
 }
 
@@ -3176,25 +3269,39 @@ private fun YMediaItem.hintedHdrType(): YHdrType {
     }
 }
 
-private fun yCoreSoftwarePlanExecutable(plan: YPlaybackPlan): Boolean {
-    if (!yCoreSoftwarePlanPassesDolbyGuard(plan)) return false
+private fun yCoreSoftwarePlanExecutable(
+    plan: YPlaybackPlan,
+    dolbyConfig: YDolbyVisionConfig? = null,
+): Boolean {
+    if (!yCoreSoftwarePlanPassesDolbyGuard(plan, dolbyConfig)) return false
     return runCatching {
         AndroidFfmpegDemuxer().let { demuxer ->
-            demuxer.available && demuxer.softwareDecodeAvailable
+            demuxer.available &&
+                demuxer.softwareDecodeAvailable &&
+                (plan.inputHdrType != YHdrType.DolbyVision || FfmpegNativeBridge.softwareProfile5Available)
         }
     }.getOrDefault(false)
 }
 
 /**
- * The Dolby Vision and HDR-fallback guard protects FFmpeg video decode only, which would decode the
- * Dolby base layer into a wrong picture. A plan whose video stays on a platform decoder is labelled
- * SoftwareFallback only because its audio is decoded in software, and the guard refused exactly
- * that in 1.0.83 (internal_route_unavailable dolbyguard=true for a hardware-decoded DV P5 plan).
+ * Software output uses either a confirmed compatible base or per-frame Profile 5 RPU conversion.
+ * A hardware video decoder with software audio follows the platform's Dolby path.
  */
-internal fun yCoreSoftwarePlanPassesDolbyGuard(plan: YPlaybackPlan): Boolean =
-    plan.decodePath != YDecodePath.Software ||
-        !(
-            plan.usesHdrFallback ||
-                plan.inputHdrType == YHdrType.DolbyVision ||
-                plan.outputHdrType == YHdrType.DolbyVision
-        )
+internal fun yCoreSoftwarePlanPassesDolbyGuard(
+    plan: YPlaybackPlan,
+    dolbyConfig: YDolbyVisionConfig? = null,
+): Boolean {
+    if (plan.decodePath != YDecodePath.Software) return true
+    if (plan.outputHdrType == YHdrType.DolbyVision) return false
+    if (plan.inputHdrType == YHdrType.DolbyVision) {
+        return dolbyConfig?.singleLayerProfile5WithRpu == true &&
+            plan.usesHdrFallback &&
+            plan.softwareVideoToneMap &&
+            plan.outputHdrType == YHdrType.Sdr
+    }
+    if (!plan.usesHdrFallback) return true
+    return dolbyConfig?.profile in setOf(7, 8) &&
+        dolbyConfig?.compatibleBaseHdr == plan.inputHdrType &&
+        plan.outputHdrType == YHdrType.Sdr &&
+        plan.softwareVideoToneMap == (plan.inputHdrType != YHdrType.Sdr)
+}

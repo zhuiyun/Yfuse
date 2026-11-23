@@ -2,22 +2,254 @@ package com.yfuse.feature.player
 
 import com.yfuse.core.playback.rewritePlaybackHlsManifest
 import com.yfuse.core.playback.shouldProxyPlaybackNetworkUrl
+import okhttp3.OkHttpClient
+import okhttp3.Protocol
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.SocketPolicy
+import okio.Buffer
+import java.io.IOException
 import java.net.Socket
 import java.net.SocketTimeoutException
 import java.net.URI
+import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class AndroidPlaybackHttpProxyTest {
+    @Test
+    fun an_exhausted_stream_refusal_is_network_evidence_until_the_same_source_reads_successfully() {
+        val attempts = AtomicInteger()
+        val client =
+            OkHttpClient
+                .Builder()
+                .addInterceptor { chain ->
+                    if (attempts.incrementAndGet() <= 2) throw IOException("stream was reset: REFUSED_STREAM")
+                    Response
+                        .Builder()
+                        .request(chain.request())
+                        .protocol(Protocol.HTTP_1_1)
+                        .code(200)
+                        .message("OK")
+                        .body("available".toResponseBody())
+                        .build()
+                }.build()
+        AndroidPlaybackHttpProxy(null, "evidence-test", 0, upstreamClient = client).use { proxy ->
+            val local = proxy.localUrl("http://127.0.0.1:1/episode.mp4")
+            assertTrue(readRawProxyResponse(local).first.startsWith("HTTP/1.1 502"))
+            assertTrue(proxy.sourceFailureEvidence.refusedRead)
+            assertNull(proxy.sourceFailureEvidence.httpStatus)
+            assertEquals("available", readProxyBody(local))
+            assertFalse(proxy.sourceFailureEvidence.refusedRead)
+            assertEquals(3, attempts.get())
+        }
+    }
+
+    @Test
+    fun refused_http2_media_range_opens_again_with_identical_bytes_and_headers() {
+        MockWebServer().use { upstream ->
+            upstream.protocols = listOf(Protocol.H2_PRIOR_KNOWLEDGE)
+
+            fun refuse() = MockResponse().setHttp2ErrorCode(7).setSocketPolicy(SocketPolicy.RESET_STREAM_AT_START)
+            upstream.enqueue(refuse())
+            upstream.enqueue(refuse())
+            upstream.enqueue(
+                MockResponse().setResponseCode(206).setHeader("Content-Range", "bytes 7-9/10").setBody("789"),
+            )
+            upstream.start()
+            val client =
+                OkHttpClient
+                    .Builder()
+                    .protocols(
+                        listOf(Protocol.H2_PRIOR_KNOWLEDGE),
+                    ).retryOnConnectionFailure(false)
+                    .build()
+            val request =
+                Request
+                    .Builder()
+                    .url(upstream.url("/episode"))
+                    .header("Range", "bytes=7-9")
+                    .build()
+
+            fun open() = client.newCall(request).execute()
+            assertFailsWith<IOException> { open().use { error("A refused stream produced a response") } }
+            AndroidPlaybackHttpProxy(null, "range-test", 0, upstreamClient = client).use { proxy ->
+                val (headers, body) =
+                    readRawProxyResponse(
+                        proxy.localUrl(request.url.toString()),
+                        "Range: bytes=7-9\r\n",
+                    )
+                assertTrue(headers.startsWith("HTTP/1.1 206"))
+                assertTrue(headers.contains("Content-Range: bytes 7-9/10", ignoreCase = true))
+                assertContentEquals("789".toByteArray(), body)
+            }
+            assertEquals(3, upstream.requestCount)
+            // MockWebServer records refused streams without parsing their request headers.
+            repeat(2) { assertNotNull(upstream.takeRequest(2, TimeUnit.SECONDS)) }
+            assertEquals("bytes=7-9", upstream.takeRequest(2, TimeUnit.SECONDS)?.getHeader("Range"))
+        }
+    }
+
+    @Test
+    fun cached_refusal_retries_once_and_respects_cancellation_and_other_errors() {
+        fun refused() = IOException("Open failed", ExecutionException(IOException("stream was reset: REFUSED_STREAM")))
+        var opens = 0
+        var retries = 0
+        assertFailsWith<IOException> {
+            openPlaybackRead(prepareRetry = { retries++ }) {
+                opens++
+                throw refused()
+            }
+        }
+        assertEquals(2, opens)
+        assertEquals(1, retries)
+        opens = 0
+        val cancelled =
+            assertFailsWith<IOException> {
+                openPlaybackRead(prepareRetry = { throw IOException("Playback proxy request closed") }) {
+                    opens++
+                    throw refused()
+                }
+            }
+        assertEquals("Playback proxy request closed", cancelled.message)
+        assertEquals(1, opens)
+        for (message in listOf("HTTP 403", "stream was reset: CANCEL", "certificate rejected")) {
+            val error =
+                assertFailsWith<IOException> {
+                    openPlaybackRead(prepareRetry = { error("Unexpected retry") }) { throw IOException(message) }
+                }
+            assertEquals(message, error.message)
+        }
+    }
+
+    @Test
+    fun large_binary_behind_a_playlist_url_keeps_every_byte_despite_misleading_mime() {
+        val media = ByteArray(4 * 1024 * 1024 + 17) { (it % 251).toByte() }
+        byteArrayOf(0x1A, 0x45, 0xDF.toByte(), 0xA3.toByte()).copyInto(media)
+        MockWebServer().use { upstream ->
+            upstream.enqueue(
+                MockResponse()
+                    .setHeader("Content-Type", "application/vnd.apple.mpegurl")
+                    .setBody(Buffer().write(media)),
+            )
+            upstream.start()
+            AndroidPlaybackHttpProxy(context = null, userAgent = "proxy-test", videoCacheBytes = 0).use { proxy ->
+                val (headers, body) = readRawProxyResponse(proxy.localUrl(upstream.url("/disguised.m3u8").toString()))
+                assertTrue(headers.startsWith("HTTP/1.1 200"))
+                assertTrue(headers.contains("Content-Length: ${media.size}"))
+                assertContentEquals(media, body)
+            }
+        }
+    }
+
+    @Test
+    fun seeking_a_disguised_file_preserves_range_and_an_embedded_playlist_signature() {
+        val media = "#EXTM3U\n#EXTINF:6,\nnot-a-real-segment.ts\n".toByteArray()
+        MockWebServer().use { upstream ->
+            upstream.enqueue(
+                MockResponse()
+                    .setResponseCode(206)
+                    .setHeader("Content-Type", "video/x-matroska")
+                    .setHeader("Content-Range", "bytes 1024-${1023 + media.size}/9000000")
+                    .setBody(Buffer().write(media)),
+            )
+            upstream.start()
+            AndroidPlaybackHttpProxy(context = null, userAgent = "proxy-test", videoCacheBytes = 0).use { proxy ->
+                val (headers, body) =
+                    readRawProxyResponse(
+                        proxy.localUrl(upstream.url("/disguised.m3u8").toString()),
+                        "Range: bytes=1024-\r\n",
+                    )
+                assertTrue(headers.startsWith("HTTP/1.1 206"))
+                assertTrue(headers.contains("Content-Range: bytes 1024-${1023 + media.size}/9000000"))
+                assertContentEquals(media, body)
+                assertEquals("bytes=1024-", upstream.takeRequest(2, TimeUnit.SECONDS)?.getHeader("Range"))
+            }
+        }
+    }
+
+    @Test
+    fun playlist_shaped_error_body_is_forwarded_without_rewriting_or_hiding_rejection() {
+        val denied = "#EXTM3U\naccess-denied\n"
+        MockWebServer().use { upstream ->
+            upstream.enqueue(MockResponse().setResponseCode(403).setBody(denied))
+            upstream.start()
+            AndroidPlaybackHttpProxy(context = null, userAgent = "proxy-test", videoCacheBytes = 0).use { proxy ->
+                assertEquals(denied, readProxyBody(proxy.localUrl(upstream.url("/movie.m3u8").toString()), 403))
+                assertEquals(403, proxy.sourceFailureEvidence.httpStatus)
+            }
+        }
+    }
+
+    private fun readRawProxyResponse(
+        url: String,
+        headers: String = "",
+    ): Pair<String, ByteArray> {
+        val local = URI(url)
+        return Socket(local.host, local.port).use { client ->
+            client.soTimeout = 5_000
+            client.getOutputStream().write(
+                "GET ${local.rawPath} HTTP/1.1\r\nHost: localhost\r\n$headers\r\n".toByteArray(),
+            )
+            val response = client.getInputStream().readBytes()
+            val boundary = response.toString(Charsets.ISO_8859_1).indexOf("\r\n\r\n")
+            assertTrue(boundary >= 0)
+            response.copyOfRange(0, boundary).toString(Charsets.ISO_8859_1) to
+                response.copyOfRange(boundary + 4, response.size)
+        }
+    }
+
+    @Test
+    fun rejected_old_routes_cannot_poison_the_next_movie_or_a_fresh_retry() {
+        MockWebServer().use { upstream ->
+            upstream.enqueue(MockResponse().setResponseCode(403).setBody("denied"))
+            upstream.enqueue(MockResponse().setBody("movie bytes"))
+            upstream.enqueue(MockResponse().setResponseCode(403).setBody("late denial"))
+            upstream.enqueue(MockResponse().setResponseCode(403).setBody("fresh denial"))
+            upstream.start()
+            AndroidPlaybackHttpProxy(context = null, userAgent = "proxy-test", videoCacheBytes = 0).use { proxy ->
+                val oldSource = upstream.url("/old").toString()
+                val oldRoute = proxy.localUrl(oldSource)
+                assertEquals("denied", readProxyBody(oldRoute, 403))
+                assertEquals(403, proxy.sourceFailureEvidence.httpStatus)
+                val current = proxy.localUrl(upstream.url("/next").toString())
+                assertNull(proxy.sourceFailureEvidence.httpStatus)
+                assertEquals("movie bytes", readProxyBody(current))
+                assertEquals("late denial", readProxyBody(oldRoute, 403))
+                assertNull(proxy.sourceFailureEvidence.httpStatus)
+                assertEquals("fresh denial", readProxyBody(proxy.localUrl(oldSource), 403))
+                assertEquals(403, proxy.sourceFailureEvidence.httpStatus)
+            }
+        }
+    }
+
+    @Test
+    fun hls_child_denial_belongs_to_the_active_movie() {
+        MockWebServer().use { upstream ->
+            upstream.enqueue(MockResponse().setBody("#EXTM3U\n#EXTINF:6,\nsegment.ts\n"))
+            upstream.enqueue(MockResponse().setResponseCode(403).setBody("denied"))
+            upstream.start()
+            AndroidPlaybackHttpProxy(context = null, userAgent = "proxy-test", videoCacheBytes = 0).use { proxy ->
+                val manifest = readProxyBody(proxy.localUrl(upstream.url("/movie.m3u8").toString()))
+                val segment = manifest.lineSequence().first { it.startsWith("http://127.0.0.1:") }
+                assertEquals("denied", readProxyBody(segment, 403))
+                assertEquals(403, proxy.sourceFailureEvidence.httpStatus)
+            }
+        }
+    }
+
     @Test
     fun head_preserves_source_length_without_forwarding_a_body() {
         MockWebServer().use { upstream ->
@@ -150,7 +382,7 @@ class AndroidPlaybackHttpProxyTest {
                         "GET ${local.rawPath} HTTP/1.1\r\nHost: localhost\r\n\r\n".toByteArray(),
                     )
                     val input = client.getInputStream().bufferedReader()
-                    assertTrue(assertNotNull(input.readLine()).contains("200"))
+                    assertTrue(assertNotNull(input.readLine()).startsWith("HTTP/1.1 200 "))
                     while (!input.readLine().isNullOrEmpty()) Unit
                     assertEquals("12345", CharArray(5) { input.read().toChar() }.concatToString())
                     closer.submit { proxy.close() }.get(1, TimeUnit.SECONDS)
@@ -251,13 +483,16 @@ class AndroidPlaybackHttpProxyTest {
         )
     }
 
-    private fun readProxyBody(url: String): String {
+    private fun readProxyBody(
+        url: String,
+        expectedStatus: Int = 200,
+    ): String {
         val local = URI(url)
         return Socket(local.host, local.port).use { client ->
             client.soTimeout = 2_000
             client.getOutputStream().write("GET ${local.rawPath} HTTP/1.1\r\nHost: localhost\r\n\r\n".toByteArray())
             val input = client.getInputStream().bufferedReader()
-            assertTrue(assertNotNull(input.readLine()).contains("200"))
+            assertTrue(assertNotNull(input.readLine()).startsWith("HTTP/1.1 $expectedStatus "))
             while (!input.readLine().isNullOrEmpty()) Unit
             input.readText()
         }

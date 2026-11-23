@@ -94,7 +94,7 @@ private class PlexSourceRetry : AbstractCoroutineContextElement(Key) {
  *
  * Plex JSON is translated into the existing provider-neutral models, so no screen or playback
  * engine needs a Plex-specific branch. Authentication and API calls use headers; only artwork and
- * media URLs carry the token because Coil, ExoPlayer, mpv and Cast cannot share Ktor's headers.
+ * media URLs carry the token because Coil, the player and Cast cannot share Ktor's headers.
  */
 internal class PlexMediaServerAdapter(
     private val client: HttpClient,

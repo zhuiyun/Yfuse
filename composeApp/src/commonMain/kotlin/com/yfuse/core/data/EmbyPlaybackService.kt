@@ -122,7 +122,7 @@ internal class EmbyPlaybackService(
                         CurrentPlaySessionId = playSessionId,
                         MaxStreamingBitrate = YFUSE_MAX_STREAMING_BITRATE_BPS,
                         // This is what the client can ingest, not the current speaker layout.
-                        // mpv/FFmpeg can decode 7.1 and downmix locally to a stereo phone route.
+                        // YCore can decode 7.1 and downmix locally to a stereo phone route.
                         MaxAudioChannels = YFUSE_LOCAL_DECODE_MAX_AUDIO_CHANNELS,
                         EnableDirectPlay = !forceVideoTranscode,
                         EnableDirectStream = !forceVideoTranscode,

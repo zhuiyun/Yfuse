@@ -2,9 +2,9 @@ package com.yfuse.feature.player
 
 import android.graphics.Bitmap
 import android.os.SystemClock
-import android.provider.Settings
 import android.view.MotionEvent
 import android.view.ViewTreeObserver
+import android.view.accessibility.AccessibilityNodeInfo
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -24,6 +25,8 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -32,8 +35,6 @@ import com.yfuse.MainActivity
 import com.yfuse.core.designsystem.AccessibilityOptions
 import com.yfuse.core.designsystem.YfuseTheme
 import com.yfuse.core2.api.YBufferedRange
-import com.yfuse.feature.detail.DETAIL_SPLIT_ARRIVAL_MS
-import com.yfuse.feature.detail.DETAIL_SPLIT_MS
 import com.yfuse.feature.detail.DetailActionDock
 import com.yfuse.feature.detail.DetailPlayButtonHeight
 import org.junit.Assert.assertEquals
@@ -147,6 +148,7 @@ class SoftFeedbackInstrumentedTest {
         val committed = AtomicReference(0f)
         val commits = AtomicInteger()
         val cancels = AtomicInteger()
+        val presses = AtomicInteger()
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 currentActivity = activity
@@ -164,6 +166,7 @@ class SoftFeedbackInstrumentedTest {
                                 progressMarkers = emptyList(),
                                 accent = { Color(0xFF90B6ED) },
                                 onScrubTo = preview::set,
+                                onPress = { presses.incrementAndGet() },
                                 onCommit = {
                                     committed.set(it)
                                     commits.incrementAndGet()
@@ -186,6 +189,16 @@ class SoftFeedbackInstrumentedTest {
                 scenario.onActivity { reduced = reduceMotion }
                 frame()
                 val before = commits.get()
+                val pressCount = presses.get()
+                val cancelled = cancels.get()
+                val held = SystemClock.uptimeMillis()
+                touch(held, MotionEvent.ACTION_DOWN, track, 0.25f)
+                frame()
+                assertEquals(pressCount + 1, presses.get())
+                touch(held, MotionEvent.ACTION_CANCEL, track, 0.25f)
+                frame()
+                assertEquals(cancelled + 1, cancels.get())
+                assertEquals(before, commits.get())
                 val time = SystemClock.uptimeMillis()
                 touch(time, MotionEvent.ACTION_DOWN, track, 0.25f)
                 touch(time, MotionEvent.ACTION_MOVE, track, 0.6f)
@@ -205,9 +218,111 @@ class SoftFeedbackInstrumentedTest {
                 assertEquals(0.75f, committed.get(), 0.015f)
                 assertEquals(track, bounds.get())
             }
-            assertEquals(2, cancels.get())
+            assertEquals(4, cancels.get())
             capture("seek-reduced.png")
         }
+    }
+
+    @Test(timeout = 90_000L)
+    fun long_movie_clock_never_moves_the_held_seek_rail() {
+        val duration = 12_000_000L
+        var state by mutableStateOf(
+            PlaybackTransportState(0, 8_000L, duration, 0L, 1f, PlaybackButtonState(false, false, false, false, true)),
+        )
+        var scale by mutableFloatStateOf(1f)
+        val committed = AtomicReference<Long>()
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                currentActivity = activity
+                activity.setContent {
+                    val density = LocalDensity.current.density
+                    CompositionLocalProvider(LocalDensity provides Density(density, scale)) {
+                        YfuseTheme(dark = true, accessibility = AccessibilityOptions(reduceMotion = true)) {
+                            Box(
+                                Modifier.fillMaxSize().background(Color.Black).safeDrawingPadding(),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                RefinedBottomBar(
+                                    state = state,
+                                    seekLocked = false,
+                                    onPlayPause = {},
+                                    onPrevious = {},
+                                    onNext = {},
+                                    onSeek = {
+                                        committed.set(it)
+                                        state = state.copy(positionMs = it)
+                                    },
+                                    onScrub = {},
+                                    trickplay = null,
+                                    progressMarkers = emptyList(),
+                                    hasEpisodes = false,
+                                    onOpenEpisodes = {},
+                                    hasMultipleSources = false,
+                                    onOpenSources = {},
+                                    onOpenSubtitles = {},
+                                    onOpenAudio = {},
+                                    onOpenSpeed = {},
+                                    skipSettingsAvailable = false,
+                                    onOpenSkipSettings = {},
+                                    danmakuEnabled = false,
+                                    onToggleDanmaku = {},
+                                    onOpenDanmaku = {},
+                                    artworkUrl = null,
+                                    artworkIdentity = null,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            for (fontScale in listOf(1f, 1.3f)) {
+                onMain {
+                    scale = fontScale
+                    state = state.copy(positionMs = 8_000L)
+                }
+                SystemClock.sleep(500)
+                repeat(4) { frame() }
+                for (target in listOf(.63f, .21f)) {
+                    val before = seekRailBounds()
+                    val down = SystemClock.uptimeMillis()
+                    touch(down, MotionEvent.ACTION_DOWN, before, if (target > .5f) .17f else .83f)
+                    touch(down, MotionEvent.ACTION_MOVE, before, target)
+                    SystemClock.sleep(500)
+                    repeat(4) { frame() }
+                    val held = seekRailBounds()
+                    capture("long-clock-held-$fontScale-$target.png")
+                    touch(down, MotionEvent.ACTION_UP, before, target)
+                    repeat(4) { frame() }
+                    assertEquals("Clock changed the held seek rail at font scale $fontScale", before, held)
+                    val toleranceMs = duration * 1.5 / before.width
+                    assertEquals(duration * target.toDouble(), requireNotNull(committed.get()).toDouble(), toleranceMs)
+                }
+            }
+        }
+    }
+
+    private fun seekRailBounds(): Rect {
+        fun find(node: AccessibilityNodeInfo?): Rect? {
+            if (node == null) return null
+            node.refresh()
+            if (node.stateDescription?.toString()?.startsWith("播放进度") == true && node.rangeInfo != null) {
+                val bounds = android.graphics.Rect()
+                node.getBoundsInScreen(bounds)
+                return Rect(
+                    bounds.left.toFloat(),
+                    bounds.top.toFloat(),
+                    bounds.right.toFloat(),
+                    bounds.bottom.toFloat(),
+                )
+            }
+            for (index in 0 until node.childCount) find(node.getChild(index))?.let { return it }
+            return null
+        }
+        repeat(20) {
+            find(InstrumentationRegistry.getInstrumentation().uiAutomation.rootInActiveWindow)?.let { return it }
+            frame()
+        }
+        throw AssertionError("No visible seek rail")
     }
 
     @Test(timeout = 45_000L)
@@ -348,16 +463,24 @@ class SoftFeedbackInstrumentedTest {
     }
 
     /**
-     * Draws frames until a dock opened with progress has split 从头 off. It arrives as one key and
-     * splits once the page is in; until then the end of the row answers as 播放, so a tap there
-     * that came too soon counted as a second play.
+     * Wait for the actual separate action. Slow guest frames can keep the liquid mid-split
+     * beyond its nominal wall-clock duration; while it is one key the end correctly plays.
      */
     private fun awaitFromStartSplit() {
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val scale = Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
-        val split = SystemClock.uptimeMillis() + DETAIL_SPLIT_ARRIVAL_MS + (DETAIL_SPLIT_MS * maxOf(scale, 1f)).toLong()
-        while (SystemClock.uptimeMillis() < split) frame()
-        frame()
+        fun ready(node: AccessibilityNodeInfo?): Boolean {
+            if (node == null) return false
+            if (node.isVisibleToUser && node.isEnabled && node.actionList.any { it.label?.toString() == "从头播放" }) {
+                return true
+            }
+            return (0 until node.childCount).any { ready(node.getChild(it)) }
+        }
+        val deadline = SystemClock.uptimeMillis() + 15_000L
+        while (SystemClock.uptimeMillis() < deadline) {
+            if (ready(InstrumentationRegistry.getInstrumentation().uiAutomation.rootInActiveWindow)) return
+            frame()
+        }
+        capture("split-action-unavailable.png")
+        throw AssertionError("Separate from-start action did not become available")
     }
 
     private fun frame() {

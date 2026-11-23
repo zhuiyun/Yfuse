@@ -419,6 +419,11 @@ internal class AndroidNativeTunnelSession(
     }
 
     fun close() {
+        releaseOutputsAndResetState()
+        runCatching(demuxer::release)
+    }
+
+    private fun releaseOutputsAndResetState() {
         renderedFrameRateSampler.reset()
         videoOutputEpoch.reset()
         pausedPreview.clear()
@@ -434,7 +439,6 @@ internal class AndroidNativeTunnelSession(
         audioRenderer = null
         runCatching(audioDecoder::release)
         runCatching(videoDecoder::release)
-        runCatching(demuxer::release)
         tunnel = null
         runtimeCapabilityKey = null
         runtimeRenderRecorded = false
@@ -452,7 +456,7 @@ internal class AndroidNativeTunnelSession(
     fun cancelPendingRead() = demuxer.cancelPendingRead()
 
     fun release() {
-        close()
+        releaseOutputsAndResetState()
         demuxer.close()
     }
 

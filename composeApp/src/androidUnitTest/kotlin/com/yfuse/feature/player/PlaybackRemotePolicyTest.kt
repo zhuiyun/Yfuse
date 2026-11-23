@@ -19,7 +19,7 @@ class PlaybackRemotePolicyTest {
                 nowEpochMs = 1_000,
             )
 
-        assertEquals(setOf(PlaybackRemotePath.YCoreGpu, PlaybackRemotePath.Mdk), state?.disabledPaths)
+        assertEquals(setOf(PlaybackRemotePath.YCoreGpu), state?.disabledPaths)
     }
 
     @Test

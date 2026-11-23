@@ -29,6 +29,10 @@ class EpisodeLabelsTest {
     fun titles_join_the_number_and_a_name_that_adds_something() {
         assertEquals("第1集", episodeTitle(1, "第1集"))
         assertEquals("第1集 · 婚礼", episodeTitle(1, "婚礼"))
+        assertEquals("第1集 · 清晨之后", episodeTitle(1, "第 1 集 · 清晨之后"))
+        assertEquals("E3. 婚礼 · 下", episodeTitle(3, "EP03 · 婚礼 · 下", separator = " ") { "E$it." })
+        assertEquals("第1集 · 第2集 · 婚礼", episodeTitle(1, "第2集 · 婚礼"))
+        assertEquals("第 1 集 · 清晨之后", episodeTitle(null, "第 1 集 · 清晨之后"))
         assertEquals("第1集", episodeTitle(1, ""))
         assertEquals("E3.", episodeTitle(3, "03", separator = " ") { "E$it." })
         assertEquals("婚礼", episodeTitle(null, "婚礼"))

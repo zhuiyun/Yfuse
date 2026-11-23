@@ -2,6 +2,7 @@ package com.yfuse.tv.player
 
 import android.app.UiModeManager
 import android.content.Context
+import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.view.KeyEvent
 import com.yfuse.tv.focus.AndroidRemoteKeyMapper
@@ -359,6 +360,16 @@ private fun directionForSeekKey(key: RemotePhysicalKey): Int =
     }
 
 internal fun isTelevisionDevice(context: Context): Boolean {
+    // The TV artifact always needs focusable receiver dialogs and remote controls,
+    // including on boxes/emulators whose firmware reports the normal Android UI mode.
+    val televisionApplication =
+        runCatching {
+            context.packageManager
+                .getApplicationInfo(context.packageName, PackageManager.GET_META_DATA)
+                .metaData
+                ?.getBoolean("com.yfuse.televisionApplication", false) == true
+        }.getOrDefault(false)
+    if (televisionApplication) return true
     val configuredForTelevision =
         context.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK ==
             Configuration.UI_MODE_TYPE_TELEVISION

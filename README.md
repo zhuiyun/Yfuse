@@ -25,17 +25,15 @@ are tracked in [the Android 17 migration and device validation checklist](docs/A
 dependencies. `:phoneShared` and `:tvShared` compile their existing KMP source trees
 using the Android KMP library plugin. See [the migration notes](docs/AGP9_MIGRATION_20260916.md).
 
-Compatibility player artifacts are downloaded from pinned HTTPS release URLs and
-verified against `scripts/engine-checksums.sha256` before installation:
+The Android app uses YCore and SenPlayer. Prepare the pinned YCore AAR and the five original
+SenPlayer assets before building:
 
 ```bash
-scripts/fetch-engines.sh
+python3 scripts/prepare-playback-inputs.py
 ./gradlew :composeApp:assembleDebug
 ```
 
-The standalone YCore runtime is built and verified separately. The native-only build
-packages `ycore-native.aar`, keeps the compatibility AAR compile-only, disables MDK,
-and makes playback fail closed instead of falling back to a legacy engine:
+To build and verify the standalone YCore runtime from source, run:
 
 ```bash
 scripts/build-ycore-native.sh --arch arm64
@@ -54,7 +52,6 @@ dependencies, regenerate them with:
   :tvApp:dependencies \
   :tvShared:dependencies \
   :macrobenchmark:dependencies \
-  :mdkAndroid:dependencies \
   :watchTogetherProtocol:dependencies \
   :watchTogetherServer:dependencies \
   :yfuseBackendClient:dependencies \

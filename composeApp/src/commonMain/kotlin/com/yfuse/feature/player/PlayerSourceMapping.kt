@@ -64,7 +64,7 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
         val requiresDiscStream = version.requiresDiscNavigation
         // Dolby is implemented by the client pipeline. PlaybackInfo is still used for URLs and
         // source metadata, but a server-side codec/profile verdict must not replace the original
-        // file with H.264/AAC before Exo/mpv/MDK get a chance to render or downmix it locally.
+        // file with H.264/AAC before the selected engine can render or downmix it locally.
         val preserveDolbyLocally =
             !requiresDiscStream && (version.isDolbyVision || version.hasDolbyAtmos)
         val safeDiscDirectStream =
@@ -152,6 +152,7 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
             sourceWidth = version.video?.width,
             sourceHeight = version.videoHeight ?: version.video?.height,
             sourceRotation = version.video?.rotation,
+            sourceDisplayAspect = version.video?.aspectRatio,
             sourceBitrateBps = version.bitrateBps ?: version.video?.bitrateBps,
             sourceVideoCodec = version.videoCodec ?: version.video?.codec,
             sourceFrameRate = version.video?.frameRate,

@@ -112,6 +112,8 @@ data class PlayerMediaVersion(
     val playSessionId: String = "",
     /** Cross-origin provider URLs may be signed and do not accept our reporting session id. */
     val preserveUrlOnSessionRefresh: Boolean = false,
+    /** Display aspect reported for this physical file; absent on older saved queues. */
+    val sourceDisplayAspect: String? = null,
 ) {
     /**
      * The same physical file addressed as a brand-new playback session.
@@ -225,6 +227,8 @@ data class PlayerMediaItem(
     val providerIds: Map<String, String> = emptyMap(),
     val mediaType: String = "",
     val year: Int? = null,
+    /** Container hint supplied by an external video intent, including extensionless stream URLs. */
+    val sourceMimeType: String? = null,
 ) {
     /**
      * The file currently playing, when the entry's sources were fetched at all.

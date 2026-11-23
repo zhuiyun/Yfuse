@@ -50,8 +50,10 @@ extern "C" {
 #include <libswscale/swscale.h>
 }
 
+#include "ycore_cached_preview.h"
 #include "ycore_parallel_rows.h"
 #include "ycore_tone_map.h"
+#include "ycore_dovi_profile5.h"
 #include "ycore_deinterlace.h"
 #include "ycore_disc_language.h"
 #include "ycore_disc_uri.h"
@@ -110,11 +112,12 @@ constexpr size_t kMaxSoftwareToneMapPixels = 4096U * 2160U;
 constexpr int kSoftwareFrameAgain = 0;
 constexpr int kSoftwareFrameData = 1;
 constexpr int kSoftwareFrameEof = 2;
+constexpr int kSoftwareFrameSkipped = 3;
 constexpr int kSoftwareFrameGrowBuffer = -1;
 // Version 3: video frames are RGBA (Android ARGB_8888 memory order; v2 wrote BGRA), YUV matrix and
 // range follow the stream, and isolated undecodable packets are dropped instead of thrown.
-constexpr int kSoftwareDecoderApiVersion = 4;
-// A damaged TS segment or a broken frame at a splice is dropped the way ffmpeg and mpv drop it.
+constexpr int kSoftwareDecoderApiVersion = 6;
+// Drop isolated damaged transport packets and broken pictures at splices.
 // Only this many failures in a row, with no frame decoded in between, mean the decoder cannot
 // play the stream at all.
 constexpr int kMaxConsecutiveSoftwareDecodeErrors = 64;
@@ -272,11 +275,11 @@ struct SoftwareDecoder {
     std::vector<uint16_t> tone_map_rgb48;
     std::unique_ptr<ycore_tone_map::Mapper> tone_mapper;
     ycore_tone_map::Transfer tone_mapper_transfer = ycore_tone_map::Transfer::Pq;
-    double tone_mapper_peak_nits = 0.0;
     std::unique_ptr<ycore_parallel::RowWorkers> row_workers;
     int consecutive_decode_errors = 0;
     bool frame_pending = false;
     bool tone_map_hdr_to_sdr = false;
+    bool require_profile5_mapping = false;
 
     void reset_resampler() {
         swr_free(&resampler);
@@ -694,10 +697,9 @@ bool is_remote_source(const std::string& source) {
 }
 
 /**
- * Sources FFmpeg must never open itself. This build has no smb protocol, and FFmpeg's
- * android_content protocol reads through the application context libmpv registers and deletes
- * again when its player is destroyed, so using it after that aborts the process. YCore's loopback
- * proxy serves both; one that reaches here was never localized.
+ * YCore localizes SMB and Android content URIs before FFmpeg opens them.
+ * The standalone build supplies neither a native SMB protocol nor an application context
+ * for FFmpeg's android_content protocol.
  */
 bool needs_ycore_transport(const std::string& source) {
     const std::string scheme = source_scheme(source);
@@ -1630,7 +1632,7 @@ int software_conversion_threads() {
     return std::clamp(static_cast<int>(cores / 2U), 1, kMaxSoftwareConversionThreads);
 }
 
-/** The YUV matrix of a decoded frame, resolving untagged streams the way mpv and MediaCodec do. */
+/** The YUV matrix of a decoded frame, resolving untagged SD and HD streams by their dimensions. */
 int scaler_colorspace(const AVFrame* frame, const AVCodecParameters* parameters) {
     const AVColorSpace space =
         frame->colorspace != AVCOL_SPC_UNSPECIFIED ? frame->colorspace : parameters->color_space;
@@ -1764,6 +1766,50 @@ ycore_parallel::RowWorkers* software_row_workers(SoftwareDecoder* decoder) {
     return decoder->row_workers.get();
 }
 
+const ycore_tone_map::Mapper* prepare_tone_mapper(
+    JNIEnv* env, SoftwareDecoder* decoder, ycore_tone_map::Transfer transfer, double peak_nits) {
+    if (!decoder->tone_mapper || decoder->tone_mapper_transfer != transfer) {
+        try {
+            decoder->tone_mapper = std::make_unique<ycore_tone_map::Mapper>(transfer, peak_nits);
+        } catch (const std::bad_alloc&) {
+            throw_illegal_state(env, "Unable to allocate the FFmpeg HDR tone-map tables");
+            return nullptr;
+        }
+        decoder->tone_mapper_transfer = transfer;
+    }
+    decoder->tone_mapper->set_peak_nits(peak_nits);
+    return decoder->tone_mapper.get();
+}
+
+bool render_profile5_sdr(JNIEnv* env, SoftwareDecoder* decoder, AVStream* stream, uint8_t* destination) {
+    const AVFrame& frame = *decoder->frame;
+    ycore_dovi::Profile5Mapping mapping;
+    if (!ycore_dovi::supported_planes(frame) || (frame.flags & AV_FRAME_FLAG_INTERLACED) ||
+        !mapping.read(av_frame_get_side_data(&frame, AV_FRAME_DATA_DOVI_METADATA))) {
+        throw_illegal_state(env, "YCore Profile 5 requires progressive 10-bit pixels and a supported per-frame RPU");
+        return false;
+    }
+    const double peak = mapping.source_max_pq > 0 && mapping.source_max_pq <= 4095
+        ? ycore_tone_map::pq_to_linear(mapping.source_max_pq / 4095.0) * 10000.0
+        : hdr_frame_peak_nits(&frame, stream->codecpar);
+    const auto* mapper = prepare_tone_mapper(env, decoder, ycore_tone_map::Transfer::Pq, peak);
+    if (!mapper) return false;
+    software_row_workers(decoder)->run(frame.height, [&](int first, int end) {
+        for (int y = first; y < end; ++y) {
+            uint8_t* target = destination + 4ULL * frame.width * y;
+            ycore_dovi::render_row(mapping, frame, y, [mapper](float v) { return mapper->pq_display_light(v); },
+                [&](int x, const ycore_dovi::Triple& light) {
+                    const auto pixel = mapper->display_light_to_sdr(light[0], light[1], light[2]);
+                    target[4*x] = pixel.red;
+                    target[4*x+1] = pixel.green;
+                    target[4*x+2] = pixel.blue;
+                    target[4*x+3] = pixel.alpha;
+                });
+        }
+    });
+    return true;
+}
+
 bool tone_map_hdr_frame(
     JNIEnv* env,
     SoftwareDecoder* decoder,
@@ -1777,6 +1823,7 @@ bool tone_map_hdr_frame(
         throw_illegal_state(env, "FFmpeg HDR tone-map frame exceeds the 4K safety limit");
         return false;
     }
+    if (decoder->require_profile5_mapping) return render_profile5_sdr(env, decoder, stream, destination);
     const AVColorTransferCharacteristic transfer =
         decoder->frame->color_trc != AVCOL_TRC_UNSPECIFIED
         ? decoder->frame->color_trc
@@ -1827,20 +1874,9 @@ bool tone_map_hdr_frame(
         ? ycore_tone_map::Transfer::Pq
         : ycore_tone_map::Transfer::Hlg;
     const double mastering_peak_nits = hdr_frame_peak_nits(decoder->frame, stream->codecpar);
-    if (!decoder->tone_mapper ||
-        decoder->tone_mapper_transfer != tone_map_transfer) {
-        try {
-            decoder->tone_mapper =
-                std::make_unique<ycore_tone_map::Mapper>(tone_map_transfer, mastering_peak_nits);
-        } catch (const std::bad_alloc&) {
-            throw_illegal_state(env, "Unable to allocate the FFmpeg HDR tone-map tables");
-            return false;
-        }
-        decoder->tone_mapper_transfer = tone_map_transfer;
-        decoder->tone_mapper_peak_nits = mastering_peak_nits;
-    }
-    decoder->tone_mapper->set_peak_nits(mastering_peak_nits);
-    const ycore_tone_map::Mapper& mapper = *decoder->tone_mapper;
+    const auto* prepared_mapper = prepare_tone_mapper(env, decoder, tone_map_transfer, mastering_peak_nits);
+    if (!prepared_mapper) return false;
+    const ycore_tone_map::Mapper& mapper = *prepared_mapper;
     const uint16_t* rgb48 = decoder->tone_map_rgb48.data();
     software_row_workers(decoder)->run(height, [&](int first_row, int end_row) {
         for (int row = first_row; row < end_row; ++row) {
@@ -3333,6 +3369,29 @@ void native_configure_software_decoder(
     SoftwareDecoder* decoder = software_decoder(env, from_handle(handle), index);
     if (decoder && !env->ExceptionCheck()) {
         decoder->tone_map_hdr_to_sdr = tone_map_hdr_to_sdr == JNI_TRUE;
+        decoder->require_profile5_mapping = false;
+    }
+}
+
+void native_configure_profile5_decoder(JNIEnv* env, jclass, jlong handle, jint index) {
+    auto* session = from_handle(handle);
+    AVStream* stream = checked_stream(env, session, index);
+    if (!stream) return;
+    const auto* parameters = stream->codecpar;
+    const auto* side = av_packet_side_data_get(parameters->coded_side_data,
+        parameters->nb_coded_side_data, AV_PKT_DATA_DOVI_CONF);
+    const auto* config = side && side->size >= sizeof(AVDOVIDecoderConfigurationRecord)
+        ? reinterpret_cast<const AVDOVIDecoderConfigurationRecord*>(side->data) : nullptr;
+    if (parameters->codec_id != AV_CODEC_ID_HEVC || !config || config->dv_profile != 5 ||
+        config->dv_bl_signal_compatibility_id != 0 || !config->rpu_present_flag ||
+        !config->bl_present_flag || config->el_present_flag) {
+        throw_illegal_state(env, "YCore software Dolby conversion needs a confirmed single-layer HEVC Profile 5 track");
+        return;
+    }
+    SoftwareDecoder* decoder = software_decoder(env, session, index);
+    if (decoder && !env->ExceptionCheck()) {
+        decoder->tone_map_hdr_to_sdr = true;
+        decoder->require_profile5_mapping = true;
     }
 }
 
@@ -3453,12 +3512,12 @@ int64_t software_video_duration_us(const AVFrame* frame, AVStream* stream, AVFor
     return 0;
 }
 
-jlongArray native_receive_software_video_frame(
+jlongArray receive_software_video_frame(
     JNIEnv* env,
-    jclass,
     jlong handle,
     jint index,
-    jobject target) {
+    jobject target,
+    jlong minimum_pts_us) {
     DemuxSession* session = from_handle(handle);
     AVStream* stream = checked_stream(env, session, index);
     if (!stream) return nullptr;
@@ -3502,6 +3561,25 @@ jlongArray native_receive_software_video_frame(
     const int64_t duration_us = software_video_duration_us(decoder->frame, stream, session->format);
     const jlong pts_us = ycore_deinterlace::field_pts(
         timestamp_us(decoder->frame->best_effort_timestamp, stream->time_base), duration_us, decoder->output_field);
+    // Keep decoding reference pictures, but avoid allocating/converting pixels the audio-master
+    // clock or seek target has already passed. Converting every discarded 4K frame can itself
+    // keep the decoder behind forever. Each interlaced field retains its own timestamp.
+    const bool another_field = (decoder->frame->flags & AV_FRAME_FLAG_INTERLACED) &&
+        height >= 2 && decoder->output_field == 0 && duration_us > 1 && pts_us != kNoTimestamp;
+    auto consume_field = [&]() {
+        if (another_field) {
+            decoder->output_field = 1;
+        } else {
+            av_frame_unref(decoder->frame);
+            if (decoder->field_frame) av_frame_unref(decoder->field_frame);
+            decoder->frame_pending = false;
+            decoder->output_field = 0;
+        }
+    };
+    if (pts_us != kNoTimestamp && minimum_pts_us != kNoTimestamp && pts_us < minimum_pts_us) {
+        consume_field();
+        return make_software_frame_result(env, kSoftwareFrameSkipped, 0, pts_us, width, height, 0);
+    }
     if (static_cast<uint64_t>(capacity) < required) {
         return make_software_frame_result(
             env,
@@ -3534,16 +3612,7 @@ jlongArray native_receive_software_video_frame(
             return nullptr;
         }
     }
-    const bool another_field = (decoder->frame->flags & AV_FRAME_FLAG_INTERLACED) &&
-        height >= 2 && decoder->output_field == 0 && duration_us > 1 && pts_us != kNoTimestamp;
-    if (another_field) {
-        decoder->output_field = 1;
-    } else {
-        av_frame_unref(decoder->frame);
-        if (decoder->field_frame) av_frame_unref(decoder->field_frame);
-        decoder->frame_pending = false;
-        decoder->output_field = 0;
-    }
+    consume_field();
     return make_software_frame_result(
         env,
         kSoftwareFrameData,
@@ -3552,6 +3621,16 @@ jlongArray native_receive_software_video_frame(
         width,
         height,
         static_cast<jlong>(width) * 4L);
+}
+
+jlongArray native_receive_software_video_frame(
+    JNIEnv* env, jclass, jlong handle, jint index, jobject target) {
+    return receive_software_video_frame(env, handle, index, target, kNoTimestamp);
+}
+
+jlongArray native_receive_software_video_frame_timed(
+    JNIEnv* env, jclass, jlong handle, jint index, jobject target, jlong minimum_pts_us) {
+    return receive_software_video_frame(env, handle, index, target, minimum_pts_us);
 }
 
 jlongArray receive_software_audio_frame(
@@ -3795,6 +3874,7 @@ jint native_seek(JNIEnv* env, jclass, jlong handle, jlong position_us) {
 }
 
 static const JNINativeMethod kMethods[] = {
+    {"nativeCachedPreview", "(Landroid/media/MediaDataSource;JJ)[B", reinterpret_cast<void*>(cached_preview::decode)},
     {"nativeTrackFontName", "(JI)Ljava/lang/String;", reinterpret_cast<void*>(native_track_font_name)},
     {"nativeCreateAssRenderer", "([BZII[Ljava/lang/String;[[BI[Ljava/lang/String;)J", reinterpret_cast<void*>(native_create_ass_renderer)},
     {"nativeRenderAss", "(JJJ[[B[J[J)[B", reinterpret_cast<void*>(native_render_ass)},
@@ -3841,6 +3921,7 @@ static const JNINativeMethod kMethods[] = {
     {"nativeDecodeSubtitle", "(JI[BJJ)[B", reinterpret_cast<void*>(native_decode_subtitle)},
     {"nativeSoftwareDecoderApiVersion", "()I", reinterpret_cast<void*>(native_software_decoder_api_version)},
     {"nativeConfigureSoftwareDecoder", "(JIZ)V", reinterpret_cast<void*>(native_configure_software_decoder)},
+    {"nativeConfigureProfile5Decoder", "(JI)V", reinterpret_cast<void*>(native_configure_profile5_decoder)},
     {"nativeSendSoftwarePacket", "(JI[BJJ)I", reinterpret_cast<void*>(native_send_software_packet)},
     {"nativeReceiveSoftwareVideoFrame", "(JILjava/nio/ByteBuffer;)[J", reinterpret_cast<void*>(native_receive_software_video_frame)},
     {"nativeReceiveSoftwareAudioFrame", "(JILjava/nio/ByteBuffer;)[J", reinterpret_cast<void*>(native_receive_software_audio_frame)},
@@ -3855,9 +3936,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
     if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK || !env) {
         return JNI_ERR;
     }
-    // FFmpeg's JNI helpers need the VM before first use whether or not libmpv ever loads; the same
-    // VM may be registered again by libmpv. No application context is handed over: content://
-    // goes through YCore's proxy, never FFmpeg's android_content protocol.
+    // Register the VM used by FFmpeg's JNI helpers. Android content URIs use YCore transport.
     av_jni_set_java_vm(vm, nullptr);
     jclass bridge = env->FindClass("com/yfuse/core2/android/FfmpegNativeBridge");
     if (!bridge) return JNI_ERR;
@@ -3870,6 +3949,20 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
         if (float_audio) {
             const JNINativeMethod method = {"nativeReceiveSoftwareFloatAudioFrame", "(JILjava/nio/ByteBuffer;)[J",
                 reinterpret_cast<void*>(native_receive_software_float_audio_frame)};
+            if (env->RegisterNatives(bridge, &method, 1) != JNI_OK) {
+                env->DeleteLocalRef(bridge);
+                return JNI_ERR;
+            }
+        } else {
+            env->ExceptionClear();
+        }
+    }
+    if (result == JNI_OK) {
+        jmethodID timed_video = env->GetMethodID(
+            bridge, "nativeReceiveSoftwareVideoFrameTimed", "(JILjava/nio/ByteBuffer;J)[J");
+        if (timed_video) {
+            const JNINativeMethod method = {"nativeReceiveSoftwareVideoFrameTimed",
+                "(JILjava/nio/ByteBuffer;J)[J", reinterpret_cast<void*>(native_receive_software_video_frame_timed)};
             if (env->RegisterNatives(bridge, &method, 1) != JNI_OK) {
                 env->DeleteLocalRef(bridge);
                 return JNI_ERR;

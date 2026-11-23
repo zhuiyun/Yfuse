@@ -94,7 +94,7 @@ internal fun nextOutputRepeatCount(
  * starts, well before construction finishes (see PlaybackEngineSlot.start), so [engine] can
  * still be the [PreparingVideoEngine] placeholder when this runs. Checking the concrete
  * instance first, rather than trusting [attachedKind] alone, is what keeps a log line from
- * reading e.g. `engine=Exo` for a player that has not attached anything yet.
+ * identifying an engine before a player attaches.
  */
 internal fun engineAttachedLabel(
     engine: VideoEngine,
@@ -772,7 +772,12 @@ internal fun PlayerRoot(
                             playbackHealth =
                                 assessment.runtimeFault?.reason
                                     ?: assessment.health.diagnosticLabel,
-                            powerProfile = assessment.power.diagnosticLabel,
+                            powerProfile =
+                                if (base.diagnostics.engine == PlayerEngine.SenPlayer.label) {
+                                    "未评估 · 当前内核未提供功耗依据"
+                                } else {
+                                    assessment.power.diagnosticLabel
+                                },
                             resourcePressure = runtimeEnvironment.diagnosticLabel,
                             mediaProbe = activeProbeResult.diagnosticLabel,
                             performanceBaseline =
@@ -975,9 +980,9 @@ internal fun PlayerRoot(
         val remoteSubtitleRegistry = remember { GlobalContext.get().get<ServerRegistry>() }
         val currentTrickplay =
             rememberCurrentTrickplay(
-                currentItem = currentItem,
-                remoteSubtitleRepository = remoteSubtitleRepository,
-                remoteSubtitleRegistry = remoteSubtitleRegistry,
+                currentItem = currentItem.takeUnless { castAuthoritative },
+                playback = livePlayback,
+                engineKey = engine,
                 durationMs = state.durationMs,
             )
         // Selection is its own state, separate from position/buffering updates. Keying this on

@@ -8,6 +8,7 @@ import com.yfuse.core.logging.diagnosticTypeName
 import com.yfuse.core2.api.YAudioEffect
 import com.yfuse.core2.api.YDolbyAtmosOutputMode
 import com.yfuse.core2.api.YMediaItem
+import com.yfuse.core2.api.YOutputEvidenceResetReason
 import com.yfuse.core2.api.YPlaybackException
 import com.yfuse.core2.api.YPlaybackFailureCategory
 import com.yfuse.core2.api.YPlaybackPhase
@@ -19,6 +20,7 @@ import com.yfuse.core2.api.YPlayerState
 import com.yfuse.core2.api.YTrack
 import com.yfuse.core2.api.YTrackType
 import com.yfuse.core2.api.YVideoOutput
+import com.yfuse.core2.api.invalidateOutputEvidence
 import com.yfuse.core2.api.matchingPreference
 import com.yfuse.core2.capability.YHdrType
 import com.yfuse.core2.demux.YDemuxOpenResult
@@ -28,6 +30,7 @@ import com.yfuse.core2.demux.shownVideoSize
 import com.yfuse.core2.network.DEFAULT_FORWARD_CACHE_TARGET_US
 import com.yfuse.core2.recovery.YPlaybackFailureReporter
 import com.yfuse.core2.render.YFrameRateSwitchMode
+import com.yfuse.core2.strategy.YDecodePath
 import com.yfuse.core2.strategy.YDemuxPath
 import com.yfuse.core2.strategy.YPlaybackPlan
 import com.yfuse.core2.strategy.YRenderPath
@@ -54,8 +57,8 @@ import java.net.URI
 /**
  * Unified YPlayer wrapper for the Phase-3 NativeEnhanced graph.
  *
- * It is still opt-in: production routing must explicitly choose this player only after the enhanced
- * probe and strategy return an executable NativeEnhanced plan. Legacy remains the recovery path.
+ * The adaptive router selects the enhanced demux graph and its platform or in-core FFmpeg
+ * decoders. Every recovery route remains inside YCore.
  */
 internal class AndroidNativeEnhancedYPlayer(
     context: Context,
@@ -73,6 +76,9 @@ internal class AndroidNativeEnhancedYPlayer(
     AndroidSerializedPlayerRelease,
     AndroidVideoOutputDetach,
     YPlaybackFailureReporter {
+    internal val usesSoftwareVideoOutput: Boolean
+        get() = forceSoftwareDecode || (forcedPlan ?: initialDecision?.plan)?.decodePath == YDecodePath.Software
+
     @Volatile
     override var lastPlaybackFailure: Throwable? = null
         private set
@@ -147,9 +153,12 @@ internal class AndroidNativeEnhancedYPlayer(
 
     @Volatile private var pendingProbeBudget: AndroidProbeBudget? = initialProbeBudget
 
-    fun retryWithProbeBudget(budget: AndroidProbeBudget?) {
+    fun retryWithProbeBudget(
+        budget: AndroidProbeBudget?,
+        positionMs: Long? = null,
+    ) {
         pendingProbeBudget = budget
-        retry()
+        retryAt(positionMs)
     }
 
     override val releaseCompleted: Boolean get() = worker.isCompleted && (!workerStarted || cleanupCompleted)
@@ -179,7 +188,7 @@ internal class AndroidNativeEnhancedYPlayer(
                 diagnostics = it.diagnostics.copy(renderedFrameRate = null),
             )
         }
-        submit(Command.Prepare)
+        submit(Command.Prepare())
     }
 
     override fun setVideoOutput(output: YVideoOutput?): Boolean {
@@ -196,7 +205,7 @@ internal class AndroidNativeEnhancedYPlayer(
     }
 
     override fun play() {
-        if (released) return
+        if (released || mutableState.value.phase == YPlaybackPhase.Failed) return
         mutableState.updateState {
             it.copy(
                 playbackRequested = true,
@@ -346,17 +355,20 @@ internal class AndroidNativeEnhancedYPlayer(
 
     override fun currentPositionMs(): Long = mutableState.value.positionMs
 
-    override fun retry() {
+    override fun retry() = retryAt(null)
+
+    private fun retryAt(positionMs: Long?) {
         if (released) return
         mutableState.updateState {
             it.copy(
                 phase = YPlaybackPhase.Preparing,
+                positionMs = positionMs ?: it.positionMs,
                 error = null,
                 errorCategory = null,
                 buffering = it.playbackRequested,
             )
         }
-        submit(Command.Prepare)
+        submit(Command.Prepare(positionMs))
     }
 
     override fun release() {
@@ -449,6 +461,10 @@ internal class AndroidNativeEnhancedYPlayer(
         private var speed = 1f
         private var audioDelayMs = 0L
         private var prepared = false
+
+        // Attaching a Surface before Prepare only records the output. Otherwise the router's
+        // SetVideoOutput, Prepare, Play sequence opens and discards the source twice.
+        private var preparationRequested = false
         private var lastPublishNs = 0L
         private var externalSubtitles = emptyList<AndroidLoadedExternalSubtitle>()
         private val externalSubtitleSession =
@@ -463,7 +479,6 @@ internal class AndroidNativeEnhancedYPlayer(
         private var activePlan: YPlaybackPlan? = null
         private var activeDolbyProfile: Int? = null
         private var adaptiveFeedbackGeneration = 0L
-        private var pendingInitialDecision = initialDecision
         private val rebufferTracker =
             com.yfuse.core2.api
                 .YRebufferTracker()
@@ -477,6 +492,7 @@ internal class AndroidNativeEnhancedYPlayer(
                     requiredYCoreSoftwarePlan(
                         probedVideo = decision?.probe?.playbackRequest?.video,
                         protectedContent = item.drmConfiguration != null,
+                        dolbyConfig = decision?.probe?.dolbyVisionConfig,
                     )
                 } else {
                     forcedPlan ?: decision?.plan
@@ -484,6 +500,19 @@ internal class AndroidNativeEnhancedYPlayer(
             checkNotNull(playbackPlan) { "Media item has no executable YCore enhanced plan" }
             checkEnhancedPlaybackPlan(playbackPlan, decision)
             return playbackPlan
+        }
+
+        private suspend fun decisionForPrepare(
+            item: YMediaItem,
+            budget: AndroidProbeBudget,
+        ): YCore2RouteDecision? {
+            initialDecision.takeIf { currentIndex == request.startIndex }?.let { return it }
+            val forcedRecovery =
+                forcedPlan?.route in setOf(YPlaybackRoute.NativeEnhanced, YPlaybackRoute.SoftwareFallback)
+            // The router has already chosen this recovery graph. The fresh demux validates
+            // actual formats, HDR and Dolby identity without repeating failed platform probes.
+            if (forcedRecovery && !forceSoftwareDecode) return null
+            return routeEvaluator.evaluate(item, allowAudioPassthrough = allowAudioPassthrough, budget = budget)
         }
 
         private suspend fun prepareCurrent(positionUs: Long) {
@@ -506,7 +535,10 @@ internal class AndroidNativeEnhancedYPlayer(
                         phase = YPlaybackPhase.Preparing,
                         playing = false,
                         buffering = requestedPlay,
-                        diagnostics = it.diagnostics.copy(videoOutput = "等待 Surface"),
+                        diagnostics =
+                            it.diagnostics
+                                .invalidateOutputEvidence(YOutputEvidenceResetReason.SurfaceChanged)
+                                .copy(videoOutput = "等待 Surface"),
                     )
                 }
                 return
@@ -524,21 +556,7 @@ internal class AndroidNativeEnhancedYPlayer(
             try {
                 budget.ensureActive()
                 currentCoroutineContext().ensureActive()
-                val decision =
-                    pendingInitialDecision
-                        .takeIf { currentIndex == request.startIndex }
-                        .also { pendingInitialDecision = null }
-                        ?: if (forcedPlan?.route == YPlaybackRoute.NativeEnhanced && !forceSoftwareDecode) {
-                            // session.open validates the demuxed formats and Dolby identity.
-                            // A forced enhanced recovery must not repeat the failed platform probe.
-                            null
-                        } else {
-                            routeEvaluator.evaluate(
-                                item,
-                                allowAudioPassthrough = allowAudioPassthrough,
-                                budget = budget,
-                            )
-                        }
+                val decision = decisionForPrepare(item, budget)
                 budget.ensureActive()
                 currentCoroutineContext().ensureActive()
                 val playbackPlan = resolvePlaybackPlan(item, decision)
@@ -569,6 +587,7 @@ internal class AndroidNativeEnhancedYPlayer(
                             probeBudget = budget,
                             initialTrackSelection = item.initialTrackSelection,
                             diagnosticItem = item,
+                            resolveSoftwareRecoveryFromDemux = playbackPlan.decodePath == YDecodePath.Software,
                             sourceFailure = { proxy?.sourceFailure(item.uri) },
                         )
                     }
@@ -578,7 +597,8 @@ internal class AndroidNativeEnhancedYPlayer(
                 prepared = true
                 secondaryExternalSubtitleId = null
                 secondaryTrackId = null
-                activePlan = playbackPlan
+                val resolvedPlan = session.activePlaybackPlan ?: playbackPlan
+                activePlan = resolvedPlan
                 speed = mutableState.value.speed
                 session.setSpeed(speed)
                 session.setAudioDelayMs(audioDelayMs)
@@ -645,7 +665,7 @@ internal class AndroidNativeEnhancedYPlayer(
                         errorCategory = null,
                         diagnostics =
                             it.diagnostics.copy(
-                                route = playbackPlan.route,
+                                route = resolvedPlan.route,
                                 container = result.container.name,
                                 demuxer = "FFmpeg / libavformat",
                                 videoCodec = video?.mimeType.orEmpty(),
@@ -672,7 +692,7 @@ internal class AndroidNativeEnhancedYPlayer(
                                 dolbyAtmosOutput = false,
                                 spatialAudioOutput = false,
                                 headTrackingAvailable = false,
-                                reason = playbackPlan.reason,
+                                reason = resolvedPlan.reason,
                             ),
                     )
                 }
@@ -930,6 +950,7 @@ internal class AndroidNativeEnhancedYPlayer(
             )
             prepared = false
             requestedPlay = false
+            preparationRequested = false
             // Publish the failure before cleanup waits for a stalled demux owner. Resource
             // ownership remains with this worker until close reaches its safe release barrier.
             mutableState.updateState {
@@ -988,9 +1009,14 @@ internal class AndroidNativeEnhancedYPlayer(
                     for (command in coalesceNativeEnhancedCommands(pendingCommands)) {
                         try {
                             when (command) {
-                                Command.Prepare ->
-                                    prepareCurrent(mutableState.value.positionMs * MICROS_PER_MILLISECOND)
+                                is Command.Prepare -> {
+                                    preparationRequested = true
+                                    val startMs = command.positionMs ?: mutableState.value.positionMs
+                                    prepareCurrent(startMs * MICROS_PER_MILLISECOND)
+                                }
                                 Command.Play -> {
+                                    if (mutableState.value.phase == YPlaybackPhase.Failed) continue
+                                    preparationRequested = true
                                     requestedPlay = true
                                     if (!prepared) {
                                         prepareCurrent(mutableState.value.positionMs * MICROS_PER_MILLISECOND)
@@ -1042,25 +1068,29 @@ internal class AndroidNativeEnhancedYPlayer(
                                             } else {
                                                 mutableState.value.positionMs * MICROS_PER_MILLISECOND
                                             }
-                                        session.close()
+                                        session.closeForSurfaceChange(position)
                                         prepared = false
                                         mutableState.updateState {
                                             it.copy(
                                                 playing = false,
                                                 buffering = requestedPlay,
                                                 positionMs = position / MICROS_PER_MILLISECOND,
-                                                diagnostics = it.diagnostics.copy(videoOutput = "等待 Surface"),
+                                                diagnostics =
+                                                    it.diagnostics
+                                                        .invalidateOutputEvidence(
+                                                            YOutputEvidenceResetReason.SurfaceChanged,
+                                                        ).copy(videoOutput = "等待 Surface"),
                                             )
                                         }
                                     } else if (prepared && previous?.surface?.isValid == true) {
                                         runCatching { session.setOutputSurface(next) }
                                             .onFailure {
                                                 val position = session.snapshot().positionUs
-                                                session.close()
+                                                session.closeForSurfaceChange(position)
                                                 prepared = false
                                                 prepareCurrent(position)
                                             }
-                                    } else if (!prepared) {
+                                    } else if (!prepared && preparationRequested) {
                                         prepareCurrent(mutableState.value.positionMs * MICROS_PER_MILLISECOND)
                                     }
                                     command.detached?.complete(Unit)
@@ -1134,6 +1164,7 @@ internal class AndroidNativeEnhancedYPlayer(
                                     currentIndex = command.index
                                     session.close()
                                     prepared = false
+                                    preparationRequested = true
                                     prepareCurrent(0L)
                                 }
                             }
@@ -1202,7 +1233,9 @@ internal class AndroidNativeEnhancedYPlayer(
             val result: AndroidExternalSubtitleSession.Completion,
         ) : Command
 
-        data object Prepare : Command
+        data class Prepare(
+            val positionMs: Long? = null,
+        ) : Command
 
         data object Play : Command
 
@@ -1247,7 +1280,11 @@ internal fun shouldProxyEnhancedSourceUri(uri: String): Boolean {
     if (uri.rawUriScheme() in setOf("smb", "ftp", "yfuse-cloud", "content")) return true
     val parsed = runCatching { URI(uri) }.getOrNull() ?: return false
     if (parsed.scheme?.lowercase() !in setOf("http", "https", "webdav", "webdavs")) return false
-    return parsed.host?.lowercase() !in setOf("127.0.0.1", "localhost", "::1")
+    val host = parsed.host?.lowercase()?.removeSurrounding("[", "]") ?: return false
+    // A user's local media server still needs a playback byte source for scrub previews.
+    // YCore's own already-localized route must continue directly to its owning proxy.
+    val loopback = host in setOf("127.0.0.1", "localhost", "::1")
+    return !(loopback && parsed.path?.startsWith("/$YCORE_HTTP_ROUTE_PREFIX/") == true)
 }
 
 internal fun yCoreEnhancedFailureMessage(failure: YPlaybackException?): String =
@@ -1261,7 +1298,7 @@ internal fun yCoreEnhancedFailureMessage(failure: YPlaybackException?): String =
             } else {
                 "YCore 2.0 无法解析当前片源容器"
             }
-        YPlaybackFailureCategory.Decoder -> "YCore 2.0 无法启动当前视频解码器"
+        YPlaybackFailureCategory.Decoder -> yCoreDecoderFailureMessage(failure)
         YPlaybackFailureCategory.Renderer -> "YCore 2.0 无法建立视频输出"
         YPlaybackFailureCategory.AudioSink -> "YCore 2.0 无法建立音频输出"
         YPlaybackFailureCategory.Unknown,
@@ -1274,10 +1311,12 @@ internal fun coalesceNativeEnhancedCommands(
 ): List<AndroidNativeEnhancedYPlayer.Command> =
     commands.fold(mutableListOf()) { result, command ->
         val previous = result.lastOrNull()
-        if (previous != null && previous.canBeReplacedBy(command)) {
-            result[result.lastIndex] = command
-        } else {
-            result += command
+        when {
+            previous is AndroidNativeEnhancedYPlayer.Command.Prepare &&
+                command is AndroidNativeEnhancedYPlayer.Command.Prepare ->
+                result[result.lastIndex] = command.copy(positionMs = command.positionMs ?: previous.positionMs)
+            previous != null && previous.canBeReplacedBy(command) -> result[result.lastIndex] = command
+            else -> result += command
         }
         result
     }
@@ -1299,7 +1338,7 @@ private fun AndroidNativeEnhancedYPlayer.Command.canBeReplacedBy(next: AndroidNa
         is AndroidNativeEnhancedYPlayer.Command.SelectSubtitleTrack ->
             next is AndroidNativeEnhancedYPlayer.Command.SelectSubtitleTrack && secondary == next.secondary
         is AndroidNativeEnhancedYPlayer.Command.SelectItem -> next is AndroidNativeEnhancedYPlayer.Command.SelectItem
-        AndroidNativeEnhancedYPlayer.Command.Prepare -> next == AndroidNativeEnhancedYPlayer.Command.Prepare
+        is AndroidNativeEnhancedYPlayer.Command.Prepare -> false
         AndroidNativeEnhancedYPlayer.Command.Play -> next == AndroidNativeEnhancedYPlayer.Command.Play
         AndroidNativeEnhancedYPlayer.Command.Pause -> next == AndroidNativeEnhancedYPlayer.Command.Pause
     }

@@ -1,0 +1,92 @@
+name: Verified film and series seek measurements on the same-source APK
+on:
+  push:
+    branches: [codex/cloud-playback-resilience-20261113]
+    paths: ['.github/workflows/qa-title-seek-check.yml','qa-title-seek-check/**']
+permissions: {contents: read, actions: read}
+jobs:
+  volume:
+    name: Real media seek shard ${{ matrix.shard }} API ${{ matrix.api }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 125
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        include:
+          - {shard: 0, api: 35, image: '35'}
+          - {shard: 1, api: 36, image: '36'}
+          - {shard: 2, api: 35, image: '35'}
+          - {shard: 3, api: 36, image: '36'}
+          - {shard: 4, api: 35, image: '35'}
+          - {shard: 5, api: 36, image: '36'}
+          - {shard: 6, api: 35, image: '35'}
+          - {shard: 7, api: 36, image: '36'}
+          - {shard: 8, api: 35, image: '35'}
+          - {shard: 9, api: 36, image: '36'}
+          - {shard: 10, api: 35, image: '35'}
+          - {shard: 11, api: 36, image: '36'}
+          - {shard: 12, api: 35, image: '35'}
+          - {shard: 13, api: 36, image: '36'}
+          - {shard: 14, api: 35, image: '35'}
+          - {shard: 15, api: 36, image: '36'}
+          - {shard: 16, api: 35, image: '35'}
+          - {shard: 17, api: 36, image: '36'}
+          - {shard: 18, api: 35, image: '35'}
+          - {shard: 19, api: 36, image: '36'}
+          - {shard: 20, api: 35, image: '35'}
+          - {shard: 21, api: 36, image: '36'}
+          - {shard: 22, api: 35, image: '35'}
+          - {shard: 23, api: 36, image: '36'}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Download the exact app and independent YCore build recorded by the producer
+        env: {API_TOKEN: "${{ github.token }}"}
+        run: |
+          set -euo pipefail
+          api="https://api.github.com/repos/$GITHUB_REPOSITORY"
+          id=14017387211
+          curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/artifacts/$id" | jq -e '.workflow_run.id==43382378684 and .name=="candidate-test-input" and .expired==false' >/dev/null
+          curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/artifacts/$id/zip" -o "$RUNNER_TEMP/preview.zip"
+          mkdir preview
+          unzip -q "$RUNNER_TEMP/preview.zip" -d preview
+          grep -Fx 'app=bb06bdfa1718a7dcecb58ba727cf9c9bb3f2d86e' preview/provenance.txt
+          grep -Fx 'native_built_from=bb06bdfa1718a7dcecb58ba727cf9c9bb3f2d86e' preview/provenance.txt
+      - name: Verify APK identity and select the picture-verifying input driver
+        run: |
+          set -euo pipefail
+          mkdir -p results
+          (cd preview && sha256sum -c apk.sha256)
+          cp preview/source.txt preview/apk.sha256 preview/provenance.txt results/
+          cp qa-title-seek-check/Driver.java qa-volume/input-driver.java
+          cp qa-title-seek-check/test.py qa-volume/test.py
+      - name: Enable hardware acceleration and install fixture tools
+        run: |
+          set -euo pipefail
+          test -c /dev/kvm
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg python3-pil
+          /usr/bin/python3 qa-title-seek-check/prepare.py ${{ matrix.shard }} 24
+      - name: Use current SDK manager on Android 17
+        if: matrix.api == 37
+        run: sudo mv "$ANDROID_HOME/cmdline-tools" "$RUNNER_TEMP/old-cmdline-tools"
+      - name: Run the release preview on the emulator
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: ${{ matrix.image }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          ram-size: 4096M
+          emulator-boot-timeout: 600
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -accel on
+          script: bash qa-volume/run.sh ${{ matrix.shard }}
+      - name: Keep per-gesture observations regardless of verdict
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: 'measured-seeks-${{ matrix.shard }}', path: results/, retention-days: 10}

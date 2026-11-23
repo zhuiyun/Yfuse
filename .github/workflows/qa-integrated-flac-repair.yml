@@ -1,0 +1,117 @@
+name: Verify FLAC initialization repair before renewed pressure tests
+on:
+  push:
+    branches: [codex/two-engines-cloud-seek-20261113]
+    paths: ['.github/workflows/qa-integrated-flac-repair.yml']
+permissions: {contents: read, actions: read}
+env:
+  QA_APP_SHA: 217e6115c55d52e09f772833a52bfc867f0ae8c0
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 95
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 217e6115c55d52e09f772833a52bfc867f0ae8c0
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
+        with: {distribution: temurin, java-version: '17', cache: gradle}
+      - name: Verify native inputs and build the release candidate
+        env: {API_TOKEN: "${{ github.token }}"}
+        run: |
+          set -euo pipefail
+          api="https://api.github.com/repos/$GITHUB_REPOSITORY"
+          app_sha=$(git rev-parse HEAD)
+          native_sha=0fc3e4c488ff4af984269b981f0a09aaef6c717c
+          git diff --exit-code "$native_sha" "$app_sha" -- ycore-native scripts/native scripts/native-build-download.py scripts/ycore-source-receipt.py
+          producer=43434181604
+          name="ycore-source-$native_sha-$producer-1"
+          artifact=""
+          for i in $(seq 1 135); do
+            artifact=$(curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/$producer/artifacts" | jq -r --arg n "$name" '.artifacts[] | select(.name==$n and .expired==false) | .id' | head -1)
+            if [[ "$artifact" =~ ^[0-9]+$ ]]; then break; fi
+            sleep 12
+          done
+          test -n "$artifact"
+          curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/artifacts/$artifact" | jq -e --arg n "ycore-source-$native_sha-43434181604-1" '.name==$n and .expired==false and .workflow_run.id==43434181604' >/dev/null
+          curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/artifacts/$artifact/zip" -o "$RUNNER_TEMP/native.zip"
+          mkdir "$RUNNER_TEMP/native-in"
+          unzip -q "$RUNNER_TEMP/native.zip" -d "$RUNNER_TEMP/native-in"
+          export YCORE_NATIVE_AAR_PATH="$RUNNER_TEMP/native-in/ycore-native.aar"
+          export YCORE_SOURCE_RECEIPT="$RUNNER_TEMP/native-in/source-build.json"
+          export YCORE_SOURCE_COMMIT="$native_sha" SOURCE_COMMIT="$native_sha"
+          export YCORE_SOURCE_AAR_SHA256=$(sha256sum "$YCORE_NATIVE_AAR_PATH" | cut -d' ' -f1)
+          export YCORE_SOURCE_PROVENANCE_SHA256=$(sha256sum "$RUNNER_TEMP/native-in/NATIVE-SOURCES.txt" | cut -d' ' -f1)
+          input_tree="$RUNNER_TEMP/verified-native-source"
+          git worktree add --detach "$input_tree" "$native_sha"
+          (cd "$input_tree" && python3 scripts/prepare-playback-inputs.py)
+          mkdir -p composeApp/libs
+          cp "$input_tree"/composeApp/libs/ycore-native.{aar,aar.sha256,sources.txt} composeApp/libs/
+          cp -a "$input_tree"/senplayerBridge/src/main/assets/senplayer/. senplayerBridge/src/main/assets/senplayer/
+          (cd composeApp/libs && sha256sum -c ycore-native.aar.sha256)
+          test "$(git rev-parse HEAD)" = "$app_sha"
+          git diff --exit-code -- .
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-37.0'
+          python3 scripts/check_function_size.py
+          ./gradlew ktlintCheck --continue --no-parallel --max-workers=2 --no-daemon
+          ./gradlew :phoneShared:testAndroidHostTest :composeApp:assembleRelease :composeApp:assembleDebug :composeApp:assembleDebugAndroidTest -PyfuseIncludeMdk=false -PyfusePlaybackProfile=ycore-senplayer -PyfuseNativeOnlyRuntime=true -PallowDebugSigning=true -Pkotlin.compiler.execution.strategy=in-process '-Dorg.gradle.jvmargs=-Xmx8g -Dfile.encoding=UTF-8' --no-parallel --max-workers=2 --no-daemon
+          mkdir preview
+          cp composeApp/build/outputs/apk/debug/composeApp-debug.apk preview/instrumentation-target.apk
+          test_apk=$(find composeApp/build/outputs/apk/androidTest -name '*.apk' | head -1)
+          test -s "$test_apk"
+          cp "$test_apk" preview/regressions.apk
+          cp composeApp/build/outputs/apk/release/composeApp-release.apk preview/
+          cp composeApp/build/outputs/mapping/release/mapping.txt preview/
+          printf 'app=%s\nnative_built_from=%s\nsource_artifact=%s\n' "$app_sha" "$native_sha" "$artifact" > preview/provenance.txt
+          (cd preview && sha256sum composeApp-release.apk > apk.sha256)
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: candidate-test-input, path: preview, retention-days: 7}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: repair-test-reports
+          path: |
+            phoneShared/build/test-results/testAndroidHostTest
+            tvShared/build/test-results/testAndroidHostTest
+            phoneShared/build/reports/tests/testAndroidHostTest
+            **/build/reports/ktlint
+          retention-days: 7
+
+  flac:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix: {engine: [YCore, SenPlayer]}
+    name: FLAC recovery ${{ matrix.engine }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 50
+    env:
+      QA_ENGINE: ${{ matrix.engine }}
+      QA_SHARD: '6'
+      QA_SESSIONS: '2'
+      QA_BATCHES: '1'
+      QA_BATCH_COUNT: '16'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: arm-input-driver, path: qa-driver, run-id: 43788137288, github-token: '${{ github.token }}'}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: candidate-test-input, path: preview}
+      - name: Verify APK and reproduce the exact H264 and FLAC container
+        run: |
+          set -euo pipefail
+          (cd preview && sha256sum -c apk.sha256)
+          grep -Fx 'app=217e6115c55d52e09f772833a52bfc867f0ae8c0' preview/provenance.txt
+          sudo apt-get -qq update && sudo apt-get install -y ffmpeg python3-pil
+          /usr/bin/python3 qa-title-seek-check/prepare.py 6 8
+      - name: Boot cloud ARM64 Android
+        run: bash qa-arm-dual/redroid.sh
+      - name: Capture the failed open and decoder diagnostics
+        run: bash qa-arm-matrix/run.sh
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: 'flac-repair-${{ matrix.engine }}', path: results/, retention-days: 10}

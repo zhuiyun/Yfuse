@@ -9,6 +9,7 @@ import com.yfuse.core2.api.hasSameActiveSourceAs
 import com.yfuse.feature.player.PlayerExternalSubtitle
 import com.yfuse.feature.player.PlayerMediaItem
 import com.yfuse.feature.player.PlayerMediaVersion
+import com.yfuse.feature.player.externalPlaybackItem
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -16,6 +17,16 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class AndroidCore2TrialTest {
+    @Test
+    fun extensionless_external_video_reaches_the_probe_with_its_declared_mime() {
+        val source = externalPlaybackItem("https://example.test/opaque", "video", "video/mp2t")
+        val mapped = listOf(source).toCore2MediaItems("player", appVersion = { "1" }).single()
+        assertEquals("video/mp2t", mapped.mimeType)
+        assertEquals(source.url, mapped.uri)
+        assertNull(mapped.sourceHints)
+        assertTrue(mapped.headers.keys.none { it.equals("Authorization", ignoreCase = true) })
+    }
+
     @Test
     fun actual_ftp_and_stable_cloud_transports_reach_YCore_without_a_legacy_engine() {
         for (uri in listOf("ftp://server/video.mkv", "yfuse-cloud://source/1/video.mkv")) {

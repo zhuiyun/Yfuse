@@ -170,35 +170,34 @@ private fun parseSami(
     ensureActive()
     require(text.length <= MAX_SAMI_CHARS) { "SAMI exceeds the size limit" }
     val body = text.removePrefix("\uFEFF")
-    val syncs = SAMI_SYNC.findAll(body).take(MAX_SAMI_CUES + 1).toList()
-    require(syncs.size <= MAX_SAMI_CUES) { "SAMI exceeds the cue limit" }
+    val syncs = samiTags(body, "<sync", SAMI_SYNC, MAX_SAMI_CUES, ensureActive)
     var captionCount = 0
 
     data class Caption(
         val startUs: Long,
         val className: String,
-        val markup: String,
+        val plain: String,
     )
     val captions =
         syncs.flatMapIndexed { index, sync ->
             ensureActive()
-            val startMs = sync.groupValues[1].toLongOrNull() ?: return@flatMapIndexed emptyList()
+            val startMs = sync.value.toLongOrNull() ?: return@flatMapIndexed emptyList()
             if (startMs > (Long.MAX_VALUE - DEFAULT_LAST_CUE_US) / 1_000L) return@flatMapIndexed emptyList()
             val startUs = startMs * 1_000L
-            val content = body.substring(sync.range.last + 1, syncs.getOrNull(index + 1)?.range?.first ?: body.length)
-            val paragraphs = SAMI_PARAGRAPH.findAll(content).take(MAX_SAMI_CUES + 1).toList()
+            val content = body.substring(sync.end, syncs.getOrNull(index + 1)?.start ?: body.length)
+            val paragraphs = samiTags(content, "<p", SAMI_PARAGRAPH, MAX_SAMI_CUES - captionCount, ensureActive)
             captionCount += maxOf(1, paragraphs.size)
             require(captionCount <= MAX_SAMI_CUES) { "SAMI exceeds the paragraph limit" }
             if (paragraphs.isEmpty()) {
-                listOf(Caption(startUs, "", content))
+                listOf(Caption(startUs, "", content.samiPlainText()))
             } else {
                 paragraphs.mapIndexed { paragraphIndex, paragraph ->
                     ensureActive()
-                    val end = paragraphs.getOrNull(paragraphIndex + 1)?.range?.first ?: content.length
+                    val end = paragraphs.getOrNull(paragraphIndex + 1)?.start ?: content.length
                     Caption(
                         startUs,
-                        paragraph.groupValues[1].lowercase(),
-                        content.substring(paragraph.range.last + 1, end),
+                        paragraph.value.lowercase(),
+                        content.substring(paragraph.end, end).samiPlainText(),
                     )
                 }
             }
@@ -207,7 +206,7 @@ private fun parseSami(
         captions
             .filter {
                 ensureActive()
-                it.markup.samiPlainText().isNotBlank()
+                it.plain.isNotBlank()
             }.groupingBy(Caption::className)
             .eachCount()
             .maxByOrNull { it.value }
@@ -223,7 +222,7 @@ private fun parseSami(
     }
     return track.mapIndexedNotNull { index, caption ->
         ensureActive()
-        val plain = caption.markup.samiPlainText()
+        val plain = caption.plain
         if (plain.isBlank()) return@mapIndexedNotNull null
         val endUs = nextStarts[index]
         YSubtitleCue(
@@ -234,6 +233,41 @@ private fun parseSami(
         )
     }
 }
+
+private data class SamiTag(
+    val start: Int,
+    val end: Int,
+    val value: String,
+)
+
+/** Keep offsets and the captured attribute only. Android regex matchers can retain a native
+ * copy of their input, so collecting a matcher per cue over the whole file exhausts memory. */
+private fun samiTags(
+    text: String,
+    prefix: String,
+    tagPattern: Regex,
+    limit: Int,
+    ensureActive: () -> Unit,
+): List<SamiTag> =
+    buildList {
+        var cursor = 0
+        while (cursor < text.length) {
+            ensureActive()
+            val start = text.indexOf(prefix, cursor, ignoreCase = true)
+            if (start < 0) break
+            var end = start + prefix.length
+            while (end < text.length && text[end] != '>' && text[end] != '<') end++
+            if (end == text.length) break
+            if (text[end] == '<') {
+                cursor = end
+                continue
+            }
+            cursor = end + 1
+            val match = tagPattern.matchEntire(text.substring(start, cursor)) ?: continue
+            require(size < limit) { "SAMI exceeds the tag limit" }
+            add(SamiTag(start, cursor, match.groupValues[1]))
+        }
+    }
 
 private fun String.samiPlainText(): String =
     replace(SAMI_BREAK, "\n")

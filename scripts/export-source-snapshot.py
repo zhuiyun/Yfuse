@@ -28,7 +28,7 @@ PRIVATE_NAMES = {
 PRIVATE_SUFFIXES = {".jks", ".keystore", ".pem", ".p12", ".pfx", ".key"}
 ENGINE_PROVENANCE = {
     f"composeApp/libs/{engine}{suffix}"
-    for engine in ("libmpv-release", "ycore-native", "ycore-gpu")
+    for engine in ("ycore-native", "ycore-gpu")
     for suffix in (".aar.sha256", ".sources.txt")
 }
 

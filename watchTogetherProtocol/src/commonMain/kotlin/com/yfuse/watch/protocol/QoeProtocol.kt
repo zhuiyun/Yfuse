@@ -3,7 +3,7 @@ package com.yfuse.watch.protocol
 import kotlinx.serialization.Serializable
 
 @Serializable
-enum class QoeEngine { Exo, Mpv, Mdk, SenPlayer, YCore }
+enum class QoeEngine { SenPlayer, YCore }
 
 @Serializable
 enum class QoePlatformApiBucket { Api26To28, Api29To30, Api31To32, Api33To34, Api35Plus }

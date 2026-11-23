@@ -8,11 +8,11 @@ class NativeCrashIsolationTest {
     @Test
     fun classifiesEachNativeOwnerWithoutBlamingSharedFfmpeg() {
         assertEquals(
-            NativePlaybackComponent.Mpv,
+            NativePlaybackComponent.Unknown,
             classifyNativePlaybackCrash("#00 pc libmpv.so mpv_render_context_render"),
         )
         assertEquals(
-            NativePlaybackComponent.Mdk,
+            NativePlaybackComponent.Unknown,
             classifyNativePlaybackCrash("#00 pc libyfuse-mdk-jni.so MDKPlayer"),
         )
         assertEquals(

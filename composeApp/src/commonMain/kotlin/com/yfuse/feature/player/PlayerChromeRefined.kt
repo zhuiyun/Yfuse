@@ -22,7 +22,6 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -38,8 +37,8 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -86,6 +85,7 @@ import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
@@ -177,7 +177,8 @@ internal fun RefinedTopBar(
                 drawRect(
                     cssLinearGradient(
                         180f,
-                        0f to ambientScrim(ambientLight?.value, alpha = 0.44f),
+                        0f to ambientScrim(ambientLight?.value, alpha = 0.86f),
+                        0.90f to ambientScrim(ambientLight?.value, alpha = 0.84f),
                         1f to Color.Transparent,
                     ),
                 )
@@ -242,7 +243,7 @@ internal fun RefinedTopBar(
                     Text(
                         shownSubtitle,
                         style = AppTypography.caption.regular,
-                        color = Color.White.copy(alpha = 0.44f),
+                        color = Color.White.copy(alpha = 0.90f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(top = 2.dp),
@@ -561,7 +562,8 @@ private fun RefinedBottomBarContent(
                 drawRect(
                     cssLinearGradient(
                         0f,
-                        0f to ambientScrim(ambientLight?.value, alpha = 0.55f),
+                        0f to ambientScrim(ambientLight?.value, alpha = 0.86f),
+                        0.90f to ambientScrim(ambientLight?.value, alpha = 0.84f),
                         1f to Color.Transparent,
                     ),
                 )
@@ -569,11 +571,12 @@ private fun RefinedBottomBarContent(
             .padding(top = 10.dp, bottom = 16.dp),
     ) {
         Row(
+            modifier = Modifier.padding(horizontal = 12.dp),
             verticalAlignment = Alignment.Bottom,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Box(Modifier.height(44.dp), contentAlignment = Alignment.Center) {
-                RefinedTimeText { shownPositionMs().coerceAtLeast(0L) / 1_000L }
+                RefinedTimeText(durationMs) { shownPositionMs().coerceAtLeast(0L) / 1_000L }
             }
             Column(Modifier.weight(1f)) {
                 val preview = trickplay
@@ -609,7 +612,7 @@ private fun RefinedBottomBarContent(
                                 )
                         },
                 ) {
-                    if (preview != null) {
+                    if (preview != null && scrubbing.value) {
                         val previewHeight = trickplayPreviewHeight(preview, chapterLine = chapters.isNotEmpty())
                         BoxWithConstraints(
                             Modifier
@@ -697,6 +700,7 @@ private fun RefinedBottomBarContent(
                     durationMs = durationMs,
                     progressMarkers = progressMarkers,
                     accent = progressAccent,
+                    onPress = onScrub,
                     enabled = !seekLocked && durationMs > 0L,
                     showTimeBubble = trickplay == null,
                     trickplay = trickplay,
@@ -729,15 +733,20 @@ private fun RefinedBottomBarContent(
                 )
             }
             Box(Modifier.height(44.dp), contentAlignment = Alignment.Center) {
-                RefinedTimeText { durationMs.coerceAtLeast(0L) / 1_000L }
-                // 结束于 sits over the duration it is counted from, clear of the rail beside it and
-                // of the keys below; while a drag looks ahead it says when that point would end.
-                PlaybackEndsAt(
-                    positionMs = shownPositionMs,
-                    durationMs = durationMs,
-                    speed = speed,
-                    modifier = Modifier.align(Alignment.TopCenter).offset(y = (-6).dp),
-                )
+                RefinedTimeText(durationMs) { durationMs.coerceAtLeast(0L) / 1_000L }
+                // The changing wall-clock label must not participate in the rail's measurement.
+                // Anchor its right edge to the duration's safe margin and allow it to extend left.
+                Box(
+                    Modifier.matchParentSize().offset(y = (-6).dp),
+                    contentAlignment = Alignment.TopEnd,
+                ) {
+                    PlaybackEndsAt(
+                        positionMs = shownPositionMs,
+                        durationMs = durationMs,
+                        speed = speed,
+                        modifier = Modifier.wrapContentWidth(Alignment.End, unbounded = true),
+                    )
+                }
             }
         }
 
@@ -1149,14 +1158,36 @@ private fun RefinedSpeedControl(
  * that contains it: the readout changes once a second, and the row around it never has to.
  */
 @Composable
-private fun RefinedTimeText(seconds: () -> Long) {
+private fun RefinedTimeText(
+    durationMs: Long,
+    seconds: () -> Long,
+) {
     val latestSeconds by rememberUpdatedState(seconds)
     val label by remember { derivedStateOf { formatTime(latestSeconds() * 1_000L) } }
     val shownLabel = rememberThrottledValue(label)
-    Box(Modifier.widthIn(min = 44.dp), contentAlignment = Alignment.Center) {
+    val density = LocalDensity.current
+    val measurer = rememberTextMeasurer()
+    val style = AppTypography.caption.regular
+    val reservedWidth =
+        remember(durationMs, density, measurer, style) {
+            // RollingNumber measures separate tabular glyphs. Reserve the entire movie's
+            // clock format so crossing an hour never moves the rail beneath a held finger.
+            val clock = formatTime(durationMs.coerceAtLeast(0L))
+            val digitStyle = style.copy(fontFeatureSettings = "tnum")
+            val pixels =
+                clock.sumOf {
+                    measurer
+                        .measure(
+                            if (it.isDigit()) "8" else it.toString(),
+                            digitStyle,
+                        ).size.width
+                }
+            with(density) { (pixels + 1).toDp() }.coerceAtLeast(44.dp)
+        }
+    Box(Modifier.width(reservedWidth), contentAlignment = Alignment.Center) {
         RollingNumber(
             text = shownLabel,
-            style = AppTypography.caption.regular,
+            style = style,
             color = PlayerTokens.timeTextLandscape,
         )
     }
@@ -1186,6 +1217,7 @@ internal fun StandardSeekBar(
     onCommit: (Float) -> Unit,
     onCancel: () -> Unit,
     modifier: Modifier = Modifier,
+    onPress: () -> Unit = {},
     enabled: Boolean = true,
     /** Without a trickplay preview, the scrubbed time rides above the thumb instead. */
     showTimeBubble: Boolean = false,
@@ -1261,6 +1293,7 @@ internal fun StandardSeekBar(
     val latestFrames by rememberUpdatedState(filmstripFrames)
     val latestScrubUi by rememberUpdatedState(scrubUi)
     val latestOnScrubTo by rememberUpdatedState(onScrubTo)
+    val latestOnPress by rememberUpdatedState(onPress)
     val latestOnCommit by rememberUpdatedState(onCommit)
     val latestOnCancel by rememberUpdatedState(onCancel)
     val latestPositionMs by rememberUpdatedState(positionMs)
@@ -1393,15 +1426,13 @@ internal fun StandardSeekBar(
                 if (!enabled) return@let base
                 base
                     .pointerInput(enabled) {
-                        detectTapGestures { offset ->
-                            val width = size.width.toFloat().coerceAtLeast(1f)
-                            val target = magneticTarget((offset.x / width).coerceIn(0f, 1f))
-                            if (commit(target.fraction)) {
-                                haptics.play(HapticSignal.Select)
-                            }
-                        }
-                    }.pointerInput(enabled) {
                         detectSeekScrubGestures(
+                            onPress = { latestOnPress() },
+                            onTap = { offset ->
+                                val width = size.width.toFloat().coerceAtLeast(1f)
+                                val target = magneticTarget((offset.x / width).coerceIn(0f, 1f))
+                                if (commit(target.fraction)) haptics.play(HapticSignal.Select)
+                            },
                             onDragStart = { down, start ->
                                 val width = size.width.toFloat().coerceAtLeast(1f)
                                 val startFraction = scrubGesture.begin(start.x, down.y, width)

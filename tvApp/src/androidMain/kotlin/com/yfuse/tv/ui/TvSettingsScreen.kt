@@ -48,6 +48,7 @@ internal fun TvSettingsScreen(
     contentRequester: FocusRequester,
 ) {
     var page by rememberSaveable { mutableStateOf(TvSettingsPage.Root) }
+    var accountParent by rememberSaveable { mutableStateOf(TvSettingsPage.Root) }
     LaunchedEffect(page) {
         if (!page.availableInCurrentBuild()) page = TvSettingsPage.Root
     }
@@ -60,14 +61,15 @@ internal fun TvSettingsScreen(
     val account by component.account.state.collectAsState()
 
     BackHandler(enabled = page != TvSettingsPage.Root) {
-        page = page.parentPage
+        page = if (page == TvSettingsPage.Account) accountParent else page.parentPage
     }
 
     AnimatedContent(
         targetState = page.takeIf { it.availableInCurrentBuild() } ?: TvSettingsPage.Root,
         transitionSpec = {
             // Into a sub-page arrives from the right, and back arrives from the left.
-            val direction = if (targetState.depth >= initialState.depth) 1 else -1
+            val returningFromAccount = initialState == TvSettingsPage.Account && targetState == accountParent
+            val direction = if (!returningFromAccount && targetState.depth >= initialState.depth) 1 else -1
             TvPageMotion.transform(reduceMotion, travel * direction) using Motion.sizeTransform(reduceMotion)
         },
         label = "tv-settings-page",
@@ -88,7 +90,14 @@ internal fun TvSettingsScreen(
                 navigationRequester = navigationRequester,
                 contentRequester = contentRequester,
                 pageRequester = pageRequester,
-                onOpen = { if (it.availableInCurrentBuild()) page = it },
+                onOpen = { destination ->
+                    if (destination.availableInCurrentBuild()) {
+                        if (destination == TvSettingsPage.Account && shown != TvSettingsPage.AccountSessions) {
+                            accountParent = if (shown == TvSettingsPage.Handoff) shown else TvSettingsPage.Root
+                        }
+                        page = destination
+                    }
+                },
             )
         }
     }
@@ -148,6 +157,7 @@ private fun TvSettingsPageContent(
                 navigationRequester = navigationRequester,
                 firstRowRequester = pageRequester,
                 onBack = { onOpen(TvSettingsPage.Root) },
+                onOpenAccount = { onOpen(TvSettingsPage.Account) },
             )
         TvSettingsPage.PhoneRemote ->
             TvPhoneRemoteSettingsPage(

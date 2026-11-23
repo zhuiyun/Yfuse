@@ -8,4 +8,6 @@ internal class AndroidSurfaceVideoOutput(
     val surface: Surface,
     /** True only when the owning SurfaceView was marked secure before this Surface was attached. */
     val protectedContent: Boolean = false,
+    /** The host observes AndroidVideoOutputRenewal and can create a fresh buffer queue. */
+    val renewable: Boolean = false,
 ) : YVideoOutput

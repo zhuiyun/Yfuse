@@ -5,8 +5,12 @@ import android.graphics.Bitmap
 import android.os.SystemClock
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.Modifier
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -14,10 +18,12 @@ import com.russhwolf.settings.SharedPreferencesSettings
 import com.yfuse.MainActivity
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.designsystem.AccessibilityOptions
+import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalSettingsLocator
 import com.yfuse.core.designsystem.MotionTheme
 import com.yfuse.core.designsystem.SettingsLocatorRequest
 import com.yfuse.core.designsystem.YfuseTheme
+import com.yfuse.launchMainActivityForInput
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -50,6 +56,7 @@ class SettingsPagesInstrumentedTest {
                     locator.value = SettingsLocatorRequest(anchor.pageTitle, anchor.itemIndex, anchor.label)
                 }
                 await("Search target ${anchor.label}") { visibleNode(anchor.label) != null }
+                await("Back remains visible after locating ${anchor.label}") { clickableNode("返回") != null }
                 if (captured.add(requireNotNull(target.page))) {
                     val directory = File(instrumentation.targetContext.getExternalFilesDir(null), "settings-evidence")
                     directory.mkdirs()
@@ -61,6 +68,8 @@ class SettingsPagesInstrumentedTest {
                     }
                 }
             }
+            click("返回")
+            await("Return from a scrolled settings child") { page.value == ProfilePage.Appearance }
             for ((label, destination) in listOf(
                 "首页与导航" to ProfilePage.AppearanceLayout,
                 "动画与动效" to ProfilePage.AppearanceMotion,
@@ -130,19 +139,21 @@ class SettingsPagesInstrumentedTest {
         val page = mutableStateOf(ProfilePage.Appearance)
         val locator = mutableStateOf<SettingsLocatorRequest?>(null)
         try {
-            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            launchMainActivityForInput().use { scenario ->
                 scenario.onActivity { activity ->
                     activity.setContent {
                         YfuseTheme(dark = true, accessibility = AccessibilityOptions(reduceMotion = true)) {
                             CompositionLocalProvider(LocalSettingsLocator provides locator.value) {
-                                AppearanceSettingsScreen(
-                                    page.value,
-                                    prefs,
-                                    "测试图标",
-                                    onBack = { page.value = ProfilePage.Appearance },
-                                    onOpenPage = { page.value = it },
-                                    onAction = {},
-                                )
+                                Box(Modifier.fillMaxSize().background(LocalPalette.current.background)) {
+                                    AppearanceSettingsScreen(
+                                        page.value,
+                                        prefs,
+                                        "测试图标",
+                                        onBack = { page.value = ProfilePage.Appearance },
+                                        onOpenPage = { page.value = it },
+                                        onAction = {},
+                                    )
+                                }
                             }
                         }
                     }
@@ -175,17 +186,38 @@ class SettingsPagesInstrumentedTest {
         instrumentation.uiAutomation.rootInActiveWindow?.let(pending::addLast)
         while (pending.isNotEmpty()) {
             val node = pending.removeFirst()
-            if (node.isVisibleToUser &&
-                (
-                    node.text?.lines()?.contains(label) == true ||
-                        node.contentDescription?.lines()?.contains(label) == true
-                )
+            if (node.text?.lines()?.contains(label) == true ||
+                node.contentDescription?.lines()?.contains(label) == true
             ) {
-                return node
+                // Scrolling invalidates cached child bounds independently of the parent. Query the
+                // provider before judging visibility; preserve changed coordinates as evidence.
+                val before = android.graphics.Rect().also(node::getBoundsInScreen)
+                val wasVisible = node.isVisibleToUser
+                if (node.refresh()) {
+                    val after = android.graphics.Rect().also(node::getBoundsInScreen)
+                    if (before != after || wasVisible != node.isVisibleToUser) {
+                        recordRefreshedBounds(label, before, after, wasVisible, node.isVisibleToUser)
+                    }
+                    if (node.isVisibleToUser) return node
+                }
             }
             repeat(node.childCount) { node.getChild(it)?.let(pending::addLast) }
         }
         return null
+    }
+
+    private fun recordRefreshedBounds(
+        label: String,
+        before: android.graphics.Rect,
+        after: android.graphics.Rect,
+        wasVisible: Boolean,
+        visible: Boolean,
+    ) {
+        val directory = File(instrumentation.targetContext.getExternalFilesDir(null), "settings-evidence")
+        directory.mkdirs()
+        File(directory, "refreshed-bounds.txt").appendText(
+            "$label | cached=$before visible=$wasVisible | refreshed=$after visible=$visible\n",
+        )
     }
 
     private fun await(
@@ -197,6 +229,25 @@ class SettingsPagesInstrumentedTest {
             if (condition()) return
             SystemClock.sleep(50L)
         }
-        assertTrue(label, condition())
+        if (!condition()) {
+            val directory = File(instrumentation.targetContext.getExternalFilesDir(null), "settings-evidence")
+            directory.mkdirs()
+            val name = "failure-${label.hashCode()}"
+            instrumentation.uiAutomation.takeScreenshot()?.let { bitmap ->
+                File(directory, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                bitmap.recycle()
+            }
+            val rows = mutableListOf<String>()
+            val pending = ArrayDeque<AccessibilityNodeInfo>()
+            instrumentation.uiAutomation.rootInActiveWindow?.let(pending::addLast)
+            while (pending.isNotEmpty()) {
+                val node = pending.removeFirst()
+                val bounds = android.graphics.Rect().also(node::getBoundsInScreen)
+                rows += "${node.text} | ${node.contentDescription} | visible=${node.isVisibleToUser} | $bounds"
+                repeat(node.childCount) { node.getChild(it)?.let(pending::addLast) }
+            }
+            File(directory, "$name.txt").writeText("$label\n" + rows.joinToString("\n"))
+            assertTrue(label, false)
+        }
     }
 }

@@ -549,7 +549,7 @@ class PlaybackProgressReporterTest {
                 positionMs += 500L
             }
             runCurrent()
-            // ExoPlayer's playlist moves on without an ended state for the first episode.
+            // The queue advances before the first episode reports an ended state.
             reporter.update(
                 PlaybackState(playing = true, positionMs = 0L, durationMs = 58_000L, currentIndex = 1, itemCount = 2),
             )

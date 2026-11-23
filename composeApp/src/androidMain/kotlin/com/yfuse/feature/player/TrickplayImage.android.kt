@@ -3,10 +3,12 @@ package com.yfuse.feature.player
 import android.graphics.BitmapFactory
 import android.graphics.BitmapRegionDecoder
 import android.graphics.Rect
+import androidx.compose.foundation.Image
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -30,7 +32,17 @@ internal actual fun TrickplayImage(
     modifier: Modifier,
 ) {
     if (isLocalFramePreview(frame)) {
-        LocalFramePreviewImage(frame, description, modifier)
+        rememberScrubBitmap(
+            frame,
+            (
+                android.net.Uri
+                    .parse(frame.url)
+                    .lastPathSegment
+                    ?.toLongOrNull() ?: return
+            ) * 1000L,
+        )?.let {
+            Image(it, description, modifier, contentScale = ContentScale.Fit)
+        }
         return
     }
     val context = LocalContext.current
@@ -99,3 +111,9 @@ internal actual fun TrickplayImage(
         )
     }
 }
+
+@Composable
+internal actual fun bufferedScrubBitmap(
+    frame: TrickplayFrame,
+    positionMs: Long,
+): ImageBitmap? = rememberScrubBitmap(frame, positionMs)

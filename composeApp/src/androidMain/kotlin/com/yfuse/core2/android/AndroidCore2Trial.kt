@@ -403,7 +403,7 @@ private fun PlayerMediaItem.toCore2MediaItem(
         id = id,
         uri = localizedUri,
         title = title,
-        mimeType = if (usingServerTranscode) null else version?.container.toCore2ContainerMimeType(),
+        mimeType = if (usingServerTranscode) null else version?.container.toCore2ContainerMimeType() ?: sourceMimeType,
         headers =
             if (mediaCredentialOriginsMatch(upstreamUri, localizedUri)) {
                 upstreamHeaders

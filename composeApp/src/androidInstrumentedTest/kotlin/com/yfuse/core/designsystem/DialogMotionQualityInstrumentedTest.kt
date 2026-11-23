@@ -26,6 +26,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -37,10 +38,8 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogWindowProvider
-import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import com.yfuse.MainActivity
 import com.yfuse.launchMainActivityForInput
 import com.yfuse.tapWindowAt
 import org.json.JSONArray
@@ -180,12 +179,14 @@ class DialogMotionQualityInstrumentedTest {
         val progress = mutableFloatStateOf(1f)
         val dark = mutableStateOf(true)
         val landscape = mutableStateOf(false)
+        val frameMarker = mutableIntStateOf(0)
+        val markerBounds = AtomicReference<Rect?>(null)
         val fractions = if (expanded) listOf(0.25f, 0.55f, 1f) else listOf(0.45f, 1f)
         val shapes = if (expanded) listOf(false, true) else listOf(false)
         val captured = mutableListOf<File>()
         val output = File(instrumentation.targetContext.getExternalFilesDir(null), "motion-visuals")
         check(output.mkdirs() || output.isDirectory)
-        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+        launchMainActivityForInput().use { scenario ->
             scenario.onActivity { activity ->
                 activity.setContent {
                     YfuseTheme(dark = dark.value, dialogAnimation = style.value) {
@@ -193,6 +194,16 @@ class DialogMotionQualityInstrumentedTest {
                             Modifier.fillMaxSize().background(if (dark.value) Color(0xFF13232D) else Color(0xFFE9F1F5)),
                             contentAlignment = Alignment.Center,
                         ) {
+                            // A per-case pixel marker acknowledges the actual submitted screenshot,
+                            // including theme/style/progress. IdleSync alone can precede its frame.
+                            Box(
+                                Modifier
+                                    .align(Alignment.TopStart)
+                                    .padding(start = 8.dp, top = 40.dp)
+                                    .size(8.dp)
+                                    .background(Color(frameMarker.intValue))
+                                    .onGloballyPositioned { markerBounds.set(it.boundsInWindow()) },
+                            )
                             CompositionLocalProvider(
                                 LocalDialogContentMotion provides
                                     DialogContentMotion(style.value) { progress.floatValue },
@@ -252,15 +263,16 @@ class DialogMotionQualityInstrumentedTest {
                 for (animation in styles) {
                     for (wide in shapes) {
                         for (fraction in fractions) {
+                            val marker = 0xFF000000.toInt() or (((captured.size + 1) * 104729) and 0xFFFFFF)
                             scenario.onActivity {
+                                frameMarker.intValue = marker
                                 dark.value = isDark
                                 style.value = animation
                                 progress.floatValue = fraction
                                 landscape.value = wide
                             }
                             instrumentation.waitForIdleSync()
-                            SystemClock.sleep(140)
-                            val screenshot = requireNotNull(instrumentation.uiAutomation.takeScreenshot())
+                            val screenshot = captureRenderedState(markerBounds, marker)
                             val themeName = if (isDark) "dark" else "light"
                             val shapeName = if (wide) "landscape" else "portrait"
                             val suffix = if (expanded) "-$shapeName" else ""
@@ -286,6 +298,31 @@ class DialogMotionQualityInstrumentedTest {
             captured.size == styles.size * 2 * shapes.size * fractions.size,
         )
         assertTrue("Captured images must not be empty", captured.all { it.length() > 0L })
+    }
+
+    private fun captureRenderedState(
+        markerBounds: AtomicReference<Rect?>,
+        marker: Int,
+    ): Bitmap {
+        val deadline = SystemClock.elapsedRealtime() + 15_000L
+        while (SystemClock.elapsedRealtime() < deadline) {
+            val bounds = markerBounds.get()
+            if (bounds != null && bounds.width > 0) {
+                val frame = requireNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot())
+                val x =
+                    bounds.center.x
+                        .toInt()
+                        .coerceIn(0, frame.width - 1)
+                val y =
+                    bounds.center.y
+                        .toInt()
+                        .coerceIn(0, frame.height - 1)
+                if ((frame.getPixel(x, y) and 0xFFFFFF) == (marker and 0xFFFFFF)) return frame
+                frame.recycle()
+            }
+            SystemClock.sleep(100L)
+        }
+        error("The requested theme, style and progress never reached the captured frame")
     }
 
     private fun waitUntil(condition: () -> Boolean) {
@@ -327,6 +364,19 @@ private class FrameCostCollector(
     private val handler = Handler(thread.looper)
     private val samples = mutableListOf<Long>()
     private val firstFrames = mutableListOf<Long>()
+    private val components =
+        linkedMapOf(
+            "unknownDelay" to FrameMetrics.UNKNOWN_DELAY_DURATION,
+            "input" to FrameMetrics.INPUT_HANDLING_DURATION,
+            "animation" to FrameMetrics.ANIMATION_DURATION,
+            "layout" to FrameMetrics.LAYOUT_MEASURE_DURATION,
+            "draw" to FrameMetrics.DRAW_DURATION,
+            "sync" to FrameMetrics.SYNC_DURATION,
+            "commandIssue" to FrameMetrics.COMMAND_ISSUE_DURATION,
+            "swapBuffers" to FrameMetrics.SWAP_BUFFERS_DURATION,
+            "gpu" to FrameMetrics.GPU_DURATION,
+        )
+    private val componentSamples = components.keys.associateWith { mutableListOf<Long>() }
     private var droppedReports = 0
     private var budgetNs = 16_666_667L
 
@@ -348,6 +398,10 @@ private class FrameCostCollector(
                             firstFrames.add(total)
                         } else {
                             samples.add(total)
+                            components.forEach { (name, metric) ->
+                                val duration = metrics.getMetric(metric)
+                                if (duration >= 0L) componentSamples.getValue(name).add(duration)
+                            }
                         }
                     }
                     droppedReports += dropped
@@ -377,6 +431,7 @@ private class FrameCostCollector(
     fun reset() {
         samples.clear()
         firstFrames.clear()
+        componentSamples.values.forEach { it.clear() }
         droppedReports = 0
     }
 
@@ -400,7 +455,22 @@ private class FrameCostCollector(
             .put("firstDrawFrames", firstFrames.size)
             .put("firstDrawP95Ms", percentile(firstFrames.sorted(), 0.95))
             .put("droppedMetricReports", droppedReports)
+            .put("componentCosts", componentCosts())
     }
+
+    private fun componentCosts(): JSONObject =
+        JSONObject().apply {
+            componentSamples.forEach { (name, durations) ->
+                put(
+                    name,
+                    JSONObject().apply {
+                        put("samples", durations.size)
+                        put("p50Ms", if (durations.isEmpty()) JSONObject.NULL else percentile(durations.sorted(), 0.5))
+                        put("p95Ms", if (durations.isEmpty()) JSONObject.NULL else percentile(durations.sorted(), 0.95))
+                    },
+                )
+            }
+        }
 
     private fun percentile(
         sorted: List<Long>,

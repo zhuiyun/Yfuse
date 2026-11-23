@@ -20,6 +20,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.util.concurrent.atomic.AtomicInteger
 
 /** Real pointer presses retain the animated feedback which accessibility-only clicks bypass. */
 @RunWith(AndroidJUnit4::class)
@@ -29,9 +30,9 @@ class PersonalSearchNavigationInstrumentedTest {
     @Test(timeout = 120_000L)
     fun repeated_search_collapse_keeps_the_current_list_and_back_returns_one_level() {
         val pages = mutableStateOf(listOf("profile", "personal"))
-        var backCalls = 0
-        val pop = {
-            backCalls++
+        val backCalls = AtomicInteger()
+        val popPage = {
+            backCalls.incrementAndGet()
             pages.value = pages.value.dropLast(1)
         }
         launchMainActivityForInput().use { scenario ->
@@ -41,7 +42,7 @@ class PersonalSearchNavigationInstrumentedTest {
                     YfuseTheme(dark = true) {
                         OfficialNavDisplay(
                             backStack = pages.value,
-                            onBack = pop,
+                            onBack = popPage,
                             contentKey = { it },
                         ) { page ->
                             if (page == "personal") {
@@ -49,7 +50,7 @@ class PersonalSearchNavigationInstrumentedTest {
                                     state = PersonalCenterState(),
                                     onIntent = {},
                                     servers = emptyList(),
-                                    onBack = pop,
+                                    onBack = popPage,
                                     onOpenMedia = {},
                                     initialTab = PersonalCenterTab.WatchLater,
                                     onSwipeable = {},
@@ -86,7 +87,7 @@ class PersonalSearchNavigationInstrumentedTest {
             }
             instrumentation.waitForIdleSync()
             scenario.onActivity {
-                assertEquals("Back callback count", 1, backCalls)
+                assertEquals("Back callback count", 1, backCalls.get())
                 assertEquals("Back stack after one press", listOf("profile"), pages.value)
             }
         }

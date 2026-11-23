@@ -253,8 +253,16 @@ val verifyStandaloneYCoreArtifact by tasks.registering {
         }
         // API 2 libraries (BGRA frames) stay installable: the Kotlin bridge reads the version at
         // runtime and swaps their channels while drawing.
-        require(Regex("(?m)^ycore-software-decoder-api=[234]$").containsMatchIn(provenance)) {
-            "Standalone YCore provenance is missing ycore-software-decoder-api=2, 3 or 4"
+        val apiPrefix = "ycore-software-decoder-api="
+        val softwareApi = provenance.lineSequence().singleOrNull { it.startsWith(apiPrefix) }?.removePrefix(apiPrefix)
+        require(softwareApi in setOf("2", "3", "4", "6")) {
+            "Standalone YCore provenance requires a supported software decoder API"
+        }
+        if (softwareApi == "6") {
+            val mappingSource = "ycore-profile5-mapping-source=scripts/native/ycore_dovi_profile5.h"
+            require(mappingSource in provenance.lineSequence()) {
+                "Standalone YCore API 6 is missing its Profile 5 colour mapping source"
+            }
         }
         // GPU API 2 executors stay usable; the bridge enables API 3 additions by version.
         require(Regex("(?m)^ycore-gpu-api=[23]$").containsMatchIn(provenance)) {
@@ -566,10 +574,8 @@ val verifySourceSize by tasks.registering {
                 "src/androidMain/kotlin/com/yfuse/core2/android/AndroidNativeDirectSession.kt" to 2_936,
                 "src/androidMain/kotlin/com/yfuse/core2/android/AndroidEnhancedPlaybackSession.kt" to 2_712,
                 "src/androidMain/kotlin/com/yfuse/core2/android/AndroidYCoreHttpProxy.kt" to 2_403,
-                "src/androidMain/kotlin/com/yfuse/feature/player/MpvVideoEngine.kt" to 2_291,
                 "src/androidMain/kotlin/com/yfuse/feature/player/PlayerActivity.kt" to 2_257,
                 "src/androidMain/kotlin/com/yfuse/update/AppUpdateManager.kt" to 2_160,
-                "src/androidMain/kotlin/com/yfuse/feature/player/ExoVideoEngine.kt" to 2_096,
                 "src/androidMain/kotlin/com/yfuse/core/cast/CastManager.android.kt" to 2_071,
                 "src/commonMain/kotlin/com/yfuse/feature/home/HomeScreen.kt" to 1_996,
                 "src/commonMain/kotlin/com/yfuse/core/account/AccountRepository.kt" to 1_938,
@@ -877,7 +883,6 @@ android {
         buildConfigField("String", "TMDB_TOKEN", "\"$tmdbToken\"")
         buildConfigField("String", "UPDATE_MANIFEST_PUBLIC_KEY", "\"$updateManifestPublicKey\"")
         buildConfigField("String", "BUILD_REVISION", "\"$diagnosticBuildRevision\"")
-        buildConfigField("boolean", "YFUSE_MDK_INCLUDED", "false")
         buildConfigField("boolean", "YFUSE_NATIVE_ONLY_RUNTIME", nativeOnlyRuntime.toString())
         buildConfigField("boolean", "YFUSE_YCORE_GPU_INCLUDED", packagedYCoreGpu.toString())
         buildConfigField(
@@ -969,6 +974,7 @@ android {
         }
         getByName("androidTest") {
             kotlin.directories += "src/androidInstrumentedTest/kotlin"
+            kotlin.directories += "src/androidNetworkTest/kotlin"
             assets.directories += "src/androidInstrumentedTest/assets"
         }
         listOf("benchmark", "profile").forEach { variant ->
@@ -1365,6 +1371,8 @@ dependencies {
     androidTestCompileOnly(libs.google.cast.tv)
     androidTestImplementation(libs.androidx.test.junit)
     androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.okhttp.mockwebserver)
+    androidTestImplementation(libs.okhttp.tls)
 
     implementation(libs.ktor.okhttp)
     implementation(libs.okhttp)
@@ -1375,7 +1383,7 @@ dependencies {
     implementation(libs.androidx.camera.camera2)
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
-    // YCore shares the Media3 cache/data-source utilities, not the ExoPlayer engine.
+    // YCore uses the shared Media3 cache and data-source utilities.
     implementation(libs.media3.common)
     implementation(libs.media3.database)
     implementation(libs.media3.datasource)

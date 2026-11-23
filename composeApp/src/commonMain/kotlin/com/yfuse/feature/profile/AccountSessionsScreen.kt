@@ -28,6 +28,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -198,18 +199,9 @@ internal fun AccountSessionsContent(
     val currentSession = uniqueSessions.firstOrNull(AccountDeviceSession::current)
     val otherSessions = uniqueSessions.filterNot { it.id == currentSession?.id }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().statusBarsPadding(),
-        contentPadding =
-            PaddingValues(
-                top = SettingsHeaderTop,
-                bottom = bottomContentInset,
-                start = Dimens.pageHorizontal,
-                end = Dimens.pageHorizontal,
-            ),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        motionItem {
+    Column(Modifier.fillMaxSize().statusBarsPadding()) {
+        Spacer(Modifier.height(SettingsHeaderTop))
+        Box(Modifier.padding(horizontal = Dimens.pageHorizontal)) {
             SessionsHeader(
                 count = uniqueSessions.size,
                 loading = loading,
@@ -218,77 +210,88 @@ internal fun AccountSessionsContent(
                 onRefresh = onRefresh,
             )
         }
-
-        if (loading && !loadedOnce) {
-            // First load has no rows to keep, so it gets the app's page skeleton rather than a
-            // spinner with a sentence next to it: three blocks in the shape of the three
-            // surfaces that follow — 当前设备, 其他设备, and the bulk actions. Refreshes keep
-            // the rows they already have and spin in the header's own button instead.
-            motionItem(key = "sessions-first-load") {
-                PageLoadingSkeleton(rows = 3, horizontalPadding = 0.dp)
-            }
-        } else {
-            error?.let { message ->
-                motionItem {
-                    SessionSurface {
-                        Text("加载失败", style = AppTypography.body.strong, color = palette.error)
-                        Spacer(Modifier.height(5.dp))
-                        Text(message, style = AppTypography.caption.regular, color = palette.sub2)
-                        Spacer(Modifier.height(12.dp))
-                        YfButton(
-                            label = "重新加载",
-                            onClick = onRefresh,
-                            tone = YfButtonTone.Secondary,
-                        )
-                    }
-                }
-            }
-
-            motionItem { SessionSectionLabel("当前设备", currentSession?.let { "保持登录" }) }
-            motionItem {
-                if (currentSession == null) {
-                    SessionSurface {
-                        Text("未找到当前会话", style = AppTypography.body.strong, color = palette.text)
-                        Spacer(Modifier.height(4.dp))
-                        Text("请刷新后重试。", style = AppTypography.caption.regular, color = palette.sub2)
-                    }
-                } else {
-                    SessionSurface {
-                        SessionDeviceRow(session = currentSession, current = true)
-                    }
-                }
-            }
-
-            motionItem { SessionSectionLabel("其他设备", "${otherSessions.size} 个") }
-            if (otherSessions.isEmpty()) {
-                motionItem {
-                    // An empty list, not a card with nothing in it: the same icon-words-arrival
-                    // every other page uses when it has nothing to show.
-                    PageHint(
-                        text = "没有其他登录设备\n当前只有这台设备保持登录",
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+        Spacer(Modifier.height(14.dp))
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            contentPadding =
+                PaddingValues(
+                    bottom = bottomContentInset,
+                    start = Dimens.pageHorizontal,
+                    end = Dimens.pageHorizontal,
+                ),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            if (loading && !loadedOnce) {
+                // First load has no rows to keep, so it gets the app's page skeleton rather than a
+                // spinner with a sentence next to it: three blocks in the shape of the three
+                // surfaces that follow — 当前设备, 其他设备, and the bulk actions. Refreshes keep
+                // the rows they already have and spin in the header's own button instead.
+                motionItem(key = "sessions-first-load") {
+                    PageLoadingSkeleton(rows = 3, horizontalPadding = 0.dp)
                 }
             } else {
-                motionItems(otherSessions, key = { "session-${it.id}" }) { session ->
-                    SessionSurface {
-                        SessionDeviceRow(
-                            session = session,
-                            current = false,
-                            revoking = bulkBusy || session.id in revokingIds,
-                            onRevoke = { onRevokeSession(session.id) },
-                        )
+                error?.let { message ->
+                    motionItem {
+                        SessionSurface {
+                            Text("加载失败", style = AppTypography.body.strong, color = palette.error)
+                            Spacer(Modifier.height(5.dp))
+                            Text(message, style = AppTypography.caption.regular, color = palette.sub2)
+                            Spacer(Modifier.height(12.dp))
+                            YfButton(
+                                label = "重新加载",
+                                onClick = onRefresh,
+                                tone = YfButtonTone.Secondary,
+                            )
+                        }
                     }
                 }
-            }
 
-            motionItem {
-                BulkSessionActions(
-                    hasOtherSessions = otherSessions.isNotEmpty(),
-                    busy = bulkBusy,
-                    onRevokeOthers = onRevokeOthers,
-                    onRevokeAll = onRevokeAll,
-                )
+                motionItem { SessionSectionLabel("当前设备", currentSession?.let { "保持登录" }) }
+                motionItem {
+                    if (currentSession == null) {
+                        SessionSurface {
+                            Text("未找到当前会话", style = AppTypography.body.strong, color = palette.text)
+                            Spacer(Modifier.height(4.dp))
+                            Text("请刷新后重试。", style = AppTypography.caption.regular, color = palette.sub2)
+                        }
+                    } else {
+                        SessionSurface {
+                            SessionDeviceRow(session = currentSession, current = true)
+                        }
+                    }
+                }
+
+                motionItem { SessionSectionLabel("其他设备", "${otherSessions.size} 个") }
+                if (otherSessions.isEmpty()) {
+                    motionItem {
+                        // An empty list, not a card with nothing in it: the same icon-words-arrival
+                        // every other page uses when it has nothing to show.
+                        PageHint(
+                            text = "没有其他登录设备\n当前只有这台设备保持登录",
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                } else {
+                    motionItems(otherSessions, key = { "session-${it.id}" }) { session ->
+                        SessionSurface {
+                            SessionDeviceRow(
+                                session = session,
+                                current = false,
+                                revoking = bulkBusy || session.id in revokingIds,
+                                onRevoke = { onRevokeSession(session.id) },
+                            )
+                        }
+                    }
+                }
+
+                motionItem {
+                    BulkSessionActions(
+                        hasOtherSessions = otherSessions.isNotEmpty(),
+                        busy = bulkBusy,
+                        onRevokeOthers = onRevokeOthers,
+                        onRevokeAll = onRevokeAll,
+                    )
+                }
             }
         }
     }
@@ -552,6 +555,7 @@ private fun BulkSessionActionRow(
                     onClickLabel = title,
                     onClick = onClick,
                 ).touchTarget()
+                .alpha(if (enabled) 1f else 0.45f)
                 .padding(vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,

@@ -1,0 +1,124 @@
+name: Verify 21120 touch seeks on 88 unmodified film and episode originals
+on:
+  push:
+    branches: [codex/two-engines-cloud-seek-20261113]
+    paths: [.github/workflows/qa-original-volume.yml, qa-arm-original/original_volume.py, qa-arm-original/natural_frames.py, qa-arm-original/start_volume.sh, qa-arm-original/startup_repeat.py, qa-arm-original/prepare_volume.sh]
+permissions: {contents: read, actions: read}
+env:
+  QA_APP_SHA: 382077026e5747530f320c0188ba2eeebd529b7e
+jobs:
+  driver:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - name: Build the driver that records the rail at touch down
+        run: |
+          set -euo pipefail
+          mkdir driver
+          cp qa-arm-matrix/Driver.java qa-volume/input-driver.java
+          sed 's|adb install -r driver.apk|cp driver.apk "$GITHUB_WORKSPACE/driver/driver.apk"|' qa-volume/build-driver.sh > "$RUNNER_TEMP/build-driver.sh"
+          bash "$RUNNER_TEMP/build-driver.sh"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: original-seek-driver, path: driver/driver.apk, retention-days: 5}
+  input:
+    needs: driver
+    runs-on: ubuntu-24.04
+    timeout-minutes: 85
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: original-seek-driver, path: driver}
+      - name: Verify the current release candidate
+        env: {API_TOKEN: '${{ github.token }}'}
+        run: bash qa-arm-original/prepare_volume.sh 44469657784
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: natural-original-input, path: candidate/, retention-days: 5}
+  original_touch_control:
+    name: Repeat the two disputed films and all 120 targets per core with their original APK
+    needs: driver
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 190
+    env:
+      QA_STAGE: reference-control
+      QA_APP_SHA: 92927caeedad906743f0d82097adb41d915d6f06
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: original-seek-driver, path: driver}
+      - name: Acquire the exact APK from the original-film stress failures
+        env: {API_TOKEN: '${{ github.token }}'}
+        run: |
+          set -euo pipefail
+          bash qa-arm-original/prepare_volume.sh 44403005018
+          echo 'e0b4100b4a827b084833968ab18044df33ddffcf0a0446c1176c7e42cb641648  candidate/composeApp-release.apk' | sha256sum -c -
+      - run: bash qa-arm-original/start_volume.sh
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: natural-originals-control, path: results/original-volume/, retention-days: 10}
+  pilot:
+    needs: input
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    env: {QA_STAGE: pilot}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: natural-original-input, path: candidate}
+      - run: bash qa-arm-original/start_volume.sh
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: natural-originals-pilot, path: results/original-volume/, retention-days: 10}
+  charge_cold_start:
+    name: Charge cold opens on both players with the ${{ matrix.version }} APK
+    needs: input
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 95
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {version: previous, app: 20c96e5eb929aedd9b38b19d9a20cbb3ee0bf326}
+          - {version: candidate, app: 382077026e5747530f320c0188ba2eeebd529b7e}
+    env: {QA_STAGE: charge-start-control, QA_APP_SHA: '${{ matrix.app }}'}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - if: matrix.version == 'candidate'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: natural-original-input, path: candidate}
+      - if: matrix.version == 'previous'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: original-seek-driver, path: driver}
+      - if: matrix.version == 'previous'
+        env: {API_TOKEN: '${{ github.token }}'}
+        run: |
+          set -euo pipefail
+          bash qa-arm-original/prepare_volume.sh 44414710658
+          echo '6b23f5f71ee3a3c39f228a6ecb3d3e922117fba8b0f893d0bf96c7902dc1133f  candidate/composeApp-release.apk' | sha256sum -c -
+      - run: bash qa-arm-original/start_volume.sh
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: 'charge-cold-start-${{ matrix.version }}', path: results/original-volume/, retention-days: 10}
+  original_volume:
+    needs: pilot
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix: {shard: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21]}
+    env: {QA_STAGE: volume, QA_SHARD: '${{ matrix.shard }}'}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: natural-original-input, path: candidate}
+      - run: bash qa-arm-original/start_volume.sh
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: 'natural-originals-${{ matrix.shard }}', path: results/original-volume/, retention-days: 10}

@@ -250,6 +250,7 @@ private fun Char.isSharedLinkCharacter(): Boolean = code in 0x21..0x7E && this !
 fun externalPlaybackItem(
     url: String,
     title: String,
+    mimeType: String? = null,
 ): PlayerMediaItem =
     PlayerMediaItem(
         id = EXTERNAL_PLAYBACK_ID_PREFIX + UUID.randomUUID(),
@@ -259,6 +260,12 @@ fun externalPlaybackItem(
         title = title,
         playMethod = PlaybackMethod.DirectPlay,
         serverTranscodeSupported = false,
+        sourceMimeType =
+            mimeType
+                ?.substringBefore(';')
+                ?.trim()
+                ?.lowercase()
+                ?.takeIf { it.matches(Regex("video/[a-z0-9.+*-]{1,80}")) },
     )
 
 /**

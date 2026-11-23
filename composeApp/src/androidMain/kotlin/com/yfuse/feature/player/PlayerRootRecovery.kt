@@ -346,8 +346,8 @@ internal fun rememberPlayerSourceSwitching(
         sourceSwitchCoordinator.invalidate()
         // Read the position before the old engine is torn down.
         capturePlaybackHandover()
-        player.pause()
         val positionMs = player.currentPositionMs()
+        player.pause()
         AppLog.info(
             category = "player",
             event = "engine_switch_requested",
@@ -360,7 +360,14 @@ internal fun rememberPlayerSourceSwitching(
                     "positionMs" to positionMs.toString(),
                 ),
         )
-        build.resume = build.resume.copy(itemIndex = state.currentIndex, positionMs = positionMs)
+        // Choosing a different engine from the error panel is an explicit retry. The failed
+        // engine has already cleared playbackRequested; a healthy paused item stays paused.
+        build.resume =
+            build.resume.copy(
+                itemIndex = state.currentIndex,
+                positionMs = positionMs,
+                playbackRequested = build.resume.playbackRequested || (state.error != null && !state.ended),
+            )
         build.kind = target
     }
 
@@ -518,7 +525,9 @@ internal fun PlayerRuntimeFaultRecovery(
                         playbackRequested = player.playbackRequested,
                     )
                 build.runtimeSessionGeneration++
-                player.seekTo(positionMs)
+                // YCore reopens at its current position. A seek here queues a second native
+                // reposition on the very source whose read just stalled.
+                if (build.kind != PlayerEngine.YCore) player.seekTo(positionMs)
                 player.retry()
                 AppLog.warning(
                     category = "player.network",
@@ -528,7 +537,7 @@ internal fun PlayerRuntimeFaultRecovery(
                         } else {
                             "long_rebuffer_recovery"
                         },
-                    message = "Playback transport was reopened after sustained source starvation",
+                    message = "Requested a transport reopen after sustained source starvation",
                     attributes =
                         mapOf(
                             "engine" to attachedEngineLabel,

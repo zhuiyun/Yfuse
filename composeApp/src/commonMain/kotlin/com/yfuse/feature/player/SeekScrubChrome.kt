@@ -4,8 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
-import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,7 +31,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.DragAxis
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.resolveDragAxis
 import kotlin.math.roundToInt
 import com.yfuse.core.designsystem.ThemeText as Text
 
@@ -76,23 +76,48 @@ internal val SeekPreviewMaxLift: Dp = 160.dp
  * cancels it, as before.
  */
 internal suspend fun PointerInputScope.detectSeekScrubGestures(
+    onPress: () -> Unit,
+    onTap: (Offset) -> Unit,
     onDragStart: (down: Offset, start: Offset) -> Unit,
     onDragEnd: () -> Unit,
     onDragCancel: () -> Unit,
     onDrag: (PointerInputChange) -> Unit,
 ) {
     awaitEachGesture {
-        val down = awaitFirstDown(requireUnconsumed = false)
-        val start =
-            awaitHorizontalTouchSlopOrCancellation(down.id) { change, _ -> change.consume() }
-                ?: return@awaitEachGesture
-        onDragStart(down.position, start.position)
-        val released =
-            drag(start.id) { change ->
-                onDrag(change)
-                change.consume()
+        val down = awaitFirstDown()
+        down.consume()
+        var dragging = false
+        var completed = false
+        try {
+            onPress()
+            while (true) {
+                val event = awaitPointerEvent()
+                val change = event.changes.singleOrNull() ?: break
+                if (change.id != down.id || change.isConsumed) break
+                if (!dragging) {
+                    val delta = change.position - down.position
+                    when (resolveDragAxis(delta.x, delta.y, viewConfiguration.touchSlop)) {
+                        DragAxis.Vertical -> break
+                        DragAxis.Horizontal -> {
+                            dragging = true
+                            onDragStart(down.position, change.position)
+                        }
+                        DragAxis.Undecided -> Unit
+                    }
+                } else {
+                    onDrag(change)
+                }
+                if (!change.pressed) {
+                    change.consume()
+                    completed = true
+                    if (dragging) onDragEnd() else onTap(change.position)
+                    break
+                }
+                if (dragging) change.consume()
             }
-        if (released) onDragEnd() else onDragCancel()
+        } finally {
+            if (!completed) onDragCancel()
+        }
     }
 }
 
@@ -124,6 +149,8 @@ internal fun SeekFilmstrip(
 ) {
     val frameHeight = SeekFilmstripFrameWidth * storyboard.height / storyboard.width.coerceAtLeast(1)
     val half = slots / 2
+    val focusTime = frames.startMs(selected)
+    val focus = bufferedScrubBitmap(storyboard.frameAt(focusTime), focusTime) ?: return
     Column(
         modifier
             .clearAndSetSemantics {}
@@ -144,8 +171,17 @@ internal fun SeekFilmstrip(
         Row(horizontalArrangement = Arrangement.spacedBy(SeekFilmstripGap)) {
             for (offset in -half..half) {
                 val index = selected + offset
-                val present = index in 0 until frames.count
                 val current = offset == 0
+                val image =
+                    if (current) {
+                        focus
+                    } else if (index in 0 until frames.count) {
+                        val time = frames.startMs(index)
+                        bufferedScrubBitmap(storyboard.frameAt(time), time)
+                    } else {
+                        null
+                    }
+                val present = image != null
                 Column(
                     Modifier.graphicsLayer { alpha = if (current) 1f else FILMSTRIP_NEIGHBOUR_ALPHA },
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -163,12 +199,12 @@ internal fun SeekFilmstrip(
                                 },
                             ),
                     ) {
-                        if (present) {
-                            TrickplayImage(
-                                storyboard = storyboard,
-                                frame = storyboard.frameAt(frames.startMs(index)),
-                                description = "",
-                                modifier = Modifier.fillMaxSize(),
+                        if (image != null) {
+                            androidx.compose.foundation.Image(
+                                image,
+                                null,
+                                Modifier.fillMaxSize(),
+                                contentScale = androidx.compose.ui.layout.ContentScale.Fit,
                             )
                         }
                     }

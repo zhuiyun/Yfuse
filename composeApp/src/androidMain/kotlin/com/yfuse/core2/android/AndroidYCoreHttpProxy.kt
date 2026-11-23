@@ -48,6 +48,7 @@ import com.yfuse.core2.network.YMediaTransport
 import com.yfuse.core2.network.YMediaTransportRequest
 import com.yfuse.core2.network.YSourceProtocol
 import com.yfuse.core2.network.YTransportCredentials
+import com.yfuse.core2.network.YTransportFailureKind
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -57,6 +58,7 @@ import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.Closeable
 import java.io.File
+import java.io.IOException
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
@@ -66,6 +68,7 @@ import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -200,6 +203,7 @@ internal class AndroidYCoreHttpProxy(
         val drmProtected: Boolean,
         val allowDolbyVisionHls: Boolean,
         val allowDolbyAtmosHls: Boolean,
+        val hlsVodSegment: Boolean = false,
         val dashTemplate: DashTemplateRoute? = null,
         val dashAbrResource: DashAbrResourceRoute? = null,
         val hlsAbrResource: HlsAbrResourceRoute? = null,
@@ -614,6 +618,7 @@ internal class AndroidYCoreHttpProxy(
         mediaBitRateBitsPerSecond: Long = 0L,
         credentialOrigin: String = upstreamUri,
         originBoundHeaderNames: Set<String> = emptySet(),
+        hlsVodSegment: Boolean = false,
     ): String {
         val protocol = upstreamUri.sourceProtocolOrNull()
         // A manifest's resource (credentialOrigin is then its manifest's address) is checked before
@@ -643,6 +648,7 @@ internal class AndroidYCoreHttpProxy(
                 allowDolbyVisionHls = allowDolbyVisionHls,
                 allowDolbyAtmosHls = allowDolbyAtmosHls,
                 mediaBitRateBitsPerSecond = mediaBitRateBitsPerSecond,
+                hlsVodSegment = hlsVodSegment,
             )
         val syntheticPath =
             when {
@@ -675,7 +681,23 @@ internal class AndroidYCoreHttpProxy(
             if (existing != null) return@withContext existing.target(globalPositionMs)
             if (!route.hlsManifest && !route.dashManifest) return@withContext null
             val maximumBytes = if (route.dashManifest) MAX_DASH_MANIFEST_BYTES else MAX_HLS_MANIFEST_BYTES
-            val text = loadBoundedCancellable(route.upstreamUri, maximumBytes, route).decodeToString()
+            val text =
+                try {
+                    loadBoundedCancellable(route.upstreamUri, maximumBytes, route, inspectRoot = true).decodeToString()
+                } catch (media: ProgressiveManifestResponse) {
+                    // The Emby entry advertised a playlist but its redirect returned a media file.
+                    // Serve the same authenticated route as a seekable file, including subsequent opens.
+                    val id = URI(rootUri).path.removePrefix("/$YCORE_HTTP_ROUTE_PREFIX/").substringBefore('/')
+                    synchronized(routesLock) {
+                        check(!closed.get()) { "Playback proxy is closed" }
+                        if (routes[id] == route) {
+                            val file = route.copy(hlsManifest = false, dashManifest = false)
+                            routes[id] = file
+                            routeIds.remove(route)
+                        }
+                    }
+                    return@withContext null
+                }
             val created =
                 if (route.dashManifest) {
                     val manifest = parseYDashManifest(text, route.upstreamUri)
@@ -742,7 +764,7 @@ internal class AndroidYCoreHttpProxy(
     private fun routeForLocalUri(uri: String): Route? {
         val parsed = runCatching { URI(uri) }.getOrNull() ?: return null
         if (parsed.host != LOOPBACK_HOST || parsed.port != server.localPort) return null
-        val prefix = "/$ROUTE_PREFIX/"
+        val prefix = "/$YCORE_HTTP_ROUTE_PREFIX/"
         val path = parsed.path ?: return null
         if (!path.startsWith(prefix)) return null
         return findRoute(path.removePrefix(prefix).substringBefore('/'))
@@ -901,7 +923,7 @@ internal class AndroidYCoreHttpProxy(
                     routes.remove(existing)?.let { routes[existing] = it }
                 } ?: registerRoute(route)
             }
-        return "http://$LOOPBACK_HOST:${server.localPort}/$ROUTE_PREFIX/$routeId$pathSuffix"
+        return "http://$LOOPBACK_HOST:${server.localPort}/$YCORE_HTTP_ROUTE_PREFIX/$routeId$pathSuffix"
     }
 
     private fun acceptLoop() {
@@ -969,7 +991,7 @@ internal class AndroidYCoreHttpProxy(
         val localPath =
             requestTarget
                 .substringBefore('?')
-                ?.substringAfter("/$ROUTE_PREFIX/", missingDelimiterValue = "")
+                ?.substringAfter("/$YCORE_HTTP_ROUTE_PREFIX/", missingDelimiterValue = "")
                 ?.takeIf(String::isNotEmpty)
         val routeId = localPath?.substringBefore('/')
         val routeSuffix = localPath?.substringAfter('/', missingDelimiterValue = "").orEmpty()
@@ -1034,7 +1056,7 @@ internal class AndroidYCoreHttpProxy(
             } else if (route.dashManifest) {
                 serveDash(socket, route, method)
             } else {
-                serveBinary(socket, route, method, headers["range"])
+                serveBinaryWithRecovery(socket, route, method, headers["range"])
             }
         }.onFailure { failure ->
             if (!closed.get() && failure.mediaHttpStatus() in setOf(401, 403, 404, 410)) {
@@ -1229,6 +1251,7 @@ internal class AndroidYCoreHttpProxy(
                 is YHlsPlaylist.Media -> pinned ?: HlsPlaybackManifest(rootText, route.upstreamUri, root)
                 is YHlsPlaylist.Master -> loadHlsPlaybackManifest(root, route)
             }
+        if (!route.drmProtected) BufferedScrubMedia.hlsManifest(route.credentialOrigin, playback.text, playback.uri)
         playback.media.requireSupportedEncryption(route.drmProtected)
         var segmentIndex = 0
         val rewritten =
@@ -1248,7 +1271,7 @@ internal class AndroidYCoreHttpProxy(
                 if (mediaSegment != null) segmentIndex++
                 val aligned = mediaSegment?.let { playback.alignedSegments[it.sequence] }
                 if (aligned != null && playback.abrSession != null) {
-                    localHlsAbrUrl(route, persistent, aligned, playback.abrSession)
+                    localHlsAbrUrl(route, persistent, aligned, playback.abrSession, !playback.media.isLive)
                 } else {
                     localUrl(
                         upstreamUri = upstreamUri,
@@ -1277,6 +1300,7 @@ internal class AndroidYCoreHttpProxy(
                             kind in
                                 setOf(YHlsResourceKind.VariantPlaylist, YHlsResourceKind.RenditionPlaylist),
                         drmProtected = route.drmProtected,
+                        hlsVodSegment = mediaSegment != null && !playback.media.isLive,
                     )
                 }
             }.encodeToByteArray()
@@ -1489,6 +1513,7 @@ internal class AndroidYCoreHttpProxy(
         cacheable: Boolean,
         segment: YHlsAlignedSegment,
         session: HlsAbrSession,
+        vod: Boolean,
     ): String {
         val selected = segment.resources.first()
         val route =
@@ -1499,6 +1524,7 @@ internal class AndroidYCoreHttpProxy(
                 hlsManifest = false,
                 dashManifest = false,
                 hlsAbrResource = HlsAbrResourceRoute(session, segment),
+                hlsVodSegment = vod,
             )
         val suffix =
             selected.uri
@@ -1721,6 +1747,37 @@ internal class AndroidYCoreHttpProxy(
         return null
     }
 
+    /** A transient pre-header failure must not make the demuxer advance past a requested VOD segment. */
+    private fun serveBinaryWithRecovery(
+        socket: Socket,
+        route: Route,
+        method: String,
+        range: String?,
+    ) {
+        if (!route.hlsVodSegment) return serveBinary(socket, route, method, range)
+        val generation = latestPlaybackFeedback()?.value?.generation
+        val deadlineNs = System.nanoTime() + TimeUnit.SECONDS.toNanos(HLS_SEGMENT_RECOVERY_SECONDS)
+        var delayMs = 150L
+        while (true) {
+            try {
+                return serveBinary(socket, route, method, range)
+            } catch (failure: IOException) {
+                if (socket in responsesStarted ||
+                    !failure.canRetryHlsSegment() ||
+                    closed.get() ||
+                    generation != latestPlaybackFeedback()?.value?.generation ||
+                    System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(delayMs) >= deadlineNs
+                ) {
+                    throw failure
+                }
+                // close() interrupts proxy workers. No partially sent response is replayed.
+                Thread.sleep(delayMs)
+                if (closed.get() || generation != latestPlaybackFeedback()?.value?.generation) throw failure
+                delayMs = (delayMs * 2).coerceAtMost(1_000L)
+            }
+        }
+    }
+
     private fun serveBinary(
         socket: Socket,
         route: Route,
@@ -1876,6 +1933,16 @@ internal class AndroidYCoreHttpProxy(
                 acceptRanges = seekable,
             )
             if (method == "GET") {
+                val scrubWriter =
+                    if (route.drmProtected) {
+                        null
+                    } else {
+                        BufferedScrubMedia.lookup(
+                            route.upstreamUri,
+                            route.upstreamHeaders,
+                            route.credentials,
+                        )
+                    }
                 var networkReadDurationNs = 0L
                 var transferredBytes = 0L
                 val buffer = ByteArray(NETWORK_BUFFER_BYTES)
@@ -1887,6 +1954,7 @@ internal class AndroidYCoreHttpProxy(
                     if (count > 0) {
                         // Local loopback backpressure is deliberately outside networkReadDurationNs.
                         socket.getOutputStream().write(buffer, 0, count)
+                        scrubWriter?.put(transferredBytes, buffer, 0, count, response.contentLength ?: -1L)
                         transferredBytes += count
                     }
                 }
@@ -1915,6 +1983,7 @@ internal class AndroidYCoreHttpProxy(
         upstreamUri: String,
         maximumBytes: Int,
         route: Route,
+        inspectRoot: Boolean = false,
     ): ByteArray =
         suspendCancellableCoroutine { continuation ->
             val budget = YManifestDiscoveryBudget { !closed.get() }
@@ -1924,7 +1993,7 @@ internal class AndroidYCoreHttpProxy(
                 try {
                     workers.submit {
                         try {
-                            continuation.resume(loadBounded(upstreamUri, maximumBytes, route, budget))
+                            continuation.resume(loadBounded(upstreamUri, maximumBytes, route, budget, inspectRoot))
                         } catch (error: Throwable) {
                             continuation.resumeWithException(error)
                         } finally {
@@ -1948,6 +2017,7 @@ internal class AndroidYCoreHttpProxy(
         maximumBytes: Int,
         route: Route,
         discoveryBudget: YManifestDiscoveryBudget? = null,
+        inspectRoot: Boolean = false,
     ): ByteArray {
         require(
             upstreamUri == route.upstreamUri ||
@@ -1970,9 +2040,21 @@ internal class AndroidYCoreHttpProxy(
                         ),
                     )
                 if (response.statusCode !in 200..299) throw YUpstreamHttpException(response.statusCode)
-                response.contentLength?.let { require(it <= maximumBytes) { "Manifest exceeds the byte limit" } }
                 val output = ByteArrayOutputStream()
                 val buffer = ByteArray(NETWORK_BUFFER_BYTES)
+                if (inspectRoot) {
+                    // Include a second MPEG-TS sync byte (also handles 192/204-byte packets).
+                    var count = 0
+                    while (count < 205) {
+                        discoveryBudget?.checkActive()
+                        val read = transport.read(buffer, count, 205 - count)
+                        if (read < 0) break
+                        count += read
+                    }
+                    if (hasProgressiveMediaSignature(buffer, count)) throw ProgressiveManifestResponse()
+                    output.write(buffer, 0, count)
+                }
+                response.contentLength?.let { require(it <= maximumBytes) { "Manifest exceeds the byte limit" } }
                 while (true) {
                     discoveryBudget?.checkActive()
                     val count = transport.read(buffer, 0, buffer.size)
@@ -2313,10 +2395,31 @@ private fun String.sha256(): String =
         .digest(encodeToByteArray())
         .joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xff) }
 
+private const val HLS_SEGMENT_RECOVERY_SECONDS = 16L
 private const val LOOPBACK_HOST = "127.0.0.1"
 private const val LOOPBACK_BACKLOG = 8
-private const val ROUTE_PREFIX = "ycore-resource"
+internal const val YCORE_HTTP_ROUTE_PREFIX = "ycore-resource"
 private const val NETWORK_BUFFER_BYTES = 64 * 1024
+
+private class ProgressiveManifestResponse : Exception()
+
+private fun hasProgressiveMediaSignature(
+    bytes: ByteArray,
+    size: Int,
+): Boolean {
+    fun byte(index: Int) = bytes[index].toInt() and 0xff
+    if (size < 8) return false
+    if (byte(0) == 0x1a && byte(1) == 0x45 && byte(2) == 0xdf && byte(3) == 0xa3) return true
+    if (byte(0) == 0x47 && listOf(188, 204).any { size > it && byte(it) == 0x47 }) return true
+    if (size > 196 && byte(4) == 0x47 && byte(196) == 0x47) return true
+    // ISO base media and QuickTime. Accept only valid initial atom sizes.
+    val atomSize =
+        (byte(0).toLong() shl 24) or (byte(1).toLong() shl 16) or
+            (byte(2).toLong() shl 8) or byte(3).toLong()
+    return (atomSize == 0L || atomSize == 1L || atomSize >= 8L) &&
+        bytes.decodeToString(4, 8) in setOf("ftyp", "moov", "mdat", "wide", "free", "styp", "moof")
+}
+
 private const val MAX_HLS_MANIFEST_BYTES = 4 * 1024 * 1024
 private const val MAX_DASH_MANIFEST_BYTES = 8 * 1024 * 1024
 
@@ -2393,3 +2496,20 @@ private fun Throwable.upstreamIgnoresByteRanges(): Boolean =
         }
 
 private const val MAX_UPSTREAM_CAUSE_DEPTH = 8
+
+private fun IOException.canRetryHlsSegment(): Boolean {
+    if (this is YRangeReadException) return failureKind in TRANSIENT_HLS_FAILURES
+    if (this is AndroidRangeResponseException) return failureKind in TRANSIENT_HLS_FAILURES
+    val status = mediaHttpStatus()
+    if (status != null) return status in RETRYABLE_HLS_STATUS
+    return generateSequence<Throwable>(this) { it.cause }.take(MAX_UPSTREAM_CAUSE_DEPTH).any {
+        it is java.net.SocketException ||
+            it is java.net.SocketTimeoutException ||
+            it is java.net.UnknownHostException ||
+            it is java.io.EOFException
+    }
+}
+
+private val TRANSIENT_HLS_FAILURES =
+    setOf(YTransportFailureKind.TransientIo, YTransportFailureKind.PrematureEof, YTransportFailureKind.ServerBusy)
+private val RETRYABLE_HLS_STATUS = setOf(408, 429, 500, 502, 503, 504)

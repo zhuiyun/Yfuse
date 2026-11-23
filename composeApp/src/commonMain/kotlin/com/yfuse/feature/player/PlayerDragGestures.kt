@@ -1,10 +1,11 @@
 package com.yfuse.feature.player
 
+import androidx.compose.foundation.gestures.awaitDragOrCancellation
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
-import androidx.compose.foundation.gestures.drag
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.AwaitPointerEventScope
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.positionChange
@@ -50,20 +51,31 @@ internal suspend fun PointerInputScope.detectPlayerDragGestures(
                 change.consume()
                 overSlop = amount
             } ?: return@awaitEachGesture
-        var completed = false
+        var released = false
         try {
             onDragStart(down.position)
             onDrag(start, overSlop)
-            val released =
-                drag(start.id) { change ->
-                    onDrag(change, change.positionChange())
-                    change.consume()
-                }
-            completed = true
-            if (released) onDragEnd() else onDragCancel()
+            released = trackPlayerDrag(start) { change -> onDrag(change, change.positionChange()) }
         } finally {
-            // Rotation, a replacement item or loss of the input node must not commit a seek.
-            if (!completed) onDragCancel()
+            if (released) onDragEnd() else onDragCancel()
         }
+    }
+}
+
+/** Forward movement carried by the UP event before either the rail or the picture commits. */
+internal suspend fun AwaitPointerEventScope.trackPlayerDrag(
+    start: PointerInputChange,
+    onDrag: (PointerInputChange) -> Unit,
+): Boolean {
+    var pointer = start.id
+    while (true) {
+        val change = awaitDragOrCancellation(pointer) ?: return false
+        if (!change.pressed) {
+            if (change.position != change.previousPosition) onDrag(change)
+            return true
+        }
+        onDrag(change)
+        change.consume()
+        pointer = change.id
     }
 }

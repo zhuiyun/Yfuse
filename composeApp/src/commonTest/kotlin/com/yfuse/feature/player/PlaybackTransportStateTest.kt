@@ -13,6 +13,15 @@ import kotlin.test.assertTrue
 
 class PlaybackTransportStateTest {
     @Test
+    fun timeline_clock_stays_within_a_known_duration_while_the_last_frames_drain() {
+        val reported = PlaybackState(positionMs = 21_100L, durationMs = 20_000L)
+        assertEquals(20_000L, reported.transportState().positionMs)
+        assertEquals(21_100L, reported.copy(durationMs = 0L).transportState().positionMs)
+        assertEquals(4_200L, reported.copy(positionMs = 4_200L).transportState().positionMs)
+        assertEquals(0L, reported.copy(positionMs = -1L).transportState().positionMs)
+    }
+
+    @Test
     fun timeline_reclips_forward_evidence_without_converting_it_into_history_or_filling_holes() {
         val snapshot =
             YBufferSnapshot(

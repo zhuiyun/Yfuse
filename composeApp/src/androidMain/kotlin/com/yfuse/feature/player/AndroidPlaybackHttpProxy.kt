@@ -22,9 +22,13 @@ import com.yfuse.core.playback.WidgetPlaybackRequest
 import com.yfuse.core.playback.secureMediaCacheKeyForUrl
 import com.yfuse.core.playback.shouldProxyPlaybackNetworkUrl
 import com.yfuse.core.playback.writeResponseBodyWithWatchdog
+import com.yfuse.core2.android.BufferedScrubMedia
+import com.yfuse.core2.network.YTransportCredentials
+import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import java.io.Closeable
+import java.io.EOFException
 import java.io.InputStream
 import java.net.CookieManager
 import java.net.CookiePolicy
@@ -42,7 +46,7 @@ import kotlin.math.min
  * Gives native players an HTTP loopback URL while Android reads the real source.
  *
  * The bridge keeps credentials in process memory, preserves byte-range requests and rewrites HLS
- * child URLs. Eligible direct files use the same sparse Media3 cache as ExoPlayer; manifests,
+ * child URLs. Eligible direct files use the shared sparse Media3 cache; manifests,
  * transcodes, DRM and local/disc sources never enter that persistent cache.
  */
 @OptIn(UnstableApi::class)
@@ -52,11 +56,16 @@ internal class AndroidPlaybackHttpProxy(
     videoCacheBytes: Long,
     private val connectionAdmission: PlaybackProxyAdmission = PlaybackProxyAdmission(),
     private val headerTimeoutMs: Long = PLAYBACK_PROXY_HEADER_TIMEOUT_MS,
+    private val upstreamClient: OkHttpClient = PlaybackHttpDataSource.client,
 ) : Closeable {
     private val routes = PlaybackProxyRoutes()
+    private val sourceFailures = PlaybackProxyFailureState()
+
+    val sourceFailureEvidence: PlaybackProxyFailureState.Evidence get() = sourceFailures.snapshot()
+
     private val cookieManager = CookieManager(null, CookiePolicy.ACCEPT_ALL)
     private val httpClient =
-        PlaybackHttpDataSource.client
+        upstreamClient
             .newBuilder()
             .connectTimeout(UPSTREAM_CONNECT_TIMEOUT_MS.toLong(), TimeUnit.MILLISECONDS)
             .readTimeout(UPSTREAM_READ_TIMEOUT_MS.toLong(), TimeUnit.MILLISECONDS)
@@ -86,6 +95,7 @@ internal class AndroidPlaybackHttpProxy(
                     manager.put(uri, response.headers.toMultimap())
                 }
             }.build()
+    private val cacheCalls = PlaybackCacheCalls(upstreamClient)
     private val cacheHandle =
         if (videoCacheBytes >
             0L
@@ -95,6 +105,8 @@ internal class AndroidPlaybackHttpProxy(
             null
         }
     private val closed = AtomicBoolean(false)
+
+    @Volatile private var previewCache: ProxyPreviewCache? = null
     private val requests =
         PlaybackProxyRequests {
             runCatching { cacheHandle?.close() }.onFailure { error ->
@@ -121,16 +133,85 @@ internal class AndroidPlaybackHttpProxy(
     val isListening: Boolean
         get() = !server.isClosed
 
+    @Synchronized
     fun localUrl(
         upstreamUrl: String,
         cacheable: Boolean = false,
         widgetRequest: WidgetPlaybackRequest? = null,
     ): String {
+        val generation = sourceFailures.beginSource()
         if (!shouldProxyPlaybackNetworkUrl(upstreamUrl)) return upstreamUrl
         val routeId =
-            routes.registerRoot(PlaybackProxyRoute(upstreamUrl, cacheable && widgetRequest == null, widgetRequest))
+            routes.registerRoot(
+                PlaybackProxyRoute(upstreamUrl, cacheable && widgetRequest == null, widgetRequest, generation),
+            )
                 ?: return upstreamUrl
+        previewCache =
+            if (cacheable && widgetRequest == null && cacheHandle != null) {
+                ProxyPreviewCache(upstreamUrl).also { BufferedScrubMedia.register(it) }
+            } else {
+                null
+            }
         return routeUrl(routeId)
+    }
+
+    /** Independent cursor over completed playback cache spans. A hole cannot start an upstream request. */
+    private inner class ProxyPreviewCache(
+        private val upstream: String,
+    ) : BufferedScrubMedia.CachedSource {
+        private val key = secureMediaCacheKeyForUrl(upstream)
+
+        override fun matches(
+            uri: String,
+            headers: Map<String, String>,
+            credentials: YTransportCredentials?,
+        ): Boolean =
+            previewCache === this && !closed.get() && uri == upstream && headers.isEmpty() && credentials == null
+
+        override fun cachedSize(): Long =
+            if (closed.get() || previewCache !== this) -1L else cachedContentLength(upstream) ?: -1L
+
+        override fun cachedRead(
+            position: Long,
+            bytes: ByteArray,
+            offset: Int,
+            size: Int,
+        ): Int {
+            val length = cachedSize()
+            if (length <= 0L) throw EOFException("Playback cache unavailable")
+            if (size == 0) return 0
+            if (position >= length) return -1
+            val count = minOf(size.toLong(), length - position).toInt()
+            val cache = cacheHandle?.cache ?: throw EOFException("Playback cache closed")
+            if (!cache.isCached(key, position, count.toLong())) throw EOFException("Unbuffered preview")
+            val cursor =
+                CacheDataSource
+                    .Factory()
+                    .setCache(cache)
+                    .setCacheWriteDataSinkFactory(null)
+                    .createDataSource()
+            try {
+                cursor.open(
+                    DataSpec
+                        .Builder()
+                        .setUri(
+                            upstream,
+                        ).setKey(key)
+                        .setPosition(position)
+                        .setLength(count.toLong())
+                        .build(),
+                )
+                var read = 0
+                while (read < count) {
+                    val n = cursor.read(bytes, offset + read, count - read)
+                    if (n <= 0) throw EOFException("Incomplete playback cache span")
+                    read += n
+                }
+                return read
+            } finally {
+                cursor.close()
+            }
+        }
     }
 
     private fun routeUrl(routeId: String): String = "http://$LOOPBACK_HOST:$port/$ROUTE_PREFIX/$routeId"
@@ -259,15 +340,15 @@ internal class AndroidPlaybackHttpProxy(
                     ?.let { put("Cookie", it.joinToString("; ")) }
             }
         val upstreamFactory =
-            PlaybackHttpDataSource.factory(userAgent)
-        val dataSource =
+            PlaybackHttpDataSource.factory(userAgent, cacheCalls.forRequest(request))
+        val cacheFactory =
             CacheDataSource
                 .Factory()
                 .setCache(requireNotNull(cacheHandle).cache)
                 .setCacheKeyFactory(SecureMediaCacheKeyFactory)
                 .setUpstreamDataSourceFactory(upstreamFactory)
                 .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
-                .createDataSource()
+        var dataSource = cacheFactory.createDataSource()
         var responseStarted = false
         try {
             val start = range?.start ?: 0L
@@ -281,8 +362,14 @@ internal class AndroidPlaybackHttpProxy(
                     .setLength(requestedLength)
                     .setHttpRequestHeaders(requestProperties)
                     .build()
-            val openedLength = dataSource.open(dataSpec)
+            val openedLength =
+                openPlaybackRead(prepareRetry = {
+                    dataSource.close()
+                    request.ensureOpen()
+                    dataSource = cacheFactory.createDataSource()
+                }) { dataSource.open(dataSpec) }
             request.ensureOpen()
+            sourceFailures.clearRefusedRead(route.sourceGeneration)
             val responseHeaders = dataSource.responseHeaders
             runCatching { cookieManager.put(upstreamUri, responseHeaders) }
 
@@ -329,9 +416,13 @@ internal class AndroidPlaybackHttpProxy(
                 dataSource = dataSource,
                 request = request,
                 contentLength = contentLength,
+                start = start,
+                total = totalLength ?: -1L,
+                preview = BufferedScrubMedia.lookup(route.upstreamUrl, emptyMap(), null),
             )
             socket.getOutputStream().flush()
         } catch (error: HttpDataSource.InvalidResponseCodeException) {
+            if (!request.isCancelled) sourceFailures.recordHttpStatus(route.sourceGeneration, error.responseCode)
             if (!request.isCancelled && !responseStarted) {
                 if (error.responseCode == 416) {
                     writeRangeNotSatisfiable(socket, knownLength)
@@ -341,6 +432,11 @@ internal class AndroidPlaybackHttpProxy(
             }
         } catch (error: Exception) {
             if (request.isCancelled) return
+            if (!responseStarted &&
+                error.isRefusedPlaybackStream()
+            ) {
+                sourceFailures.recordRefusedRead(route.sourceGeneration)
+            }
             AppLog.warning(
                 category = "player.network",
                 event = "cache_proxy_failed",
@@ -374,18 +470,27 @@ internal class AndroidPlaybackHttpProxy(
         FORWARDED_REQUEST_HEADERS.forEach { name ->
             requestHeaders[name.lowercase()]?.let { builder.header(name, it) }
         }
-        val call = httpClient.newCall(builder.build())
+        var call = httpClient.newCall(builder.build())
         var responseStarted = false
         try {
-            request.attachUpstreamCancellation(call::cancel)
-            request.ensureOpen()
-            call.execute().use { connection ->
+            val response =
+                openPlaybackRead(prepareRetry = {
+                    request.ensureOpen()
+                    call = call.clone()
+                }) {
+                    request.attachUpstreamCancellation(call::cancel)
+                    request.ensureOpen()
+                    call.execute()
+                }
+            response.use { connection ->
                 val status = connection.code
                 request.ensureOpen()
+                if (method == "GET") sourceFailures.recordHttpStatus(route.sourceGeneration, status)
                 val body = connection.body?.byteStream()
                 val manifest = method == "GET" && connection.isHlsManifest(route.upstreamUrl)
                 if (manifest) {
                     val bytes = body?.readBounded(MAX_HLS_MANIFEST_BYTES) ?: ByteArray(0)
+                    BufferedScrubMedia.hlsManifest(null, bytes.toString(StandardCharsets.UTF_8), route.upstreamUrl)
                     val rewritten =
                         routes
                             .rewriteManifest(
@@ -406,7 +511,44 @@ internal class AndroidPlaybackHttpProxy(
                     if (method == "GET") {
                         body?.let { source ->
                             socket.writeResponseBodyWithWatchdog { output ->
-                                source.copyTo(output, NETWORK_BUFFER_BYTES)
+                                val writer =
+                                    BufferedScrubMedia.lookup(
+                                        route.upstreamUrl,
+                                        route.widgetRequest
+                                            ?.headers
+                                            ?.values
+                                            .orEmpty(),
+                                        null,
+                                    )
+                                val range =
+                                    connection.header("Content-Range")?.let {
+                                        Regex("bytes ([0-9]+)-[0-9]+/([0-9]+)", RegexOption.IGNORE_CASE).matchEntire(it)
+                                    }
+                                val start = if (status == 200) 0L else range?.groupValues?.get(1)?.toLongOrNull()
+                                val total =
+                                    if (status ==
+                                        200
+                                    ) {
+                                        length
+                                    } else {
+                                        range?.groupValues?.get(2)?.toLongOrNull() ?: -1L
+                                    }
+                                if (writer == null ||
+                                    start == null ||
+                                    total <= 0L
+                                ) {
+                                    source.copyTo(output, NETWORK_BUFFER_BYTES)
+                                } else {
+                                    val chunk = ByteArray(NETWORK_BUFFER_BYTES)
+                                    var position: Long = start
+                                    while (true) {
+                                        val n = source.read(chunk)
+                                        if (n < 0) break
+                                        output.write(chunk, 0, n)
+                                        writer.put(position, chunk, 0, n, total)
+                                        position += n
+                                    }
+                                }
                             }
                         }
                     }
@@ -415,6 +557,12 @@ internal class AndroidPlaybackHttpProxy(
             }
         } catch (error: Exception) {
             if (request.isCancelled) return
+            if (method == "GET" &&
+                !responseStarted &&
+                error.isRefusedPlaybackStream()
+            ) {
+                sourceFailures.recordRefusedRead(route.sourceGeneration)
+            }
             AppLog.warning(
                 category = "player.network",
                 event = "platform_proxy_failed",
@@ -441,10 +589,14 @@ internal class AndroidPlaybackHttpProxy(
         dataSource: CacheDataSource,
         request: PlaybackProxyRequest,
         contentLength: Long,
+        start: Long,
+        total: Long,
+        preview: BufferedScrubMedia.Writer?,
     ) {
         request.socket.writeResponseBodyWithWatchdog { output ->
             val buffer = ByteArray(NETWORK_BUFFER_BYTES)
             var remaining = contentLength
+            var position = start
             while (remaining != 0L) {
                 request.ensureOpen()
                 val requested =
@@ -457,6 +609,8 @@ internal class AndroidPlaybackHttpProxy(
                 request.ensureOpen()
                 if (read == C.RESULT_END_OF_INPUT) break
                 output.write(buffer, 0, read)
+                preview?.put(position, buffer, 0, read, total)
+                position += read
                 if (remaining != UNKNOWN_LENGTH) remaining -= read.toLong()
             }
         }
@@ -594,10 +748,19 @@ private fun InputStream.readBounded(limit: Int): ByteArray {
 }
 
 private fun Response.isHlsManifest(originalUrl: String): Boolean {
+    if (!isSuccessful) return false
+    // A seek can land on arbitrary media bytes, including an embedded playlist signature.
+    if (header("Content-Range")?.let { !it.startsWith("bytes 0-", ignoreCase = true) } == true) return false
     val contentType = header("Content-Type").orEmpty().lowercase()
     val path = request.url.encodedPath.lowercase()
     val originalPath = runCatching { URI(originalUrl).path }.getOrNull().orEmpty().lowercase()
-    return "mpegurl" in contentType || path.endsWith(".m3u8") || originalPath.endsWith(".m3u8")
+    if ("mpegurl" !in contentType && !path.endsWith(".m3u8") && !originalPath.endsWith(".m3u8")) return false
+    // Emby and signed redirects can return a seekable MKV/MP4 behind a playlist URL.
+    // peekBody retains these bytes in OkHttp's source, so passthrough loses no prefix.
+    return peekBody(HLS_SIGNATURE_PROBE_BYTES)
+        .string()
+        .trimStart('\uFEFF', ' ', '\r', '\n', '\t')
+        .startsWith("#EXTM3U")
 }
 
 private const val LOOPBACK_HOST = "127.0.0.1"
@@ -608,6 +771,7 @@ private const val UPSTREAM_READ_TIMEOUT_MS = 30_000
 private const val UNKNOWN_LENGTH = -1L
 private const val NETWORK_BUFFER_BYTES = 64 * 1024
 private const val MAX_HLS_MANIFEST_BYTES = 4 * 1024 * 1024
+private const val HLS_SIGNATURE_PROBE_BYTES = 256L
 private val HTTP_BYTE_RANGE = Regex("^bytes=(\\d+)-(\\d*)$", RegexOption.IGNORE_CASE)
 private val CONTENT_RANGE_TOTAL = Regex("^bytes \\d+-\\d+/(\\d+|\\*)$", RegexOption.IGNORE_CASE)
 private val FORWARDED_REQUEST_HEADERS =

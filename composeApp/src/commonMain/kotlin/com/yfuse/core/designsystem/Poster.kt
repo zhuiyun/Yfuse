@@ -677,7 +677,8 @@ fun CaptionedPoster(
             text = title,
             style = AppTypography.body.strong,
             color = palette.text,
-            maxLines = 1,
+            minLines = 2,
+            maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.fillMaxWidth(),
         )

@@ -1,0 +1,49 @@
+name: Compare complete failing transport seek sequences before and after recovery fixes
+on:
+  push:
+    branches: [codex/two-engines-cloud-seek-20261113]
+    paths: ['.github/workflows/qa-integrated-ts-stress.yml']
+permissions: {contents: read, actions: read}
+jobs:
+  diagnose:
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+          - {lane: 0, artifact: video-diagnostic-input, run: 43800491978, source: 15d635d0da26aa528ab5157b2585ec43b1bf9421}
+          - {lane: 1, artifact: video-diagnostic-input, run: 43800491978, source: 15d635d0da26aa528ab5157b2585ec43b1bf9421}
+          - {lane: 2, artifact: candidate-test-input, run: 43805125654, source: a8826b79c7d09eb043e107e2a5d29b77ef8cf7ae}
+          - {lane: 3, artifact: candidate-test-input, run: 43805125654, source: a8826b79c7d09eb043e107e2a5d29b77ef8cf7ae}
+    name: Transport stress lane ${{ matrix.lane }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 65
+    env:
+      QA_ENGINE: YCore
+      QA_SHARD: '13'
+      QA_SESSIONS: '20'
+      QA_BATCHES: '2'
+      QA_BATCH_COUNT: '16'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: arm-input-driver, path: qa-driver, run-id: 43799990156, github-token: '${{ github.token }}'}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: '${{ matrix.artifact }}', path: preview, run-id: '${{ matrix.run }}', github-token: '${{ github.token }}'}
+      - name: Verify APK and reproduce the same H264/AAC transport stream
+        run: |
+          set -euo pipefail
+          echo "QA_SEED_BASE=12013863" >> "$GITHUB_ENV"
+          echo "QA_REPEAT_SESSION=true" >> "$GITHUB_ENV"
+          (cd preview && sha256sum -c apk.sha256)
+          grep -Fx 'app=${{ matrix.source }}' preview/provenance.txt
+          sudo apt-get -qq update && sudo apt-get install -y ffmpeg python3-pil
+          /usr/bin/python3 qa-title-seek-check/prepare.py 45 86
+      - name: Boot cloud ARM64 Android
+        run: bash qa-arm-dual/redroid.sh
+      - name: Capture the failed open and decoder diagnostics
+        run: bash qa-arm-matrix/run.sh
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: 'ts-stress-${{ matrix.lane }}', path: results/, retention-days: 10}

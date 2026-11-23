@@ -32,6 +32,18 @@ class DetailTrackChoiceTest {
     private val version: MediaVersion = source.toMediaVersion(fallbackId = "movie", ordinal = 0)
 
     @Test
+    fun count_only_audio_does_not_repeat_the_count_as_a_layout() {
+        val track = version.audioTracks.first()
+        assertEquals(8, track.channelCount)
+        assertEquals("中文 · TRUEHD · 8 声道", track.choiceLabel)
+        assertNull(track.channelLayout)
+        assertNull(track.copy(channels = "8").channelLayout)
+        assertNull(track.copy(channels = " ").channelLayout)
+        assertEquals("7.1", track.copy(channels = "7.1").channelLayout)
+        assertEquals("stereo", track.copy(channels = "stereo", channelCount = null).channelLayout)
+    }
+
+    @Test
     fun a_track_title_survives_its_language_tag_and_tells_same_language_tracks_apart() {
         assertEquals(
             listOf("中文 · 简体 · ASS", "中文 · 简英双语 · ASS", "英语 · SRT", "特效字幕 · ASS"),

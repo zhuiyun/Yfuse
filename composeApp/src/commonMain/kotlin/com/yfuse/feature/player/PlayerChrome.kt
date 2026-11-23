@@ -85,6 +85,7 @@ import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.PressFeedback
+import com.yfuse.core.designsystem.VisibleUiEffect
 import com.yfuse.core.designsystem.focusBody
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.lightFeedback
@@ -244,7 +245,8 @@ internal fun PlaybackErrorOverlay(
 @Composable
 internal fun PlayerClock() {
     var now by remember { mutableStateOf(currentClockTime()) }
-    LaunchedEffect(Unit) {
+    VisibleUiEffect(Unit) {
+        now = currentClockTime()
         while (isActive) {
             val millisIntoMinute = System.currentTimeMillis() % 60_000L
             delay(60_000L - millisIntoMinute)
@@ -693,6 +695,7 @@ internal fun TrickplayPreview(
     timeSuffix: String? = null,
 ) {
     val frame = storyboard.frameAt(positionMs)
+    val image = bufferedScrubBitmap(frame, positionMs) ?: return
     val previewHeight =
         (TrickplayPreviewWidth.value * storyboard.height / storyboard.width.coerceAtLeast(1)).dp
     Box(
@@ -726,11 +729,11 @@ internal fun TrickplayPreview(
                     .clip(trickplayFrameShape)
                     .background(Color.Black),
             ) {
-                TrickplayImage(
-                    storyboard = storyboard,
-                    frame = frame,
-                    description = "${formatTime(positionMs)} 预览",
-                    modifier = Modifier.fillMaxSize(),
+                androidx.compose.foundation.Image(
+                    image,
+                    "${formatTime(positionMs)} 预览",
+                    Modifier.fillMaxSize(),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Fit,
                 )
             }
             Text(

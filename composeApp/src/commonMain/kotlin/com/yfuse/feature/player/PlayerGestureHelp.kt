@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.heading
@@ -15,6 +16,7 @@ import androidx.compose.ui.unit.dp
 import com.yfuse.core.data.PlayerGestureSettings
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.GlassDialog
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -82,27 +84,34 @@ internal fun PlayerGestureHelpOverlay(
     onDismiss: () -> Unit,
     gestures: PlayerGestureSettings = PlayerGestureSettings(),
 ) {
-    GlassDialog(
-        onDismiss = onDismiss,
-        modifier = Modifier.semantics { paneTitle = "播放器手势与快捷键" },
+    // Long instructions need a stable reading surface over arbitrary video frames.
+    // Reuse the dialog's opaque material and matching text palette without changing
+    // the user's transparency preference elsewhere or their motion settings.
+    CompositionLocalProvider(
+        LocalAccessibilityOptions provides LocalAccessibilityOptions.current.copy(reduceTransparency = true),
     ) {
-        OverlayHeader(
-            title = "手势与快捷键",
-            subtitle = "不使用手势也能完成所有常用播放操作",
-            onClose = onDismiss,
-        )
-        GestureHelpSection(
-            title = "画面手势",
-            rows = pictureGestureHelpRows(gestures),
-        )
-        GestureHelpSection(
-            title = "按键与辅助操作",
-            rows = keyHelpRows(),
-        )
-        GestureHelpSection(
-            title = "键盘快捷键",
-            rows = keyboardHelpRows(gestures),
-        )
+        GlassDialog(
+            onDismiss = onDismiss,
+            modifier = Modifier.semantics { paneTitle = "播放器手势与快捷键" },
+        ) {
+            OverlayHeader(
+                title = "手势与快捷键",
+                subtitle = "不使用手势也能完成所有常用播放操作",
+                onClose = onDismiss,
+            )
+            GestureHelpSection(
+                title = "画面手势",
+                rows = pictureGestureHelpRows(gestures),
+            )
+            GestureHelpSection(
+                title = "按键与辅助操作",
+                rows = keyHelpRows(),
+            )
+            GestureHelpSection(
+                title = "键盘快捷键",
+                rows = keyboardHelpRows(gestures),
+            )
+        }
     }
 }
 

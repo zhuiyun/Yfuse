@@ -1,0 +1,80 @@
+name: Measure normal library output and external playback on the same SenPlayer device
+on:
+  push:
+    branches: [codex/two-engines-cloud-seek-20261113]
+    paths: [.github/workflows/qa-sen-buffer-cost.yml, qa-power-ui/prepare_buffer_clock.py, qa-power-ui/run_buffer_study.py, composeApp/src/androidInstrumentedTest/kotlin/com/yfuse/feature/player/SenPlayerBufferCostInstrumentedTest.kt]
+permissions: {contents: read, actions: read}
+env:
+  QA_APP_SHA: 20c96e5eb929aedd9b38b19d9a20cbb3ee0bf326
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
+        with: {distribution: temurin, java-version: '17', cache: gradle}
+      - name: Select the verified source commit of the native artifact
+        run: git checkout --detach 0f61f76626e370cd40c25c22fa0e211c12d7bd86
+      - uses: ./.github/actions/prepare-source-playback
+        env:
+          SOURCE_COMMIT: 0f61f76626e370cd40c25c22fa0e211c12d7bd86
+        with:
+          artifact-id: '14436971516'
+          run-id: '44324037800'
+          aar-sha256: 1ff5de64e7c271f845df767de3b0e7d4ca43f5de0b1e9c8745bcc46827539787
+          provenance-sha256: 2461747045a9ea97105fda84e9886f46d530fca37f945289a18798ac8539b60e
+          source-commit: 0f61f76626e370cd40c25c22fa0e211c12d7bd86
+      - name: Build the candidate and the isolated video-layer measurement
+        run: |
+          set -euo pipefail
+          git checkout --detach "$GITHUB_SHA"
+          git diff --exit-code "$QA_APP_SHA" HEAD -- composeApp/src/androidMain composeApp/src/commonMain composeApp/build.gradle.kts phoneShared senplayerBridge scripts/native
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-37.0'
+          ./gradlew :composeApp:assembleDebug :composeApp:assembleDebugAndroidTest -PyfuseIncludeMdk=false -PyfusePlaybackProfile=ycore-senplayer -PyfuseNativeOnlyRuntime=true -PallowDebugSigning=true -PyfuseBuildRevision="$QA_APP_SHA" -Pkotlin.compiler.execution.strategy=in-process '-Dorg.gradle.jvmargs=-Xmx8g -Dfile.encoding=UTF-8' --no-parallel --max-workers=2 --no-daemon
+          mkdir study
+          cp composeApp/build/outputs/apk/debug/composeApp-debug.apk study/app.apk
+          cp composeApp/build/outputs/apk/androidTest/debug/*.apk study/test.apk
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+          python3 qa-power-ui/prepare_buffer_clock.py study/buffer-clock.mp4
+          cp composeApp/src/androidInstrumentedTest/kotlin/com/yfuse/feature/player/SenPlayerBufferCostInstrumentedTest.kt qa-power-ui/run_buffer_study.py study/
+          (cd study && sha256sum app.apk test.apk buffer-clock.mp4 SenPlayerBufferCostInstrumentedTest.kt run_buffer_study.py > hashes.txt)
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: buffer-cost-input, path: study/, retention-days: 5}
+  compare:
+    needs: build
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: buffer-cost-input, path: study}
+      - run: bash qa-arm-dual/redroid.sh
+      - name: Compare file and HTTP playback at both buffer sizes on one ARM64 cloud guest
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y python3-pil python3-cryptography
+          (cd study && sha256sum -c hashes.txt)
+          mkdir -p results
+          cp study/hashes.txt results/
+          adb install -r -g study/app.apk
+          adb install -r -g study/test.apk
+          adb shell wm size 720x1280
+          adb shell wm density 260
+          adb shell settings put secure immersive_mode_confirmations confirmed
+          adb shell wm dismiss-keyguard
+          python3 qa-arm-matrix/engine.py SenPlayer
+          adb shell mkdir -p /sdcard/Android/data/com.yfuse/files
+          adb push study/buffer-clock.mp4 /sdcard/Android/data/com.yfuse/files/buffer-clock.mp4
+          adb shell sha256sum /sdcard/Android/data/com.yfuse/files/buffer-clock.mp4 > results/device-source.txt
+          test "$(cut -d' ' -f1 results/device-source.txt)" = "$(sha256sum study/buffer-clock.mp4 | cut -d' ' -f1)"
+          printf 'app=%s\nqa=%s\nvariant=library-metadata-before-playback\n' "$QA_APP_SHA" "$GITHUB_SHA" > results/provenance.txt
+          QA_BUFFER_VARIANT=library-metadata-before-playback /usr/bin/python3 qa-power-ui/run_buffer_study.py
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: buffer-cost-observations, path: results/, retention-days: 10}

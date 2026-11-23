@@ -8,14 +8,16 @@ import android.view.Display
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.widget.FrameLayout
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.viewinterop.AndroidView
 import com.yfuse.core.data.SenPlayerEnhancementLevel
@@ -39,10 +41,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import org.json.JSONObject
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 
 /** Opt-in, version-pinned SenPlayer runtime. Never silently substitutes another engine. */
 internal class SenPlayerVideoEngine(
@@ -76,12 +80,17 @@ internal class SenPlayerVideoEngine(
 
     @Volatile private var attached: SenPlayerSurfaceHost? = null
     private val surfaceEpoch = AtomicLong()
+    private val retiringSurfaceSession = AtomicReference<SenPlayerSession?>()
     private var pauseAtEnd = false
     private val endGate = SenPlayerEndGate()
+    private var remoteEndRecovery = SenPlayerRemoteEndRecovery()
+    private var remoteFileDurationMs = 0L
     private val videoGate = SenPlayerVideoReadinessGate()
     private val surfaceProbe = SenPlayerSurfaceProbe()
     private val outputGeneration = AtomicLong()
     private var boundSurfaceEpoch = -1L
+    private var sessionOutputSize: IntSize? = null
+    private var audioDelayMs = 0L
     private var outputWatchdog = SenPlayerOutputWatchdog()
     private var rebuffers = SenPlayerRebufferTracker()
     private var surfaceRecoveries = 0
@@ -89,6 +98,9 @@ internal class SenPlayerVideoEngine(
     private var lastOutputPhase = ""
     private var loadPending = true
     private var pendingSeekMs: Long? = null
+    private var surfaceTracks: SenPlayerSurfaceTracks? = null
+    private var restoredAudioId: String? = null
+    private var requestedAudioId: String? = null
     private var mediaPoll = 0
     private val subtitleScope = CoroutineScope(SupervisorJob() + worker.asCoroutineDispatcher())
     private val subtitles = SenPlayerSubtitles(appContext, subtitleScope, { mediaPoll = 0 }, ::fail)
@@ -148,20 +160,52 @@ internal class SenPlayerVideoEngine(
 
     private fun fail(error: Throwable) {
         if (released.get()) return
+        val retiring = retiringSurfaceSession.get()
+        if (retiring != null && retiring === session && !retiring.isUsable()) return
         val license =
             generateSequence(error) {
                 it.cause
             }.take(8).filterIsInstance<SenPlayerSession.LicenseUnavailable>().firstOrNull()
+        val evidence = proxy?.sourceFailureEvidence
+        val httpStatus = evidence?.httpStatus
+        val sourceFailure = senPlayerSourceFailure(httpStatus, refusedRead = evidence?.refusedRead == true)
+        val failureKind =
+            if (license !=
+                null
+            ) {
+                PlaybackFailureKind.Authorization
+            } else {
+                sourceFailure?.kind ?: PlaybackFailureKind.Unknown
+            }
+        AppLog.warning(
+            category = "player.senplayer",
+            event = "senplayer_playback_failed",
+            message = "SenPlayer playback stopped",
+            throwable = error,
+            attributes =
+                mapOf(
+                    "failureKind" to failureKind.name,
+                    "httpStatus" to httpStatus?.toString().orEmpty(),
+                    "exceptionType" to error.javaClass.simpleName,
+                    "nativeErrorCode" to
+                        error.message
+                            ?.takeIf { it.matches(Regex("native_-?[0-9]+")) }
+                            ?.removePrefix("native_")
+                            .orEmpty(),
+                ),
+        )
         mutableState.update {
             if (released.get()) return@update it
             it.forSenPlayerFailure(
                 message =
                     if (license != null) {
                         "$SEN_PLAYER_DISPLAY_NAME 许可未通过（${license.status}）。需要原许可服务允许当前 Yfuse 版本；请手动选择其他内核。"
+                    } else if (sourceFailure != null) {
+                        sourceFailure.message
                     } else {
-                        "$SEN_PLAYER_DISPLAY_NAME 实验内核不可用（${error.javaClass.simpleName}），请手动选择其他内核。"
+                        "$SEN_PLAYER_DISPLAY_NAME 播放失败（${error.javaClass.simpleName}），请重试或查看原因。"
                     },
-                kind = if (license != null) PlaybackFailureKind.Authorization else PlaybackFailureKind.Unknown,
+                kind = failureKind,
             )
         }
         session?.pauseForFailure()
@@ -182,6 +226,7 @@ internal class SenPlayerVideoEngine(
                         return@submit
                     }
                     if (session?.isUsable() == false) closeSession()
+                    if (session != null && sessionOutputSize != view.fixedVideoSize) retireSurfaceSession()
                     if (session == null) {
                         mutableState.update { it.copy(buffering = true, error = null) }
                         val options =
@@ -211,20 +256,32 @@ internal class SenPlayerVideoEngine(
                             return@submit
                         }
                         session = created
+                        sessionOutputSize = view.fixedVideoSize
+                        view.fixedVideoSize?.let {
+                            created.resize(it.width, it.height)
+                            view.recordOutputSize()
+                        }
                         boundSurfaceEpoch = epoch
                         proxy = AndroidPlaybackHttpProxy(appContext, customUserAgent, videoCacheBytes)
                         loadCurrent()
                     } else {
                         val current = requireNotNull(session)
                         resetVideoEvidence(current.sourceId(), current.snapshot(), "surface_created")
-                        current.surface(view.video.holder.surface, view.subtitles.holder.surface)
+                        if (!bindSenPlayerSurface(
+                                bind = { current.surface(view.video.holder.surface, view.subtitles.holder.surface) },
+                                close = ::retireSurfaceSession,
+                            )
+                        ) {
+                            surfaceCallback.surfaceCreated(holder)
+                            return@submit
+                        }
                         subtitles.surfaceChanged()
                         boundSurfaceEpoch = epoch
                         pictureController.reset()
                         if (loadPending) loadCurrent() else current.play(requested)
                     }
                     if (attached === view && surfaceEpoch.get() == epoch && !released.get()) {
-                        session?.resize(view.width.coerceAtLeast(1), view.height.coerceAtLeast(1))
+                        session?.let(view::resizeOutput)
                     }
                 }
             }
@@ -244,7 +301,7 @@ internal class SenPlayerVideoEngine(
                             surfaceCallback.surfaceCreated(holder)
                             return@submit
                         }
-                        session?.resize(view.video.width.coerceAtLeast(1), view.video.height.coerceAtLeast(1))
+                        session?.let(view::resizeOutput)
                     }
                 }
             }
@@ -252,12 +309,7 @@ internal class SenPlayerVideoEngine(
             override fun surfaceDestroyed(holder: SurfaceHolder) {
                 val view = attached ?: return
                 if (!view.owns(holder)) return
-                val epoch = surfaceEpoch.incrementAndGet()
-                submit {
-                    if (attached === view && surfaceEpoch.get() == epoch) {
-                        detachNativeSurface()
-                    }
-                }
+                detachBeforeSurfaceDestroyed(view)
             }
         }
 
@@ -274,22 +326,76 @@ internal class SenPlayerVideoEngine(
     fun detach(view: SenPlayerSurfaceHost) {
         view.removeCallbacks(surfaceCallback)
         if (attached === view) {
+            detachBeforeSurfaceDestroyed(view)
             attached = null
-            val epoch = surfaceEpoch.incrementAndGet()
-            submit {
-                if (attached == null && surfaceEpoch.get() == epoch) {
-                    detachNativeSurface()
-                }
-            }
         }
     }
 
+    private fun detachBeforeSurfaceDestroyed(view: SenPlayerSurfaceHost) {
+        if (released.get()) return
+        val epoch = surfaceEpoch.incrementAndGet()
+        val detached = CountDownLatch(1)
+        submit {
+            try {
+                if (attached === view && surfaceEpoch.get() == epoch) detachNativeSurface()
+            } finally {
+                detached.countDown()
+            }
+        }
+        // Android invalidates the old Surface when this callback returns. Merely posting
+        // detach loses that race and forces a reopen that discards overlapping long cues.
+        val completed =
+            try {
+                detached.await(750, TimeUnit.MILLISECONDS)
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+                false
+            }
+        if (!completed) retireStalledSurface()
+    }
+
+    private fun retireStalledSurface() {
+        val current = session ?: return
+        retiringSurfaceSession.set(current)
+        runCatching { current.retirePendingOutput() }.onFailure {
+            AppLog.warning("player.senplayer", "surface_retirement_failed", "Native output retirement failed", it)
+        }
+        submit {
+            try {
+                if (session === current) retireSurfaceSession()
+            } finally {
+                retiringSurfaceSession.compareAndSet(current, null)
+            }
+        }
+        AppLog.warning(
+            "player.senplayer",
+            "surface_detach_timeout",
+            "Output detach exceeded its UI wait budget; session retired",
+        )
+    }
+
     private fun detachNativeSurface() {
+        if (boundSurfaceEpoch == -1L) return
         boundSurfaceEpoch = -1L
         subtitles.surfaceChanged()
         pictureController.reset()
         resetVideoEvidence(session?.sourceId() ?: 0L, reason = "surface_detached")
-        session?.takeIf { it.isUsable() }?.surface(null, null)
+        val current = session?.takeIf { it.isUsable() }
+        if (current != null &&
+            detachSenPlayerSurface(
+                pause = current::pauseForFailure,
+                detach = { current.surface(null, null) },
+                close = ::retireSurfaceSession,
+            )
+        ) {
+            loadPending = true
+            mutableState.update { it.copy(playing = false, buffering = false) }
+            AppLog.info(
+                "player.senplayer",
+                "surface_session_retired",
+                "Original runtime rejected an empty output; session released until a valid surface returns",
+            )
+        }
         mutableState.update {
             if (released.get() || it.error != null) {
                 it
@@ -305,10 +411,23 @@ internal class SenPlayerVideoEngine(
         }
     }
 
-    private fun loadCurrent() {
+    private fun retireSurfaceSession() {
+        if (!loadPending) rememberCurrentTracks()
+        closeSession()
+        loadPending = true
+        mutableState.update { it.copy(playing = false, buffering = false) }
+        AppLog.info(
+            "player.senplayer",
+            "surface_session_rebuild",
+            "Original runtime rejected output reuse; preserving source position and track selections",
+        )
+    }
+
+    private fun loadCurrent(recoveringEarlyEnd: Boolean = false) {
         if (released.get()) return
         val item = queue.getOrNull(state.value.currentIndex) ?: error("Empty SenPlayer queue")
         loadPending = true
+        if (!recoveringEarlyEnd) remoteEndRecovery = SenPlayerRemoteEndRecovery()
         endGate.reset()
         outputWatchdog = SenPlayerOutputWatchdog()
         rebuffers = SenPlayerRebufferTracker()
@@ -324,6 +443,10 @@ internal class SenPlayerVideoEngine(
         resetVideoEvidence(0L, reason = "source_loading")
         subtitles.clear()
         val upstream = item.senPlayerPlaybackUrl()
+        remoteFileDurationMs = item.durationMsHint.takeIf {
+            !item.startsWithServerTranscode() &&
+                (upstream.startsWith("https://", true) || upstream.startsWith("http://", true))
+        } ?: 0L
         require(item.transportCredentials == null) { "SenPlayer file transport credentials require YCore" }
         if (session?.isUsable() == false) closeSession()
         val current = session
@@ -351,9 +474,22 @@ internal class SenPlayerVideoEngine(
         applyPictureSettings(current)
         current.open(url, emptyMap(), if (pendingSeekMs == null) state.value.positionMs else 0, requested)
         if (released.get()) return
-        subtitles.open(current, item, customUserAgent, initialTrackSelections[item.id])
+        val restore = surfaceTracks?.takeIf { it.itemId == item.id }
+        surfaceTracks = null
+        restoredAudioId = restore?.audioId
+        requestedAudioId = restore?.audioId
+        subtitles.open(current, item, customUserAgent, initialTrackSelections[item.id], restore?.subtitles)
         resetVideoEvidence(current.sourceId(), previousOutput, "source_opened")
         current.option("speed", state.value.speed.toString())
+        if (audioDelayMs != 0L) {
+            current.option("audio-delay", (audioDelayMs / 1000.0).toString())
+            AppLog.info(
+                "player.senplayer",
+                "audio_delay_restored",
+                "Audio delay reapplied after opening the native source",
+                mapOf("delayMs" to audioDelayMs.toString()),
+            )
+        }
         // A pause can arrive while original native open is blocking on this worker.
         current.play(requested)
         loadPending = false
@@ -386,10 +522,7 @@ internal class SenPlayerVideoEngine(
         pictureDurationMs = sample.durationMs
         val target = senPlayerPendingSeekTarget(pendingSeekMs, sample.durationMs, sample.phase)
         if (target != null) {
-            beginVideoSeek(current.sourceId(), sample)
-            current.seek(target)
-            pendingSeekMs = null
-            mutableState.update { if (released.get()) it else it.copy(positionMs = target, ended = false) }
+            seekCurrentSource(current, sample, target)
             return
         }
         val ended = sample.phase == "ended"
@@ -436,6 +569,29 @@ internal class SenPlayerVideoEngine(
             }
         }
         recordOutputSample(sample, token, surfaceReady, rendered, pixels, now, outputAction)
+        val knownFileDuration = minOf(remoteFileDurationMs, sample.durationMs.takeIf { it > 0 } ?: remoteFileDurationMs)
+        if (requested &&
+            ended &&
+            com.yfuse.core2.api
+                .isPrematurePlaybackEnd(sample.positionMs, knownFileDuration)
+        ) {
+            val resumeAt = remoteEndRecovery.recoveryPosition(sample.positionMs, knownFileDuration)
+            if (resumeAt != null) {
+                pendingSeekMs = null
+                mutableState.update { it.copy(positionMs = resumeAt, ended = false) }
+                loadCurrent(recoveringEarlyEnd = true)
+                return
+            }
+            if (remoteEndRecovery.attempted) {
+                mutableState.update {
+                    it.forSenPlayerFailure("片源提前中断，未能恢复读取视频数据", PlaybackFailureKind.Network)
+                }
+                current.pauseForFailure()
+                current.cancelPendingRead()
+                return
+            }
+        }
+        if (!ended && sample.phase == "playing") remoteEndRecovery.observePosition(sample.positionMs)
         if (outputAction == SenPlayerOutputAction.Rebind && view != null && surfaceReady) {
             recoverVideoSurface(current, sample, view, epoch)
             return
@@ -567,7 +723,7 @@ internal class SenPlayerVideoEngine(
         current.surface(view.video.holder.surface, view.subtitles.holder.surface)
         pictureController.reset()
         subtitles.surfaceChanged()
-        current.resize(view.video.width.coerceAtLeast(1), view.video.height.coerceAtLeast(1))
+        view.resizeOutput(current)
         current.play(requested)
         surfaceRecoveries++
     }
@@ -664,6 +820,10 @@ internal class SenPlayerVideoEngine(
                 }
             }
         val audio = ofKind("audio")
+        restoredAudioId?.takeIf { id -> id == EngineTrack.OFF || audio.any { it.id == id } }?.let { id ->
+            session?.track(0, id)
+            restoredAudioId = null
+        }
         val captions = subtitles.merge(ofKind("sub"))
         if (state.value.subtitleTracks != captions || state.value.secondarySubtitleTrackId != secondaryTrackId) {
             AppLog.info(
@@ -682,7 +842,7 @@ internal class SenPlayerVideoEngine(
             it.copy(audioTracks = audio, subtitleTracks = captions, secondarySubtitleTrackId = secondaryTrackId)
         }
         if (tracks.length() > 0) {
-            subtitles.observeSecondary(secondaryTrackId != null)
+            subtitles.observeSelection(captions.any { it.selected }, secondaryTrackId != null)
             subtitles.selectDefault(captions)
         }
     }
@@ -795,24 +955,51 @@ internal class SenPlayerVideoEngine(
     override fun seekTo(positionMs: Long) {
         submit {
             val position = senPlayerSeekPosition(positionMs, state.value.durationMs)
-            val wasEnded = state.value.ended
+            remoteEndRecovery.onSeek(position)
             val current = session?.takeIf { state.value.error == null && !loadPending && state.value.durationMs > 0 }
-            mutableState.update { it.copy(positionMs = position, ended = false) }
             endGate.reset()
-            if (wasEnded && current != null) {
-                pendingSeekMs = null
-                loadCurrent()
-                return@submit
-            }
             if (current != null) {
-                beginVideoSeek(current.sourceId(), current.snapshot())
-                current.seek(position)
-                pendingSeekMs = null
+                seekCurrentSource(current, current.snapshot(), position)
             } else {
                 pendingSeekMs = position
+                mutableState.update { it.copy(positionMs = position, ended = false) }
                 // Saving intent has not moved the native source or invalidated its displayed frame.
             }
         }
+    }
+
+    private fun rememberCurrentTracks() {
+        queue.getOrNull(state.value.currentIndex)?.let { item ->
+            surfaceTracks =
+                senPlayerSurfaceTracks(item.id, state.value, subtitles.requestedSelection(), requestedAudioId)
+        }
+    }
+
+    private fun seekCurrentSource(
+        current: SenPlayerSession,
+        sample: SenPlayerSession.Snapshot,
+        position: Long,
+    ) {
+        val source = current.sourceId()
+
+        fun hasEnded(snapshot: SenPlayerSession.Snapshot): Boolean =
+            source != 0L && snapshot.source == source && snapshot.phase == "ended" && snapshot.errorCode == 0
+
+        val ended = state.value.ended || hasEnded(sample)
+        pendingSeekMs = null
+        mutableState.update { if (released.get()) it else it.copy(positionMs = position, ended = false) }
+        seekOrReopenCompletedSenPlayerSource(
+            ended = ended,
+            seek = {
+                beginVideoSeek(source, sample)
+                current.seek(position)
+            },
+            sourceHasEnded = { hasEnded(current.snapshot()) },
+            reopen = {
+                rememberCurrentTracks()
+                loadCurrent()
+            },
+        )
     }
 
     override fun setSpeed(speed: Float) {
@@ -824,7 +1011,10 @@ internal class SenPlayerVideoEngine(
     }
 
     override fun selectAudioTrack(id: String) {
-        submit { session?.track(0, id) }
+        submit {
+            session?.track(0, id)
+            requestedAudioId = id
+        }
     }
 
     override fun selectSubtitleTrack(id: String) {
@@ -834,7 +1024,10 @@ internal class SenPlayerVideoEngine(
     override val supportsAudioDelay: Boolean get() = true
 
     override fun setAudioDelayMs(delayMs: Long): Boolean {
-        submit { session?.option("audio-delay", (delayMs / 1000.0).toString()) }
+        submit {
+            audioDelayMs = delayMs
+            session?.option("audio-delay", (delayMs / 1000.0).toString())
+        }
         return true
     }
 
@@ -915,6 +1108,7 @@ internal class SenPlayerVideoEngine(
             session?.close()
         } finally {
             session = null
+            sessionOutputSize = null
             subtitles.clear()
             pictureController.reset()
             try {
@@ -972,31 +1166,75 @@ internal fun SenPlayerSurface(
     engine: SenPlayerVideoEngine,
     controls: SubtitleControlState,
     videoSize: IntSize,
+    item: PlayerMediaItem?,
+    scaleMode: VideoScaleMode,
+    settings: SenPlayerPictureSettings,
     modifier: Modifier = Modifier,
 ) {
-    var container by remember { mutableStateOf(IntSize.Zero) }
-    val picture = core2SurfaceSize(container = container, video = videoSize, scaleMode = VideoScaleMode.Fit)
-    val region = nativeSubtitleRegion(container, picture, controls)
-    LaunchedEffect(engine, region.useBlackBar) { engine.setSubtitleMargins(region.useBlackBar) }
-    AndroidView(
-        factory = { context -> SenPlayerSurfaceHost(context).also(engine::attach) },
-        modifier = modifier.onSizeChanged { container = it },
-        update = engine::attach,
-        onRelease = engine::detach,
-    )
+    BoxWithConstraints(modifier) {
+        val container = IntSize(constraints.maxWidth, constraints.maxHeight)
+        val picture = core2SurfaceSize(container = container, video = videoSize, scaleMode = VideoScaleMode.Fit)
+        val region = nativeSubtitleRegion(container, picture, controls)
+        LaunchedEffect(engine, region.useBlackBar) { engine.setSubtitleMargins(region.useBlackBar) }
+        val candidate =
+            remember(item, container, scaleMode, settings) {
+                senPlayerOutputSize(item, container, scaleMode, settings)
+            }
+        var metadataMismatch by remember(engine, item?.url, item?.id, item?.versionId) { mutableStateOf(false) }
+        val mismatch = candidate != null && videoSize.width > 0 && videoSize.height > 0 && videoSize != candidate
+        LaunchedEffect(mismatch) { if (mismatch) metadataMismatch = true }
+        val outputSize = candidate.takeUnless { mismatch || metadataMismatch }
+        key(engine, outputSize) {
+            AndroidView(
+                factory = { context -> SenPlayerSurfaceHost(context, outputSize).also(engine::attach) },
+                modifier = Modifier.fillMaxSize(),
+                update = engine::attach,
+                onRelease = engine::detach,
+            )
+        }
+    }
 }
 
 /** Original vp3 layout uses a dedicated transparent native subtitle output above video. */
 internal class SenPlayerSurfaceHost(
     context: Context,
+    val fixedVideoSize: IntSize? = null,
 ) : FrameLayout(context) {
-    val video = SurfaceView(context)
+    val video =
+        SurfaceView(context).apply {
+            fixedVideoSize?.let { holder.setFixedSize(it.width, it.height) }
+        }
     val subtitles =
         SurfaceView(context).apply {
             holder.setFormat(PixelFormat.TRANSLUCENT)
             setZOrderMediaOverlay(true)
         }
     val ready: Boolean get() = video.holder.surface.isValid && subtitles.holder.surface.isValid
+
+    fun resizeOutput(session: SenPlayerSession) {
+        session.resize(
+            fixedVideoSize?.width ?: video.width.coerceAtLeast(1),
+            fixedVideoSize?.height ?: video.height.coerceAtLeast(1),
+        )
+    }
+
+    fun recordOutputSize() {
+        val buffer = video.holder.surfaceFrame
+        val captions = subtitles.holder.surfaceFrame
+        AppLog.info(
+            "player.senplayer",
+            "video_buffer_configured",
+            "Bound the original video buffer and subtitle surface",
+            mapOf(
+                "bufferWidth" to buffer.width().toString(),
+                "bufferHeight" to buffer.height().toString(),
+                "windowWidth" to width.toString(),
+                "windowHeight" to height.toString(),
+                "subtitleWidth" to captions.width().toString(),
+                "subtitleHeight" to captions.height().toString(),
+            ),
+        )
+    }
 
     fun owns(holder: SurfaceHolder): Boolean = holder === video.holder || holder === subtitles.holder
 

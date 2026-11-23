@@ -288,6 +288,14 @@ data class AudioTrackInfo(
     /** The file's own name for the track (`导演评论`), kept even when [language] came from a tag. */
     val title: String? = null,
 ) {
+    /** A layout such as 5.1 adds information alongside the channel count on the detail card. */
+    val channelLayout: String?
+        get() =
+            channels?.trim()?.takeUnless { layout ->
+                val count = layout.removeSuffix("声道").trimEnd().toIntOrNull()
+                layout.isEmpty() || (count != null && count == channelCount)
+            }
+
     /**
      * `国语 · DTS-HD MA · 7.1`. Title-free on purpose: the player reads this as the source's
      * audio format, and Cast picks its codec out of it — see [choiceLabel] for a picker.

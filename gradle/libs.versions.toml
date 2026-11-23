@@ -7,7 +7,7 @@ androidx-lifecycle = "2.10.0"
 cameraX = "1.6.1"
 androidx-navigation3 = "1.1.7"
 androidx-work = "2.12.0"
-decompose = "3.5.0"
+decompose = "3.6.2"
 mvikotlin = "4.4.0"
 # Effective version. Coil's ktor3 network module already pulled the Android classpaths to 3.1.0
 # while the declared 3.0.3 only survived on the metadata, mock-client and watch-server classpaths.
@@ -25,7 +25,7 @@ media3 = "1.9.0"
 palette = "1.1.0"
 turbine = "1.2.0"
 # Effective version: scripts/security-overrides.properties forces every BC artifact to this release.
-bouncycastle = "1.86"
+bouncycastle = "1.87"
 zxing = "3.5.4"
 google-cast = "23.0.0"
 google-cast-tv = "21.1.1"
@@ -41,8 +41,8 @@ ktlint-plugin = "14.2.0"
 ktlint = "1.3.1"
 
 [libraries]
-widget-quickjs = { module = "io.github.dokar3:quickjs-kt", version = "1.0.16" }
-widget-jsoup = { module = "org.jsoup:jsoup", version = "1.23.2" }
+widget-quickjs = { module = "io.github.dokar3:quickjs-kt", version = "1.0.18" }
+widget-jsoup = { module = "org.jsoup:jsoup", version = "1.24.1" }
 # Decompose
 decompose = { module = "com.arkivanov.decompose:decompose", version.ref = "decompose" }
 decompose-compose = { module = "com.arkivanov.decompose:extensions-compose", version.ref = "decompose" }
@@ -93,10 +93,6 @@ androidx-camera-view = { module = "androidx.camera:camera-view", version.ref = "
 androidx-navigation3-runtime = { module = "androidx.navigation3:navigation3-runtime", version.ref = "androidx-navigation3" }
 androidx-navigation3-ui = { module = "androidx.navigation3:navigation3-ui", version.ref = "androidx-navigation3" }
 androidx-work-runtime = { module = "androidx.work:work-runtime", version.ref = "androidx-work" }
-media3-exoplayer = { module = "androidx.media3:media3-exoplayer", version.ref = "media3" }
-media3-ui = { module = "androidx.media3:media3-ui", version.ref = "media3" }
-media3-hls = { module = "androidx.media3:media3-exoplayer-hls", version.ref = "media3" }
-media3-dash = { module = "androidx.media3:media3-exoplayer-dash", version.ref = "media3" }
 media3-common = { module = "androidx.media3:media3-common", version.ref = "media3" }
 media3-database = { module = "androidx.media3:media3-database", version.ref = "media3" }
 media3-datasource = { module = "androidx.media3:media3-datasource", version.ref = "media3" }

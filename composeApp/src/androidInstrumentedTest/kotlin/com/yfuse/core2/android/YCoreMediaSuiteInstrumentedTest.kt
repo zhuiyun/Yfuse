@@ -43,6 +43,7 @@ import com.yfuse.core2.render.YFrameRateSwitchMode
 import com.yfuse.core2.strategy.YDecodePath
 import com.yfuse.core2.strategy.YDemuxPath
 import com.yfuse.core2.strategy.YPlaybackPlan
+import com.yfuse.core2.strategy.YPlaybackStrategy
 import com.yfuse.core2.strategy.YRenderPath
 import com.yfuse.core2.test.YMediaObservedFacts
 import com.yfuse.core2.test.YMediaTestCase
@@ -99,6 +100,109 @@ class YCoreMediaSuiteInstrumentedTest {
     }
 
     @Test
+    fun enhanced_transport_retry_keeps_the_assigned_route_and_renders_again() =
+        runBlocking {
+            val context = InstrumentationRegistry.getInstrumentation().targetContext
+            val file = enhancedRetryFixture(context.cacheDir)
+            try {
+                val item = YMediaItem(id = "enhanced-retry", uri = Uri.fromFile(file).toString())
+                val mediaProbe = AndroidCore2MediaProbe(context)
+                val probe =
+                    try {
+                        mediaProbe.probe(item) as YCore2ProbeResult.Success
+                    } finally {
+                        mediaProbe.closePreparedExtractor()
+                    }
+                val plan = enhancedRetryPlan()
+                ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                    val output = createSurfaceViewOutput(scenario, 320, 180)
+                    val player =
+                        AndroidNativeEnhancedYPlayer(
+                            context,
+                            YPlayerOpenRequest(items = listOf(item), autoPlay = true),
+                            routeEvaluator =
+                                AndroidCore2RouteEvaluator(
+                                    context,
+                                    strategy =
+                                        YPlaybackStrategy { _, _ ->
+                                            error("Unexpected route election on reopen")
+                                        },
+                                ),
+                            initialDecision = YCore2RouteDecision(probe, plan),
+                            // The actual router passes software/GPU plans explicitly; the
+                            // default NativeEnhanced eligibility check covers hardware only.
+                            forcedPlan = plan.takeIf { it.decodePath == YDecodePath.Software },
+                            allowAudioPassthrough = false,
+                        )
+                    try {
+                        assertTrue(player.setVideoOutput(output.output))
+                        // The router attaches output before Prepare. Merely receiving a Surface
+                        // must not demux/decode once here and then open the same source again.
+                        delay(1_000L)
+                        assertTrue(player.state.value.phase == YPlaybackPhase.Idle)
+                        player.prepare()
+                        player.play()
+                        awaitPlayable(player, "enhanced-before-retry")
+                        awaitFreshVideoOutput(player, "enhanced-after-retry") { player.retry() }
+                        assertTrue(player.state.value.diagnostics.route == plan.route)
+                        val targetMs = player.state.value.durationMs / 2
+                        assertTrue("Fixture needs a measurable midpoint", targetMs > 0L)
+                        val resumed =
+                            awaitFreshVideoOutput(player, "enhanced-after-positioned-retry") {
+                                player.retryWithProbeBudget(null, targetMs)
+                                player.play()
+                            }
+                        assertTrue(
+                            "Requested restart at $targetMs ms, got ${resumed.positionMs} ms",
+                            resumed.positionMs in (targetMs - 250L)..(targetMs + 2_000L),
+                        )
+                    } finally {
+                        try {
+                            player.releaseAndJoin()
+                        } finally {
+                            output.close()
+                        }
+                    }
+                }
+            } finally {
+                check(file.delete() || !file.exists())
+            }
+        }
+
+    private fun enhancedRetryPlan(): YPlaybackPlan {
+        val decodePath = InstrumentationRegistry.getArguments().getString("enhancedRetryDecodePath")
+        if (decodePath == "software") {
+            // Native ARM containers cannot map MediaCodec's gralloc buffers. Exercise the
+            // same transport worker with its real YCore software route on that lane; the
+            // API 35/37 emulator lanes retain the hardware plan below.
+            return checkNotNull(yCoreInternalSoftwareRecoveryPlan(YHdrType.Sdr))
+        }
+        check(decodePath == null || decodePath == "hardware") { "Unknown enhanced retry decode path" }
+        return YPlaybackPlan(
+            route = YPlaybackRoute.NativeEnhanced,
+            demuxPath = YDemuxPath.Enhanced,
+            decodePath = YDecodePath.Hardware,
+            renderPath = YRenderPath.SurfaceDirect,
+            outputHdrType = YHdrType.Sdr,
+            reason = "Enhanced route selected before the transport reopen",
+            decoderName = generatedPlatformAvcDecoder(),
+        )
+    }
+
+    private fun enhancedRetryFixture(cacheDirectory: File): File {
+        val supplied = InstrumentationRegistry.getArguments().getString("enhancedRetryFixture")
+        if (supplied.isNullOrBlank()) return GeneratedAvcAacTestMedia.create(cacheDirectory)
+        // Some native ARM cloud images expose an AVC encoder but never return its first
+        // input buffer. This test exercises playback and transport retry, not encoding.
+        // CI supplies a hashed, generated AVC/AAC clip; all playback assertions stay intact.
+        val source = File(supplied)
+        check(source.isFile && source.length() > 0L) { "Explicit enhanced retry fixture is missing" }
+        return File.createTempFile("enhanced-retry-", ".mp4", cacheDirectory).also { target ->
+            source.copyTo(target, overwrite = true)
+        }
+    }
+
+    @Test
     fun generated_avc_aac_paused_seek_shows_one_frame_and_keeps_audio_paused() =
         runBlocking {
             val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -117,7 +221,12 @@ class YCoreMediaSuiteInstrumentedTest {
                             )
                         val player: YPlayer =
                             when (route) {
-                                YPlaybackRoute.NativeDirect -> AndroidNativeDirectYPlayer(context, request)
+                                YPlaybackRoute.NativeDirect ->
+                                    AndroidNativeDirectYPlayer(
+                                        context,
+                                        request,
+                                        decoderName = generatedPlatformAvcDecoder(),
+                                    )
                                 YPlaybackRoute.NativeEnhanced ->
                                     AndroidNativeEnhancedYPlayer(
                                         context,
@@ -130,7 +239,8 @@ class YCoreMediaSuiteInstrumentedTest {
                                                 decodePath = YDecodePath.Hardware,
                                                 renderPath = YRenderPath.SurfaceDirect,
                                                 outputHdrType = YHdrType.Sdr,
-                                                reason = "Enhanced hardware test",
+                                                reason = "Enhanced platform decoder test",
+                                                decoderName = generatedPlatformAvcDecoder(),
                                             ),
                                     )
                                 else ->
@@ -950,9 +1060,17 @@ class YCoreMediaSuiteInstrumentedTest {
         label: String,
         state: com.yfuse.core2.api.YPlayerState,
     ) {
+        // Software recovery now runs inside YCore's own FFmpeg JNI session. Require its
+        // concrete demuxer and decoder evidence instead of accepting any fallback label.
+        val internalSoftware =
+            state.diagnostics.route == YPlaybackRoute.SoftwareFallback &&
+                state.diagnostics.demuxer == "FFmpeg / libavformat" &&
+                state.diagnostics.decoder
+                    .orEmpty()
+                    .contains("FFmpeg software video")
         assertTrue(
-            "$label used non-native route ${state.diagnostics.route}: ${state.diagnostics.reason}",
-            state.diagnostics.route in PURE_NATIVE_ROUTES,
+            "$label used non-YCore route ${state.diagnostics.route}: ${state.diagnostics.reason}",
+            state.diagnostics.route in PURE_NATIVE_ROUTES || internalSoftware,
         )
     }
 

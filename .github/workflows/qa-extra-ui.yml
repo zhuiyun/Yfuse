@@ -1,0 +1,146 @@
+name: Verify theme contrast and navigation in unified library
+'on':
+  push:
+    branches:
+    - codex/two-engines-cloud-seek-20261113
+    paths:
+    - .github/workflows/qa-extra-ui.yml
+permissions:
+  contents: read
+  actions: read
+env:
+  QA_APP_SHA: 0642c1b24a22ffcc39a3526b2d79d0d0881abb64
+  QA_BUILD_RUN: 43918020137
+jobs:
+  acquire:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
+    - name: Acquire built diagnostic baseline and retain known qualification failures
+      env:
+        API_TOKEN: ${{ github.token }}
+      run: bash qa-power-ui/acquire-baseline.sh "$QA_BUILD_RUN" "$QA_APP_SHA"
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+      with:
+        name: power-ui-baseline-input
+        path: 'preview/composeApp-release.apk
+
+          preview/provenance.txt
+
+          preview/apk.sha256
+
+          preview/baseline-build-run.json
+
+          preview/baseline-build-jobs.json
+
+          preview/baseline-limit.txt'
+        retention-days: 10
+    - name: Build visible editable-control instrumentation
+      run: 'set -euo pipefail
+
+        mkdir qa-driver
+
+        cp qa-arm-matrix/Driver.java qa-volume/input-driver.java
+
+        sed ''s|adb install -r driver.apk|cp driver.apk "$GITHUB_WORKSPACE/qa-driver/driver.apk"|''
+        qa-volume/build-driver.sh > "$RUNNER_TEMP/driver.sh"
+
+        bash "$RUNNER_TEMP/driver.sh"'
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+      with:
+        name: power-ui-input-driver
+        path: qa-driver/
+        retention-days: 7
+  ui:
+    name: Additional page evidence ${{ matrix.variant }}
+    needs: acquire
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 110
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - variant: light
+          scope: extra
+          routes: ''
+        - variant: dark-large
+          scope: extra
+          routes: ''
+    env:
+      QA_UI_SCOPE: ${{ matrix.scope }}
+      QA_UI_TRACE: true
+      QA_UI_ROUTES: ${{ matrix.routes }}
+      QA_UI_VARIANT: ${{ matrix.variant }}
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
+    - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      with:
+        name: power-ui-baseline-input
+        path: preview
+    - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      with:
+        name: power-ui-input-driver
+        path: qa-driver
+    - name: Verify runtime and prepare evidence tools
+      run: 'set -euo pipefail
+
+        mkdir -p results
+
+        # apk.sha256 may also name unrelated build inputs; verify this exact app entry.
+
+        (cd preview && grep ''composeApp-release.apk$'' apk.sha256 | sha256sum -c
+        -)
+
+        grep -Fx "app=$QA_APP_SHA" preview/provenance.txt
+
+        cp preview/provenance.txt preview/apk.sha256 preview/baseline-build-*.json
+        preview/baseline-limit.txt results/
+
+        printf ''qa=%s\nrun=%s\n'' "$GITHUB_SHA" "$GITHUB_RUN_ID" > results/qa-provenance.txt
+
+        sudo apt-get update -qq
+
+        sudo apt-get install -y ffmpeg python3-pil
+
+        '
+    - name: Boot disposable cloud ARM64 Android
+      run: bash qa-arm-dual/redroid.sh
+    - name: Install exact candidate and UI evidence driver
+      run: 'set -euo pipefail
+
+        test "$GITHUB_ACTIONS" = true
+
+        adb install -r -g preview/composeApp-release.apk
+
+        adb install -r qa-driver/driver.apk
+
+        adb shell wm size 720x1280
+
+        adb shell wm density 260
+
+        adb shell settings put secure immersive_mode_confirmations confirmed
+
+        adb shell settings put secure accessibility_interactive_ui_timeout_ms 60000
+
+        adb shell wm dismiss-keyguard
+
+        touch /tmp/yfuse-tree-active
+
+        adb shell getprop > results/guest-properties.txt
+
+        docker inspect qa-android --format ''{{.Image}}'' > results/cloud-image.txt
+
+        '
+    - name: Capture current native pages and all reachable scroll states
+      run: /usr/bin/python3 qa-power-ui/extra_ui.py
+    - if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+      with:
+        name: ui-extra-${{ matrix.variant }}
+        path: results/
+        retention-days: 14

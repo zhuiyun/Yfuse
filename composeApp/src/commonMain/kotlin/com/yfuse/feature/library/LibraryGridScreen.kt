@@ -299,7 +299,7 @@ fun LibraryGridScreen(
                     component.title,
                     style = AppTypography.display.strong,
                     color = palette.text,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
@@ -314,7 +314,17 @@ fun LibraryGridScreen(
                         color = palette.sub2,
                     )
                 }
+            }
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = Dimens.pageHorizontal)
+                    .padding(bottom = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 if (state.loadedCount > 0) GridDensityButtons(gridDensity)
+                Spacer(Modifier.weight(1f))
                 if (state.sortable) {
                     Row(
                         Modifier

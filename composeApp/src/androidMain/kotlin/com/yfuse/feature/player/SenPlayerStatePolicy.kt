@@ -7,6 +7,7 @@ import com.yfuse.core2.api.YBufferRangeSource
 import com.yfuse.core2.api.YBufferSnapshot
 import com.yfuse.core2.api.YBufferedRange
 import com.yfuse.core2.api.normalizeBufferedRanges
+import com.yfuse.senplayer.SenPlayerSession
 
 internal fun PlaybackState.forSenPlayerLoad(
     sessionId: String,
@@ -53,6 +54,30 @@ internal fun PlayerMediaItem.senPlayerPlaybackUrl(): String {
     return if (startsWithServerTranscode()) transcodeUrl else url
 }
 
+internal data class SenPlayerSourceFailure(
+    val kind: PlaybackFailureKind,
+    val message: String,
+)
+
+/** An upstream rejection is not evidence that the installed native engine is unavailable. */
+internal fun senPlayerSourceFailure(
+    httpStatus: Int?,
+    refusedRead: Boolean = false,
+): SenPlayerSourceFailure? =
+    when (httpStatus) {
+        401, 403 ->
+            SenPlayerSourceFailure(
+                PlaybackFailureKind.Authorization,
+                "片源拒绝访问（HTTP $httpStatus），请刷新播放地址或检查服务器。",
+            )
+        404, 410 ->
+            SenPlayerSourceFailure(
+                PlaybackFailureKind.Network,
+                "片源地址已失效（HTTP $httpStatus），请刷新播放地址。",
+            )
+        else -> if (refusedRead) SenPlayerSourceFailure(PlaybackFailureKind.Network, "片源服务器暂未接受视频读取请求，请稍后重试。") else null
+    }
+
 internal fun PlaybackState.forSenPlayerFailure(
     message: String,
     kind: PlaybackFailureKind,
@@ -89,8 +114,26 @@ internal fun senPlayerPendingSeekTarget(
 ): Long? =
     positionMs
         ?.takeIf {
-            durationMs > 0 && phase in setOf("playing", "paused", "buffering", "seeking")
+            durationMs > 0 && phase in setOf("playing", "paused", "buffering", "seeking", "ended")
         }?.let { senPlayerSeekPosition(it, durationMs) }
+
+/** Native EOF can occur between the last state poll and the seek command. */
+internal inline fun seekOrReopenCompletedSenPlayerSource(
+    ended: Boolean,
+    seek: () -> Unit,
+    sourceHasEnded: () -> Boolean,
+    reopen: () -> Unit,
+) {
+    if (!ended) {
+        try {
+            seek()
+            return
+        } catch (rejected: SenPlayerSession.CommandRejected) {
+            if (rejected.code != -2 || !sourceHasEnded()) throw rejected
+        }
+    }
+    reopen()
+}
 
 internal fun senPlayerReportedPosition(
     pendingSeekMs: Long?,
@@ -137,6 +180,38 @@ internal fun senPlayerCacheState(
         // Progress.c is the native queued duration; the end of a distant island is not continuous buffer.
         durationMs = if (available) cacheDurationMs.coerceAtLeast(0) else 0,
     )
+
+/** A seek can be followed by EOF at the old position if the remote byte range was truncated. */
+internal class SenPlayerRemoteEndRecovery {
+    var attempted = false
+        private set
+    private var seekTargetMs: Long? = null
+
+    fun onSeek(targetMs: Long) {
+        seekTargetMs = targetMs
+        attempted = false
+    }
+
+    fun observePosition(positionMs: Long) {
+        val target = seekTargetMs ?: return
+        if (kotlin.math.abs(target - positionMs) <= 2_000L) seekTargetMs = null
+    }
+
+    fun recoveryPosition(
+        positionMs: Long,
+        durationMs: Long,
+    ): Long? {
+        val resumeMs = seekTargetMs ?: positionMs
+        if (attempted ||
+            !com.yfuse.core2.api
+                .isPrematurePlaybackEnd(positionMs, durationMs)
+        ) {
+            return null
+        }
+        attempted = true
+        return resumeMs.coerceIn(0L, durationMs)
+    }
+}
 
 /** Natural EOF is consumed once; pausing at the boundary must never start the next source. */
 internal class SenPlayerEndGate {

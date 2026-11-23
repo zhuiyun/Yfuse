@@ -1,5 +1,6 @@
 package com.yfuse.core2.android
 
+import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.api.YOutputEvidenceResetReason
 import com.yfuse.core2.api.YPlaybackException
 import com.yfuse.core2.api.YPlaybackFailureCategory
@@ -46,6 +47,23 @@ internal fun decodedAudioDrainProgress(
     }
 }
 
+/** A timed-out metadata probe must not silently turn an explicitly declared video into audio. */
+internal fun validateNativeDirectVideoTrack(
+    item: YMediaItem,
+    hasVideoTrack: Boolean,
+) {
+    if (hasVideoTrack ||
+        (item.mimeType?.startsWith("video/", ignoreCase = true) != true && item.sourceHints?.videoCodec.isNullOrBlank())
+    ) {
+        return
+    }
+    throw YPlaybackException(
+        category = YPlaybackFailureCategory.Container,
+        stage = YPlaybackFailureStage.Demux,
+        safeDetail = "NativeDirect source did not expose its declared video track",
+    )
+}
+
 internal fun validateNativeDirectDolbyIdentity(
     required: Boolean,
     extractedMime: String?,
@@ -56,6 +74,24 @@ internal fun validateNativeDirectDolbyIdentity(
         stage = YPlaybackFailureStage.Bitstream,
         safeDetail = "NativeDirect source did not expose a Dolby Vision track identity",
     )
+}
+
+internal fun yCoreDecoderFailureMessage(failure: YPlaybackException): String {
+    if (failure.stage == YPlaybackFailureStage.AudioDecoderConfigure ||
+        failure.stage == YPlaybackFailureStage.AudioDecoderQueue
+    ) {
+        return "YCore 2.0 无法解码当前音轨"
+    }
+    val unavailable =
+        generateSequence<Throwable>(failure) { it.cause }
+            .take(16)
+            .filterIsInstance<YVideoDecoderConfigurationException>()
+            .any { it.mime == "video/dolby-vision" && it.failures.isEmpty() }
+    return if (unavailable) {
+        "设备未提供杜比视界解码器，可在播放方式中选择 SCore"
+    } else {
+        "YCore 2.0 无法启动当前视频解码器"
+    }
 }
 
 internal fun yCoreNativeDirectFailureMessage(failure: YPlaybackException?): String =
@@ -70,7 +106,7 @@ internal fun yCoreNativeDirectFailureMessage(failure: YPlaybackException?): Stri
                 failure.isHiddenServerAudioTrackFailure() -> YCORE_HIDDEN_AUDIO_TRACK_MESSAGE
                 else -> "YCore 2.0 原生解封装无法识别当前片源"
             }
-        YPlaybackFailureCategory.Decoder -> "YCore 2.0 无法启动当前视频解码器"
+        YPlaybackFailureCategory.Decoder -> yCoreDecoderFailureMessage(failure)
         YPlaybackFailureCategory.Renderer -> "YCore 2.0 无法建立视频输出"
         YPlaybackFailureCategory.AudioSink -> "YCore 2.0 无法建立音频输出"
         YPlaybackFailureCategory.Unknown,
@@ -164,10 +200,12 @@ internal fun coalesceNativeDirectCommands(
 ): List<AndroidNativeDirectYPlayer.Command> =
     commands.fold(mutableListOf()) { result, command ->
         val previous = result.lastOrNull()
-        if (previous != null && previous.canBeReplacedBy(command)) {
-            result[result.lastIndex] = command
-        } else {
-            result += command
+        when {
+            previous is AndroidNativeDirectYPlayer.Command.Prepare &&
+                command is AndroidNativeDirectYPlayer.Command.Prepare ->
+                result[result.lastIndex] = command.copy(positionMs = command.positionMs ?: previous.positionMs)
+            previous != null && previous.canBeReplacedBy(command) -> result[result.lastIndex] = command
+            else -> result += command
         }
         result
     }
@@ -189,7 +227,7 @@ private fun AndroidNativeDirectYPlayer.Command.canBeReplacedBy(next: AndroidNati
         is AndroidNativeDirectYPlayer.Command.SelectSubtitleTrack ->
             next is AndroidNativeDirectYPlayer.Command.SelectSubtitleTrack && secondary == next.secondary
         is AndroidNativeDirectYPlayer.Command.SelectItem -> next is AndroidNativeDirectYPlayer.Command.SelectItem
-        AndroidNativeDirectYPlayer.Command.Prepare -> next == AndroidNativeDirectYPlayer.Command.Prepare
+        is AndroidNativeDirectYPlayer.Command.Prepare -> false
         AndroidNativeDirectYPlayer.Command.Play -> next == AndroidNativeDirectYPlayer.Command.Play
         AndroidNativeDirectYPlayer.Command.Pause -> next == AndroidNativeDirectYPlayer.Command.Pause
     }
@@ -206,3 +244,16 @@ internal fun YVideoDecoderAttemptFailure.safeDiagnosticLabel(): String =
         if (recoverable) append(":recoverable")
         if (transient) append(":transient")
     }
+
+/** Owned software audio can replace a failed unprotected PCM decoder exactly once. */
+internal fun canRecoverEnhancedAudioDecoder(
+    failure: YPlaybackException,
+    softwareActive: Boolean,
+    passthrough: Boolean,
+    hasTrack: Boolean,
+): Boolean =
+    hasTrack &&
+        !softwareActive &&
+        !passthrough &&
+        failure.category == YPlaybackFailureCategory.Decoder &&
+        failure.stage in setOf(YPlaybackFailureStage.AudioDecoderConfigure, YPlaybackFailureStage.AudioDecoderQueue)

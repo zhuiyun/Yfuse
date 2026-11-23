@@ -23,9 +23,6 @@ on:
         value: ${{ jobs.build.outputs.source_commit }}
   workflow_dispatch:
 
-# No signing, production input URLs, environment secrets, or release permissions.
-# The historical builder still compiles an intermediate carrier. Only the verified
-# standalone YCore closure is exported; it never becomes the old fixed input pin.
 permissions:
   contents: read
 
@@ -36,9 +33,6 @@ jobs:
     timeout-minutes: 240
     env:
       IN_CI: "1"
-      # The upstream wrapper invokes WGET as a command. This audited replacement
-      # pins gas-preprocessor and verifies Lua before handing bytes to tar.
-      WGET: ${{ github.workspace }}/scripts/native-build-download.py
       YCORE_DOWNLOAD_RECEIPTS: ${{ github.workspace }}/.native-build/downloads.jsonl
     outputs:
       artifact_id: ${{ steps.upload.outputs.artifact-id }}
@@ -72,7 +66,6 @@ jobs:
           "$RUNNER_TEMP/yfuse-native-python/bin/pip" install --disable-pip-version-check \
             'Jinja2==3.1.6' 'meson==1.6.1'
           echo "$RUNNER_TEMP/yfuse-native-python/bin" >> "$GITHUB_PATH"
-          chmod +x scripts/native-build-download.py
           df -h .
 
       - name: Verify source receipt and download boundaries
@@ -81,9 +74,8 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           python3 -m unittest discover -s scripts/tests -p test_ycore_source_receipt.py -v
-          python3 -m unittest discover -s scripts/tests -p test_native_build_download.py -v
           python3 scripts/package-ycore-native-aar.py --self-test
-          bash -n scripts/build-ycore-native.sh scripts/build-ycore-demux.sh
+          for script in scripts/build-ycore-{native,demux,dependencies}.sh; do bash -n "$script"; done
 
       - name: Build the current YCore sources and pinned core dependencies
         shell: bash
@@ -114,7 +106,7 @@ jobs:
           python3 scripts/ycore-source-receipt.py create \
             --root "$GITHUB_WORKSPACE" \
             --artifact-dir .native-build/standalone-release \
-            --upstream .native-build/yfuse-mpv/source \
+            --upstream .native-build/ycore-source \
             --download-receipts .native-build/downloads.jsonl \
             --source-commit "$GITHUB_SHA" \
             --github-output "$GITHUB_OUTPUT"
@@ -126,7 +118,7 @@ jobs:
           set -euo pipefail
           echo "artifact_name=ycore-source-${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
 
-      - name: Upload verified source-built YCore without intermediate carriers
+      - name: Upload verified source-built YCore
         id: upload
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
@@ -159,5 +151,4 @@ jobs:
             echo "Artifact ID: $ARTIFACT_ID"
             echo 'New source output; historical production input pin was not changed.'
             echo 'Native static gates passed. Device playback and redistribution review are separate gates.'
-            echo 'No SenPlayer payload, intermediate MPV carrier, or APK was exported.'
           } >> "$GITHUB_STEP_SUMMARY"

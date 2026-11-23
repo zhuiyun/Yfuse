@@ -7,6 +7,7 @@ internal data class PlaybackProxyRoute(
     val upstreamUrl: String,
     val cacheable: Boolean,
     val widgetRequest: WidgetPlaybackRequest? = null,
+    val sourceGeneration: Long = 0L,
 )
 
 /**
@@ -67,7 +68,14 @@ internal class PlaybackProxyRoutes(
                     url
                 } else {
                     val id =
-                        register(PlaybackProxyRoute(url, cacheable = false, widgetRequest = parent.route.widgetRequest))
+                        register(
+                            PlaybackProxyRoute(
+                                url,
+                                cacheable = false,
+                                widgetRequest = parent.route.widgetRequest,
+                                sourceGeneration = parent.route.sourceGeneration,
+                            ),
+                        )
                     children += id
                     localUrl(id)
                 }

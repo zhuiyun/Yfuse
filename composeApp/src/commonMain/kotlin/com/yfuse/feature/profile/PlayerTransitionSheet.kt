@@ -1,9 +1,13 @@
 package com.yfuse.feature.profile
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
@@ -17,6 +21,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.LocalAccentColors
@@ -38,31 +43,39 @@ internal fun PlayerTransitionSheet(
     onSelect: (PlayerTransitionStyle) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    GlassDialog(onDismiss = onDismiss) {
+    GlassDialog(onDismiss = onDismiss, scrollable = false) {
         OverlayHeader(
             "播放器进出场",
             "${PlayerTransitionStyle.entries.count { it.choreographed }} 套开合方式，从播放键或大图打开播放器、关闭时回到原处",
             onClose = onDismiss,
         )
-        if (LocalAccessibilityOptions.current.reduceMotion) {
-            Text(
-                "已开启“减少动画”，播放器统一使用淡入淡出。",
-                color = LocalPalette.current.sub,
-                style = AppTypography.caption.regular,
-            )
-            Spacer(Modifier.height(OverlayOptionSpacing))
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .weight(1f, fill = false)
+                .zIndex(-1f)
+                .verticalScroll(rememberScrollState()),
+        ) {
+            if (LocalAccessibilityOptions.current.reduceMotion) {
+                Text(
+                    "已开启“减少动画”，播放器统一使用淡入淡出。",
+                    color = LocalPalette.current.sub,
+                    style = AppTypography.caption.regular,
+                )
+                Spacer(Modifier.height(OverlayOptionSpacing))
+            }
+            PlayerTransitionStyle.entries.forEach { style ->
+                OverlayOptionRow(
+                    label = style.label,
+                    description = style.description,
+                    selected = selected == style,
+                    onClick = { onSelect(style) },
+                    leadingContent = { PlayerTransitionGlyph(style) },
+                )
+                Spacer(Modifier.height(OverlayOptionSpacing))
+            }
+            OverlayButton("完成", onClick = overlayDismiss(onDismiss))
         }
-        PlayerTransitionStyle.entries.forEach { style ->
-            OverlayOptionRow(
-                label = style.label,
-                description = style.description,
-                selected = selected == style,
-                onClick = { onSelect(style) },
-                leadingContent = { PlayerTransitionGlyph(style) },
-            )
-            Spacer(Modifier.height(OverlayOptionSpacing))
-        }
-        OverlayButton("完成", onClick = overlayDismiss(onDismiss))
     }
 }
 

@@ -26,6 +26,7 @@ internal fun TvProductSettingsPage(
     navigationRequester: FocusRequester,
     firstRowRequester: FocusRequester,
     onBack: () -> Unit,
+    onOpenAccount: () -> Unit,
 ) {
     val servers by component.store.states.collectAsState(component.store.state)
     Column(Modifier.fillMaxSize()) {
@@ -42,7 +43,7 @@ internal fun TvProductSettingsPage(
         )
         Box(Modifier.weight(1f).focusGroup()) {
             when (page) {
-                TvSettingsPage.Handoff -> DeviceHandoffScreen(component.handoff, onBack)
+                TvSettingsPage.Handoff -> DeviceHandoffScreen(component.handoff, onBack, onOpenAccount)
                 TvSettingsPage.Trakt -> TraktSettingsScreen(component.trakt, onBack, television = true)
                 TvSettingsPage.Stremio ->
                     com.yfuse.feature.stremio

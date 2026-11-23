@@ -98,7 +98,7 @@ internal class PreviewHttpSource(
                 ).header("Range", "bytes=$start-$end")
             request.removeHeader("If-Range")
             entityTag
-                ?.takeIf { entityUrl == url.toString() && isStrongPreviewEntityTag(it) }
+                ?.takeIf { entityUrl == url.toString() && isStrongPlaybackEntityTag(it) }
                 ?.let { request.header("If-Range", it) }
             val call = client.newCall(request.build())
             activeCall = call
@@ -166,7 +166,7 @@ internal fun parsePreviewUnsatisfiedRange(value: String?): Long? =
         ?.get(1)
         ?.toLongOrNull()
 
-private fun isStrongPreviewEntityTag(value: String): Boolean =
+internal fun isStrongPlaybackEntityTag(value: String): Boolean =
     value.length >= 2 &&
         value.first() == '"' &&
         value.last() == '"' &&

@@ -1,0 +1,305 @@
+name: Qualify optional Chromecast discovery, playback diagnostics and seeking on ARM64
+on:
+  push:
+    branches: [codex/two-engines-cloud-seek-20261113]
+    paths: ['.github/workflows/qa-integrated-av-repair.yml']
+permissions: {contents: read, actions: read}
+env:
+  QA_APP_SHA: 382077026e5747530f320c0188ba2eeebd529b7e
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 95
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 382077026e5747530f320c0188ba2eeebd529b7e
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
+        with: {distribution: temurin, java-version: '17', cache: gradle}
+      - name: Verify native inputs and build the release candidate
+        env: {API_TOKEN: "${{ github.token }}"}
+        run: |
+          set -euo pipefail
+          api="https://api.github.com/repos/$GITHUB_REPOSITORY"
+          app_sha=$(git rev-parse HEAD)
+          native_sha=0f61f76626e370cd40c25c22fa0e211c12d7bd86
+          git diff --exit-code "$native_sha" "$app_sha" -- ycore-native scripts/native 'scripts/build-ycore*.sh' scripts/verify-ycore-native.sh scripts/native-build-download.py scripts/ycore-source-receipt.py
+          producer=44324037800
+          name="ycore-source-$native_sha-$producer-1"
+          artifact=""
+          for i in $(seq 1 135); do
+            artifact=$(curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/runs/$producer/artifacts" | jq -r --arg n "$name" '.artifacts[] | select(.name==$n and .expired==false) | .id' | head -1)
+            if [[ "$artifact" =~ ^[0-9]+$ ]]; then break; fi
+            sleep 12
+          done
+          test -n "$artifact"
+          curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/artifacts/$artifact" | jq -e --arg n "$name" --argjson run "$producer" '.name==$n and .expired==false and .workflow_run.id==$run' >/dev/null
+          curl -fsSL --retry 2 -H "Authorization: Bearer $API_TOKEN" "$api/actions/artifacts/$artifact/zip" -o "$RUNNER_TEMP/native.zip"
+          mkdir "$RUNNER_TEMP/native-in"
+          unzip -q "$RUNNER_TEMP/native.zip" -d "$RUNNER_TEMP/native-in"
+          export YCORE_NATIVE_AAR_PATH="$RUNNER_TEMP/native-in/ycore-native.aar"
+          export YCORE_SOURCE_RECEIPT="$RUNNER_TEMP/native-in/source-build.json"
+          export YCORE_SOURCE_COMMIT="$native_sha" SOURCE_COMMIT="$native_sha"
+          export YCORE_SOURCE_AAR_SHA256=$(sha256sum "$YCORE_NATIVE_AAR_PATH" | cut -d' ' -f1)
+          export YCORE_SOURCE_PROVENANCE_SHA256=$(sha256sum "$RUNNER_TEMP/native-in/NATIVE-SOURCES.txt" | cut -d' ' -f1)
+          input_tree="$RUNNER_TEMP/verified-native-source"
+          git worktree add --detach "$input_tree" "$native_sha"
+          (cd "$input_tree" && python3 scripts/prepare-playback-inputs.py)
+          mkdir -p composeApp/libs
+          cp "$input_tree"/composeApp/libs/ycore-native.{aar,aar.sha256,sources.txt} composeApp/libs/
+          cp -a "$input_tree"/senplayerBridge/src/main/assets/senplayer/. senplayerBridge/src/main/assets/senplayer/
+          (cd composeApp/libs && sha256sum -c ycore-native.aar.sha256)
+          test "$(git rev-parse HEAD)" = "$app_sha"
+          git diff --exit-code -- .
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-37.0'
+          host_checks="$RUNNER_TEMP/sen-bridge-host"
+          mkdir -p "$host_checks"
+          javac -cp "$ANDROID_HOME/platforms/android-37.0/android.jar" -d "$host_checks" senplayerBridge/src/main/java/com/yfuse/senplayer/SenPlayerSession.java senplayerBridge/src/hostTest/java/com/yfuse/senplayer/SenPlayerSessionHostChecks.java
+          java -cp "$host_checks:$ANDROID_HOME/platforms/android-37.0/android.jar" com.yfuse.senplayer.SenPlayerSessionHostChecks
+          python3 qa-integrated/check-playback-source.py
+          python3 scripts/check_function_size.py
+          ./gradlew ktlintCheck --continue --no-parallel --max-workers=2 --no-daemon
+          ./gradlew :phoneShared:testAndroidHostTest :composeApp:assembleRelease :composeApp:assembleDebug :composeApp:assembleDebugAndroidTest -PyfuseIncludeMdk=false -PyfusePlaybackProfile=ycore-senplayer -PyfuseNativeOnlyRuntime=true -PallowDebugSigning=true -PyfuseBuildRevision="$app_sha" -Pkotlin.compiler.execution.strategy=in-process '-Dorg.gradle.jvmargs=-Xmx8g -Dfile.encoding=UTF-8' --no-parallel --max-workers=2 --no-daemon
+          mkdir preview
+          cp composeApp/build/outputs/apk/debug/composeApp-debug.apk preview/instrumentation-target.apk
+          test_apk=$(find composeApp/build/outputs/apk/androidTest -name '*.apk' | head -1)
+          test -s "$test_apk"
+          cp "$test_apk" preview/regressions.apk
+          cp composeApp/build/outputs/apk/release/composeApp-release.apk preview/
+          cp composeApp/build/outputs/mapping/release/mapping.txt preview/
+          printf 'app=%s\nnative_built_from=%s\nsource_artifact=%s\n' "$app_sha" "$native_sha" "$artifact" > preview/provenance.txt
+          (cd preview && sha256sum composeApp-release.apk > apk.sha256)
+      - name: Build the previous transport implementations with the same test signing key
+        run: |
+          set -euo pipefail
+          calls=composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlaybackCacheCalls.kt
+          previous=e6f66482a1b498a650d152eef57c73bb3143f520
+          source_path=composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidTransportMediaDataSource.kt
+          previous_transport=9ac1be659452b76d7ac5df1839f062ef7b8df379
+          cp "$source_path" "$RUNNER_TEMP/current-range-source.kt"
+          cp "$calls" "$RUNNER_TEMP/current-cache-calls.kt"
+          restore_transports() {
+            cp "$RUNNER_TEMP/current-cache-calls.kt" "$calls"
+            cp "$RUNNER_TEMP/current-range-source.kt" "$source_path"
+          }
+          trap restore_transports EXIT
+          git show "$previous:$calls" > "$calls"
+          git show "$previous_transport:$source_path" > "$source_path"
+          git diff --exit-code -- . ":(exclude)$calls" ":(exclude)$source_path"
+          ./gradlew :composeApp:assembleDebug -PyfuseIncludeMdk=false -PyfusePlaybackProfile=ycore-senplayer -PyfuseNativeOnlyRuntime=true -PallowDebugSigning=true -PyfuseBuildRevision="$QA_APP_SHA" -Pkotlin.compiler.execution.strategy=in-process '-Dorg.gradle.jvmargs=-Xmx8g -Dfile.encoding=UTF-8' --no-parallel --max-workers=2 --no-daemon
+          cp composeApp/build/outputs/apk/debug/composeApp-debug.apk preview/recovery-headers-negative.apk
+          (cd preview && sha256sum recovery-headers-negative.apk >> apk.sha256)
+          printf 'app=%s\ncache_recovery_from=%s\n' "$QA_APP_SHA" "$previous" > preview/recovery-headers-negative-provenance.txt
+          echo "ycore_transport_from=$previous_transport" >> preview/recovery-headers-negative-provenance.txt
+          restore_transports
+          git diff --exit-code -- .
+      - name: Rebuild previous cast discovery and UI states for device negative controls
+        run: |
+          set -euo pipefail
+          path=composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerChromeRefined.kt
+          baseline=b58ddf8060a2ccfae2d214fa3e6c544849ba6557
+          hero=composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Hero.kt
+          hero_baseline=df5dd228609eaa0689a55a79260f5f9920c63fd9
+          dialog=composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlaybackProblemDialog.kt
+          dialog_baseline=432066bc1caa59aa7f674673059859d84021dd98
+          cast=composeApp/src/androidMain/kotlin/com/yfuse/core/cast/CastManager.android.kt
+          cast_baseline=8cdb127108db020a0e78153c77cc070af0816e07
+          cache_proxy=composeApp/src/androidMain/kotlin/com/yfuse/feature/player/AndroidPlaybackHttpProxy.kt
+          cache_baseline=b83ae66285d300babf97da58a0adaaada9c815a2
+          cp "$cache_proxy" "$RUNNER_TEMP/fixed-cache-proxy.kt"
+          cp "$cast" "$RUNNER_TEMP/fixed-cast-manager.kt"
+          cp "$dialog" "$RUNNER_TEMP/fixed-problem-dialog.kt"
+          cp "$path" "$RUNNER_TEMP/fixed-player-chrome.kt"
+          cp "$hero" "$RUNNER_TEMP/fixed-hero.kt"
+          restore_fixed_files() {
+            cp "$RUNNER_TEMP/fixed-cache-proxy.kt" "$cache_proxy"
+            cp "$RUNNER_TEMP/fixed-cast-manager.kt" "$cast"
+            cp "$RUNNER_TEMP/fixed-player-chrome.kt" "$path"
+            cp "$RUNNER_TEMP/fixed-hero.kt" "$hero"
+            cp "$RUNNER_TEMP/fixed-problem-dialog.kt" "$dialog"
+          }
+          trap restore_fixed_files EXIT
+          git show "$cache_baseline:$cache_proxy" > "$cache_proxy"
+          git diff --exit-code "$cache_baseline" -- "$cache_proxy"
+          git show "$baseline:$path" > "$path"
+          git diff --exit-code "$baseline" -- "$path"
+          git show "$hero_baseline:$hero" > "$hero"
+          git diff --exit-code "$hero_baseline" -- "$hero"
+          git show "$dialog_baseline:$dialog" > "$dialog"
+          git diff --exit-code "$dialog_baseline" -- "$dialog"
+          cast_repair=432066bc1caa59aa7f674673059859d84021dd98
+          git diff "$cast_baseline" "$cast_repair" -- "$cast" > "$RUNNER_TEMP/cast-discovery-change.diff"
+          test -s "$RUNNER_TEMP/cast-discovery-change.diff"
+          git apply --reverse --check "$RUNNER_TEMP/cast-discovery-change.diff"
+          git apply --reverse "$RUNNER_TEMP/cast-discovery-change.diff"
+          git apply --check "$RUNNER_TEMP/cast-discovery-change.diff"
+          git diff --exit-code "$QA_APP_SHA" -- . ":(exclude)$path" ":(exclude)$hero" ":(exclude)$dialog" ":(exclude)$cast" ":(exclude)$cache_proxy"
+          ./gradlew :composeApp:assembleDebug -PyfuseIncludeMdk=false -PyfusePlaybackProfile=ycore-senplayer -PyfuseNativeOnlyRuntime=true -PallowDebugSigning=true -PyfuseBuildRevision="$QA_APP_SHA" -Pkotlin.compiler.execution.strategy=in-process '-Dorg.gradle.jvmargs=-Xmx8g -Dfile.encoding=UTF-8' --no-parallel --max-workers=2 --no-daemon
+          cp composeApp/build/outputs/apk/debug/composeApp-debug.apk preview/geometry-negative.apk
+          printf 'app=%s\nclock_layout_from=%s\ncaption_scrim_from=%s\nproblem_dialog_from=%s\n' "$QA_APP_SHA" "$baseline" "$hero_baseline" "$dialog_baseline" > preview/geometry-negative-provenance.txt
+          printf 'cast_discovery_from=%s\n' "$cast_baseline" >> preview/geometry-negative-provenance.txt
+          echo "cache_body_read_from=$cache_baseline" >> preview/geometry-negative-provenance.txt
+          restore_fixed_files
+          git diff --exit-code -- .
+          (cd preview && sha256sum geometry-negative.apk instrumentation-target.apk regressions.apk >> apk.sha256)
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: candidate-test-input, path: preview, retention-days: 7}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: repair-test-reports
+          path: |
+            phoneShared/build/test-results/testAndroidHostTest
+            tvShared/build/test-results/testAndroidHostTest
+            phoneShared/build/reports/tests/testAndroidHostTest
+            **/build/reports/ktlint
+          retention-days: 7
+
+
+      - name: Repeat cancellation races without rebuilding production code
+        run: |
+          set -euo pipefail
+          mkdir -p probe-repeats
+          printf '%s\n' 'allprojects { tasks.withType(Test).configureEach { outputs.upToDateWhen { false } } }' > "$RUNNER_TEMP/repeat-probe.gradle"
+          for round in $(seq 1 20); do
+            mkdir -p "probe-repeats/$round"
+            ./gradlew :phoneShared:testAndroidHostTest --tests 'com.yfuse.core2.android.AndroidMetadataProbeStageTest' --tests 'com.yfuse.core2.android.AndroidProbeBudgetTest' --tests 'com.yfuse.feature.player.PlayerStoreTest.episode_loads_series_queue_and_resume_position' -I "$RUNNER_TEMP/repeat-probe.gradle" -PyfuseIncludeMdk=false -PyfusePlaybackProfile=ycore-senplayer -PyfuseNativeOnlyRuntime=true -PallowDebugSigning=true -PyfuseBuildRevision="$QA_APP_SHA" -Pkotlin.compiler.execution.strategy=in-process '-Dorg.gradle.jvmargs=-Xmx8g -Dfile.encoding=UTF-8' --no-parallel --max-workers=2 --daemon 2>&1 | tee "probe-repeats/$round/gradle.txt"
+            cp phoneShared/build/test-results/testAndroidHostTest/TEST-*.xml "probe-repeats/$round/"
+          done
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: probe-cancellation-repeats, path: probe-repeats/, retention-days: 10}
+
+  native-contract:
+    needs: build
+    name: Actual ARM64 software-frame and seek-preview contract
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: candidate-test-input, path: preview}
+      - name: Boot only the cloud ARM64 emulator
+        run: bash qa-arm-dual/redroid.sh
+      - name: Verify actual native frame skipping and cached preview
+        run: |
+          set -euo pipefail
+          mkdir -p results
+          collect_native_evidence() {
+            adb logcat -d -v threadtime > results/native-logcat.txt || true
+            adb shell cat '/data/user/0/com.yfuse/no_backup/diagnostics/diagnostic-*.jsonl' > results/native-diagnostics.jsonl || true
+            adb shell dumpsys media.codec > results/codec-service.txt || true
+          }
+          trap collect_native_evidence EXIT
+          (cd preview && sha256sum -c apk.sha256)
+          grep -Fx "app=$QA_APP_SHA" preview/provenance.txt
+          adb install -r -g preview/instrumentation-target.apk
+          adb install -r -g preview/regressions.apk
+          adb install -r -g preview/recovery-headers-negative.apk
+          tls_contract='com.yfuse.feature.player.PlaybackHttp2BodyRecoveryTest#stalledHttp2BodyResumesOnIndependentTlsConnectionWithTheSamePinAndMissingRange'
+          adb shell am instrument -w -r -e class "$tls_contract" com.yfuse.test/androidx.test.runner.AndroidJUnitRunner | tee results/http2-recovery-negative.txt
+          if python3 qa-integrated/check-instrumentation.py results/http2-recovery-negative.txt 1; then
+            echo 'The previous body recovery unexpectedly passed the stalled HTTP/2 header control'; exit 1
+          fi
+          jq -e '.failed==1 and .completed==0 and .skipped==0' results/http2-recovery-negative.json
+          grep -F 'SocketTimeoutException' results/http2-recovery-negative.txt
+          grep -F 'Http2Stream.takeHeaders' results/http2-recovery-negative.txt
+          grep -F 'PlaybackResponseSource.resume' results/http2-recovery-negative.txt
+          range_contract='com.yfuse.core2.android.YCoreStartupRangeHttpTest#continuousDemuxReadsUseASingleHttpRangePerFollowingBlockWithoutAnEntityTag'
+          adb shell am instrument -w -r -e class "$range_contract" com.yfuse.test/androidx.test.runner.AndroidJUnitRunner | tee results/range-startup-negative.txt
+          if python3 qa-integrated/check-instrumentation.py results/range-startup-negative.txt 1; then
+            echo 'The previous range reader unexpectedly avoided duplicate HTTP ranges'; exit 1
+          fi
+          jq -e '.failed==1 and .completed==0 and .skipped==0' results/range-startup-negative.json
+          grep -F 'Sequential demux must use one HTTP exchange for the next block' results/range-startup-negative.txt
+          foreground_range='com.yfuse.core2.android.YCoreStartupRangeHttpTest#continuousDemuxReadsUseFullForegroundRangeWhenNoSpeculativeBlockFits'
+          adb shell am instrument -w -r -e class "$foreground_range" com.yfuse.test/androidx.test.runner.AndroidJUnitRunner | tee results/range-foreground-negative.txt
+          if python3 qa-integrated/check-instrumentation.py results/range-foreground-negative.txt 1; then
+            echo 'The previous range reader unexpectedly used a full foreground range with no prefetch slot'; exit 1
+          fi
+          jq -e '.failed==1 and .completed==0 and .skipped==0' results/range-foreground-negative.json
+          grep -F 'Sequential demux must use one HTTP exchange for the next block' results/range-foreground-negative.txt
+          adb install -r -g preview/geometry-negative.apk
+          body_contract='com.yfuse.feature.player.BufferedScrubDecodeInstrumentedTest#bodyTimeoutResumesAtTheFirstMissingByteAndCachesOnlyVerifiedBytes'
+          adb shell am instrument -w -r -e class "$body_contract" com.yfuse.test/androidx.test.runner.AndroidJUnitRunner | tee results/body-timeout-negative.txt
+          if python3 qa-integrated/check-instrumentation.py results/body-timeout-negative.txt 1; then
+            echo 'The previous cache bridge unexpectedly recovered a mid-body timeout'; exit 1
+          fi
+          jq -e '.failed==1 and .completed==0 and .skipped==0' results/body-timeout-negative.json
+          grep -F 'A body timeout must reopen the missing suffix' results/body-timeout-negative.txt
+          adb shell pm list packages com.google.android.gms > results/google-services-packages.txt
+          cast_contract='com.yfuse.core.cast.CastDiscoveryInstrumentedTest#device_discovery_can_be_refreshed_when_chromecast_is_unavailable'
+          adb shell am instrument -w -r -e class "$cast_contract" com.yfuse.test/androidx.test.runner.AndroidJUnitRunner | tee results/cast-discovery-negative.txt
+          if python3 qa-integrated/check-instrumentation.py results/cast-discovery-negative.txt 1; then
+            echo 'The previous Chromecast loader unexpectedly passed on the guest without Google Play services'; exit 1
+          fi
+          jq -e '.failed==1 and .completed==0 and .skipped==0' results/cast-discovery-negative.json
+          grep -F 'ModuleUnavailableException' results/cast-discovery-negative.txt
+          adb shell am instrument -w -r -e class 'com.yfuse.feature.player.SoftFeedbackInstrumentedTest#long_movie_clock_never_moves_the_held_seek_rail' com.yfuse.test/androidx.test.runner.AndroidJUnitRunner | tee results/geometry-negative.txt
+          if python3 qa-integrated/check-instrumentation.py results/geometry-negative.txt 1; then
+            echo 'Prior clock layout unexpectedly passed the negative control'; exit 1
+          fi
+          python3 - <<'PY'
+          import json,pathlib
+          result=json.loads(pathlib.Path('results/geometry-negative.json').read_text())
+          text=pathlib.Path('results/geometry-negative.txt').read_text()
+          assert result['failed']==1 and result['completed']==0 and result['skipped']==0, result
+          assert 'Clock changed the held seek rail' in text, 'Unexpected negative-control failure'
+          PY
+          adb shell am instrument -w -r -e class 'com.yfuse.core.designsystem.HeroLiftInstrumentedTest#caption_fades_above_text_and_keeps_white_artwork_readable' com.yfuse.test/androidx.test.runner.AndroidJUnitRunner | tee results/caption-negative.txt
+          if python3 qa-integrated/check-instrumentation.py results/caption-negative.txt 1; then
+            echo 'Prior caption scrim unexpectedly passed the negative control'; exit 1
+          fi
+          jq -e '.failed==1 and .completed==0 and .skipped==0' results/caption-negative.json
+          grep -F 'Caption fade is too abrupt' results/caption-negative.txt
+          adb shell am instrument -w -r -e class 'com.yfuse.feature.player.PlayerPanelNavigationInstrumentedTest#playback_problem_captions_are_readable_on_bright_and_dark_pictures' com.yfuse.test/androidx.test.runner.AndroidJUnitRunner | tee results/diagnostic-contrast-negative.txt
+          adb pull /sdcard/Android/data/com.yfuse/files/problem-contrast results/prior-problem-contrast
+          if python3 qa-integrated/check-instrumentation.py results/diagnostic-contrast-negative.txt 1; then
+            echo 'Previous diagnostic palette unexpectedly passed the contrast control'; exit 1
+          fi
+          jq -e '.failed==1 and .completed==0 and .skipped==0' results/diagnostic-contrast-negative.json
+          grep -F 'Playback diagnostic captions below 4.5:1' results/diagnostic-contrast-negative.txt
+          adb shell mv /sdcard/Android/data/com.yfuse/files/problem-contrast /sdcard/Android/data/com.yfuse/files/problem-contrast-prior
+          adb pull /sdcard/Android/data/com.yfuse/files/soft-feedback results/negative-soft-feedback
+          adb install -r -g preview/instrumentation-target.apk
+          adb shell am instrument -w -r -e class "$tls_contract" com.yfuse.test/androidx.test.runner.AndroidJUnitRunner | tee results/http2-recovery.txt
+          python3 qa-integrated/check-instrumentation.py results/http2-recovery.txt 1
+          adb shell am instrument -w -r -e class "$range_contract" com.yfuse.test/androidx.test.runner.AndroidJUnitRunner | tee results/range-startup.txt
+          python3 qa-integrated/check-instrumentation.py results/range-startup.txt 1
+          adb shell am instrument -w -r -e class "$foreground_range" com.yfuse.test/androidx.test.runner.AndroidJUnitRunner | tee results/range-foreground.txt
+          python3 qa-integrated/check-instrumentation.py results/range-foreground.txt 1
+          grep -F 'test=continuousDemuxReadsUseFullForegroundRangeWhenNoSpeculativeBlockFits' results/range-foreground.txt
+          grep -F 'test=continuousDemuxReadsUseASingleHttpRangePerFollowingBlockWithoutAnEntityTag' results/range-startup.txt
+          grep -F 'test=stalledHttp2BodyResumesOnIndependentTlsConnectionWithTheSamePinAndMissingRange' results/http2-recovery.txt
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+          ffmpeg -v error -y -f lavfi -i testsrc2=size=320x180:rate=10 -f lavfi -i anullsrc=r=48000:cl=mono -t 20 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac -b:a 64k -movflags +faststart "$RUNNER_TEMP/enhanced-retry.mp4"
+          sha256sum "$RUNNER_TEMP/enhanced-retry.mp4" > results/fixture.sha256
+          ffprobe -v error -show_entries stream=codec_name,codec_type,width,height:format=duration -of json "$RUNNER_TEMP/enhanced-retry.mp4" > results/fixture.json
+          jq -e '.streams | any(.codec_name=="h264" and .width==320 and .height==180)' results/fixture.json
+          jq -e '.streams | any(.codec_name=="aac")' results/fixture.json
+          adb shell mkdir -p /sdcard/Android/data/com.yfuse/files
+          adb push "$RUNNER_TEMP/enhanced-retry.mp4" /sdcard/Android/data/com.yfuse/files/enhanced-retry.mp4
+          adb shell sha256sum /sdcard/Android/data/com.yfuse/files/enhanced-retry.mp4 > results/device-fixture.sha256
+          test "$(cut -d' ' -f1 results/fixture.sha256)" = "$(tr -d '\r' < results/device-fixture.sha256 | cut -d' ' -f1)"
+          adb shell am instrument -w -r -e enhancedRetryDecodePath software -e enhancedRetryFixture /sdcard/Android/data/com.yfuse/files/enhanced-retry.mp4 -e class 'com.yfuse.core.cast.CastDiscoveryInstrumentedTest#device_discovery_can_be_refreshed_when_chromecast_is_unavailable,com.yfuse.core.designsystem.ComponentMotionInstrumentedTest#fractional_indicator_progress_redraws_without_recomposing_or_relaying_out,com.yfuse.core.designsystem.HeroLiftInstrumentedTest#caption_fades_above_text_and_keeps_white_artwork_readable,com.yfuse.core2.android.SoftwareOutputContractInstrumentedTest,com.yfuse.feature.player.SoftFeedbackInstrumentedTest#seek_cancel_never_commits_and_release_commits_once_with_or_without_motion,com.yfuse.feature.player.SoftFeedbackInstrumentedTest#long_movie_clock_never_moves_the_held_seek_rail,com.yfuse.feature.player.BufferedScrubDecodeInstrumentedTest,com.yfuse.core2.android.YCoreMediaSuiteInstrumentedTest#enhanced_transport_retry_keeps_the_assigned_route_and_renders_again,com.yfuse.feature.player.PlayerPanelNavigationInstrumentedTest#refused_media_read_shows_the_network_stage_and_retry_advice,com.yfuse.feature.player.PlayerPanelNavigationInstrumentedTest#playback_problem_captions_are_readable_on_bright_and_dark_pictures' com.yfuse.test/androidx.test.runner.AndroidJUnitRunner | tee results/contracts.txt
+          adb pull /sdcard/Android/data/com.yfuse/files/problem-contrast results/current-problem-contrast
+          python3 qa-integrated/check-instrumentation.py results/contracts.txt 17
+          grep -E 'OK \(17 tests\)' results/contracts.txt
+          grep -F 'test=device_discovery_can_be_refreshed_when_chromecast_is_unavailable' results/contracts.txt
+          grep -F 'test=bodyTimeoutResumesAtTheFirstMissingByteAndCachesOnlyVerifiedBytes' results/contracts.txt
+          grep -F 'test=refusedSourceReadReopensAtSameOffsetAndCommitsOnlyReturnedBytes' results/contracts.txt
+          grep -F 'test=refused_media_read_shows_the_network_stage_and_retry_advice' results/contracts.txt
+          grep -F 'test=playback_problem_captions_are_readable_on_bright_and_dark_pictures' results/contracts.txt
+          jq -e 'length==45 and all(.contrast>=4.5 and .settledContrast>=4.5)' results/current-problem-contrast/measurements.json
+          jq -e 'length==45 and any(.contrast<4.5 or .settledContrast<4.5)' results/prior-problem-contrast/measurements.json
+          adb pull /sdcard/Android/data/com.yfuse/files/player-panel-evidence/source-read-refused.png results/source-read-refused.png
+          ! grep -E 'FAILURES|INSTRUMENTATION_FAILED|INSTRUMENTATION_ABORTED' results/contracts.txt
+          adb pull /sdcard/Android/data/com.yfuse/files/soft-feedback results/current-soft-feedback
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: native-video-repair-contracts, path: results/, retention-days: 10}

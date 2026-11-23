@@ -41,6 +41,14 @@ data class YDolbyVisionConfig(
     val supportedAndroidProfileFamily: Boolean
         get() = profile in setOf(4, 5, 7, 8, 9, 10)
 
+    val singleLayerProfile5WithRpu: Boolean
+        get() =
+            profile == 5 &&
+                baseLayerCompatibilityId == 0 &&
+                baseLayerPresent &&
+                rpuPresent &&
+                !enhancementLayerPresent
+
     /**
      * Cross-compatible base-layer family that can be used only when the base layer is actually
      * present. Profile 8/10 subprofiles use the BL compatibility id as the suffix (8.1/8.4,

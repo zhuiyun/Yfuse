@@ -115,6 +115,22 @@ class AndroidAdaptiveCore2RecoveryPlanTest {
     }
 
     @Test
+    fun `audio decoder errors never claim that the video decoder failed`() {
+        for (stage in listOf(YPlaybackFailureStage.AudioDecoderConfigure, YPlaybackFailureStage.AudioDecoderQueue)) {
+            assertEquals(
+                "YCore 2.0 无法解码当前音轨",
+                yCoreNativeDirectFailureMessage(YPlaybackException(YPlaybackFailureCategory.Decoder, stage)),
+            )
+        }
+        assertEquals(
+            "YCore 2.0 无法启动当前视频解码器",
+            yCoreNativeDirectFailureMessage(
+                YPlaybackException(YPlaybackFailureCategory.Decoder, YPlaybackFailureStage.VideoDecoderQueue),
+            ),
+        )
+    }
+
+    @Test
     fun `silent native recovery stays inside the active serialized child`() {
         assertTrue(
             shouldRetryActiveNativeChildInPlace(

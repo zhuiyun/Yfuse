@@ -1,5 +1,6 @@
 package com.yfuse.core.cast
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
@@ -17,6 +18,157 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class DlnaOperationsTest {
+    @Test
+    fun user_seek_supersedes_a_handoff_in_flight_and_an_older_queued_gesture() =
+        runTest {
+            val commands = DlnaSeekCommands()
+            val sent = mutableListOf<Int>()
+            val entered = CompletableDeferred<Unit>()
+            val received = CompletableDeferred<Unit>()
+            val handoff =
+                async {
+                    commands.whenCurrent(0L) {
+                        sent += 11
+                        entered.complete(Unit)
+                        received.await()
+                        11
+                    }
+                }
+            entered.await()
+            val forward = commands.select(60_000L, 1_000L)
+            val queued = async { commands.whenCurrent(forward) { sent.add(60) } }
+            val back = commands.select(20_000L, 2_000L)
+            val latest = async { commands.whenCurrent(back) { sent.add(20) } }
+            received.complete(Unit)
+            assertNull(handoff.await())
+            assertNull(queued.await())
+            assertEquals(true, latest.await())
+            assertNull(commands.whenCurrent(0L) { sent.add(11) })
+            assertEquals(listOf(11, 20), sent)
+        }
+
+    @Test
+    fun an_untrusted_resume_seeks_while_paused_then_plays_after_preroll() =
+        runTest {
+            val commands = DlnaSeekCommands()
+            val state = playing("renderer")
+            val writes = mutableListOf<String>()
+            val result =
+                commands.transport(
+                    state.castSessionToken(),
+                    { state },
+                    seekWhilePaused = { writes.add("Seek") },
+                    isPaused = { writes.add("GetTransportInfo") },
+                ) {
+                    writes.add("Play")
+                    testScheduler.currentTime
+                }
+            assertEquals(1_100L, result?.getOrThrow())
+            assertEquals(listOf("Seek", "GetTransportInfo", "Play"), writes)
+            val unchanged =
+                commands.transport(state.castSessionToken(), { state }, null, { error("No paused probe expected") }) {
+                    testScheduler.currentTime
+                }
+            assertEquals(1_100L, unchanged?.getOrThrow())
+        }
+
+    @Test
+    fun a_refused_seek_or_changed_transport_cannot_unpause_the_renderer() =
+        runTest {
+            val commands = DlnaSeekCommands()
+            val state = playing("renderer")
+            for (rejectSeek in listOf(true, false)) {
+                var played = false
+                val result =
+                    commands.transport(
+                        state.castSessionToken(),
+                        { state },
+                        seekWhilePaused = { if (rejectSeek) throw IOException("Seek refused") },
+                        isPaused = { false },
+                    ) { played = true }
+                assertTrue(result?.exceptionOrNull() is DlnaResumePositionException)
+                assertFalse(played)
+            }
+        }
+
+    @Test
+    fun newer_seek_pause_or_session_during_preroll_supersedes_the_old_play() =
+        runTest {
+            for (next in listOf("seek", "pause", "new load")) {
+                val commands = DlnaSeekCommands()
+                var state = playing("renderer")
+                val token = state.castSessionToken()
+                val started = CompletableDeferred<Unit>()
+                val writes = mutableListOf<String>()
+                val resume =
+                    async {
+                        commands.transport(
+                            token,
+                            { state },
+                            seekWhilePaused = { started.complete(Unit) },
+                            isPaused = { true },
+                        ) { writes.add("Play") }
+                    }
+                started.await()
+                val pause =
+                    when (next) {
+                        "seek" -> {
+                            commands.select(60_000L, testScheduler.currentTime)
+                            null
+                        }
+                        "pause" -> {
+                            async {
+                                commands.transport(token, { state }, null, { false }) { writes.add("Pause") }
+                            }
+                        }
+                        else -> {
+                            state = state.copy(sessionRevision = state.sessionRevision + 1L)
+                            null
+                        }
+                    }
+                assertNull(resume.await())
+                pause?.await()?.getOrThrow()
+                assertEquals(if (next == "pause") listOf("Pause") else emptyList(), writes)
+            }
+        }
+
+    @Test
+    fun paused_clock_must_be_reachable_from_the_last_gesture() {
+        val commands = DlnaSeekCommands()
+        assertFalse(commands.matchesPausedClock(21_000L, 1_000L, 2_000L))
+        commands.select(20_000L, 3_000L)
+        assertTrue(commands.matchesPausedClock(21_000L, 4_500L, 2_000L))
+        assertFalse(commands.matchesPausedClock(95_000L, 4_500L, 2_000L))
+        assertFalse(commands.matchesPausedClock(11_000L, 4_500L, 2_000L))
+        assertFalse(commands.matchesPausedClock(null, 4_500L, 2_000L))
+    }
+
+    @Test
+    fun resume_restores_only_a_corroborated_paused_position_on_an_untrusted_seekable_renderer() {
+        val commands = DlnaSeekCommands()
+        commands.select(20_000L, 3_000L)
+        val paused =
+            CastState(
+                status = CastPlaybackStatus.Paused,
+                positionConfirmed = true,
+                positionMs = 21_000L,
+                capabilities = CastCapabilities(seek = CastCapability.Supported),
+            )
+        assertNull(commands.resumeAnchor(paused, false))
+        assertEquals(21_000L, commands.observeUntrustedClock(CastPlaybackStatus.Paused, 21_000L, 4_500L, 2_000L))
+        assertEquals(21_000L, commands.resumeAnchor(paused, false))
+        assertNull(commands.resumeAnchor(paused, true))
+        assertNull(commands.resumeAnchor(paused.copy(positionConfirmed = false), false))
+        assertNull(commands.resumeAnchor(paused.copy(capabilities = CastCapabilities()), false))
+        assertNull(commands.observeUntrustedClock(CastPlaybackStatus.Paused, 95_000L, 100_000L, 2_000L))
+        assertEquals(21_000L, commands.resumeAnchor(paused, false))
+        commands.observeUntrustedClock(CastPlaybackStatus.Playing, 95_000L, 100_100L, 2_000L)
+        assertNull(commands.resumeAnchor(paused, false))
+        commands.observeUntrustedClock(CastPlaybackStatus.Paused, 22_000L, 101_000L, 2_000L)
+        commands.select(60_000L, 102_000L)
+        assertNull(commands.resumeAnchor(paused.copy(positionMs = 22_000L), false))
+    }
+
     @Test
     fun confirmed_seek_returns_before_an_unnecessary_failing_request() =
         runTest {

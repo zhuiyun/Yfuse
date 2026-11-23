@@ -26,7 +26,8 @@ import org.json.JSONObject;
  * A version-pinned adapter to the unmodified runtime supplied in SenPlayer.apk.
  * No decompiled class is recompiled and no native/permit/signature check is patched.
  * Construction is opt-in: it starts the original HTTPS license verifier with the real host Context.
- * Call all instance methods on the owning engine worker, never on the UI thread.
+ * Call operations on the owning worker. Cancellation/retirePendingOutput are cross-thread
+ * escape hatches; they never wait for native destruction on the UI thread.
  */
 public final class SenPlayerSession implements AutoCloseable {
   public static final String LICENSE_ENDPOINT = "https://www.senmuse.com/api/license";
@@ -76,8 +77,11 @@ public final class SenPlayerSession implements AutoCloseable {
   }
 
   public static boolean supportsProcess() {
-    return android.os.Build.VERSION.SDK_INT >= 28 && android.os.Process.is64Bit()
-        && Arrays.asList(android.os.Build.SUPPORTED_ABIS).contains("arm64-v8a");
+    if (android.os.Build.VERSION.SDK_INT < 28 || !android.os.Process.is64Bit()) return false;
+    // Native Bridge can label the running app arm64 while DexClassLoader still loads
+    // extracted JNI libraries with the device's preferred 64-bit linker.
+    String[] abis = android.os.Build.SUPPORTED_64_BIT_ABIS;
+    return abis.length > 0 && "arm64-v8a".equals(abis[0]);
   }
 
   public SenPlayerSession(Context context, Surface surface, Surface subtitleSurface, Display display,
@@ -196,44 +200,47 @@ public final class SenPlayerSession implements AutoCloseable {
     throw new IOException("SenPlayer rejected external subtitle");
   }
 
-  /** Original Player.M packs two gi3 styles and enables the subtitle output for this source. */
+  /**
+   * The pinned runtime rejects Player.M's bulk subtitle command (-1). Its source-scoped
+   * option command accepts these settings and renders them on the original subtitle surface.
+   * Apply visibility last and propagate any rejected option; never report partial setup as ready.
+   */
   public void configureSubtitles(boolean secondary, double primaryScale, double secondaryScale,
       double primaryDelay, double secondaryDelay, String foreground, String outline, String background,
       double outlineWidth, boolean customStyle) throws Exception {
     ensureUsable();
-    rt.requirePermit();
-    Class<?> configClass = rt.loader.loadClass("hi3");
-    Object config = subtitleConfiguration(configClass, rt.loader.loadClass("gi3"), secondary,
-        primaryScale, secondaryScale, primaryDelay, secondaryDelay, foreground, outline, background,
-        outlineWidth, customStyle);
-    checkCode(awaitOperation(invoke("M", new Class[] {configClass, long.class}, config, source)));
+    for (Map.Entry<String, String> option : subtitleOptions(secondary, primaryScale, secondaryScale,
+        primaryDelay, secondaryDelay, foreground, outline, background, outlineWidth, customStyle).entrySet()) {
+      command("option", new String[] {option.getKey(), option.getValue()});
+    }
   }
 
-  static Object subtitleConfiguration(Class<?> configClass, Class<?> styleClass, boolean secondary,
-      double primaryScale, double secondaryScale, double primaryDelay, double secondaryDelay,
-      String foreground, String outline, String background, double outlineWidth, boolean customStyle)
-      throws ReflectiveOperationException {
-    Object config = configClass.getConstructor().newInstance();
+  static Map<String, String> subtitleOptions(boolean secondary, double primaryScale, double secondaryScale,
+      double primaryDelay, double secondaryDelay, String foreground, String outline, String background,
+      double outlineWidth, boolean customStyle) {
+    Map<String, String> options = new LinkedHashMap<>();
     for (boolean second : new boolean[] {false, true}) {
-      Object style = styleClass.getConstructor().newInstance();
-      styleClass.getField("a").set(style, "Roboto");
-      styleClass.getField("b").set(style, foreground);
-      styleClass.getField("c").set(style, outline);
-      styleClass.getField("e").set(style, background);
-      styleClass.getField("g").setDouble(style, second ? secondaryScale : primaryScale);
-      styleClass.getField("i").setDouble(style, second ? secondaryDelay : primaryDelay);
-      styleClass.getField("j").setDouble(style, outlineWidth);
-      configClass.getField(second ? "b" : "a").set(config, style);
+      String prefix = second ? "secondary-sub-" : "sub-";
+      options.put(prefix + "font", "Roboto");
+      options.put(prefix + "font-size", "40");
+      options.put(prefix + "scale", Double.toString(second ? secondaryScale : primaryScale));
+      options.put(prefix + "delay", Double.toString(second ? secondaryDelay : primaryDelay));
+      options.put(prefix + "color", foreground);
+      options.put(prefix + "border-color", outline);
+      options.put(prefix + "back-color", background);
+      options.put(prefix + "border-size", Double.toString(outlineWidth));
+      options.put(prefix + "shadow-offset", "1.0");
+      options.put(prefix + "spacing", "0.0");
+      options.put(prefix + "italic", "no");
+      options.put(prefix + "bold", "no");
+      options.put(prefix + "ass-override", customStyle ? "force" : "no");
     }
-    configClass.getField("c").set(config, "/system/fonts");
-    configClass.getField("d").set(config, "none");
-    configClass.getField("e").setBoolean(config, true); // visible
-    configClass.getField("f").setBoolean(config, customStyle);
-    configClass.getField("g").setBoolean(config, secondary);
-    configClass.getField("i").setBoolean(config, true); // aspect correction
-    configClass.getField("l").setDouble(config, 1.0); // HDR brightness
-    configClass.getField("m").setDouble(config, 1.0); // opacity
-    return config;
+    options.put("subtitle-brightness", "1.0");
+    options.put("subtitle-opacity", "1.0");
+    options.put("subtitle-hdr", "no");
+    options.put("sub-visibility", "yes");
+    options.put("secondary-sub-visibility", secondary ? "yes" : "no");
+    return options;
   }
   private void command(String command, String[] strings, double... numbers) throws Exception {
     rt.requirePermit();
@@ -336,6 +343,11 @@ public final class SenPlayerSession implements AutoCloseable {
       }
     pauseForFailure();
   }
+  /** Invalidate a stalled output immediately; its owning worker later joins close(). */
+  public void retirePendingOutput() throws Exception {
+    cancelPendingRead();
+    beginNativeRelease();
+  }
   @Override
   public void close() throws Exception {
     if (!closed.compareAndSet(false, true))
@@ -401,9 +413,18 @@ public final class SenPlayerSession implements AutoCloseable {
       throw error;
     }
   }
+  public static final class CommandRejected extends IOException {
+    public final int code;
+    public CommandRejected(int code) {
+      super("SenPlayer command failed (" + code + ")");
+      this.code = code;
+    }
+  }
   private static void checkCode(Object value) throws IOException {
-    if (!(value instanceof Number) || ((Number) value).intValue() != 0)
+    if (!(value instanceof Number))
       throw new IOException("SenPlayer command failed (" + value + ")");
+    int code = ((Number) value).intValue();
+    if (code != 0) throw new CommandRejected(code);
   }
   private static Number number(Object value, String field) throws Exception {
     return (Number) value.getClass().getField(field).get(value);

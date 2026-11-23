@@ -134,9 +134,10 @@ class ServerHealthMonitor(
     val checking: StateFlow<Map<String, Int>> = activeChecks.asStateFlow()
     private val appForeground = MutableStateFlow(false)
     private val playerVisible = MutableStateFlow(false)
+    private val statusRelevant = MutableStateFlow(true)
 
-    /** Counts real returns of the app to the foreground; each one re-checks every server that is due. */
-    private val foregroundEntries = MutableStateFlow(0)
+    /** Returning to the foreground or to content that uses server health rechecks only due servers. */
+    private val refreshEntries = MutableStateFlow(0)
     private var started = false
 
     // Written by concurrent probes; a plain map raced its own iteration in `retainAll`.
@@ -163,7 +164,7 @@ class ServerHealthMonitor(
             var roundedFor: Pair<List<String>, Int>? = null
             combine(
                 registry.data.map { data -> data to data.probeIdentity() }.distinctUntilChangedBy { it.second },
-                foregroundEntries,
+                refreshEntries,
                 probing,
             ) { (data, identity), entries, active -> Triple(data, identity to entries, active) }
                 .collectLatest { (data, trigger, active) ->
@@ -174,21 +175,23 @@ class ServerHealthMonitor(
                     verdicts.update { current -> current.filterKeys { it in ids } }
                     // Pausing cancels a round in flight. Resuming alone - the player closing over
                     // the library - is not a reason for one: it used to re-probe every server,
-                    // dead ones included, after each playback. Only a changed registry or a real
-                    // return from the background is, and then only for servers that are due.
+                    // dead ones included, after each playback. Registry changes and returns to
+                    // content that uses health are handled only for servers that are due.
                     if (!active || trigger == roundedFor) return@collectLatest
                     roundedFor = trigger
                     refreshDue(data.servers)
                 }
         }
         scope.launch {
-            probing.collectLatest { active ->
-                if (!active) return@collectLatest
-                while (isActive) {
-                    delay(HEALTH_REFRESH_INTERVAL_MS)
-                    refreshDue(registry.data.value.servers)
+            combine(probing, statusRelevant) { active, relevant -> active && relevant }
+                .distinctUntilChanged()
+                .collectLatest { active ->
+                    if (!active) return@collectLatest
+                    while (isActive) {
+                        delay(HEALTH_REFRESH_INTERVAL_MS)
+                        refreshDue(registry.data.value.servers)
+                    }
                 }
-            }
         }
     }
 
@@ -199,8 +202,15 @@ class ServerHealthMonitor(
     fun setAppForeground(value: Boolean) {
         // Coming back while a player covers the library is not a return to the library. Counted
         // before the flag flips, so the round starts once rather than being restarted by it.
-        if (value && !appForeground.value && !playerVisible.value) foregroundEntries.update { it + 1 }
+        if (value && !appForeground.value && !playerVisible.value) refreshEntries.update { it + 1 }
         appForeground.value = value
+    }
+
+    /** The profile tab has no live server status. Explicit checks and credential changes still work there. */
+    fun setStatusRelevant(value: Boolean) {
+        if (statusRelevant.value == value) return
+        statusRelevant.value = value
+        if (value && appForeground.value && !playerVisible.value) refreshEntries.update { it + 1 }
     }
 
     /**

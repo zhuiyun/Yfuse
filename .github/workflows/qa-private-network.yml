@@ -1,0 +1,54 @@
+name: Compare provider entry redirects with server-resolved CDN edge URLs
+on:
+  push:
+    branches: [codex/two-engines-cloud-seek-20261113]
+    paths: ['.github/workflows/qa-private-network.yml']
+permissions: {contents: read, actions: read}
+jobs:
+  network:
+    name: Direct Range network shard ${{ matrix.shard }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {shard: 0, host: ubuntu-24.04-arm}
+    runs-on: ${{ matrix.host }}
+    timeout-minutes: 30
+    env:
+      QA_SHARD: ${{ matrix.shard }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - name: Prepare one-use public key
+        run: |
+          umask 077
+          mkdir private-key
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out "$RUNNER_TEMP/qa-private.pem" 2>/dev/null
+          openssl pkey -in "$RUNNER_TEMP/qa-private.pem" -pubout -out private-key/public.pem
+          sudo apt-get update -qq
+          sudo apt-get install -y python3-pil python3-cryptography
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: network-sourcekey-${{ github.run_id }}-${{ matrix.shard }}-${{ github.run_attempt }}
+          path: private-key/public.pem
+          retention-days: 1
+      - name: Wait for the encrypted two-source diagnostic
+        env: {API_TOKEN: '${{ github.token }}'}
+        run: |
+          set -euo pipefail
+          api="https://api.github.com/repos/$GITHUB_REPOSITORY"
+          for i in $(seq 1 350); do
+            http=$(curl -sSL -o "$RUNNER_TEMP/envelope.json" -w '%{http_code}' -H "Authorization: Bearer $API_TOKEN" -H 'Accept: application/vnd.github.raw+json' "$api/contents/qa-private-arm-input/$GITHUB_RUN_ID-$QA_SHARD-$GITHUB_RUN_ATTEMPT.json?ref=codex%2Ftwo-engines-cloud-seek-20261113")
+            if [[ "$http" = 200 ]]; then break; fi
+            sleep 4
+          done
+          test "$http" = 200
+          chmod 600 "$RUNNER_TEMP/envelope.json"
+      - name: Read only three one-kilobyte ranges from each original
+        run: /usr/bin/python3 qa-private-arm/network.py
+      - name: Discard one-use locations and key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/qa-private.pem" "$RUNNER_TEMP/envelope.json"
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: 'network-ranges-${{ matrix.shard }}', path: network-results/, retention-days: 5}

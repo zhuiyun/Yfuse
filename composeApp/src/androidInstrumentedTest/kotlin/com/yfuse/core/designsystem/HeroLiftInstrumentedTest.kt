@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.ui.Modifier
@@ -33,9 +34,49 @@ import org.junit.runner.RunWith
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.math.roundToInt
 
 @RunWith(AndroidJUnit4::class)
 class HeroLiftInstrumentedTest {
+    @Test(timeout = 30_000)
+    fun caption_fades_above_text_and_keeps_white_artwork_readable() {
+        val caption = AtomicReference(Rect.Zero)
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.setContent {
+                    Box(Modifier.fillMaxSize().background(Color.White).padding(top = 80.dp)) {
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .height(220.dp)
+                                .onGloballyPositioned { caption.set(Rect(it.positionInWindow(), it.size.toSize())) }
+                                .heroCaptionScrim(),
+                        )
+                    }
+                }
+            }
+            waitUntil("The caption was never laid out") { caption.get().height > 0f }
+            SystemClock.sleep(300)
+            val bounds = caption.get()
+            val density = bounds.height / 220f
+            val shot = capture(scenario, Rect(bounds.left, bounds.top - 75 * density, bounds.right, bounds.bottom))
+            try {
+                fun grayAt(dpFromTop: Int): Int {
+                    val y = ((75 + dpFromTop) * density).roundToInt()
+                    return android.graphics.Color.red(shot.getPixel(shot.width / 2, y))
+                }
+
+                val profile = (-72..24 step 4).map(::grayAt)
+                val largestDrop = profile.zipWithNext { above, below -> above - below }.max()
+                assertTrue("Caption fade is too abrupt: $profile", largestDrop <= 20 && grayAt(-28) in 150..215)
+                assertTrue("White artwork lost its brightness above the fade", profile.first() >= 246)
+                assertTrue("Caption text lost its contrast on white artwork", grayAt(24) in 90..105)
+            } finally {
+                shot.recycle()
+            }
+        }
+    }
+
     // The detail page's title sheet: lifted further than it is tall, so its list slot is 0px and
     // every line of it sits above that slot, over the artwork. Recorded into the slot's own layer,
     // the text met an empty clip and was never drawn — 片名, 年份, 评分 and 类型 went missing.

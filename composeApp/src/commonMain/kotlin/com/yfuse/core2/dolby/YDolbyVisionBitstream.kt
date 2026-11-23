@@ -3,38 +3,31 @@ package com.yfuse.core2.dolby
 import com.yfuse.core2.bitstream.YBitstream
 import com.yfuse.core2.bitstream.YNalCodec
 import com.yfuse.core2.bitstream.YSamplePacking
+import com.yfuse.core2.bitstream.pack
 
 /**
  * Produces an HEVC base-layer access unit for explicitly compatible Dolby Vision profiles.
  *
- * RPU (UNSPEC62) and enhancement-layer (UNSPEC63) units are removed and the output is normalized
- * to Annex-B. Callers must still require a Dolby configuration whose compatibility id proves the
- * remaining base is a valid HDR10/HLG/SDR representation; this helper never makes that decision.
+ * MediaCodec accepts Annex B. A decoder initialized with container extradata needs that
+ * container's original NAL packing. A packet that contains only enhancement data has no base
+ * bytes to enqueue. Callers must verify the source's base-layer compatibility before filtering.
  */
 fun dolbyVisionHevcBaseLayerSample(
     data: ByteArray,
     packing: YSamplePacking,
+    outputPacking: YSamplePacking = YSamplePacking.AnnexB,
 ): ByteArray {
     val units = YBitstream.scan(data, YNalCodec.H265, packing)
     require(units.isNotEmpty()) { "Dolby Vision HEVC access unit contains no NAL units" }
-    val baseUnits = units.filterNot { it.type == DOVI_RPU_NAL || it.type == DOVI_EL_NAL }
-    require(baseUnits.isNotEmpty()) { "Dolby Vision access unit contains no base-layer NAL units" }
-    val output = ByteArray(baseUnits.sumOf { ANNEX_B_START.size + it.length })
-    var cursor = 0
-    baseUnits.forEach { unit ->
-        ANNEX_B_START.copyInto(output, destinationOffset = cursor)
-        cursor += ANNEX_B_START.size
-        data.copyInto(
-            destination = output,
-            destinationOffset = cursor,
-            startIndex = unit.offset,
-            endIndex = unit.offset + unit.length,
-        )
-        cursor += unit.length
-    }
-    return output
+    val baseUnits =
+        units.filter { unit ->
+            val first = data[unit.offset].toInt()
+            val second = data[unit.offset + 1].toInt()
+            val baseLayer = first and 1 == 0 && second and 0xf8 == 0
+            baseLayer && unit.type != DOVI_RPU_NAL && unit.type != DOVI_EL_NAL
+        }
+    return if (baseUnits.size == units.size && outputPacking == packing) data else baseUnits.pack(data, outputPacking)
 }
 
-private val ANNEX_B_START = byteArrayOf(0, 0, 0, 1)
 private const val DOVI_RPU_NAL = 62
 private const val DOVI_EL_NAL = 63

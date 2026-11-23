@@ -8,6 +8,7 @@ import com.yfuse.core2.api.YPlaybackException
 import com.yfuse.core2.bitstream.YBitstream
 import com.yfuse.core2.bitstream.YDolbyVisionNalEvidence
 import com.yfuse.core2.capability.YAudioRequirement
+import com.yfuse.core2.capability.YContainer
 import com.yfuse.core2.capability.YHdrType
 import com.yfuse.core2.capability.YVideoCodec
 import com.yfuse.core2.capability.YVideoRequirement
@@ -384,6 +385,8 @@ private const val DOLBY_PROBE_SAMPLE_LIMIT = 24
 
 internal fun YCore2ProbeResult.Success.requiresEnhancedTruthProbe(hintedHighDynamicRange: Boolean = false): Boolean {
     val request = playbackRequest
+    // Platform TS extraction can expose AAC while silently omitting its HEVC video stream.
+    if (request.audioOnly && request.container in setOf(YContainer.MpegTs, YContainer.M2ts)) return true
     // A successful video probe is not proof that MediaExtractor exposed every elementary stream.
     // When it reports no audio at all, ask FFmpeg once before treating the source as video-only.
     if (request.audio == null) return true
@@ -402,7 +405,17 @@ internal fun YCore2ProbeResult.Success.requiresEnhancedTruthProbe(hintedHighDyna
 }
 
 internal fun YCore2ProbeResult.Success.requiresEnhancedTruthProbe(item: YMediaItem): Boolean =
-    (item.sourceHints?.dolbyVision == true && dolbyVisionConfig == null) ||
+    (
+        playbackRequest.audioOnly &&
+            (
+                item.mimeType?.startsWith(
+                    "video/",
+                    ignoreCase = true,
+                ) == true ||
+                    !item.sourceHints?.videoCodec.isNullOrBlank()
+            )
+    ) ||
+        (item.sourceHints?.dolbyVision == true && dolbyVisionConfig == null) ||
         requiresEnhancedTruthProbe(hintedHighDynamicRange = item.sourceHints.hintsHighDynamicRange())
 
 /** True when the server labels the source HDR/HLG/Dolby Vision, whatever the platform extractor says. */

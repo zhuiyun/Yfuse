@@ -68,8 +68,13 @@ FFMPEG_LICENSE="$(manifest_value ycore-demux-ffmpeg-license)"
 echo "FFmpeg license (as configured): ${FFMPEG_LICENSE:-not recorded by this build}"
 [[ "$(manifest_value ycore-demux-source)" == "scripts/native/ycore_demux_jni.cpp" ]] ||
   fail "native provenance points at an unexpected YCore source"
-[[ "$(manifest_value ycore-software-decoder-api)" == "4" ]] ||
-  fail "YCore software decoder API v4 (float PCM, RGBA output, stream colour matrix, damaged-packet tolerance) is missing"
+software_api="$(manifest_value ycore-software-decoder-api)"
+case "$software_api" in
+  4) ;; # Historical pinned artifact.
+  6) [[ "$(manifest_value ycore-profile5-mapping-source)" == "scripts/native/ycore_dovi_profile5.h" ]] ||
+       fail "YCore Profile 5 colour mapping provenance is missing" ;;
+  *) fail "Unrecognized YCore software decoder API" ;;
+esac
 [[ "$(manifest_value ycore-tone-map-source)" == "scripts/native/ycore_tone_map.h" ]] ||
   fail "YCore HDR tone-map provenance is missing"
 [[ "$(manifest_value ycore-libass)" == "0.17.4" ]] || fail "unexpected libass revision"
@@ -156,6 +161,10 @@ for bridge in "${bridges[@]}"; do
   readelf -Ws "$bridge" > "$symbols"
   readelf -dW "$bridge" > "$dynamic"
   strings "$bridge" > "$bridge_strings"
+  if [[ "$software_api" == 6 ]]; then
+    grep -Fx 'nativeConfigureProfile5Decoder' "$bridge_strings" >/dev/null ||
+      fail "$abi bridge is missing the registered Profile 5 decoder method"
+  fi
 
   grep -F 'JNI_OnLoad' "$symbols" >/dev/null || fail "$abi bridge does not export JNI_OnLoad"
   readelf -SW "$bridge" | grep -F '.gnu_debugdata' >/dev/null ||

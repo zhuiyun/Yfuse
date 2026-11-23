@@ -85,7 +85,10 @@ class NativeEnhancedCommandPolicyTest {
     fun local_and_loopback_sources_do_not_reenter_the_proxy() {
         assertFalse(shouldProxyEnhancedSourceUri("file:///storage/emulated/0/video.mkv"))
         assertFalse(shouldProxyEnhancedSourceUri("/storage/emulated/0/video.mkv"))
-        assertFalse(shouldProxyEnhancedSourceUri("http://127.0.0.1:1234/ycore/video.mkv"))
-        assertFalse(shouldProxyEnhancedSourceUri("http://localhost:1234/ycore/video.mkv"))
+        assertFalse(shouldProxyEnhancedSourceUri("http://127.0.0.1:1234/ycore-resource/id/resource.mkv"))
+        assertFalse(shouldProxyEnhancedSourceUri("http://localhost:1234/ycore-resource/id/resource.mkv"))
+        assertFalse(shouldProxyEnhancedSourceUri("http://[::1]:1234/ycore-resource/id/resource.mkv"))
+        assertTrue(shouldProxyEnhancedSourceUri("http://127.0.0.1:1234/film.mp4"))
+        assertTrue(shouldProxyEnhancedSourceUri("http://localhost:8096/Videos/1/stream"))
     }
 }

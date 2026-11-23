@@ -8,6 +8,7 @@ import com.yfuse.core2.api.YBufferRangeCoverage
 import com.yfuse.core2.api.YBufferRangeSource
 import com.yfuse.core2.api.YBufferSnapshot
 import com.yfuse.core2.api.YBufferedRange
+import com.yfuse.senplayer.SenPlayerSession
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -16,6 +17,58 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class SenPlayerStatePolicyTest {
+    @Test
+    fun only_a_refusal_from_the_current_source_explains_a_network_failure() {
+        val failures = PlaybackProxyFailureState()
+        val previous = failures.beginSource()
+        val current = failures.beginSource()
+        failures.recordRefusedRead(previous)
+        assertFalse(failures.snapshot().refusedRead)
+        failures.recordRefusedRead(current)
+        failures.clearRefusedRead(previous)
+        val refused = failures.snapshot()
+        val reason = requireNotNull(senPlayerSourceFailure(refused.httpStatus, refused.refusedRead))
+        assertEquals(PlaybackFailureKind.Network, reason.kind)
+        assertTrue(reason.message.contains("片源服务器"))
+        val state = PlaybackState().forSenPlayerFailure(reason.message, reason.kind)
+        assertEquals("连接与读取", explainPlaybackProblem(state).stage)
+        failures.recordHttpStatus(current, 403)
+        failures.recordRefusedRead(current)
+        failures.clearRefusedRead(current)
+        val denied = failures.snapshot()
+        assertFalse(denied.refusedRead)
+        assertEquals(
+            PlaybackFailureKind.Authorization,
+            senPlayerSourceFailure(denied.httpStatus, denied.refusedRead)?.kind,
+        )
+    }
+
+    @Test
+    fun upstream_rejection_does_not_label_the_native_engine_unavailable() {
+        val failure = requireNotNull(senPlayerSourceFailure(403))
+        assertEquals(PlaybackFailureKind.Authorization, failure.kind)
+        assertTrue(failure.message.contains("HTTP 403"))
+        assertFalse(failure.message.contains("内核不可用"))
+        assertFalse(failure.kind.penalizesEngine)
+        assertEquals(PlaybackFailureKind.Network, senPlayerSourceFailure(410)?.kind)
+        assertNull(senPlayerSourceFailure(null))
+    }
+
+    @Test
+    fun truncated_remote_seek_reopens_once_at_the_requested_movie_position() {
+        val recovery = SenPlayerRemoteEndRecovery()
+        recovery.onSeek(159_000)
+        recovery.observePosition(8_633)
+        assertEquals(159_000L, recovery.recoveryPosition(8_633, 7_949_000))
+        assertEquals(null, recovery.recoveryPosition(8_633, 7_949_000))
+        recovery.onSeek(4_000_000)
+        recovery.observePosition(4_000_035)
+        assertEquals(4_005_000L, recovery.recoveryPosition(4_005_000, 7_949_000))
+        recovery.onSeek(7_948_000)
+        assertEquals(7_948_000L, recovery.recoveryPosition(8_633, 7_949_000))
+        assertEquals(null, SenPlayerRemoteEndRecovery().recoveryPosition(7_948_000, 7_949_000))
+    }
+
     @Test
     fun next_source_and_failure_keep_controls_but_clear_previous_picture_acknowledgements() {
         val applied =
@@ -218,8 +271,29 @@ class SenPlayerStatePolicyTest {
         assertNull(senPlayerPendingSeekTarget(45_000, 60_000, "loading"))
         assertNull(senPlayerPendingSeekTarget(45_000, 60_000, "failed"))
         assertNull(senPlayerPendingSeekTarget(null, 60_000, "playing"))
+        assertEquals(45_000L, senPlayerPendingSeekTarget(45_000, 60_000, "ended"))
         assertEquals(45_000L, senPlayerPendingSeekTarget(45_000, 60_000, "paused"))
         assertEquals(60_000L, senPlayerPendingSeekTarget(Long.MAX_VALUE, 60_000, "playing"))
+    }
+
+    @Test
+    fun completed_source_reopens_once_even_when_the_native_seek_races_the_final_frame() {
+        var opens = 0
+        val rejected = SenPlayerSession.CommandRejected(-2)
+        seekOrReopenCompletedSenPlayerSource(true, { error("seek after EOF") }, { error("unused") }) { opens++ }
+        seekOrReopenCompletedSenPlayerSource(false, { throw rejected }, { true }) { opens++ }
+        seekOrReopenCompletedSenPlayerSource(false, {}, { error("healthy seek read another snapshot") }) { opens++ }
+        assertEquals(2, opens)
+        for (code in listOf(-2, -5)) {
+            assertFailsWith<SenPlayerSession.CommandRejected> {
+                seekOrReopenCompletedSenPlayerSource(
+                    false,
+                    { throw SenPlayerSession.CommandRejected(code) },
+                    { code != -2 },
+                    { error("reopened without a confirmed EOF seek rejection") },
+                )
+            }
+        }
     }
 
     @Test

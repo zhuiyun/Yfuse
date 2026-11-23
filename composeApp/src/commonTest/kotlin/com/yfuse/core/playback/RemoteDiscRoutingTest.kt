@@ -7,10 +7,8 @@ import kotlin.test.assertTrue
 /**
  * A remote ISO can only reach the screen through the server.
  *
- * libdvdnav and libbluray address a disc through a device path, which an http URL is not, so
- * mpv cannot be handed `dvd://`/`bd://` for a source on the server — and no demuxer will open
- * a raw `.iso` byte stream either. The whole route therefore depends on the server parsing the
- * main feature, which is why the probe service skips remote disc sources outright.
+ * libdvdnav and libbluray use local device paths. A remote disc image therefore needs a main
+ * feature stream from the server. The probe service skips the remote image itself.
  */
 class RemoteDiscRoutingTest {
     @Test
@@ -27,7 +25,7 @@ class RemoteDiscRoutingTest {
 
         assertTrue(
             !decision.requiresNativeEngine,
-            "mpv cannot address a disc over http; only the server can produce a main feature",
+            "Remote disc playback requires a main feature stream from the server",
         )
     }
 

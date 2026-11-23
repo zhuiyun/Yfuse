@@ -14,6 +14,7 @@ import com.yfuse.feature.json
 import com.yfuse.feature.testRegistry
 import com.yfuse.feature.testRepo
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.first
@@ -24,6 +25,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withTimeout
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.coroutines.ContinuationInterceptor
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -220,52 +222,59 @@ class PlayerStoreTest {
 
     @Test
     fun prepared_store_does_not_request_backup_before_first_frame() =
-        runTest {
-            val backupRequests = AtomicInteger()
-            val registry =
-                testRegistry().apply {
-                    addOrUpdate(SavedServer("primary", "http://primary", "primary", "u1", "user", "tok"))
-                    addOrUpdate(SavedServer("backup", "http://backup", "backup", "u1", "user", "tok"))
-                }
-            val failover =
-                PlaybackFailoverRequest().apply {
-                    set(PlaybackFailoverPlan("movie", "tmdb:603", listOf("backup")))
-                }
-            val repo =
-                testRepo(dispatcher = UnconfinedTestDispatcher(testScheduler)) { request ->
-                    if (request.url.host == "backup") backupRequests.incrementAndGet()
-                    when {
-                        request.url.encodedPath.endsWith("/PlaybackInfo") -> json("""{"MediaSources":[]}""")
-                        request.url.parameters["AnyProviderIdEquals"] != null -> json("""{"Items":[]}""")
-                        else -> json("""{"Id":"movie","Name":"Movie","Type":"Movie","ProviderIds":{"Tmdb":"603"}}""")
+        runBlocking {
+            withTimeout(5_000L) {
+                // Backup lookup leaves the test scheduler; do not advance virtual deadlines
+                // while its real dispatcher is still preparing the HTTP request.
+                val backupRequests = AtomicInteger()
+                val registry =
+                    testRegistry().apply {
+                        addOrUpdate(SavedServer("primary", "http://primary", "primary", "u1", "user", "tok"))
+                        addOrUpdate(SavedServer("backup", "http://backup", "backup", "u1", "user", "tok"))
                     }
-                }
-            val gate = PreparedPlaybackGate()
-            val store =
-                PlayerStoreFactory(
-                    DefaultStoreFactory(),
-                    repo,
-                    registry,
-                    "movie",
-                    0L,
-                    serverId = "primary",
-                    failoverRequest = failover,
-                    optionalEnrichmentGate = gate::awaitRelease,
-                ).create()
-            try {
-                val ready = store.states.first { !it.loading }
-                assertNull(ready.error)
-                assertTrue(ready.enrichmentPending)
-                assertEquals(0, backupRequests.get())
+                val failover =
+                    PlaybackFailoverRequest().apply {
+                        set(PlaybackFailoverPlan("movie", "tmdb:603", listOf("backup")))
+                    }
+                val repo =
+                    testRepo { request ->
+                        if (request.url.host == "backup") backupRequests.incrementAndGet()
+                        when {
+                            request.url.encodedPath.endsWith("/PlaybackInfo") -> json("""{"MediaSources":[]}""")
+                            request.url.parameters["AnyProviderIdEquals"] != null -> json("""{"Items":[]}""")
+                            else ->
+                                json(
+                                    """{"Id":"movie","Name":"Movie","Type":"Movie","ProviderIds":{"Tmdb":"603"}}""",
+                                )
+                        }
+                    }
+                val gate = PreparedPlaybackGate()
+                val store =
+                    PlayerStoreFactory(
+                        DefaultStoreFactory(),
+                        repo,
+                        registry,
+                        "movie",
+                        0L,
+                        serverId = "primary",
+                        failoverRequest = failover,
+                        optionalEnrichmentGate = gate::awaitRelease,
+                    ).create()
+                try {
+                    val ready = store.states.first { !it.loading }
+                    assertNull(ready.error)
+                    assertTrue(ready.enrichmentPending)
+                    assertEquals(0, backupRequests.get())
 
-                val timing = PlaybackLaunchTiming().also { it.claim() }
-                gate.claim(timing)
-                assertEquals(0, backupRequests.get())
-                timing.stage("first_video_output", output = true)
-                store.states.first { !it.enrichmentPending }
-                assertTrue(backupRequests.get() > 0)
-            } finally {
-                store.dispose()
+                    val timing = PlaybackLaunchTiming().also { it.claim() }
+                    gate.claim(timing)
+                    assertEquals(0, backupRequests.get())
+                    timing.stage("first_video_output", output = true)
+                    store.states.first { !it.enrichmentPending }
+                    assertTrue(backupRequests.get() > 0)
+                } finally {
+                    store.dispose()
+                }
             }
         }
 
@@ -413,7 +422,9 @@ class PlayerStoreTest {
     @Test
     fun episode_loads_series_queue_and_resume_position() =
         runBlocking {
-            // Negotiation resumes from Dispatchers.Default. Keep its catalog deadline on real time.
+            // Run store callbacks and observation on this one event loop even when negotiation
+            // returns from Dispatchers.Default. The five-second deadline uses the same real clock.
+            Dispatchers.setMain(coroutineContext[ContinuationInterceptor] as CoroutineDispatcher)
             val registry =
                 testRegistry().apply {
                     addOrUpdate(SavedServer("id", "http://host:8096", "server", "u1", "user", "tok"))
@@ -449,21 +460,24 @@ class PlayerStoreTest {
                     startPositionTicks = 25_000_000L,
                 ).create()
 
-            val state = withTimeout(5_000L) { store.states.first { !it.loading && !it.enrichmentPending } }
+            try {
+                val state = withTimeout(5_000L) { store.states.first { !it.loading && !it.enrichmentPending } }
 
-            assertEquals(listOf("e1", "e2"), state.items.map { it.id })
-            assertEquals(listOf(2, 2), state.items.map { it.seasonNumber })
-            assertEquals(listOf(1, 2), state.items.map { it.episodeNumber })
-            assertTrue(
-                state.items.all {
-                    it.posterUrl ==
-                        "http://host:8096/Items/s1/Images/Primary?tag=series-poster&" +
-                        "maxHeight=360&quality=85&format=webp&api_key=tok&ApiKey=tok"
-                },
-            )
-            assertEquals(1, state.startIndex)
-            assertEquals(2_500L, state.startPositionMs)
-            store.dispose()
+                assertEquals(listOf("e1", "e2"), state.items.map { it.id })
+                assertEquals(listOf(2, 2), state.items.map { it.seasonNumber })
+                assertEquals(listOf(1, 2), state.items.map { it.episodeNumber })
+                assertTrue(
+                    state.items.all {
+                        it.posterUrl ==
+                            "http://host:8096/Items/s1/Images/Primary?tag=series-poster&" +
+                            "maxHeight=360&quality=85&format=webp&api_key=tok&ApiKey=tok"
+                    },
+                )
+                assertEquals(1, state.startIndex)
+                assertEquals(2_500L, state.startPositionMs)
+            } finally {
+                store.dispose()
+            }
         }
 
     @Test

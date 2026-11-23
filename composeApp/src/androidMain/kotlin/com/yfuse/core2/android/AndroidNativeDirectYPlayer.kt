@@ -112,6 +112,9 @@ internal class AndroidNativeDirectYPlayer(
     @Volatile
     private var activeSession: AndroidNativeDirectSession? = null
 
+    // A worker cancelled before its first instruction never acquired a session.
+    @Volatile private var cleanupCompleted = true
+
     private val worker: Job = scope.launch { runLoop() }
 
     override val playbackRequested: Boolean get() = mutableState.value.playbackRequested
@@ -126,7 +129,7 @@ internal class AndroidNativeDirectYPlayer(
                 diagnostics = it.diagnostics.copy(renderedFrameRate = null),
             )
         }
-        submit(Command.Prepare)
+        submit(Command.Prepare())
     }
 
     override fun setVideoOutput(output: YVideoOutput?): Boolean {
@@ -156,7 +159,7 @@ internal class AndroidNativeDirectYPlayer(
     }
 
     override fun play() {
-        if (sessionControl.released) return
+        if (sessionControl.released || mutableState.value.phase == YPlaybackPhase.Failed) return
         mutableState.updateState {
             it.copy(
                 playbackRequested = true,
@@ -305,21 +308,21 @@ internal class AndroidNativeDirectYPlayer(
 
     override fun currentPositionMs(): Long = mutableState.value.positionMs
 
-    override fun retry() {
+    override fun retry() = retryAt(null)
+
+    internal fun retryAt(positionMs: Long?) {
         if (sessionControl.released) return
         activeSession?.abortPendingReads()
         mutableState.updateState {
             it.copy(
                 phase = YPlaybackPhase.Preparing,
+                positionMs = positionMs ?: it.positionMs,
                 error = null,
                 buffering = it.playbackRequested,
             )
         }
-        submit(Command.Prepare)
+        submit(Command.Prepare(positionMs))
     }
-
-    @Volatile
-    private var cleanupCompleted = false
 
     override val releaseCompleted: Boolean get() = worker.isCompleted && cleanupCompleted
 
@@ -361,6 +364,7 @@ internal class AndroidNativeDirectYPlayer(
     }
 
     private suspend fun runLoop() {
+        cleanupCompleted = false
         val session =
             AndroidNativeDirectSession(
                 context = appContext,
@@ -545,7 +549,9 @@ internal class AndroidNativeDirectYPlayer(
             val result: AndroidExternalSubtitleSession.Completion,
         ) : Command
 
-        data object Prepare : Command
+        data class Prepare(
+            val positionMs: Long? = null,
+        ) : Command
 
         data object Play : Command
 

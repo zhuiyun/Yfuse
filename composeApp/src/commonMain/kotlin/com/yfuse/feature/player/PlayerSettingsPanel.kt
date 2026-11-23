@@ -8,6 +8,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -24,7 +25,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -168,15 +168,8 @@ internal fun SettingsPanel(
         // Two transitions, because this shell has two axes of change: one popup kind hands
         // over to another here, and 更多 goes a level deeper and comes back inside [MorePanel].
         val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-        // The list takes whatever height the drawer has left instead of the old fixed
-        // 210dp window, which scrolled a short slot inside a mostly empty screen.
-        val panelScroll = key(kind, trackPanelMode) { rememberScrollState() }
-        Column(
-            Modifier
-                .weight(1f, fill = false)
-                .verticalScroll(panelScroll),
-        ) {
-            SettingsKindHost(kind, trackPanelMode, reduceMotion) { currentKind, currentMode ->
+        Column(Modifier.weight(1f, fill = false)) {
+            SettingsKindHost(kind, trackPanelMode, reduceMotion) { currentKind, currentMode, panelScroll ->
                 when (currentKind) {
                     SettingsPanelKind.Danmaku ->
                         DanmakuTab(
@@ -308,7 +301,7 @@ private fun SettingsKindHost(
     kind: SettingsPanelKind,
     mode: TrackPanelMode,
     reduceMotion: Boolean,
-    content: @Composable ColumnScope.(SettingsPanelKind, TrackPanelMode) -> Unit,
+    content: @Composable ColumnScope.(SettingsPanelKind, TrackPanelMode, ScrollState) -> Unit,
 ) {
     AnimatedContent(
         targetState = kind to (if (kind == SettingsPanelKind.Tracks) mode else TrackPanelMode.Subtitle),
@@ -316,17 +309,18 @@ private fun SettingsKindHost(
         modifier = Modifier.fillMaxWidth(),
         label = "player-settings-kind",
     ) { (current, currentMode) ->
+        val panelScroll = rememberScrollState()
         val sizeAware =
             if (current == SettingsPanelKind.More) {
                 Modifier
             } else {
-                Modifier.motionAwareAnimateContentSize()
+                Modifier.verticalScroll(panelScroll).motionAwareAnimateContentSize()
             }
         Column(
             Modifier.fillMaxWidth().then(sizeAware),
             verticalArrangement = Arrangement.spacedBy(5.dp),
         ) {
-            content(current, currentMode)
+            content(current, currentMode, panelScroll)
         }
     }
 }

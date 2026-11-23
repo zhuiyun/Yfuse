@@ -121,6 +121,7 @@ internal class AndroidNativeDirectSession(
     private val rejectedPassthroughTracks = mutableSetOf<Int>()
     private var drmSession: AndroidYCoreDrmSession? = null
     private var drmBinding: AndroidYCoreDrmBinding? = null
+    private var pendingUnpreparedSeekUs: Long? = null
     private var prepared = false
     private var videoConfigured = false
 
@@ -180,6 +181,7 @@ internal class AndroidNativeDirectSession(
     private val renderedFrameRateSampler = YRenderedFrameRateSampler()
     private val pausedPreview = AndroidPausedVideoPreview()
     private val videoEosGate = AndroidVideoEosGate()
+    private val videoFirstOutputWatchdog = VideoFirstOutputWatchdog()
     private val surfaceCompletion = AndroidSurfacePlaybackCompletion()
     private var seekVideoSubmissionPending = false
 
@@ -224,7 +226,7 @@ internal class AndroidNativeDirectSession(
      *
      * Requiring a live Surface for the whole pump is what made a destroyed Surface stop the
      * sound with it: background listening, lock-screen playback and the PiP transition all go
-     * through exactly that path. Exo's `clearVideoSurface` detaches only the video renderer.
+     * through exactly that path.
      */
     private val audioPumpAllowed: Boolean
         get() = outputLifecycle.allowsAudioPump(hasVideoTrack, audioTrackIndex != null)
@@ -263,10 +265,15 @@ internal class AndroidNativeDirectSession(
     fun handle(command: Command) {
         abortIfReleased()
         when (command) {
-            Command.Prepare -> prepareCurrent(mutableState.value.positionMs * MICROS_PER_MILLISECOND)
+            is Command.Prepare ->
+                prepareCurrent(
+                    (command.positionMs ?: mutableState.value.positionMs) * MICROS_PER_MILLISECOND,
+                )
             Command.Play -> startPlayback()
             Command.Pause -> pausePlayback()
-            is Command.Seek -> seekTo(command.positionUs)
+            is Command.Seek -> {
+                if (prepared) seekTo(command.positionUs) else pendingUnpreparedSeekUs = command.positionUs
+            }
             is Command.SetSpeed -> updateSpeed(command.speed)
             is Command.SetAudioDelay -> updateAudioDelay(command.delayMs)
             is Command.SetAudioEffect -> updateAudioEffect(command.effect)
@@ -288,6 +295,7 @@ internal class AndroidNativeDirectSession(
                 }
             }
             is Command.SelectItem -> {
+                pendingUnpreparedSeekUs = null
                 currentIndex = command.index
                 prepareCurrent(0L)
             }
@@ -304,6 +312,12 @@ internal class AndroidNativeDirectSession(
                 return true
             }
             if (requestedPlay && !refreshOutputGate()) {
+                videoFirstOutputWatchdog.stalled(
+                    System.nanoTime(),
+                    active = false,
+                    outputVerified = firstVideoFrameRendered,
+                    masterPositionUs = currentPositionUs(),
+                )
                 publishClockPosition()
                 return false
             }
@@ -366,6 +380,20 @@ internal class AndroidNativeDirectSession(
                 externalSubtitleSession.request(secondaryExternalSubtitleId)
             }
             recoverVideoIfNoSyncSampleArrives()
+            if (videoFirstOutputWatchdog.stalled(
+                    nowNs = System.nanoTime(),
+                    active = requestedPlay && videoRenderable && !videoOutputEnded,
+                    outputVerified = firstVideoFrameRendered,
+                    masterPositionUs = currentPositionUs(),
+                )
+            ) {
+                throw YPlaybackException(
+                    category = YPlaybackFailureCategory.Decoder,
+                    stage = YPlaybackFailureStage.VideoDecoderQueue,
+                    safeDetail = "NativeDirect video decoder produced no first frame after accepting input",
+                    cause = VideoDecoderNoOutputException(),
+                )
+            }
             publishClockPosition()
             if (requestedPlay) finishIfEnded()
             return didWork
@@ -389,7 +417,9 @@ internal class AndroidNativeDirectSession(
         }
     }
 
-    private fun prepareCurrent(positionUs: Long) {
+    private fun prepareCurrent(startPositionUs: Long) {
+        val positionUs = pendingUnpreparedSeekUs ?: startPositionUs
+        pendingUnpreparedSeekUs = null
         // Only the item whose decode-side failure kept the source may reuse it; anything else
         // (another item, a source failure, a later prepare) opens the source afresh.
         val reuseSource = retainedSourceIndex == currentIndex && !demux.readsAborted
@@ -430,15 +460,7 @@ internal class AndroidNativeDirectSession(
             }
         }
         abortIfReleased()
-        externalSubtitleSession.reset(item)
-        externalSubtitles = externalSubtitleSession.tracks
-        selectedExternalSubtitleId = externalSubtitleSession.defaultId
-        if (item.initialTrackSelection?.subtitlesDisabled == true) selectedExternalSubtitleId = null
-        val initialSubtitle = subtitleTracks().matchingPreference(item.initialTrackSelection?.subtitle)
-        if (initialSubtitle != null && item.initialTrackSelection?.subtitlesDisabled != true) {
-            subtitleTrackIndex = initialSubtitle.id.removePrefix(SUBTITLE_TRACK_PREFIX).toIntOrNull()
-            selectedExternalSubtitleId = initialSubtitle.id.takeIf { subtitleTrackIndex == null }
-        }
+        prepareInitialSubtitles(item)
         prepareInitialTracks(item)
         val sourceBitRateBitsPerSecond =
             maxOf(
@@ -526,11 +548,24 @@ internal class AndroidNativeDirectSession(
         if (requestedPlay) startPlayback()
     }
 
+    private fun prepareInitialSubtitles(item: YMediaItem) {
+        externalSubtitleSession.reset(item)
+        externalSubtitles = externalSubtitleSession.tracks
+        selectedExternalSubtitleId = externalSubtitleSession.defaultId
+        if (item.initialTrackSelection?.subtitlesDisabled == true) selectedExternalSubtitleId = null
+        val initialSubtitle = subtitleTracks().matchingPreference(item.initialTrackSelection?.subtitle)
+        if (initialSubtitle != null && item.initialTrackSelection?.subtitlesDisabled != true) {
+            subtitleTrackIndex = initialSubtitle.id.removePrefix(SUBTITLE_TRACK_PREFIX).toIntOrNull()
+            selectedExternalSubtitleId = initialSubtitle.id.takeIf { subtitleTrackIndex == null }
+        }
+    }
+
     /** Selects initial tracks and their formats before opening codecs or starting read-ahead. */
     private fun prepareInitialTracks(item: YMediaItem) {
         // Audio-only media is a first-class source here: music, audiobooks and audio-only
         // versions have no video track and must not be rejected at the container stage.
         videoTrackIndex = demux.findFirstTrack(VIDEO_MIME_PREFIX)
+        validateNativeDirectVideoTrack(item, hasVideoTrack = videoTrackIndex != null)
         val selectedAudio =
             selectNativeDirectInitialAudio(
                 audioDisabled = audioDisabled,
@@ -753,6 +788,9 @@ internal class AndroidNativeDirectSession(
     }
 
     private fun startPlayback() {
+        // Settings/Surface updates can enqueue Play after failure. Only Prepare/Retry may reopen
+        // the source while the router is releasing this child to recover on another route.
+        if (mutableState.value.phase == YPlaybackPhase.Failed) return
         val previewResumeUs = pausedPreview.takeResumePosition()
         requestedPlay = true
         if (prepared && previewResumeUs != null) {
@@ -805,6 +843,12 @@ internal class AndroidNativeDirectSession(
     }
 
     private fun pausePlaybackInternal(keepRequested: Boolean) {
+        videoFirstOutputWatchdog.stalled(
+            System.nanoTime(),
+            active = false,
+            outputVerified = firstVideoFrameRendered,
+            masterPositionUs = currentPositionUs(),
+        )
         bufferWaitClock.reset()
         renderedFrameRateSampler.reset()
         val positionUs = currentPositionUs()
@@ -1291,7 +1335,10 @@ internal class AndroidNativeDirectSession(
                                     sample.cryptoInfo,
                                 )
                             }.also { result ->
-                                if (result == YCodecQueueResult.Queued) videoEosGate.inputQueued()
+                                if (result == YCodecQueueResult.Queued) {
+                                    videoEosGate.inputQueued()
+                                    videoFirstOutputWatchdog.inputQueued(sample.presentationTimeUs)
+                                }
                             }
                         }
                     }
@@ -2460,6 +2507,7 @@ internal class AndroidNativeDirectSession(
     }
 
     private fun resetVideoRenderEvidence() {
+        videoFirstOutputWatchdog.reset()
         renderedFrameRateSampler.reset()
         videoOutputEpoch.reset()
         firstVideoFrameRendered = false
@@ -2467,6 +2515,7 @@ internal class AndroidNativeDirectSession(
     }
 
     private fun attachVideoRenderEvidence() {
+        videoFirstOutputWatchdog.reset()
         renderedFrameRateSampler.reset()
         val generation = videoOutputEpoch.reset()
         firstVideoFrameRendered = false
@@ -2738,7 +2787,12 @@ internal class AndroidNativeDirectSession(
         return keepSource
     }
 
-    fun releaseMedia(keepSource: Boolean = false) {
+    private fun releaseMedia(keepSource: Boolean = false) {
+        releaseOutputsAndResetState(keepSource)
+        if (keepSource) runCatching(demux::pauseReadAhead) else runCatching(demux::release)
+    }
+
+    private fun releaseOutputsAndResetState(keepSource: Boolean) {
         if (!keepSource) retainedSourceIndex = null
         val stats = rebufferTracker.stop(control.releasedAtMs ?: System.nanoTime() / 1_000_000L)
         mutableState.update {
@@ -2791,7 +2845,6 @@ internal class AndroidNativeDirectSession(
         drmBinding = null
         drmSession = null
         if (!retainedVideo) frameRateManager.clear()
-        if (keepSource) runCatching(demux::pauseReadAhead) else runCatching(demux::release)
         prepared = false
         videoConfigured = false
         audioRendererConfigured = false
@@ -2839,7 +2892,7 @@ internal class AndroidNativeDirectSession(
     }
 
     fun releaseAll() {
-        releaseMedia()
+        releaseOutputsAndResetState(keepSource = false)
         demux.close()
         surfaceOutput = null
     }

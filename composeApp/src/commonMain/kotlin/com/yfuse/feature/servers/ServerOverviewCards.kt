@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -26,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
@@ -50,7 +52,6 @@ import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MinTouchTarget
 import com.yfuse.core.designsystem.Semantic
-import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.contentColorForSurface
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.glassControlHighlight
@@ -87,6 +88,7 @@ internal fun routesSummary(
 
 @Composable
 internal fun ServersHeader(
+    hasServers: Boolean,
     /** Null for a profile that cannot add servers; the key is then left out. */
     onAdd: (() -> Unit)?,
     /** A refresh is under way, however it was started; the key waits for it. */
@@ -114,9 +116,13 @@ internal fun ServersHeader(
                 style = AppTypography.display.strong,
                 color = palette.text,
                 // A pull-to-refresh page: TalkBack's touch exploration never produces the pull.
-                modifier = Modifier.weight(1f).refreshAction(enabled = !refreshing, onRefresh = onRefreshAll),
+                modifier =
+                    Modifier
+                        .weight(
+                            1f,
+                        ).refreshAction(enabled = hasServers && !refreshing, onRefresh = onRefreshAll),
             )
-            if (onAdd != null) {
+            if (hasServers && onAdd != null) {
                 Row(
                     Modifier
                         .pressableTarget(AppShapes.chip, onClickLabel = "添加服务器", onClick = onAdd)
@@ -135,6 +141,9 @@ internal fun ServersHeader(
                 }
             }
         }
+        // The empty state already has the only useful action: adding a server.
+        // Sorting, layout and refresh have no target until a server exists.
+        if (!hasServers) return@Column
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -267,6 +276,7 @@ internal fun CurrentServerHero(
     val latencyColor =
         latencySeverityColor(health?.latencySeverity ?: LatencySeverity.Unknown)
     val largeText = LocalDensity.current.fontScale >= SERVER_LARGE_TEXT_SCALE
+    val enterLabel = if (signInOnOpen) "重新登录" else "进入"
 
     Column(
         modifier
@@ -277,15 +287,14 @@ internal fun CurrentServerHero(
                 onLongClick = onMore,
                 onLongClickLabel = "打开${server.serverName}操作",
                 onClick = onOpen,
-            ).shadow(
-                Shadows.primaryButton(accent.accent.copy(alpha = 0.42f)),
-                AppShapes.card,
-            ).liquidGlass(
+            ).background(
+                color =
+                    lerp(
+                        palette.card2.compositeOver(palette.background),
+                        accent.container.compositeOver(palette.background),
+                        0.2f,
+                    ),
                 shape = AppShapes.card,
-                fill = lerp(palette.card, accent.container, if (palette.isDark) 0.26f else 0.22f),
-                border = glassControlHighlight(accent, palette.isDark),
-                over = palette.background,
-                sheen = 0.66f,
             ).padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
@@ -320,7 +329,7 @@ internal fun CurrentServerHero(
                         server.serverName,
                         style = AppTypography.section.strong,
                         color = palette.text,
-                        maxLines = 1,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false),
                     )
@@ -367,33 +376,37 @@ internal fun CurrentServerHero(
             }
             Row(
                 Modifier
-                    .pressable(focusShape = AppShapes.pill, onClickLabel = "进入服务器", onClick = onOpen)
-                    .heightIn(min = MinTouchTarget)
-                    .liquidGlass(AppShapes.pill, accent.container, glassControlHighlight(accent, palette.isDark))
+                    .pressable(
+                        focusShape = AppShapes.pill,
+                        onClickLabel = "$enterLabel${server.serverName}",
+                        onClick = onOpen,
+                    ).heightIn(min = MinTouchTarget)
+                    .background(accent.accent, AppShapes.pill)
                     .padding(horizontal = 14.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(5.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("进入", style = AppTypography.body.strong, color = accent.accent)
+                Text(enterLabel, style = AppTypography.body.strong, color = accent.onAccent)
                 Icon(
                     AppIcons.ChevronRight,
                     contentDescription = null,
-                    tint = accent.accent,
+                    tint = accent.onAccent,
                     modifier = Modifier.size(12.dp),
                 )
             }
         }
 
         if (largeText) {
-            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                HeroMetric(AppIcons.User, serverCount.toString(), "已连接", accent.accent, Modifier.fillMaxWidth())
-                HeroMetric(AppIcons.Server, onlineCount.toString(), "在线", Semantic.Success, Modifier.fillMaxWidth())
-                HeroMetric(
-                    AppIcons.Refresh,
-                    health?.latencyMs?.let { "$it ms" } ?: "未测速",
-                    health?.latencySeverity?.label ?: "延迟",
-                    latencyColor,
-                    Modifier.fillMaxWidth(),
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text("已连接 $serverCount", style = AppTypography.caption.medium, color = palette.sub)
+                Text("在线 $onlineCount", style = AppTypography.caption.medium, color = palette.sub)
+                Text(
+                    health?.latencyMs?.let { "延迟 $it ms" } ?: "延迟未测速",
+                    style = AppTypography.caption.medium,
+                    color = palette.statusText(latencyColor),
                 )
             }
         } else {

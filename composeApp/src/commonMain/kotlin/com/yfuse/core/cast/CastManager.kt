@@ -204,6 +204,7 @@ internal fun CastState.remoteUpdate(
     queueSize: Int? = null,
     currentQueueIndex: Int? = null,
     tracks: List<CastTrack>? = null,
+    resumeConfirmed: Boolean = false,
 ): CastState =
     copy(
         status = status,
@@ -221,6 +222,7 @@ internal fun CastState.remoteUpdate(
         lastRemoteWasPlaying =
             when (status) {
                 CastPlaybackStatus.Playing -> true
+                CastPlaybackStatus.Buffering -> resumeConfirmed || lastRemoteWasPlaying
                 CastPlaybackStatus.Paused, CastPlaybackStatus.Ended -> false
                 else -> lastRemoteWasPlaying
             },

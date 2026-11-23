@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -19,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalDensity
@@ -47,7 +49,7 @@ fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
         Modifier
             .fillMaxWidth()
             .motionAwareAnimateContentSize()
-            .flatGlass(AppShapes.card, palette.card2, palette.border),
+            .background(palette.card2.compositeOver(palette.background), AppShapes.card),
         content = content,
     )
 }
@@ -70,8 +72,8 @@ fun Section(
         ) {
             Text(
                 title,
-                style = AppTypography.caption.medium,
-                color = palette.sub2,
+                style = AppTypography.caption.strong,
+                color = palette.sub,
                 modifier = Modifier.weight(1f).semantics { heading() },
             )
             if (action != null) {
@@ -140,6 +142,8 @@ fun SettingRow(
     dense: Boolean = supporting != null,
     /** Applied first, on the node that carries the row's click and semantics. */
     modifier: Modifier = Modifier,
+    /** Dense account rows may have padded parents; settings cards do not. */
+    contentPadding: PaddingValues? = null,
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
@@ -177,8 +181,10 @@ fun SettingRow(
             }.heightIn(min = if (compact) 54.dp else MinTouchTarget)
             .touchTarget()
             .padding(
-                horizontal = if (compact) 2.dp else 16.dp,
-                vertical = if (compact) 7.dp else 11.dp,
+                contentPadding ?: PaddingValues(
+                    horizontal = if (compact) 2.dp else 16.dp,
+                    vertical = if (compact) 7.dp else 11.dp,
+                ),
             )
 
     Row(

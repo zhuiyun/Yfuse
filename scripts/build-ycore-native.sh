@@ -3,9 +3,10 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# The pinned compatibility build supplies the reproducible Android FFmpeg/libbluray toolchain.
-# build-ycore-demux.sh then compiles YCore and emits a dependency-closed ycore-native.aar that
-# contains none of the mpv/player/MDK runtime.
+if [[ $# -gt 0 && "$*" != "--arch arm64" ]]; then
+  echo "Usage: build-ycore-native.sh [--arch arm64]" >&2
+  exit 2
+fi
 python3 "$ROOT/scripts/package-ycore-native-aar.py" --self-test
 bash "$ROOT/scripts/test-ycore-tone-map.sh"
 bash "$ROOT/scripts/test-ycore-disc-uri.sh"
@@ -14,5 +15,5 @@ bash "$ROOT/scripts/test-ycore-demux-interrupt.sh"
 bash "$ROOT/scripts/test-ycore-demux-seek.sh"
 bash "$ROOT/scripts/test-ycore-gpu-capability.sh"
 python3 "$ROOT/scripts/test-ycore-shader-calibration.py"
-bash "$ROOT/scripts/build-yfuse-mpv-dolby.sh" "$@"
+bash "$ROOT/scripts/build-ycore-dependencies.sh"
 bash "$ROOT/scripts/build-ycore-demux.sh"

@@ -36,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
@@ -1094,13 +1095,8 @@ private fun AccountCard(content: @Composable ColumnScope.() -> Unit) {
         modifier =
             Modifier
                 .fillMaxWidth()
-                .liquidGlass(
-                    shape = shape,
-                    fill = palette.card.copy(alpha = if (palette.isDark) 0.94f else 0.86f),
-                    border = palette.border.copy(alpha = 0.74f),
-                    over = palette.background,
-                    sheen = 0.56f,
-                ).padding(horizontal = 18.dp, vertical = 16.dp),
+                .background(palette.card.compositeOver(palette.background), shape)
+                .padding(horizontal = 18.dp, vertical = 16.dp),
         content = content,
     )
 }

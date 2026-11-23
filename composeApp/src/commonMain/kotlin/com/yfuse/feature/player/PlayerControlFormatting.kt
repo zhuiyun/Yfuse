@@ -94,36 +94,22 @@ internal fun PlaybackState.playbackMethodReadoutLabel(): String? {
     return when {
         transcoding -> PlaybackMethod.Transcode.label
         diagnostic == PlaybackMethod.Transcode.label -> PlaybackMethod.DirectPlay.label
+        diagnostic == "NativeTunnel" || diagnostic == "NativeDirect" || diagnostic == "NativeEnhanced" -> "硬件解码"
+        diagnostic == "GpuEnhanced" -> "增强渲染"
+        diagnostic == "SoftwareFallback" -> "软件解码"
+        diagnostic == "Unknown" -> null
         else -> diagnostic
     }
 }
 
-/**
- * `alphatv · 1080P · YCORE · HEVC · 18.1 Mbps · 60.0 fps` — the line under the title.
- *
- * Every part is dropped the moment it has nothing to say: one server means no server name,
- * a first frame that has not arrived means no resolution, an engine that has not measured a
- * bitrate yet means no bitrate. The line grows into itself over the first second or two
- * rather than printing 未知 six times.
- */
-internal fun PlaybackState.readoutLine(
-    sourceLabel: String?,
-    containerLabel: String?,
-): String {
-    val dolbyVisionLabel = dolbyVisionReadoutLabel()
-    return listOfNotNull(
-        sourceLabel?.takeIf { it.isNotBlank() },
-        playbackMethodReadoutLabel(),
+/** Short context under the title. Per-stream diagnostics live in 媒体信息. */
+internal fun PlaybackState.readoutLine(sourceLabel: String?): String =
+    listOfNotNull(
         resolutionLabel(videoHeight),
-        dolbyVisionLabel,
-        diagnostics.dynamicRange.takeIf { it.isNotBlank() && dolbyVisionLabel == null },
-        containerLabel?.takeIf { it.isNotBlank() },
         diagnostics.engine.takeIf { it.isNotBlank() }?.let(::engineShortLabel),
-        diagnostics.videoCodec.takeIf { it.isNotBlank() && it != "未知" }?.uppercase(),
-        diagnostics.bitrateBitsPerSecond.takeIf { it > 0L }?.asBitrate(),
-        diagnostics.frameRate.takeIf { it > 0f }?.asFrameRate(),
+        PlaybackMethod.Transcode.label.takeIf { transcoding },
+        sourceLabel?.takeIf { it.isNotBlank() },
     ).joinToString(" · ")
-}
 
 /**
  * The readout uses a short engine label.
@@ -137,6 +123,16 @@ private fun engineShortLabel(engine: String): String =
         engine.substringBefore('（').substringBefore(' ').equals(SEN_PLAYER_DISPLAY_NAME, ignoreCase = true) ||
             engine.contains(PlayerEngine.SenPlayer.name, ignoreCase = true) -> SEN_PLAYER_DISPLAY_NAME
         else -> engine.substringBefore(' ').uppercase()
+    }
+
+internal fun codecReadoutLabel(codec: String): String =
+    when (codec.lowercase()) {
+        "video/avc", "avc", "h264" -> "H.264"
+        "video/hevc", "hevc", "h265" -> "HEVC"
+        "video/av01", "av1" -> "AV1"
+        "video/x-vnd.on2.vp8", "vp8" -> "VP8"
+        "video/x-vnd.on2.vp9", "vp9" -> "VP9"
+        else -> codec.uppercase()
     }
 
 private fun resolutionLabel(height: Int): String? =

@@ -5,7 +5,8 @@ package com.yfuse.core.model
  *
  * 短剧 libraries name episodes after their number — 第1集, 第01集, 01, EP01, Episode 1,
  * 第一集 — so a title composed as number plus name read 「第1集 · 第1集」. Blank names and names
- * that only repeat [number] give null; any other name comes back trimmed.
+ * that only repeat [number] give null. A matching episode prefix separated from a title
+ * by a middle dot is redundant when the number is already displayed.
  */
 fun episodeOwnName(
     name: String?,
@@ -13,7 +14,12 @@ fun episodeOwnName(
 ): String? {
     val trimmed = name?.trim()?.takeIf(String::isNotEmpty) ?: return null
     if (number == null) return trimmed
-    return trimmed.takeUnless { numberNamedBy(it) == number }
+    if (numberNamedBy(trimmed) == number) return null
+    val separator = trimmed.indexOf('·')
+    if (separator > 0 && numberNamedBy(trimmed.substring(0, separator)) == number) {
+        return trimmed.substring(separator + 1).trim().ifEmpty { null }
+    }
+    return trimmed
 }
 
 /**

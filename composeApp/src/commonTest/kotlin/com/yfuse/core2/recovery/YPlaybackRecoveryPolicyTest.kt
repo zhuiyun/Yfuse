@@ -7,6 +7,32 @@ import kotlin.test.assertEquals
 
 class YPlaybackRecoveryPolicyTest {
     @Test
+    fun `an explicit output rejection before the first frame changes the decoder`() {
+        for (route in listOf(YPlaybackRoute.NativeDirect, YPlaybackRoute.NativeEnhanced, YPlaybackRoute.GpuEnhanced)) {
+            val failed =
+                context(route, YPlaybackFailureCategory.Decoder, attempts = 0)
+                    .copy(platformDecoderOutputRejected = true, videoOutputPreviouslyVerified = false)
+            assertEquals(YPlaybackRecoveryAction.FallbackToSoftware, YPlaybackRecoveryPolicy.decide(failed))
+            assertEquals(
+                YPlaybackRecoveryAction.RetrySameRoute,
+                YPlaybackRecoveryPolicy.decide(failed.copy(videoOutputPreviouslyVerified = true)),
+            )
+            assertEquals(
+                YPlaybackRecoveryAction.RetrySameRoute,
+                YPlaybackRecoveryPolicy.decide(failed.copy(platformDecoderOutputRejected = false)),
+            )
+            assertEquals(
+                YPlaybackRecoveryAction.RetrySameRoute,
+                YPlaybackRecoveryPolicy.decide(failed.copy(protectedContent = true)),
+            )
+            assertEquals(
+                YPlaybackRecoveryAction.RetrySameRoute,
+                YPlaybackRecoveryPolicy.decide(failed.copy(softwareFallbackAvailable = false)),
+            )
+        }
+    }
+
+    @Test
     fun `transient native codec failure gets one same-route rebuild`() {
         val first =
             context(
@@ -18,6 +44,24 @@ class YPlaybackRecoveryPolicyTest {
 
         assertEquals(YPlaybackRecoveryAction.RetrySameRoute, YPlaybackRecoveryPolicy.decide(first))
         assertEquals(YPlaybackRecoveryAction.FallbackToEnhanced, YPlaybackRecoveryPolicy.decide(second))
+    }
+
+    @Test
+    fun `repeated direct output failure switches decoder when software can carry the video`() {
+        val failed =
+            context(YPlaybackRoute.NativeDirect, YPlaybackFailureCategory.Decoder, attempts = 0)
+                .copy(platformDecoderOutputRejected = true)
+        assertEquals(YPlaybackRecoveryAction.RetrySameRoute, YPlaybackRecoveryPolicy.decide(failed))
+        val repeated = failed.copy(sameRouteAttempts = 1)
+        assertEquals(YPlaybackRecoveryAction.FallbackToSoftware, YPlaybackRecoveryPolicy.decide(repeated))
+        assertEquals(
+            YPlaybackRecoveryAction.FallbackToEnhanced,
+            YPlaybackRecoveryPolicy.decide(repeated.copy(softwareFallbackAvailable = false)),
+        )
+        assertEquals(
+            YPlaybackRecoveryAction.Stop,
+            YPlaybackRecoveryPolicy.decide(repeated.copy(protectedContent = true)),
+        )
     }
 
     @Test

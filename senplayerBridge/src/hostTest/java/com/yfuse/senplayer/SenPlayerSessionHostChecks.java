@@ -33,7 +33,7 @@ public final class SenPlayerSessionHostChecks {
   }
 
   public static void main(String[] args) throws Exception {
-    subtitlesAreVisibleWithOrWithoutASecondaryTrack();
+    subtitlesKeepIndependentTimingAndAuthoredStyles();
     externalTrackRequiresANativeId();
     rangesNeverInventCoverage();
     progressUsesItsOwnSourceAndPreservesGaps();
@@ -45,6 +45,7 @@ public final class SenPlayerSessionHostChecks {
     pauseDoesNotRequireALicense();
     timeoutRetiresInsteadOfReusingThePlayer();
     cancellationRejectsLateCompletion();
+    surfaceDeadlineRetiresWithoutWaitingForNativeDestruction();
     interruptionIsPreserved();
     ordinaryOperationFailureKeepsItsCause();
     closeReleasesOneOwnerEvenOnNativeFailure();
@@ -55,29 +56,30 @@ public final class SenPlayerSessionHostChecks {
     System.out.println("NO_ORIGINAL_RUNTIME_NO_JNI_NO_NETWORK");
   }
 
-  // Reflection-compatible shapes of hi3 and gi3 in the pinned original DEX.
-  public static final class SubtitleConfiguration {
-    public SubtitleStyle a, b;
-    public String c, d;
-    public boolean e, f, g, i;
-    public double l, m;
-  }
-  public static final class SubtitleStyle {
-    public String a, b, c, e;
-    public double g, i, j;
-  }
-
-  private static void subtitlesAreVisibleWithOrWithoutASecondaryTrack() throws Exception {
+  private static void subtitlesKeepIndependentTimingAndAuthoredStyles() {
     for (boolean secondary : new boolean[] {false, true}) {
-      SubtitleConfiguration config = (SubtitleConfiguration) SenPlayerSession.subtitleConfiguration(
-          SubtitleConfiguration.class, SubtitleStyle.class, secondary, 1.2, 0.8, 0.35, -0.5,
-          "#FFFFFFFF", "#000000FF", "#00000000", 2.0, false);
-      check(config.e && config.m == 1.0, "selected English text has a visible, opaque output");
-      check(config.g == secondary && config.i && !config.f, "secondary slot and source-authored style");
-      check(config.c.equals("/system/fonts") && config.d.equals("none"), "Android font source");
-      check(config.a != config.b && config.a.g == 1.2 && config.b.g == 0.8, "independent scales");
-      check(config.a.i == 0.35 && config.b.i == -0.5, "independent delays in seconds");
-      check(config.a.b.equals("#FFFFFFFF") && config.b.e.equals("#00000000"), "RGBA subtitle colors");
+      for (boolean custom : new boolean[] {false, true}) {
+        java.util.Map<String, String> options = SenPlayerSession.subtitleOptions(
+            secondary, 1.2, 0.8, 0.35, -0.5, "#FFFFFFFF", "#000000FF", "#00000000", 2.0, custom);
+        check(options.get("sub-visibility").equals("yes"), "selected primary subtitles stay visible");
+        check(options.get("secondary-sub-visibility").equals(secondary ? "yes" : "no"),
+            "secondary visibility is independent of primary");
+        check(options.get("sub-scale").equals("1.2") && options.get("secondary-sub-scale").equals("0.8"),
+            "independent primary and secondary sizes");
+        check(options.get("sub-delay").equals("0.35") && options.get("secondary-sub-delay").equals("-0.5"),
+            "signed delays in seconds must not be swapped, converted to ms, or applied globally");
+        for (String prefix : new String[] {"sub-", "secondary-sub-"}) {
+          check(options.get(prefix + "ass-override").equals(custom ? "force" : "no"),
+              "source-authored ASS styling survives unless explicitly overridden");
+          check(options.get(prefix + "color").equals("#FFFFFFFF")
+                  && options.get(prefix + "back-color").equals("#00000000"), "RGBA and transparent background");
+        }
+        check(options.get("subtitle-opacity").equals("1.0"), "subtitle output is opaque");
+        List<String> order = new ArrayList<>(options.keySet());
+        check(order.subList(order.size() - 2, order.size())
+                .equals(java.util.Arrays.asList("sub-visibility", "secondary-sub-visibility")),
+            "visibility follows all style options");
+      }
     }
   }
 
@@ -249,6 +251,17 @@ public final class SenPlayerSessionHostChecks {
     f.session.close();
   }
 
+  private static void surfaceDeadlineRetiresWithoutWaitingForNativeDestruction() throws Exception {
+    Fixture f = new Fixture(1);
+    f.player.deferredRelease = new CompletableFuture<>();
+    f.session.retirePendingOutput();
+    check(!f.session.isUsable() && f.session.sourceId() == 0, "surface deadline invalidates late commands");
+    check(f.player.releaseCalls == 1 && !f.player.deferredRelease.isDone(), "UI retirement does not await native destruction");
+    f.player.deferredRelease.complete(null);
+    f.session.close();
+    check(f.player.releaseCalls == 1 && f.license.closeCalls == 1, "worker joins the same release exactly once");
+  }
+
   private static void interruptionIsPreserved() throws Exception {
     Fixture f = new Fixture(1);
     CompletableFuture<Object> interrupted = new CompletableFuture<>() {
@@ -384,6 +397,7 @@ public final class SenPlayerSessionHostChecks {
     static int permitResets;
     int cancelCalls, releaseCalls, surfaceCode;
     boolean paused, releaseFailure;
+    CompletableFuture<Void> deferredRelease;
     int optionCalls;
     Object optionResult = 0;
     String optionName, optionValue;
@@ -405,6 +419,7 @@ public final class SenPlayerSessionHostChecks {
     }
     public CompletableFuture<Void> n() {
       releaseCalls++;
+      if (deferredRelease != null) return deferredRelease;
       CompletableFuture<Void> result = new CompletableFuture<>();
       if (releaseFailure) result.completeExceptionally(new IOException("native release failed"));
       else result.complete(null);

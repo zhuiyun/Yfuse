@@ -779,7 +779,8 @@ internal class AndroidCore2RouteEvaluator(
                                     retainForPlayback =
                                         prepareSourceForPlayback &&
                                             (
-                                                !platform.playbackRequest.platformAudioDemuxSupported ||
+                                                platform.playbackRequest.audioOnly ||
+                                                    !platform.playbackRequest.platformAudioDemuxSupported ||
                                                     platform.playbackRequest.audio == null
                                             ),
                                 ).sourceSuccessOrThrow()
@@ -839,7 +840,18 @@ internal class AndroidCore2RouteEvaluator(
             }
         // Dolby routing is authoritative, not a diagnostic decoration. A profile/display/decoder
         // mismatch must not fall through to the generic HEVC planner and produce a green picture.
-        if (dolbyDecision is YDolbyVisionRouteDecision.Unsupported) return null
+        if (dolbyDecision is YDolbyVisionRouteDecision.Unsupported) {
+            if (!request.enhancedDemuxSupported ||
+                item.drmConfiguration != null ||
+                request.video.secureDecodeRequired ||
+                request.video.codec != YVideoCodec.H265 ||
+                request.video.hdrType != YHdrType.DolbyVision
+            ) {
+                return null
+            }
+            val basePlan = yCoreInternalSoftwareRecoveryPlan(YHdrType.DolbyVision, resolved.dolbyVisionConfig)
+            return basePlan?.let { YCore2RouteDecision(normalizedProbe, it) }
+        }
         var plan = strategy.plan(request, capabilities)
         val unseenRuntimeKey = runtimeVideoCapabilityKey(request, plan)
         if (
@@ -904,10 +916,11 @@ internal class AndroidCore2RouteEvaluator(
         }
         if (dolbyDecision != null) {
             val dolbyLabel =
-                if (plan.usesHdrFallback && plan.softwareVideoToneMap) {
-                    "DV compatible base tone-mapped to SDR"
-                } else {
-                    dolbyDecision.diagnosticLabel()
+                when {
+                    plan.extractsDolbyBaseLayer && plan.softwareVideoToneMap -> "DV compatible base tone-mapped to SDR"
+                    plan.inputHdrType == YHdrType.DolbyVision && plan.softwareVideoToneMap ->
+                        "DV RPU colour conversion to SDR"
+                    else -> dolbyDecision.diagnosticLabel()
                 }
             plan =
                 plan.copy(
@@ -980,7 +993,8 @@ internal fun YCore2RouteDecision.runtimeCapabilityKey(): YRuntimeVideoCapability
     runtimeVideoCapabilityKey(probe.playbackRequest, plan)
 
 internal fun YCore2ProbeResult.Success.materiallyOverrides(platform: YCore2ProbeResult.Success): Boolean =
-    dolbyVisionConfig != null &&
+    playbackRequest.audioOnly != platform.playbackRequest.audioOnly ||
+        dolbyVisionConfig != null &&
         platform.dolbyVisionConfig == null ||
         playbackRequest.video.hdrType != platform.playbackRequest.video.hdrType ||
         playbackRequest.video.codec != platform.playbackRequest.video.codec ||
@@ -1006,7 +1020,8 @@ internal fun YCore2ProbeResult.Success.preservingPlatformDemuxCapability(
             playbackRequest.copy(
                 platformDemuxSupported =
                     playbackRequest.platformDemuxSupported ||
-                        platform.playbackRequest.platformDemuxSupported,
+                        platform.playbackRequest.platformDemuxSupported &&
+                        (!platform.playbackRequest.audioOnly || playbackRequest.audioOnly),
                 platformAudioDemuxSupported =
                     platform.playbackRequest.audio != null &&
                         platform.playbackRequest.platformAudioDemuxSupported,

@@ -1,0 +1,69 @@
+name: Verify original movie and episode playback on the integrated candidate
+on:
+  push:
+    branches: [codex/two-engines-cloud-seek-20261113]
+    paths: ['.github/workflows/qa-integrated-originals.yml']
+permissions: {contents: read, actions: read}
+jobs:
+  build:
+    name: Acquire the qualified identical release candidate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 85
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - name: Wait for unit and actual ARM64 qualification
+        env: {API_TOKEN: "${{ github.token }}"}
+        run: bash qa-integrated/acquire-qualified-candidate.sh 44469657784 382077026e5747530f320c0188ba2eeebd529b7e
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: candidate-test-input, path: preview, retention-days: 7}
+  originals:
+    needs: build
+    name: Original ${{ matrix.engine }} files ${{ matrix.shard }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 100
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        shard: [0,1,2,3,4,5,6,7]
+        engine: [YCore,SenPlayer]
+    env:
+      QA_ENGINE: ${{ matrix.engine }}
+      QA_CAPTURE_FAILURE: true
+      QA_SHARD: ${{ matrix.shard }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: candidate-test-input, path: preview}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: arm-input-driver, path: qa-driver, run-id: 44418487066, github-token: '${{ github.token }}'}
+      - name: Verify identical candidate and prepare original file checks
+        run: |
+          set -euo pipefail
+          mkdir -p results
+          (cd preview && sha256sum -c apk.sha256)
+          grep -Fx "app=382077026e5747530f320c0188ba2eeebd529b7e" preview/provenance.txt
+          cp preview/provenance.txt preview/apk.sha256 results/
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg python3-pil
+      - name: Boot cloud ARM64 Android
+        run: bash qa-arm-dual/redroid.sh
+      - name: Measure both seeks on each original
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTIONS" = true
+          adb install -r -g preview/composeApp-release.apk
+          adb install -r qa-driver/driver.apk
+          adb shell wm size 720x1280
+          adb shell wm density 260
+          adb shell settings put secure immersive_mode_confirmations confirmed
+          adb shell settings put secure accessibility_interactive_ui_timeout_ms 60000
+          adb shell wm dismiss-keyguard
+          touch /tmp/yfuse-tree-active
+          /usr/bin/python3 qa-arm-matrix/engine.py "$QA_ENGINE"
+          /usr/bin/python3 qa-arm-original/gate.py "$QA_SHARD" 8
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: 'integrated-original-${{ matrix.engine }}-${{ matrix.shard }}', path: results/, retention-days: 10}

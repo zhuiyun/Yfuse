@@ -1,0 +1,108 @@
+name: Both playback engines on native ARM64 Android emulators
+on:
+  push:
+    branches: [codex/cloud-playback-resilience-20261113]
+    paths: ['qa-arm-dual/**','.github/workflows/qa-arm-dual.yml']
+permissions: {contents: read, actions: read}
+jobs:
+  fixtures:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - name: Prepare the input driver and timecoded extracts from two different works
+        run: |
+          set -euo pipefail
+          mkdir pool
+          cp qa-arm-dual/Driver.java qa-volume/input-driver.java
+          sed 's|adb install -r driver.apk|cp driver.apk "$GITHUB_WORKSPACE/pool/driver.apk"|' qa-volume/build-driver.sh > "$RUNNER_TEMP/build-qa.sh"
+          bash "$RUNNER_TEMP/build-qa.sh"
+          sudo apt-get -qq update && sudo apt-get install -y ffmpeg python3-pil
+          python3 -c "import json,pathlib; p=pathlib.Path('qa-titles/catalog.json'); a=json.loads(p.read_text()); p.write_text(json.dumps([next(r for r in a if r['kind']=='movie'),next(r for r in a if r['kind']=='episode')]))"
+          /usr/bin/python3 qa-title-seek-check/prepare.py 0 1
+          python3 -c "import json; a=json.load(open('qa-media/fixtures.json')); assert len(a)==2 and len(set(i['kind'] for i in a))==2"
+          tar -czf pool/fixtures.tgz qa-media
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: qa-arm-fixtures, path: pool/, retention-days: 5}
+  capability:
+    name: Check native Android cloud environments
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - name: Native kernel and available virtual services
+        env:
+          FIREBASE_CONFIGURED: ${{ secrets.FIREBASE_TEST_LAB_SERVICE_ACCOUNT != '' }}
+        run: |
+          echo "Firebase Test Lab configured $FIREBASE_CONFIGURED"
+          uname -mr
+          ls -l /dev/kvm /dev/binderfs /dev/binder 2>/dev/null || true
+          bash qa-arm-dual/redroid.sh
+  linux:
+    needs: fixtures
+    name: Android 12 ARM64 Linux guest
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: qa-arm-fixtures, path: pool}
+      - name: Verify tested app and its exact hash
+        env: {ACCESS: "${{ github.token }}"}
+        run: |
+          set -euo pipefail
+          mkdir -p preview results
+          curl -fsSL --retry 2 -H "Authorization: Bearer $ACCESS" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/14017387211/zip" -o "$RUNNER_TEMP/test-input.zip"
+          unzip -q "$RUNNER_TEMP/test-input.zip" -d preview
+          python3 -c "import hashlib,pathlib; assert hashlib.sha256(pathlib.Path('preview/composeApp-release.apk').read_bytes()).hexdigest()=='b31fe854c9c7b7b765241429055cbc9278a68482d57e50167c5f8699703ce730'"
+      - name: Boot Android in the cloud VM
+        run: bash qa-arm-dual/redroid.sh
+      - name: Run both engines with decoded frame confirmations
+        run: |
+          sudo apt-get -qq update && sudo apt-get install -y python3-pil
+          bash qa-arm-dual/run.sh
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: android-linux-arm-receipts, path: results/, retention-days: 10}
+  macos:
+    needs: fixtures
+    name: Google ARM64 Android virtual device
+    runs-on: macos-15
+    timeout-minutes: 52
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: qa-arm-fixtures, path: pool}
+      - name: Verify tested app and its exact hash
+        env: {ACCESS: "${{ github.token }}"}
+        run: |
+          set -euo pipefail
+          mkdir -p preview results
+          curl -fsSL --retry 2 -H "Authorization: Bearer $ACCESS" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/14017387211/zip" -o "$RUNNER_TEMP/test-input.zip"
+          unzip -q "$RUNNER_TEMP/test-input.zip" -d preview
+          python3 -c "import hashlib,pathlib; assert hashlib.sha256(pathlib.Path('preview/composeApp-release.apk').read_bytes()).hexdigest()=='b31fe854c9c7b7b765241429055cbc9278a68482d57e50167c5f8699703ce730'"
+      - name: Configure known Android SDK and Python imaging
+        run: |
+          test "$(uname -m)" = arm64
+          python3 -m venv "$RUNNER_TEMP/qa-arm-py"
+          "$RUNNER_TEMP/qa-arm-py/bin/pip" -q install pillow
+          echo "$RUNNER_TEMP/qa-arm-py/bin" >> "$GITHUB_PATH"
+      - name: Boot Google's ARM64 AVD and exercise both engines
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: 30
+          target: google_apis
+          arch: arm64-v8a
+          profile: pixel_2
+          ram-size: 3072M
+          disable-linux-hw-accel: true
+          emulator-boot-timeout: 1800
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -accel off
+          script: bash qa-arm-dual/run.sh
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: android-google-arm-receipts, path: results/, retention-days: 10}

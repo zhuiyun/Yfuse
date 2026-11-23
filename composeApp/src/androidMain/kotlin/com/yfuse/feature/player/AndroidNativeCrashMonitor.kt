@@ -28,7 +28,7 @@ internal object AndroidNativeCrashMonitor {
     // memory map and logs; the crashing thread can sit well past the first few hundred KiB.
     private const val MAX_TRACE_BYTES = 4 * 1024 * 1024
     private const val ACTIVE_MAX_AGE_MS = 12L * 60L * 60L * 1_000L
-    private const val KEY_LAST_CRASH = "last.crash"
+    private const val KEY_LAST_CRASH = "last.crash.v2"
 
     private lateinit var appContext: Context
     private val ownership = NativeCrashContextOwnership()

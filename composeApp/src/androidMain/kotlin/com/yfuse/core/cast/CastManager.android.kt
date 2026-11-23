@@ -31,6 +31,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asExecutor
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -55,6 +56,7 @@ import java.net.SocketTimeoutException
 import java.net.URI
 import java.net.URL
 import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 private lateinit var castApplicationContext: Context
 
@@ -107,7 +109,9 @@ private class DlnaStart(
     val startedAtMs: Long,
     var seekCapability: CastCapability,
     var seekAttempts: Int,
-)
+) {
+    val seeks = DlnaSeekCommands()
+}
 
 private enum class ActiveProtocol { Chromecast, Dlna }
 
@@ -129,7 +133,7 @@ private class AndroidCastManager(
     private var activeProtocol: ActiveProtocol? = null
     private var castClient: RemoteMediaClient? = null
     private var castMessageSession: CastSession? = null
-    private var sessionListenerRegistered = false
+    private var castContext: CastContext? = null
     private var suppressNextSessionEnd = false
     private var activeDiscovery: Any? = null
 
@@ -139,6 +143,7 @@ private class AndroidCastManager(
 
     /** Set from an accepted DLNA load until its renderer shows it is playing, or fails to. */
     private var dlnaStart: DlnaStart? = null
+    private var dlnaSeeks = DlnaSeekCommands()
 
     /** False while a started renderer's clock has not been seen to move; its position is then unused. */
     private var dlnaClockTrusted = true
@@ -319,15 +324,19 @@ private class AndroidCastManager(
                 discoveredTargets?.let {
                     targets.clear()
                     targets.putAll(it)
+                    mutableState.update { current -> current.copy(devices = allDevices()) }
                 }
-                ensureCastCallbacks()
-                mediaRouter.removeCallback(routeCallback)
-                mediaRouter.addCallback(
-                    castSelector,
-                    routeCallback,
-                    MediaRouter.CALLBACK_FLAG_REQUEST_DISCOVERY,
-                )
-                refreshCastRoutes()
+                val chromecast = loadCastContext()
+                if (activeDiscovery !== discovery) return@withContext
+                if (chromecast != null) {
+                    mediaRouter.removeCallback(routeCallback)
+                    mediaRouter.addCallback(
+                        castSelector,
+                        routeCallback,
+                        MediaRouter.CALLBACK_FLAG_REQUEST_DISCOVERY,
+                    )
+                    refreshCastRoutes()
+                }
                 val devices = allDevices()
                 mutableState.update { current ->
                     current.copy(
@@ -591,13 +600,33 @@ private class AndroidCastManager(
             }
         }
 
-    private fun ensureCastCallbacks() {
-        if (sessionListenerRegistered) return
-        CastContext.getSharedInstance(context).sessionManager.addSessionManagerListener(
-            sessionListener,
-            CastSession::class.java,
-        )
-        sessionListenerRegistered = true
+    private suspend fun loadCastContext(): CastContext? {
+        castContext?.let { return it }
+        return try {
+            val task = CastContext.getSharedInstance(context, Dispatchers.IO.asExecutor())
+            val shared =
+                suspendCancellableCoroutine<CastContext> { waiting ->
+                    task.addOnCompleteListener { result ->
+                        if (result.isSuccessful) {
+                            waiting.resume(result.result)
+                        } else {
+                            waiting.resumeWithException(
+                                result.exception ?: IllegalStateException("Chromecast initialization cancelled"),
+                            )
+                        }
+                    }
+                }
+            if (castContext == null) {
+                shared.sessionManager.addSessionManagerListener(sessionListener, CastSession::class.java)
+                castContext = shared
+            }
+            castContext
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            AppLog.warning("cast", "chromecast_unavailable", "Chromecast discovery unavailable", error)
+            null
+        }
     }
 
     private fun refreshCastRoutes() {
@@ -625,10 +654,10 @@ private class AndroidCastManager(
         queueIndex: Int,
     ): Boolean =
         withContext(Dispatchers.Main.immediate) {
-            ensureCastCallbacks()
+            val shared = castContext
             val route = castRoutes[deviceId]
             val device = allDevices().firstOrNull { it.id == deviceId }
-            if (route == null || device == null) {
+            if (shared == null || route == null || device == null) {
                 mutableState.update { it.commandFailed("Chromecast 设备已离线，请重新发现") }
                 return@withContext false
             }
@@ -640,12 +669,11 @@ private class AndroidCastManager(
             val token = mutableState.value.castSessionToken()
             runCatching {
                 mediaRouter.selectRoute(route)
-                val castContext = CastContext.getSharedInstance(context)
-                var session = castContext.sessionManager.currentCastSession
+                var session = shared.sessionManager.currentCastSession
                 var attempts = 0
                 while (session?.remoteMediaClient == null && attempts < 20) {
                     delay(250L)
-                    session = castContext.sessionManager.currentCastSession
+                    session = shared.sessionManager.currentCastSession
                     attempts++
                 }
                 if (!token.matches(mutableState.value)) return@withContext false
@@ -761,10 +789,7 @@ private class AndroidCastManager(
                 if (previousProtocol == ActiveProtocol.Dlna) {
                     detachCastClient()
                 } else if (previousProtocol == ActiveProtocol.Chromecast) {
-                    CastContext
-                        .getSharedInstance(context)
-                        .sessionManager.currentCastSession
-                        ?.let(::attachCastClient)
+                    shared.sessionManager.currentCastSession?.let(::attachCastClient)
                 } else {
                     detachCastClient()
                 }
@@ -985,12 +1010,7 @@ private class AndroidCastManager(
         command: (RemoteMediaClient) -> PendingResult<out Result>,
     ): Boolean =
         withContext(Dispatchers.Main.immediate) {
-            val remote =
-                castClient
-                    ?: CastContext
-                        .getSharedInstance(context)
-                        .sessionManager.currentCastSession
-                        ?.remoteMediaClient
+            val remote = castClient ?: castContext?.sessionManager?.currentCastSession?.remoteMediaClient
             if (remote == null || activeProtocol != ActiveProtocol.Chromecast) {
                 mutableState.update { it.commandFailed("Chromecast 会话已不可用") }
                 return@withContext false
@@ -1010,12 +1030,7 @@ private class AndroidCastManager(
 
     private suspend fun stopChromecast(): Boolean =
         withContext(Dispatchers.Main.immediate) {
-            val remote =
-                castClient
-                    ?: CastContext
-                        .getSharedInstance(context)
-                        .sessionManager.currentCastSession
-                        ?.remoteMediaClient
+            val remote = castClient ?: castContext?.sessionManager?.currentCastSession?.remoteMediaClient
             val accepted =
                 remote == null ||
                     withTimeoutOrNull(CAST_COMMAND_TIMEOUT_MS) { remote.stop().awaitSuccess() } == true
@@ -1025,7 +1040,7 @@ private class AndroidCastManager(
             }
             suppressNextSessionEnd = true
             detachCastClient()
-            CastContext.getSharedInstance(context).sessionManager.endCurrentSession(true)
+            castContext?.sessionManager?.endCurrentSession(true)
             activeProtocol = null
             mutableState.update { it.userStopped() }
             true
@@ -1331,7 +1346,11 @@ private class AndroidCastManager(
         start: DlnaStart? = null,
     ) {
         dlnaPollJob?.cancel()
-        if (start != null) dlnaStart = start
+        if (start != null) {
+            dlnaStart = start
+            dlnaSeeks = start.seeks
+        }
+        val seeks = dlnaSeeks
         val token = mutableState.value.castSessionToken()
         dlnaPollJob =
             scope.launch {
@@ -1349,9 +1368,11 @@ private class AndroidCastManager(
                             DLNA_IDLE_POLL_INTERVAL_MS
                         },
                     )
+                    val seekRevision = seeks.revision
                     val result =
                         readDlnaSessionResult(token, { mutableState.value }) { readDlnaSnapshot(target) }
                             ?: return@launch
+                    if (seekRevision != seeks.revision) continue
                     result
                         .onSuccess { snapshot ->
                             failures = 0
@@ -1366,14 +1387,15 @@ private class AndroidCastManager(
                             val pending = dlnaStart
                             if (pending == null) {
                                 releaseRelayAfterEnd(snapshot.status)
-                                if (dlnaClockWatch?.moved(snapshot.status, snapshot.positionMs) == true) {
+                                val now = monotonicNowMs()
+                                if (dlnaClockWatch?.moved(snapshot.status, snapshot.positionMs, now) == true) {
                                     dlnaClockTrusted = true
                                     dlnaClockWatch = null
                                 }
                                 mutableState.update {
                                     it.remoteUpdate(
                                         status = snapshot.status,
-                                        positionMs = snapshot.positionMs.takeIf { dlnaClockTrusted },
+                                        positionMs = confirmedDlnaPosition(snapshot),
                                         durationMs = snapshot.durationMs,
                                     )
                                 }
@@ -1393,6 +1415,9 @@ private class AndroidCastManager(
                                     if (snapshot.status == CastPlaybackStatus.Playing) {
                                         seekToStart(target, token, pending, snapshot.positionMs, maxAttempts = 1)
                                     }
+                                    if (seekRevision != seeks.revision || !token.matches(mutableState.value)) {
+                                        return@onSuccess
+                                    }
                                     mutableState.update {
                                         it.remoteUpdate(
                                             status =
@@ -1401,6 +1426,7 @@ private class AndroidCastManager(
                                                 } else {
                                                     CastPlaybackStatus.Buffering
                                                 },
+                                            positionMs = confirmedDlnaPosition(snapshot),
                                             durationMs = snapshot.durationMs,
                                         )
                                     }
@@ -1419,6 +1445,9 @@ private class AndroidCastManager(
                                             verdict.positionMs,
                                             maxAttempts = DLNA_START_SEEK_ATTEMPTS,
                                         )
+                                    }
+                                    if (seekRevision != seeks.revision || !token.matches(mutableState.value)) {
+                                        return@onSuccess
                                     }
                                     mutableState.update {
                                         it.remoteUpdate(
@@ -1471,6 +1500,7 @@ private class AndroidCastManager(
         maxAttempts: Int,
     ) {
         val targetMs = start.targetPositionMs
+        if (start.seeks.revision != 0L) return
         if (targetMs <= DLNA_SEEK_TOLERANCE_MS || start.seekAttempts >= maxAttempts) return
         if (positionMs != null && kotlin.math.abs(positionMs - targetMs) <= DLNA_SEEK_TOLERANCE_MS) return
         if (start.seekCapability != CastCapability.Supported) {
@@ -1485,15 +1515,12 @@ private class AndroidCastManager(
                 return
             }
         }
-        start.seekAttempts++
         val sent =
-            readDlnaSessionResult(token, { mutableState.value }) {
-                soap(
-                    target.avTransportUrl,
-                    "Seek",
-                    "<InstanceID>0</InstanceID><Unit>REL_TIME</Unit>" +
-                        "<Target>${formatDlnaTime(targetMs)}</Target>",
-                )
+            start.seeks.whenCurrent(0L) {
+                readDlnaSessionResult(token, { mutableState.value }) {
+                    start.seekAttempts++
+                    sendDlnaSeek(target, targetMs)
+                }
             } ?: return
         sent
             .onSuccess {
@@ -1588,8 +1615,28 @@ private class AndroidCastManager(
         withContext(Dispatchers.Main.immediate) {
             val target = activeDlnaTarget() ?: return@withContext false
             val label = dlnaActionLabel(action)
+            val state = mutableState.value
+            val token = state.castSessionToken()
+            val seeks = dlnaSeeks
+            val anchor = seeks.resumeAnchor(state, dlnaStart == null && dlnaClockTrusted).takeIf { action == "Play" }
             val result =
-                readDlnaSessionResult(mutableState.value.castSessionToken(), { mutableState.value }) {
+                seeks.transport(
+                    token = token,
+                    state = { mutableState.value },
+                    seekWhilePaused =
+                        anchor?.let { position ->
+                            {
+                                sendDlnaSeek(target, position)
+                                AppLog.info(
+                                    "cast",
+                                    "dlna_resume_seek",
+                                    "Requested the confirmed position while the renderer was paused",
+                                    attributes = mapOf("targetMs" to position.toString()),
+                                )
+                            }
+                        },
+                    isPaused = { queryDlnaTransportStatus(target).trim().equals("PAUSED_PLAYBACK", ignoreCase = true) },
+                ) {
                     soap(target.avTransportUrl, action, arguments)
                     confirmDlnaTransport(target, accepted) ?: error("设备未确认$label")
                 } ?: return@withContext false
@@ -1604,52 +1651,94 @@ private class AndroidCastManager(
                                 } else {
                                     snapshot.status
                                 },
-                            positionMs = snapshot.positionMs.takeIf { !starting && dlnaClockTrusted },
+                            positionMs = confirmedDlnaPosition(snapshot),
                             durationMs = snapshot.durationMs,
+                            resumeConfirmed = action == "Play",
                         )
                     }
                 }.onFailure { error ->
                     AppLog.warning("cast", "dlna_command_failed", "DLNA $action failed", error)
-                    mutableState.update { it.commandFailed(dlnaNoResponse(label)) }
+                    mutableState.update {
+                        if (error is DlnaResumePositionException) {
+                            it.copy(error = error.message)
+                        } else {
+                            it.commandFailed(dlnaNoResponse(label))
+                        }
+                    }
                 }.isSuccess
         }
+
+    private fun confirmedDlnaPosition(snapshot: DlnaSnapshot): Long? {
+        if (dlnaStart == null && dlnaClockTrusted) return snapshot.positionMs
+        return dlnaSeeks.observeUntrustedClock(
+            snapshot.status,
+            snapshot.positionMs,
+            monotonicNowMs(),
+            DLNA_SEEK_TOLERANCE_MS,
+        )
+    }
+
+    private suspend fun sendDlnaSeek(
+        target: DlnaTarget,
+        positionMs: Long,
+    ) = soap(
+        target.avTransportUrl,
+        "Seek",
+        "<InstanceID>0</InstanceID><Unit>REL_TIME</Unit><Target>${formatDlnaTime(positionMs)}</Target>",
+    )
 
     private suspend fun seekDlna(positionMs: Long): Boolean =
         withContext(Dispatchers.Main.immediate) {
             val target = activeDlnaTarget() ?: return@withContext false
             val token = mutableState.value.castSessionToken()
-            val capability =
+            val seeks = dlnaSeeks
+            val targetPosition = positionMs.coerceAtLeast(0L)
+            val revision = seeks.select(targetPosition, monotonicNowMs())
+            val capabilityResult =
                 readDlnaSessionResult(token, { mutableState.value }) {
                     when (mutableState.value.capabilities.seek) {
                         CastCapability.Unknown -> queryDlnaSeekCapability(target)
                         else -> mutableState.value.capabilities.seek
                     }
-                }?.getOrThrow() ?: return@withContext false
+                } ?: return@withContext false
+            if (seeks.revision != revision) return@withContext false
+            val capability =
+                capabilityResult.getOrElse { error ->
+                    AppLog.warning("cast", "dlna_command_failed", "DLNA seek capability unavailable", error)
+                    mutableState.update { it.commandFailed(dlnaNoResponse("跳转")) }
+                    return@withContext false
+                }
             mutableState.update { it.copy(capabilities = it.capabilities.copy(seek = capability)) }
             if (capability != CastCapability.Supported) {
                 mutableState.update { it.copy(error = "此 DLNA 设备未确认支持跳转") }
                 return@withContext false
             }
-            val targetPosition = positionMs.coerceAtLeast(0L)
             val previousStatus = mutableState.value.status
             val result =
-                readDlnaSessionResult(token, { mutableState.value }) {
-                    soap(
-                        target.avTransportUrl,
-                        "Seek",
-                        "<InstanceID>0</InstanceID><Unit>REL_TIME</Unit>" +
-                            "<Target>${formatDlnaTime(targetPosition)}</Target>",
-                    )
-                    awaitDlnaConfirmation(
-                        attempts = DLNA_CONFIRM_ATTEMPTS,
-                        delayMs = DLNA_CONFIRM_DELAY_MS,
-                        read = { readDlnaSnapshot(target) },
-                        accepted = { snapshot ->
-                            snapshot.positionMs?.let { actual ->
-                                kotlin.math.abs(actual - targetPosition) <= DLNA_SEEK_TOLERANCE_MS
-                            } == true
-                        },
-                    ) ?: error("设备未确认跳转位置")
+                seeks.whenCurrent(revision) {
+                    readDlnaSessionResult(token, { mutableState.value }) {
+                        sendDlnaSeek(target, targetPosition)
+                        AppLog.info(
+                            category = "cast",
+                            event = "dlna_user_seek_sent",
+                            message = "DLNA renderer accepted the viewer's seek command",
+                            attributes =
+                                mapOf(
+                                    "targetMs" to targetPosition.toString(),
+                                    "revision" to revision.toString(),
+                                ),
+                        )
+                        awaitDlnaConfirmation(
+                            attempts = DLNA_CONFIRM_ATTEMPTS,
+                            delayMs = DLNA_CONFIRM_DELAY_MS,
+                            read = { readDlnaSnapshot(target) },
+                            accepted = { snapshot ->
+                                snapshot.positionMs?.let { actual ->
+                                    kotlin.math.abs(actual - targetPosition) <= DLNA_SEEK_TOLERANCE_MS
+                                } == true
+                            },
+                        ) ?: error("设备未确认跳转位置")
+                    }
                 } ?: return@withContext false
             result
                 .onSuccess { snapshot ->
@@ -1660,7 +1749,7 @@ private class AndroidCastManager(
                             status =
                                 snapshot.status.takeUnless { value -> value == CastPlaybackStatus.Error }
                                     ?: previousStatus,
-                            positionMs = snapshot.positionMs.takeIf { starting == null && dlnaClockTrusted },
+                            positionMs = snapshot.positionMs,
                             durationMs = snapshot.durationMs,
                         )
                     }

@@ -1,0 +1,37 @@
+name: Retire broad runs before the end-clock layout repair
+on:
+  push:
+    branches: [codex/two-engines-cloud-seek-20261113]
+    paths: [.github/workflows/qa-stop-superseded-ui.yml]
+permissions:
+  contents: read
+  actions: write
+jobs:
+  retire:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - name: Validate immutable identities before cancelling obsolete comparisons
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json,subprocess
+          repo='zhuiyun/Yfuse'
+          targets={
+            44065974990:('9a25056fa24360fa2dd9668911d49de5d6a39f7f','.github/workflows/qa-integrated-private-relay.yml'),
+            44065974827:('9a25056fa24360fa2dd9668911d49de5d6a39f7f','.github/workflows/qa-integrated-final.yml'),
+            44065975329:('9a25056fa24360fa2dd9668911d49de5d6a39f7f','.github/workflows/qa-power-ui-final.yml'),
+            44065975145:('9a25056fa24360fa2dd9668911d49de5d6a39f7f','.github/workflows/qa-integrated-originals.yml'),
+          }
+          for run,(sha,path) in targets.items():
+              endpoint=f'repos/{repo}/actions/runs/{run}'
+              data=json.loads(subprocess.check_output(['gh','api',endpoint],text=True))
+              assert data['head_sha']==sha and data['path']==path
+              assert data['head_branch']=='codex/two-engines-cloud-seek-20261113'
+              if data['status']=='completed':
+                  print(run,'already completed; preserved',data['conclusion'])
+                  continue
+              subprocess.run(['gh','api','--method','POST',endpoint+'/cancel'],check=True)
+              print(run,'cancel requested: long-movie seek geometry requires a repaired candidate')
+          PY

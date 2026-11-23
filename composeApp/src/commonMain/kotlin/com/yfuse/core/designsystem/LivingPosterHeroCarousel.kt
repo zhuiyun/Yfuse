@@ -262,7 +262,7 @@ fun LivingPosterHeroCarousel(
                             }
                         }
                     },
-                    onArtwork = false,
+                    onArtwork = true,
                     modifier = Modifier.align(Alignment.Center),
                 )
             }

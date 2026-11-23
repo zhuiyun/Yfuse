@@ -28,7 +28,6 @@ import com.yfuse.core.designsystem.DialogPresence
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.LocalPalette
-import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.OfficialNavDisplay
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
@@ -37,6 +36,7 @@ import com.yfuse.core.designsystem.SettingRow
 import com.yfuse.core.designsystem.SettingsCard
 import com.yfuse.core.designsystem.SettingsDivider
 import com.yfuse.core.designsystem.ThemeText
+import com.yfuse.core.designsystem.VisibleUiEffect
 import com.yfuse.core.designsystem.contentHandoff
 import com.yfuse.core.designsystem.liveStatus
 import com.yfuse.core.designsystem.overlayAction
@@ -48,6 +48,7 @@ import com.yfuse.core.handoff.HandoffUiState
 import com.yfuse.feature.profile.SettingsPage
 import com.yfuse.feature.profile.rememberComposedPageStore
 import com.yfuse.watch.protocol.HandoffRequest
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -56,6 +57,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 fun DeviceHandoffScreen(
     store: Store<DeviceHandoffIntent, HandoffUiState, Nothing>,
     onBack: () -> Unit,
+    onOpenAccount: () -> Unit,
 ) {
     val state by store.states.collectAsState(store.state)
     val palette = LocalPalette.current
@@ -84,10 +86,13 @@ fun DeviceHandoffScreen(
             "sign-in" -> RemoteSignInScreen(page.sessionId, page.name, onBack = closeChild)
             else -> {
                 // Only this page, not a remote or a sign-in in its place, has the devices asked for more often.
-                val visible = LocalRouteVisible.current
-                DisposableEffect(store, visible) {
-                    if (visible) store.accept(DeviceHandoffIntent.PageShown)
-                    onDispose { if (visible) store.accept(DeviceHandoffIntent.PageHidden) }
+                VisibleUiEffect(store) {
+                    store.accept(DeviceHandoffIntent.PageShown)
+                    try {
+                        awaitCancellation()
+                    } finally {
+                        store.accept(DeviceHandoffIntent.PageHidden)
+                    }
                 }
                 SettingsPage(title = "设备接力", onBack = onBack) {
                     if (state.signInAsks.isNotEmpty()) {
@@ -115,9 +120,10 @@ fun DeviceHandoffScreen(
                         Section(title = "在线设备") {
                             SettingsCard {
                                 SettingRow(
-                                    "连接状态",
-                                    state.connectionLabel,
+                                    if (state.signedIn) "连接状态" else "登录鱼服账号",
+                                    if (state.signedIn) state.connectionLabel else "登录后可连接其他设备",
                                     embedded = true,
+                                    onClick = onOpenAccount.takeUnless { state.signedIn },
                                 )
                                 if (state.online && state.devices.isEmpty()) {
                                     SettingsDivider()
@@ -221,13 +227,14 @@ private data class HandoffPage(
 fun DeviceHandoffScreen(
     controller: HandoffController,
     onBack: () -> Unit,
+    onOpenAccount: () -> Unit,
 ) {
     val store =
         rememberComposedPageStore(controller) {
             // The app's StoreFactory is this one; the television reaches the page without it.
             DeviceHandoffStoreFactory(DefaultStoreFactory(), controller).create()
         }
-    DeviceHandoffScreen(store, onBack)
+    DeviceHandoffScreen(store, onBack, onOpenAccount)
 }
 
 /** Mount once above the phone/TV navigation graph so incoming requests remain visible. */

@@ -57,7 +57,7 @@ class InMemoryYCore2FailureStore : YCore2FailureStore {
  * Core2-specific route failure memory.
  *
  * This does not share the Legacy `PlayerEngine` persistence schema. A failed Core2 experiment can
- * therefore cool down only that precise Core2 route without blacklisting Exo/mpv/MDK. Transient
+ * therefore cool down only that precise Core2 route without changing other playback routes. Transient
  * auth/network/DRM failures and unclassified failures are never learned as hardware quirks. A
  * route is skipped only after repeated deterministic failures inside the cooldown window, so one
  * isolated codec or renderer failure cannot become a long-lived device quirk.

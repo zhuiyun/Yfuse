@@ -40,6 +40,30 @@ private const val NEXT_ALARM_REQUEST_CODE = 4104
 private const val CHANNEL_ID = "airing_calendar"
 
 fun scheduleCalendarReminderWork(context: Context) {
+    scheduleCalendarReminderWork(context, GlobalContext.get().get<CalendarFollowStore>())
+}
+
+internal fun scheduleCalendarReminderWork(
+    context: Context,
+    follows: CalendarFollowStore,
+    immediatePolicy: ExistingWorkPolicy = ExistingWorkPolicy.KEEP,
+) {
+    follows.runWithReminderSubscriptions(follows.scopeToken) { subscriptions ->
+        if (subscriptions.isEmpty()) {
+            val workManager = WorkManager.getInstance(context)
+            workManager.cancelUniqueWork(WORK_NAME)
+            workManager.cancelUniqueWork(IMMEDIATE_WORK_NAME)
+            scheduleNextCalendarAlarm(context, null)
+        } else {
+            enqueueCalendarReminderWork(context, immediatePolicy)
+        }
+    }
+}
+
+private fun enqueueCalendarReminderWork(
+    context: Context,
+    immediatePolicy: ExistingWorkPolicy,
+) {
     val request =
         PeriodicWorkRequest
             .Builder(CalendarReminderWorker::class.java, 15, TimeUnit.MINUTES)
@@ -55,7 +79,7 @@ fun scheduleCalendarReminderWork(context: Context) {
     // Populate caches and arm the nearest exact alarm immediately after app/process start.
     workManager.enqueueUniqueWork(
         IMMEDIATE_WORK_NAME,
-        ExistingWorkPolicy.KEEP,
+        immediatePolicy,
         OneTimeWorkRequest.Builder(CalendarReminderWorker::class.java).build(),
     )
 }
@@ -67,10 +91,10 @@ class CalendarReminderAlarmReceiver : BroadcastReceiver() {
     ) {
         when (intent.action) {
             NEXT_ALARM_ACTION ->
-                WorkManager.getInstance(context).enqueueUniqueWork(
-                    IMMEDIATE_WORK_NAME,
+                scheduleCalendarReminderWork(
+                    context,
+                    GlobalContext.get().get<CalendarFollowStore>(),
                     ExistingWorkPolicy.REPLACE,
-                    OneTimeWorkRequest.Builder(CalendarReminderWorker::class.java).build(),
                 )
             Intent.ACTION_BOOT_COMPLETED,
             Intent.ACTION_TIME_CHANGED,

@@ -55,6 +55,16 @@ class CastStateMachineTest {
     }
 
     @Test
+    fun an_acknowledged_resume_while_buffering_restores_local_playback_until_the_next_confirmed_pause() {
+        val paused = CastState().connectingTo(receiver, 20_000L).remoteUpdate(CastPlaybackStatus.Paused, 21_000L)
+        assertFalse(paused.remoteUpdate(CastPlaybackStatus.Buffering).lastRemoteWasPlaying)
+        val resuming = paused.remoteUpdate(CastPlaybackStatus.Buffering, resumeConfirmed = true)
+        assertEquals(21_000L, resuming.positionMs)
+        assertTrue(resuming.remoteUpdate(CastPlaybackStatus.Buffering).lastRemoteWasPlaying)
+        assertFalse(resuming.remoteUpdate(CastPlaybackStatus.Paused).lastRemoteWasPlaying)
+    }
+
+    @Test
     fun unexpected_disconnect_recovers_from_last_confirmed_remote_position() {
         val disconnected =
             CastState()

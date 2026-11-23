@@ -25,6 +25,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -53,6 +54,7 @@ import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core2.android.AndroidAssSubtitleRenderer
 import com.yfuse.core2.android.AndroidSurfaceVideoOutput
+import com.yfuse.core2.android.AndroidVideoOutputRenewal
 import com.yfuse.core2.android.detachVideoOutputAwaiting
 import com.yfuse.core2.api.YPlayer
 import com.yfuse.core2.legacy.YPlayerVideoEngineAdapter
@@ -97,6 +99,8 @@ internal fun Core2Surface(
     /** Drawn above the surface and below the subtitle overlays, so light never covers a caption. */
     ambientLayer: @Composable () -> Unit = {},
 ) {
+    val outputGeneration =
+        (engine.player as? AndroidVideoOutputRenewal)?.videoOutputGeneration?.collectAsState()?.value ?: 0L
     var layoutSize by remember { mutableStateOf(IntSize.Zero) }
     val surfaceSize =
         core2SurfaceSize(
@@ -131,25 +135,27 @@ internal fun Core2Surface(
         modifier = modifier.clipToBounds().onSizeChanged { layoutSize = it },
         contentAlignment = Alignment.Center,
     ) {
-        AndroidView(
-            modifier = surfaceModifier,
-            factory = { context ->
-                Core2SurfaceView(context).apply {
-                    setProtectedContent(protectedContent)
-                    bind(engine.player)
-                    ambientSampler?.attach(this)
-                }
-            },
-            update = { view ->
-                view.setProtectedContent(protectedContent)
-                view.bind(engine.player)
-                ambientSampler?.attach(view)
-            },
-            onRelease = { view ->
-                ambientSampler?.detach(view)
-                view.unbind()
-            },
-        )
+        key(engine.player, outputGeneration) {
+            AndroidView(
+                modifier = surfaceModifier,
+                factory = { context ->
+                    Core2SurfaceView(context, outputGeneration).apply {
+                        setProtectedContent(protectedContent)
+                        bind(engine.player)
+                        ambientSampler?.attach(this)
+                    }
+                },
+                update = { view ->
+                    view.setProtectedContent(protectedContent)
+                    view.bind(engine.player)
+                    ambientSampler?.attach(view)
+                },
+                onRelease = { view ->
+                    ambientSampler?.detach(view)
+                    view.unbind()
+                },
+            )
+        }
         ambientLayer()
         Core2SubtitleOverlay(
             textWidth = with(density) { uprightSubtitleTextWidth(layoutSize, surfaceSize)?.toDp() },
@@ -558,9 +564,9 @@ private fun Core2SubtitleText(
                 val cueStyle = payload.style
                 val authoredColor = cueStyle.primaryColorArgb?.let(::Color) ?: Color.White
                 val useAuthoredColor = appearance == SubtitleAppearance()
-                val requestedColor = Color(appearance.textColorArgb.toULong())
-                val backgroundColor = Color(appearance.backgroundColorArgb.toULong())
-                val outlineColor = Color(appearance.outlineColorArgb.toULong())
+                val requestedColor = Color(appearance.textColorArgb.toInt())
+                val backgroundColor = Color(appearance.backgroundColorArgb.toInt())
+                val outlineColor = Color(appearance.outlineColorArgb.toInt())
                 val textScale = scale.coerceIn(0.6f, 1.8f)
                 val authoredSize = cueStyle.fontSizePoints?.coerceIn(10f, 64f) ?: 22f
                 Text(
@@ -658,6 +664,7 @@ internal fun core2SurfaceSize(
 
 private class Core2SurfaceView(
     context: Context,
+    private val outputGeneration: Long,
 ) : SurfaceView(context),
     SurfaceHolder.Callback {
     private var player: YPlayer? = null
@@ -706,6 +713,9 @@ private class Core2SurfaceView(
     private fun detachOutput(awaitDecoder: Boolean = false) {
         attached = null
         val target = player ?: return
+        // This old consumer was already retired before the router requested the new generation.
+        // A late onRelease must not detach the replacement view that has since attached.
+        if (target is AndroidVideoOutputRenewal && target.videoOutputGeneration.value != outputGeneration) return
         if (awaitDecoder) {
             detachVideoOutputAwaiting(target)
         } else {
@@ -735,12 +745,14 @@ private class Core2SurfaceView(
         val surface = holder.surface
         if (!surface.isValid) return
         val target = player ?: return
+        if (target is AndroidVideoOutputRenewal && target.videoOutputGeneration.value != outputGeneration) return
         if (attached === surface) return
         attached = surface
         target.setVideoOutput(
             AndroidSurfaceVideoOutput(
                 surface = surface,
                 protectedContent = protectedContent,
+                renewable = true,
             ),
         )
     }

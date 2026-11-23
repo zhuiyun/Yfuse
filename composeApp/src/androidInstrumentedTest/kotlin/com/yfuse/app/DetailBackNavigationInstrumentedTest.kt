@@ -74,6 +74,15 @@ import java.util.concurrent.atomic.AtomicReference
 
 @RunWith(AndroidJUnit4::class)
 class DetailBackNavigationInstrumentedTest {
+    @Test
+    fun polling_accepts_an_observed_condition_without_sampling_it_again() {
+        val samples = AtomicInteger()
+        awaitCondition("The first observed idle state should satisfy the wait") {
+            samples.incrementAndGet() == 1
+        }
+        assertEquals(1, samples.get())
+    }
+
     @Test(timeout = 60_000L)
     fun first_poster_back_previews_after_splash_visibility_changes() {
         withGestureNavigation {
@@ -1091,15 +1100,19 @@ class DetailBackNavigationInstrumentedTest {
         condition: () -> Boolean,
     ) {
         val deadline = SystemClock.uptimeMillis() + 5_000L
-        while (!condition() && SystemClock.uptimeMillis() < deadline) SystemClock.sleep(20L)
-        if (!condition()) {
-            val window =
-                shell("dumpsys window")
-                    .lineSequence()
-                    .filter { "mCurrentFocus=" in it || "mFocusedApp=" in it || "mOnBackInvokedCallbackInfo=" in it }
-                    .joinToString("; ")
-            assertTrue("$message; system window/back callbacks: $window", false)
+        while (true) {
+            // A system transition may start again after one idle sample. A second read outside
+            // the polling loop would report a timeout immediately, without using the deadline.
+            if (condition()) return
+            if (SystemClock.uptimeMillis() >= deadline) break
+            SystemClock.sleep(20L)
         }
+        val window =
+            shell("dumpsys window")
+                .lineSequence()
+                .filter { "mCurrentFocus=" in it || "mFocusedApp=" in it || "mOnBackInvokedCallbackInfo=" in it }
+                .joinToString("; ")
+        assertTrue("$message; system window/back callbacks: $window", false)
     }
 
     private fun shell(command: String): String =

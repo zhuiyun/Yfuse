@@ -39,14 +39,14 @@ class AndroidMetadataProbeStageTest {
         val owner = Executors.newSingleThreadExecutor()
         val release = CountDownLatch(1)
         val entered = CountDownLatch(1)
-        val cancelled = AtomicBoolean()
+        val cancelled = CountDownLatch(1)
         val published = AtomicBoolean()
         try {
             AndroidProbeBudget(5_000L).use { parent ->
                 assertEquals(
                     -1,
                     runMetadataProbeStage(parent, AndroidBoundedProbe(owner), 150L, 100L, { -1 }) { stage ->
-                        stage.onCancel { cancelled.set(true) }
+                        stage.onCancel { cancelled.countDown() }
                         entered.countDown()
                         while (true) {
                             try {
@@ -60,7 +60,9 @@ class AndroidMetadataProbeStageTest {
                     },
                 )
                 assertTrue(entered.await(1, TimeUnit.SECONDS))
-                assertTrue(cancelled.get())
+                // The watchdog publishes cancellation before notifying the I/O callbacks. The
+                // waiting Future may return first; observe the callback, not that thread ordering.
+                assertTrue(cancelled.await(1, TimeUnit.SECONDS))
                 parent.ensureActive()
                 release.countDown()
                 owner.submit {}.get(1, TimeUnit.SECONDS)

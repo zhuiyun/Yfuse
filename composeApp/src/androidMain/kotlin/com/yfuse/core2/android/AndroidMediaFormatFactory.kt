@@ -77,7 +77,13 @@ internal object AndroidMediaFormatFactory {
         val entries = track.codecPrivateData.entries
         entries.forEachIndexed { index, bytes ->
             if (bytes.isNotEmpty()) {
-                format.setByteBuffer("csd-$index", ByteBuffer.wrap(bytes))
+                val codecData =
+                    if (track.codec == YAudioCodec.Flac && index == 0) {
+                        YAudioConfiguration.flacCodecSpecificData(bytes)
+                    } else {
+                        bytes
+                    }
+                format.setByteBuffer("csd-$index", ByteBuffer.wrap(codecData))
             }
         }
         when (track.codec) {

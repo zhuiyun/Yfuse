@@ -68,7 +68,7 @@ internal class DlnaStartMonitor(
     private val startedAtMs: Long,
     private val policy: DlnaStartPolicy = DlnaStartPolicy(),
 ) {
-    private var baselinePositionMs: Long? = null
+    private val clock = DlnaClockWatch(policy.progressMs)
     private var clocklessPlayingSinceMs: Long? = null
     private var playingSinceMs: Long? = null
     private var consecutiveStopped = 0
@@ -79,7 +79,7 @@ internal class DlnaStartMonitor(
 
     /** A seek moves the clock without playback; progress is measured again from where it lands. */
     fun rebase() {
-        baselinePositionMs = null
+        clock.reset()
     }
 
     fun observe(
@@ -97,6 +97,7 @@ internal class DlnaStartMonitor(
         if (paused) {
             playingSinceMs = null
             clocklessPlayingSinceMs = null
+            clock.reset()
             return DlnaStartVerdict.Waiting
         }
 
@@ -112,11 +113,7 @@ internal class DlnaStartMonitor(
             val playingSince = playingSinceMs ?: nowMs.also { playingSinceMs = it }
             if (positionMs != null) {
                 clocklessPlayingSinceMs = null
-                val baseline = baselinePositionMs
-                when {
-                    baseline == null || positionMs < baseline -> baselinePositionMs = positionMs
-                    positionMs - baseline >= policy.progressMs -> return DlnaStartVerdict.Started(positionMs)
-                }
+                if (clock.moved(status, positionMs, nowMs)) return DlnaStartVerdict.Started(positionMs)
             } else {
                 val since = clocklessPlayingSinceMs ?: nowMs.also { clocklessPlayingSinceMs = it }
                 if (nowMs - since >= policy.clocklessConfirmMs) return DlnaStartVerdict.Started(null)
@@ -165,15 +162,24 @@ internal class DlnaClockWatch(
     private val progressMs: Long = DlnaStartPolicy().progressMs,
 ) {
     private var baselinePositionMs: Long? = null
+    private var baselineAtMs = 0L
+
+    fun reset() {
+        baselinePositionMs = null
+    }
 
     fun moved(
         status: CastPlaybackStatus,
         positionMs: Long?,
+        nowMs: Long,
     ): Boolean {
         if (status != CastPlaybackStatus.Playing || positionMs == null) return false
         val baseline = baselinePositionMs
-        if (baseline == null || positionMs < baseline) {
+        // UPnP clocks can report whole seconds. Jumping to the end of read-ahead is not playback.
+        val elapsedMs = nowMs - baselineAtMs
+        if (baseline == null || positionMs < baseline || elapsedMs < 0 || positionMs - baseline > elapsedMs + 1_000L) {
             baselinePositionMs = positionMs
+            baselineAtMs = nowMs
             return false
         }
         return positionMs - baseline >= progressMs

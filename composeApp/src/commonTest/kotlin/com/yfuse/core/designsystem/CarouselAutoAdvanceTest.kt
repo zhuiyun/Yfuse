@@ -12,6 +12,38 @@ import kotlin.test.assertTrue
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class CarouselAutoAdvanceTest {
     @Test
+    fun one_complete_pass_stops_scheduling_and_manual_restart_gets_a_new_pass() =
+        runTest {
+            var turns = 0
+
+            suspend fun pass() = advanceCarousel(1_000L, { false }, maxTurns = 2) { turns++ }
+            val first = launch { pass() }
+            advanceTimeBy(30_000L)
+            assertEquals(2, turns)
+            assertTrue(first.isCompleted)
+            val restarted = launch { pass() }
+            advanceTimeBy(30_000L)
+            assertEquals(4, turns)
+            assertTrue(restarted.isCompleted)
+        }
+
+    @Test
+    fun interrupted_turn_does_not_consume_the_remaining_preview() =
+        runTest {
+            var attempts = 0
+            val clock =
+                launch {
+                    advanceCarousel(1_000L, { false }, maxTurns = 1) {
+                        attempts++
+                        if (attempts == 1) throw CancellationException("Manual scroll")
+                    }
+                }
+            advanceTimeBy(10_000L)
+            assertEquals(2, attempts)
+            assertTrue(clock.isCompleted)
+        }
+
+    @Test
     fun a_turn_cut_short_by_another_scroll_leaves_the_clock_running() =
         runTest {
             var turns = 0

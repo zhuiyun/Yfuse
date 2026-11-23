@@ -32,8 +32,7 @@ private const val MISMATCH_GRACE_TICKS = 3
  * The single gate every play/pause/seek/episode change passes through before playback.
  *
  * Every control operation targets the product-level [YPlayer] contract. PlayerRoot binds either a
- * Legacy adapter or the native Core2 player, so room ownership and timeline rules never depend on
- * ExoPlayer/mpv/MDK identities.
+ * selected player, so room ownership and timeline rules apply to both engines.
  *
  * Reaching playback directly breaks watch-together in two directions at once. A guest's input
  * lands, then gets silently undone by the reconcile loop a second later. A host's input lands but

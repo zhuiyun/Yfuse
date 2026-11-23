@@ -6,7 +6,7 @@ import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import android.graphics.RectF
-import android.os.Build
+import android.os.Parcel
 import android.os.Process
 import android.view.Surface
 import com.yfuse.core2.demux.YVideoGeometry
@@ -29,9 +29,8 @@ internal data class YSoftwareRenderSnapshot(
 internal class AndroidSoftwareVideoRenderNode {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
 
-    // Native libraries before software decoder API 3 write BGRA. Swapping the channels while
-    // drawing costs nothing on a hardware canvas, where a per-frame byte swap would cost a pass
-    // over every pixel.
+    // Native libraries before software decoder API 3 write BGRA. Apply the channel swap while
+    // drawing instead of allocating another pixel buffer or mutating the decoder's reusable data.
     private val redBlueSwappedPaint =
         Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
             colorFilter = ColorMatrixColorFilter(redBlueSwapMatrix())
@@ -66,7 +65,11 @@ internal class AndroidSoftwareVideoRenderNode {
         require(surface.isValid) { "Software video output Surface is invalid" }
         flush()
         terminalFailure.get()?.let { throw IllegalStateException("Software render lane did not drain", it) }
-        this.surface = surface
+        val replacement = surface.copyForSoftwareRendering()
+        val previous = this.surface
+        this.surface = replacement
+        // Retire before any new frame can connect a second producer to the same buffer queue.
+        if (previous != null) owner().execute(previous::release)
         failure.set(null)
     }
 
@@ -178,13 +181,21 @@ internal class AndroidSoftwareVideoRenderNode {
 
     fun release() {
         flush()
+        val retainedSurface = surface
         surface = null
         val active = synchronized(lifecycleLock) { executor.also { executor = null } }
         val retainedMemory = memory
         memory = null
-        // clear retires busy leases, but recycles them only when their Canvas call has returned.
+        // CPU Canvas consumes pixels synchronously. Active leases retire after posting finishes.
         frames.clear()
-        if (active != null) active.execute { retainedMemory?.close() } else retainedMemory?.close()
+        val dispose: () -> Unit = {
+            try {
+                retainedSurface?.release()
+            } finally {
+                retainedMemory?.close()
+            }
+        }
+        if (active != null) active.execute(dispose) else dispose()
         active?.shutdown()
         renderGeneration.incrementAndGet()
         renderedFrames.set(0)
@@ -218,12 +229,9 @@ internal class AndroidSoftwareVideoRenderNode {
         require(output.isValid)
         val width = target.width
         val height = target.height
-        val canvas =
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                runCatching(output::lockHardwareCanvas).getOrElse { output.lockCanvas(null) }
-            } else {
-                output.lockCanvas(null)
-            }
+        // Keep software presentation independent of HWUI's asynchronous rendering context.
+        // The owned Surface keeps this CPU connection separate from SurfaceView replacement.
+        val canvas = output.lockCanvas(null)
         try {
             if (generation != renderGeneration.get()) return
             require(canvas.width > 0 && canvas.height > 0) { "Software video output has no drawable area" }
@@ -244,6 +252,27 @@ internal class AndroidSoftwareVideoRenderNode {
         } finally {
             output.unlockCanvasAndPost(canvas)
         }
+    }
+}
+
+/**
+ * Canvas locking state and the CPU producer connection belong to this render lane, not to
+ * SurfaceView's mutable Java Surface. A parcel round trip keeps an independent native reference;
+ * the UI can replace its Surface while pending draws retain their original output until retired.
+ */
+private fun Surface.copyForSoftwareRendering(): Surface {
+    val parcel = Parcel.obtain()
+    return try {
+        writeToParcel(parcel, 0)
+        parcel.setDataPosition(0)
+        Surface.CREATOR.createFromParcel(parcel).also {
+            if (!it.isValid) {
+                it.release()
+                error("Software video output Surface reference is invalid")
+            }
+        }
+    } finally {
+        parcel.recycle()
     }
 }
 

@@ -179,6 +179,16 @@ class ExternalPlaybackTest {
     }
 
     @Test
+    fun extensionless_external_video_keeps_a_bounded_mime_hint() {
+        val uri = "https://example.com/opaque-stream"
+        assertEquals("video/mp2t", externalPlaybackItem(uri, "video", " VIDEO/MP2T; charset=binary ").sourceMimeType)
+        assertEquals("video/*", externalPlaybackItem(uri, "video", "video/*").sourceMimeType)
+        for (mime in listOf(null, "text/html", "video/", "video/mp4\r\nx-private: secret", "video/" + "a".repeat(81))) {
+            assertNull(externalPlaybackItem(uri, "video", mime).sourceMimeType)
+        }
+    }
+
+    @Test
     fun every_external_entry_gets_a_fresh_identity() {
         val first = externalPlaybackItem(url = "https://example.com/v.mp4", title = "v")
         val second = externalPlaybackItem(url = "https://example.com/v.mp4", title = "v")

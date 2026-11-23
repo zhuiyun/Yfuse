@@ -88,6 +88,8 @@ fun AddServerDialog(
     GlassDialog(
         onDismiss = onDismiss,
         scrollable = false,
+        opaqueSurface = true,
+        liquidButtons = false,
         // Once anything is entered, closing asks before discarding the form.
         confirmDismiss = {
             if (holdsInput) confirmDiscard = true

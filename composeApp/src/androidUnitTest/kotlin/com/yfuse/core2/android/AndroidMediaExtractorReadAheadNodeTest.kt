@@ -178,6 +178,53 @@ class AndroidMediaExtractorReadAheadNodeTest {
     }
 
     @Test
+    fun `final close still confirms retirement when platform seek returns after the release budget`() {
+        val seekStarted = CountDownLatch(1)
+        val finishSeek = CountDownLatch(1)
+        val releaseRequested = CountDownLatch(1)
+        val releases = AtomicInteger()
+        val source =
+            object : YPlatformExtractorSource by FakeExtractorSource(10, 100_000L) {
+                override fun seekTo(positionUs: Long) {
+                    seekStarted.countDown()
+                    check(finishSeek.await(10, TimeUnit.SECONDS))
+                }
+
+                override fun abortPendingReads() {
+                    releaseRequested.countDown()
+                }
+
+                override fun release() {
+                    releases.incrementAndGet()
+                }
+            }
+        val node = AndroidMediaExtractorReadAheadNode(source)
+        val callers =
+            java.util.concurrent.Executors
+                .newFixedThreadPool(2)
+        try {
+            node.open(SOURCE)
+            val seek = callers.submit { node.seekTo(202_681_000L) }
+            assertTrue(seekStarted.await(2, TimeUnit.SECONDS))
+            val retirement = callers.submit { node.close() }
+            assertTrue(releaseRequested.await(2, TimeUnit.SECONDS))
+            kotlin.test.assertFailsWith<java.util.concurrent.TimeoutException> {
+                retirement.get(2_300L, TimeUnit.MILLISECONDS)
+            }
+            assertEquals(0, releases.get())
+            finishSeek.countDown()
+            seek.get(2, TimeUnit.SECONDS)
+            retirement.get(2, TimeUnit.SECONDS)
+            assertEquals(1, releases.get())
+        } finally {
+            finishSeek.countDown()
+            callers.shutdown()
+            callers.awaitTermination(3, TimeUnit.SECONDS)
+            node.close()
+        }
+    }
+
+    @Test
     fun `platform queue uses shared grant beyond twenty four MiB and follows pressure`() {
         val mib = 1024L * 1024L
         val pool = PlaybackMemoryPool(128L * mib)

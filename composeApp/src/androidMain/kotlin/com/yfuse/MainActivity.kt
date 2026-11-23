@@ -258,17 +258,19 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun observeCalendarNotificationPermission(follows: CalendarFollowStore) {
-        if (Build.VERSION.SDK_INT < 33) return
         lifecycleScope.launch {
             follows.followed
                 .map { followed ->
                     followed
-                        .filter { it.reminderMode != CalendarReminderMode.Off }
-                        .map { listOf(it.tmdbId.toString(), it.reminderMode.name, it.remindBeforeMinutes.toString()) }
+                        .filter {
+                            it.trackingOrigin == com.yfuse.core.data.CalendarTrackingOrigin.Manual &&
+                                it.reminderMode != CalendarReminderMode.Off
+                        }.map { listOf(it.tmdbId.toString(), it.reminderMode.name, it.remindBeforeMinutes.toString()) }
                 }.distinctUntilChanged()
                 .collect { reminderConfiguration ->
                     scheduleCalendarReminderWork(this@MainActivity)
                     if (
+                        Build.VERSION.SDK_INT >= 33 &&
                         reminderConfiguration.isNotEmpty() &&
                         !calendarNotificationPermissionRequested &&
                         checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED

@@ -80,6 +80,8 @@ internal fun BoxScope.PlayerPictureStatus(
     stoppedAtItemEnd: Boolean,
     /** The paused key is up; PlayerControls decides, since its hide timer and 暂停信息层 ask too. */
     showPausedKey: Boolean,
+    /** Panels and dialogs own the picture while open, including on narrow windows. */
+    overlayOpen: Boolean,
     watchLocked: Boolean,
     /** Neither a room nor a cast owns the rate, so 长按中间 may hold a speed. */
     speedBoostable: Boolean,
@@ -123,9 +125,10 @@ internal fun BoxScope.PlayerPictureStatus(
      * 重播 runs the ending's split backwards before its keys go, and they stay up for that.
      */
     var endingFlowsBack by remember { mutableStateOf(false) }
-    val showEndedKeys = stoppedAtItemEnd || endingFlowsBack
+    val pausedKeyVisible = showPausedKey && !overlayOpen
+    val showEndedKeys = !overlayOpen && (stoppedAtItemEnd || endingFlowsBack)
     PlayerCenterKeys(
-        showPausedKey = showPausedKey,
+        showPausedKey = pausedKeyVisible,
         showEndedKeys = showEndedKeys,
         watchLocked = watchLocked,
         hasNext = state.hasNext,
@@ -173,7 +176,7 @@ internal fun BoxScope.PlayerPictureStatus(
 
     // Taught once each, while their gesture is in reach; see [PlayerGestureTips].
     PlayerGestureTips(
-        chromeUp = chrome.visible && remoteChrome == null && !chrome.locked,
+        chromeUp = chrome.visible && remoteChrome == null && !chrome.locked && !overlayOpen,
         seekable = state.durationMs > 0L && !watchLocked,
         speedBoostable = speedBoostable,
         subtitlesAvailable = state.subtitleTracks.isNotEmpty(),
@@ -211,7 +214,7 @@ internal fun BoxScope.PlayerPictureStatus(
     // out ([gestureHudLine]).
     PlayerGestureHud(
         hud = { gestureState.reading },
-        centreKeysShown = showPausedKey || showEndedKeys,
+        centreKeysShown = pausedKeyVisible || showEndedKeys,
         modifier = Modifier.align(Alignment.Center),
     )
 

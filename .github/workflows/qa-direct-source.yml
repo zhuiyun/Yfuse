@@ -1,0 +1,76 @@
+name: Emby direct URL range and Android playback comparison
+on:
+  push:
+    branches: [codex/cloud-playback-resilience-20261113]
+    paths:
+      - '.github/workflows/qa-direct-source.yml'
+      - 'qa-direct-source/**'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  private_source:
+    name: Film and episode sample shard ${{ matrix.shard }}
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: {shard: [0, 1]}
+    env:
+      QA_SHARD: ${{ matrix.shard }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 125
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - name: Prepare one-use decryption key and emulator
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p private-key private-results preview
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out "$RUNNER_TEMP/qa-private.pem" 2>/dev/null
+          openssl pkey -in "$RUNNER_TEMP/qa-private.pem" -pubout -out private-key/public.pem
+          test -c /dev/kvm
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sudo apt-get update -qq
+          sudo apt-get install -y python3-pil python3-cryptography
+      - name: Publish only the public half of this runner's key
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: direct-key-${{ github.run_id }}-${{ matrix.shard }}-${{ github.run_attempt }}
+          path: private-key/public.pem
+          retention-days: 1
+      - name: Verify the same preview and wait for its encrypted film locations
+        env: {API_TOKEN: "${{ github.token }}"}
+        run: |
+          set -euo pipefail
+          api="https://api.github.com/repos/$GITHUB_REPOSITORY"
+          curl -fsSL -H "Authorization: Bearer $API_TOKEN" "$api/actions/artifacts/14012120571/zip" > "$RUNNER_TEMP/preview.zip"
+          unzip -q "$RUNNER_TEMP/preview.zip" -d preview
+          (cd preview && sha256sum -c apk.sha256)
+          grep -F 79c0ae559f7deeebe756e49dc0e9d2f44437e258 preview/source.txt
+          for i in $(seq 1 500); do
+            http=$(curl -sSL -o "$RUNNER_TEMP/envelope.json" -w '%{http_code}' -H "Authorization: Bearer $API_TOKEN" -H 'Accept: application/vnd.github.raw+json' "$api/contents/qa-direct-input/$GITHUB_RUN_ID-$QA_SHARD-$GITHUB_RUN_ATTEMPT.json?ref=codex%2Fcloud-playback-resilience-20261113")
+            if [[ "$http" = 200 ]]; then break; fi
+            sleep 4
+          done
+          test "$http" = 200
+          chmod 600 "$RUNNER_TEMP/envelope.json"
+      - uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: '35'
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          ram-size: 4096M
+          emulator-boot-timeout: 600
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -accel on
+          script: bash qa-direct-source/real.sh
+      - name: Retain numeric playback measurements
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: direct-numeric-${{ github.run_id }}-${{ matrix.shard }}-${{ github.run_attempt }}
+          path: private-results
+          retention-days: 7

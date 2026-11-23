@@ -23,7 +23,7 @@ class UserAgentPreferences(
      * Value callers should actually send: the user's custom UA when set, otherwise the
      * stock "Emby for Android Mobile" string so server-side device lists and UA-gated
      * features see us as the official mobile client rather than whatever the platform
-     * HTTP stack (`okhttp/4.x`, `libmpv/x`, …) would send by default.
+     * HTTP stack (`okhttp/4.x`, for example) would send by default.
      *
      * The stored value stays blank when the user clears the field, so [customValue] can
      * still feed the dialog's placeholder rendering.

@@ -151,8 +151,6 @@ internal enum class PlaybackRemotePath(
     YCoreAll("ycore.all"),
     YCoreDemux("ycore.demux"),
     YCoreGpu("ycore.gpu"),
-    Mpv("mpv"),
-    Mdk("mdk"),
     ;
 
     companion object {

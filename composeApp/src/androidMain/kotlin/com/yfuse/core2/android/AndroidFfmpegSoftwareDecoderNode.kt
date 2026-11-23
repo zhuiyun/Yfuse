@@ -9,6 +9,10 @@ internal sealed interface YSoftwareVideoDecodeResult {
 
     data object Ended : YSoftwareVideoDecodeResult
 
+    data class Skipped(
+        val presentationTimeUs: Long,
+    ) : YSoftwareVideoDecodeResult
+
     /** Four bytes per pixel in RGBA order, or BGRA when [redBlueSwapped] (older native libraries). */
     data class Frame(
         val data: ByteBuffer,
@@ -49,8 +53,9 @@ internal class AndroidFfmpegSoftwareDecoderNode(
     fun configureVideo(
         trackId: YTrackId,
         toneMapHdrToSdr: Boolean = false,
+        requireProfile5Mapping: Boolean = false,
     ) {
-        demuxer.configureSoftwareDecoder(trackId, toneMapHdrToSdr)
+        demuxer.configureSoftwareDecoder(trackId, toneMapHdrToSdr, requireProfile5Mapping)
         videoTrackId = trackId
     }
 
@@ -65,15 +70,18 @@ internal class AndroidFfmpegSoftwareDecoderNode(
     fun queueAudio(sample: YCompressedSample?): Boolean =
         demuxer.sendSoftwarePacket(requireNotNull(audioTrackId), sample)
 
-    fun receiveVideo(): YSoftwareVideoDecodeResult {
+    fun receiveVideo(minimumPresentationTimeUs: Long = Long.MIN_VALUE): YSoftwareVideoDecodeResult {
         val trackId = requireNotNull(videoTrackId)
         repeat(MAX_GROW_RETRIES) {
             val videoBuffer = videoStorage.get()
-            val result = demuxer.receiveSoftwareVideoFrame(trackId, videoBuffer)
+            val result = demuxer.receiveSoftwareVideoFrame(trackId, videoBuffer, minimumPresentationTimeUs)
             require(result.size >= SOFTWARE_FRAME_RESULT_FIELDS) { "Invalid FFmpeg software video result" }
             when (result[SOFTWARE_FRAME_STATUS]) {
                 SOFTWARE_FRAME_AGAIN -> return YSoftwareVideoDecodeResult.TryAgain
                 SOFTWARE_FRAME_EOF -> return YSoftwareVideoDecodeResult.Ended
+                SOFTWARE_FRAME_SKIPPED -> return YSoftwareVideoDecodeResult.Skipped(
+                    result[SOFTWARE_FRAME_PTS].timestampOrZero(),
+                )
                 SOFTWARE_FRAME_GROW -> {
                     val required = result[SOFTWARE_FRAME_SIZE]
                     require(required in 1..MAX_VIDEO_FRAME_BYTES.toLong()) {
@@ -188,3 +196,5 @@ private const val MAX_VIDEO_FRAME_BYTES = 128 * 1024 * 1024
 private const val MAX_AUDIO_FRAME_BYTES = 8 * 1024 * 1024
 private const val BYTES_PER_PIXEL = 4
 private const val MAX_GROW_RETRIES = 2
+
+private const val SOFTWARE_FRAME_SKIPPED = 3L

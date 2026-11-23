@@ -1,0 +1,112 @@
+name: Verify publisher seeks and paired slow-range startup on the original movie
+'on':
+  push:
+    branches:
+    - codex/two-engines-cloud-seek-20261113
+    paths:
+    - .github/workflows/qa-integrated-original-seek-diagnose.yml
+permissions:
+  contents: read
+  actions: read
+jobs:
+  diagnose:
+    name: ${{ matrix.engine }} original movie seeks ${{ matrix.label }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+        - {label: origin, engine: SenPlayer, path: origin, version: candidate}
+        - {label: loopback, engine: SenPlayer, path: loopback, version: candidate}
+        - {label: timeout-candidate, engine: SenPlayer, path: loopback-timeout, version: candidate}
+        - {label: origin-ycore, engine: YCore, path: origin, version: candidate}
+        - {label: latency-ycore-paired, engine: YCore, path: loopback-latency-pair, version: paired}
+    env:
+      QA_ENGINE: ${{ matrix.engine }}
+      QA_ORIGINAL_PATH: ${{ matrix.path }}
+      QA_TIMEOUT_VERSION: ${{ matrix.version }}
+      QA_APP_SHA: fffb78aabaa0c0338af0f43842a0aaef4669ef30
+      QA_BUILD: '44462010482'
+      QA_EXPECTED_FILE_SHA256: 91768e73427fb1e4a3d3a419cb173e7a9d97340190734c361ac56fe2bb6c8a0d
+      QA_CAPTURE_FAILURE: 'true'
+      QA_RANGE_CONTROL: 'true'
+      QA_DNS_CONTROL: 'false'
+      QA_CACHE_PAIRS: 'true'
+      QA_ORIGINAL_ID: 'blender-6402b77c-b61f-4a06-96ca-c8420a2becf4'
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
+    - name: Acquire the qualified read-retry candidate
+      env:
+        API_TOKEN: ${{ github.token }}
+      run: bash qa-integrated/acquire-qualified-candidate.sh "$QA_BUILD" "$QA_APP_SHA"
+    - name: Acquire the previous qualified release for the same-guest range comparison
+      if: matrix.path == 'loopback-latency-pair'
+      env:
+        API_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        mkdir previous
+        cd previous
+        bash "$GITHUB_WORKSPACE/qa-integrated/acquire-qualified-candidate.sh" 44449353843 9ac1be659452b76d7ac5df1839f062ef7b8df379
+        mkdir -p "$GITHUB_WORKSPACE/results/previous"
+        cp preview/apk.sha256 preview/provenance.txt "$GITHUB_WORKSPACE/results/previous/"
+    - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      with:
+        name: arm-input-driver
+        path: qa-driver
+        run-id: 44358745639
+        github-token: ${{ github.token }}
+    - name: Verify identical candidate and prepare original file checks
+      run: 'set -euo pipefail
+
+        mkdir -p results
+
+        (cd preview && sha256sum -c apk.sha256)
+
+        grep -Fx "app=$QA_APP_SHA" preview/provenance.txt
+
+        cp preview/provenance.txt preview/apk.sha256 results/
+
+        sudo apt-get update -qq
+
+        sudo apt-get install -y ffmpeg python3-pil
+
+        '
+    - name: Boot cloud ARM64 Android
+      run: bash qa-arm-dual/redroid.sh
+    - name: Measure cold and retained starts or the controlled stall during a real seek
+      run: 'set -euo pipefail
+
+        test "$GITHUB_ACTIONS" = true
+
+        adb install -r -g preview/composeApp-release.apk
+
+        adb install -r qa-driver/driver.apk
+
+        adb shell wm size 720x1280
+
+        adb shell wm density 260
+
+        adb shell settings put secure immersive_mode_confirmations confirmed
+
+        adb shell settings put secure accessibility_interactive_ui_timeout_ms 60000
+
+        adb shell wm dismiss-keyguard
+
+        touch /tmp/yfuse-tree-active
+
+        /usr/bin/python3 qa-arm-matrix/engine.py "$QA_ENGINE"
+
+        /usr/bin/python3 qa-arm-original/reproduce_seek.py
+
+        '
+    - if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+      with:
+        name: original-startup-control-${{ matrix.label }}
+        path: results/
+        retention-days: 10

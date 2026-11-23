@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -41,7 +42,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalDensity
@@ -98,10 +98,12 @@ import com.yfuse.core.designsystem.SkeletonRail
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.ToastAction
 import com.yfuse.core.designsystem.arrivalSweep
+import com.yfuse.core.designsystem.artworkReelGround
 import com.yfuse.core.designsystem.carouselArtworkMotion
 import com.yfuse.core.designsystem.carouselCaptionEntry
 import com.yfuse.core.designsystem.fadeIntoPage
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.heroCaptionScrim
 import com.yfuse.core.designsystem.heroDurationLabel
 import com.yfuse.core.designsystem.heroMediaTypeLabel
 import com.yfuse.core.designsystem.heroScrollCollapse
@@ -127,7 +129,6 @@ import com.yfuse.core.designsystem.pressableTarget
 import com.yfuse.core.designsystem.refreshAction
 import com.yfuse.core.designsystem.rememberArtworkAccentTarget
 import com.yfuse.core.designsystem.rememberArtworkPageColor
-import com.yfuse.core.designsystem.rememberArtworkPagePalette
 import com.yfuse.core.designsystem.rememberCarouselCaptionProgress
 import com.yfuse.core.designsystem.rememberCarouselPageColor
 import com.yfuse.core.designsystem.rememberLaunchWave
@@ -150,7 +151,6 @@ import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.util.rememberPosterCardSharer
-import kotlinx.coroutines.delay
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
@@ -283,7 +283,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     val showSmartPlaylists =
         com.yfuse.feature.search
             .hasPinnedSmartPlaylists()
-    val palette = rememberArtworkPagePalette(retainedPageColor.value)
+    val palette = LocalPalette.current
     val accent =
         rememberArtworkAccentTarget(
             url = slideUrl,
@@ -311,17 +311,10 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     val routeVisible = LocalRouteVisible.current
     // 「水火潮涌」: armed by a cold start that opens on 库, played once when content is first on screen.
     val launchWave = rememberLaunchWave(contentVisible = routeVisible && !state.content.isEmpty)
-    var freshnessNowEpochMs by remember { mutableStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(state.contentSource, state.updatedAtEpochMs, routeVisible) {
-        freshnessNowEpochMs = System.currentTimeMillis()
-        if (state.contentSource != LibraryContentSource.Cached || !routeVisible) {
-            return@LaunchedEffect
-        }
-        while (true) {
-            delay(MINUTE_MS)
-            freshnessNowEpochMs = System.currentTimeMillis()
-        }
-    }
+    val freshnessNowEpochMs by rememberLibraryFreshnessTime(
+        active = state.contentSource == LibraryContentSource.Cached && !state.content.isEmpty && routeVisible,
+        updatedAtEpochMs = state.updatedAtEpochMs,
+    )
     val carouselVisible by remember(listState) {
         derivedStateOf { listState.firstVisibleItemIndex == 0 && !listState.isScrollInProgress }
     }
@@ -329,14 +322,13 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
 
     val bottomContentInset = floatingNavigationContentInset()
     ArtworkPageTheme(
-        background = retainedPageColor.value,
+        background = null,
         artworkAccent = accent,
     ) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val heroHeight = libraryHeroHeight(maxHeight, wideLayout = maxWidth >= 600.dp)
             // The reel is switched on, but the first load has not brought anything to show in it.
             val heroPending = libraryCarousel && state.loading && state.content.isEmpty
-            Box(Modifier.fillMaxSize().drawBehind { drawRect(sampledPageColor.value) })
             val lightPageReached by rememberScrolledPastHero(listState, heroHeight)
             val showSidePreview = maxWidth >= 600.dp || maxWidth > maxHeight
             val artwork = livingPosterArtwork(maxWidth, heroHeight, showSidePreview)
@@ -388,7 +380,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                 modifier =
                                     Modifier
                                         .fillMaxSize()
-                                        .skeletonSweep()
+                                        .skeletonSweep(enabled = state.loading && state.content.isEmpty)
                                         .arrivalSweep(refreshArrival)
                                         .launchWaveInterrupt(launchWave),
                                 state = listState,
@@ -446,7 +438,8 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                                 Modifier
                                                     .fillMaxWidth()
                                                     .height(heroHeight)
-                                                    .heroScrollCollapse(listState, heroHeight),
+                                                    .heroScrollCollapse(listState, heroHeight)
+                                                    .artworkReelGround(sampledPageColor),
                                             beyondViewportPageCount = if (showSidePreview) 1 else 0,
                                         ) { page ->
                                             val animatedItem = slides.getOrNull(page.index) ?: slide
@@ -581,7 +574,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                         }
                                     }
                                     waveItem(key = "library-categories") {
-                                        CategoryCards(
+                                        LibraryCategoryCards(
                                             baseUrl = baseUrl,
                                             accessToken = accessToken,
                                             rows = state.content.rows,
@@ -662,7 +655,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                     Modifier
                         .fillMaxWidth()
                         .windowInsetsTopHeight(WindowInsets.statusBars)
-                        .drawBehind { drawRect(sampledPageColor.value) },
+                        .background(palette.background),
                 )
             }
 
@@ -809,7 +802,7 @@ private fun HeroCarousel(
     var resolvedArtworkUrl by remember(item.id) { mutableStateOf<String?>(null) }
     val artworkPageColor =
         rememberArtworkPageColor(
-            url = resolvedArtworkUrl,
+            url = resolvedArtworkUrl.takeIf { settled },
             targetAspectRatio = artworkAspectRatio,
             fadeFraction = artworkFadeFraction,
         )
@@ -897,9 +890,11 @@ private fun HeroCarousel(
             Modifier
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
+                .heroCaptionScrim()
                 .padding(
                     start = 20.dp,
                     end = 20.dp,
+                    top = 24.dp,
                     bottom = LibraryHeroContentBottom,
                 ).launchWaveItem(),
         ) {
@@ -949,7 +944,7 @@ private fun HeroCarousel(
                         text = overview,
                         modifier = Modifier.carouselCaptionEntry(captionProgress, stage = 1),
                         style = AppTypography.caption.regular.copy(shadow = HeroTextShadow),
-                        color = Color.White.copy(alpha = 0.80f),
+                        color = Color.White.copy(alpha = 0.92f),
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -1108,7 +1103,7 @@ private fun ServerSheet(
  * grid that would just come up empty.
  */
 @Composable
-private fun CategoryCards(
+internal fun LibraryCategoryCards(
     baseUrl: String,
     accessToken: String,
     rows: List<HomeRow>,
@@ -1117,7 +1112,16 @@ private fun CategoryCards(
     onOpenPlaylists: () -> Unit,
     onRetry: () -> Unit,
 ) {
+    val listState = rememberLazyListState()
+    val hasLibraries = rows.isNotEmpty()
+    LaunchedEffect(baseUrl, hasLibraries) {
+        // The playlist placeholder can be composed before libraries arrive. Do not
+        // retain that trailing key as the first visible item after prepending them.
+        // Later content/count refreshes retain the user's chosen scroll position.
+        if (hasLibraries) listState.scrollToItem(0)
+    }
     LazyRow(
+        state = listState,
         contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {

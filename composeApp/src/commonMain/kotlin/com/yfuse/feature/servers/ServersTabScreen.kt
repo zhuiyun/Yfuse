@@ -52,6 +52,7 @@ import com.yfuse.core.designsystem.RefreshThresholdHaptics
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.SkeletonHandoff
 import com.yfuse.core.designsystem.StatusBarIconStyle
+import com.yfuse.core.designsystem.VisibleUiEffect
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.ServerLayout
@@ -118,8 +119,7 @@ internal fun ServersGridScreen(component: ServersTabComponent) {
     // The ages on the cards are relative, so they go stale where nothing else does. One
     // clock for the whole grid rather than one per card.
     var nowEpochMs by remember { mutableStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(routeVisible) {
-        if (!routeVisible) return@LaunchedEffect
+    VisibleUiEffect(component, active = routeVisible) {
         nowEpochMs = System.currentTimeMillis()
         while (true) {
             delay(AGE_TICK_MS)
@@ -232,6 +232,7 @@ internal fun ServersGridScreen(component: ServersTabComponent) {
                     ) {
                         motionItem(key = "header", span = { GridItemSpan(maxLineSpan) }) {
                             ServersHeader(
+                                hasServers = state.servers.isNotEmpty(),
                                 onAdd = { component.store.accept(ServersIntent.OpenAddDialog) }.takeIf { canManage },
                                 refreshing = refreshing,
                                 refreshingFromKey = refreshing && !refreshByPull,
@@ -282,7 +283,8 @@ internal fun ServersGridScreen(component: ServersTabComponent) {
                             }
                         }
 
-                        if (state.servers.isNotEmpty()) {
+                        val hasOtherServers = state.servers.any { it.id != state.defaultServerId }
+                        if (hasOtherServers) {
                             motionItem(key = "other-servers", span = { GridItemSpan(maxLineSpan) }) {
                                 OtherServersHeader(count = otherVisibleServers.size)
                             }
@@ -297,14 +299,10 @@ internal fun ServersGridScreen(component: ServersTabComponent) {
                             }
                         }
 
-                        if (state.servers.isNotEmpty() && otherVisibleServers.isEmpty()) {
+                        if (hasOtherServers && otherVisibleServers.isEmpty()) {
                             motionItem(key = "filtered-empty", span = { GridItemSpan(maxLineSpan) }) {
                                 Text(
-                                    if (state.servers.size == 1) {
-                                        "还没有其他服务器"
-                                    } else {
-                                        "没有其他符合当前筛选的服务器"
-                                    },
+                                    "没有其他符合当前筛选的服务器",
                                     style = AppTypography.body.medium,
                                     color = palette.sub2,
                                     modifier = Modifier.padding(bottom = 24.dp),

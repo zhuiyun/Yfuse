@@ -90,7 +90,8 @@ class PlaybackPackageTest(unittest.TestCase):
                 del self.entries[entry]
 
     def test_removed_application_runtime_is_rejected(self):
-        for name in ["androidx.media3.exoplayer.ExoPlayer", "dev.jdtech.mpv.MPVLib", "com.mediadevkit.sdk.MDKPlayer"]:
+        for name in ["com.google.android.exoplayer2.ExoPlayer", "androidx.media3.exoplayer.ExoPlayer",
+                     "dev.jdtech.mpv.MPVLib", "com.mediadevkit.sdk.MDKPlayer"]:
             with self.subTest(name=name):
                 self.entries["classes.dex"] = dex_fixture(name)
                 with self.assertRaisesRegex(ValueError, "removed playback runtime"):

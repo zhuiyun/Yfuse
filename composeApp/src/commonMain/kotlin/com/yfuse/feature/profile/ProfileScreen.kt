@@ -846,7 +846,11 @@ fun ProfileScreen(component: ProfileComponent) {
                         ProfilePage.Handoff ->
                             (entry.instance as? ProfileComponent.Child.Handoff)?.let { handoffPage ->
                                 com.yfuse.feature.handoff
-                                    .DeviceHandoffScreen(handoffPage.store, component::closePage)
+                                    .DeviceHandoffScreen(
+                                        handoffPage.store,
+                                        onBack = component::closePage,
+                                        onOpenAccount = { component.openPage(ProfilePage.Account) },
+                                    )
                             }
 
                         ProfilePage.Trakt ->
@@ -1043,7 +1047,7 @@ fun ProfileScreen(component: ProfileComponent) {
             Sheet.Engine ->
                 OptionSheet(
                     title = "高级内核选择",
-                    subtitle = "普通使用建议保持自动选择，仅在兼容问题时锁定",
+                    subtitle = "遇到播放兼容问题时，可固定使用一个内核。",
                     options =
                         PlaybackEngineSelection.selectable.map {
                             it.playbackOptionCopy().label to (it == engineSelection)
@@ -1369,21 +1373,27 @@ internal fun SettingsPage(
             locator.ready = true
         }
     }
-    LazyColumn(
+    Column(
         modifier = modifier.fillMaxSize().statusBarsPadding().imePadding(),
-        state = state,
-        contentPadding = PaddingValues(top = SettingsHeaderTop, bottom = effectiveBottomInset),
-        verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
-        motionItem {
-            SettingsPageHeader(
-                title = title,
-                subtitle = subtitle,
-                onBack = onBack,
-                showBackButton = showBackButton,
-            )
+        Spacer(Modifier.height(SettingsHeaderTop))
+        SettingsPageHeader(
+            title = title,
+            subtitle = subtitle,
+            onBack = onBack,
+            showBackButton = showBackButton,
+        )
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            state = state,
+            contentPadding = PaddingValues(bottom = effectiveBottomInset),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
+        ) {
+            // Keep settings-search item indexes stable while the Back control
+            // and page identity remain visible above the scrolling content.
+            item(key = "settings-content-origin") { }
+            content()
         }
-        content()
     }
 }
 

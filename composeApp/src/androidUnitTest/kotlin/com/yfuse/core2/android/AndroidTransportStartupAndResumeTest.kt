@@ -38,6 +38,83 @@ private fun <T> ExecutorService.await(read: () -> T): T =
 
 class AndroidTransportStartupAndResumeTest {
     @Test
+    fun `continuous proxy startup reads the next block in one exchange and serves its received prefix`() =
+        verifyContinuousProxyStartup("\"version-a\"")
+
+    @Test
+    fun `continuous proxy startup without a validator needs only one exchange for the next block`() =
+        verifyContinuousProxyStartup(null)
+
+    private fun verifyContinuousProxyStartup(entityTag: String?) {
+        val blockBytes = 2 * 1024 * 1024
+        val media = ByteArray(blockBytes * 3) { (it % 251).toByte() }
+        val requests = CopyOnWriteArrayList<YMediaTransportRequest>()
+        val nextBlock = YByteRange(blockBytes.toLong(), 2L * blockBytes - 1)
+        val nextBlockOpened = CountDownLatch(1)
+        val suffixHeld = CountDownLatch(1)
+        val finishNextBlock = CountDownLatch(1)
+        val source =
+            AndroidTransportMediaDataSource(
+                uri = "https://example.invalid/movie",
+                protocol = YSourceProtocol.Https,
+                headers = emptyMap(),
+                prioritizeStartupReads = true,
+                memoryLeaseOverride =
+                    PlaybackMemoryPool(64L * 1024 * 1024).acquire(
+                        PlaybackBufferKind.Transport,
+                        64L * 1024 * 1024,
+                    ),
+                allowsSpeculativeWork = { true },
+                refreshMemoryPressure = {},
+                createTransport = {
+                    TestRangeTransport(
+                        media,
+                        requests,
+                        entityTag = entityTag,
+                        maxReadBytes = 64 * 1024,
+                        beforeRead = { position ->
+                            if (position in blockBytes + 128 * 1024 until blockBytes * 2) {
+                                suffixHeld.countDown()
+                                check(finishNextBlock.await(FULL_BLOCK_HOLD_SECONDS, TimeUnit.SECONDS))
+                            }
+                        },
+                    ) { range -> if (range == nextBlock) nextBlockOpened.countDown() }
+                },
+            )
+        val worker = Executors.newSingleThreadExecutor()
+        try {
+            val chunk = ByteArray(64 * 1024)
+            worker.await {
+                for (position in 0 until blockBytes step chunk.size) {
+                    assertEquals(chunk.size, source.readAt(position.toLong(), chunk, 0, chunk.size))
+                    assertContentEquals(media.copyOfRange(position, position + chunk.size), chunk)
+                }
+            }
+            assertTrue(
+                nextBlockOpened.await(2, TimeUnit.SECONDS),
+                "Sequential startup must open the following block once",
+            )
+            assertTrue(
+                suffixHeld.await(2, TimeUnit.SECONDS),
+                "The fixture must hold the rest of the response after its prefix",
+            )
+            if (entityTag == null) finishNextBlock.countDown()
+            assertEquals(chunk.size, worker.await { source.readAt(blockBytes.toLong(), chunk, 0, chunk.size) })
+            assertContentEquals(media.copyOfRange(blockBytes, blockBytes + chunk.size), chunk)
+            finishNextBlock.countDown()
+            val full = ByteArray(blockBytes)
+            assertEquals(blockBytes, worker.await { source.readAt(blockBytes.toLong(), full, 0, full.size) })
+            assertContentEquals(media.copyOfRange(blockBytes, 2 * blockBytes), full)
+            val nextRanges = requests.mapNotNull { it.range }.filter { it.startInclusive == nextBlock.startInclusive }
+            assertEquals(listOf(nextBlock), nextRanges)
+        } finally {
+            finishNextBlock.countDown()
+            source.close()
+            worker.shutdownNow()
+        }
+    }
+
+    @Test
     fun `proxy startup reads only the demanded block until playback begins`() {
         val blockBytes = 2 * 1024 * 1024
         val media = ByteArray(blockBytes * 6) { it.toByte() }
@@ -276,6 +353,8 @@ private class TestRangeTransport(
     private val failFirstAfter: Int? = null,
     private val changedTag: Boolean = false,
     private val fullBlockRelease: CountDownLatch? = null,
+    private val maxReadBytes: Int = Int.MAX_VALUE,
+    private val beforeRead: (Int) -> Unit = {},
     private val opened: (YByteRange) -> Unit = {},
 ) : YMediaTransport {
     override val supportedProtocols = setOf(YSourceProtocol.Https)
@@ -307,6 +386,7 @@ private class TestRangeTransport(
         offset: Int,
         length: Int,
     ): Int {
+        beforeRead(position)
         if (fullBlock && fullBlockRelease != null) {
             check(fullBlockRelease.await(FULL_BLOCK_HOLD_SECONDS, TimeUnit.SECONDS))
         }
@@ -318,7 +398,7 @@ private class TestRangeTransport(
             throw IOException("Injected disconnection")
         }
         val end = if (attempt == 1 && failFirstAfter != null) minOf(endExclusive, failFirstAfter) else endExclusive
-        val count = minOf(length, end - position)
+        val count = minOf(length, end - position, maxReadBytes)
         media.copyInto(destination, offset, position, position + count)
         position += count
         return count

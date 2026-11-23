@@ -1,6 +1,7 @@
 package com.yfuse.feature.localimport
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -26,12 +27,15 @@ import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayActionRow
+import com.yfuse.core.designsystem.OverlayButton
+import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.localimport.WifiImportedFile
 import com.yfuse.core.localimport.createWifiImportService
 import com.yfuse.core.network.localNetworkConnectionsRestricted
 import com.yfuse.core.network.localNetworkPermissionGranted
 import com.yfuse.core.network.rememberLocalNetworkPermissionRequest
+import com.yfuse.feature.filesource.formatFileSize
 import com.yfuse.feature.player.PlayerLauncher
 import com.yfuse.feature.player.PlayerMediaItem
 import com.yfuse.feature.player.externalPlaybackItem
@@ -95,7 +99,7 @@ private fun WifiImportDialog(onDismiss: () -> Unit) {
             service.stop()
         }
     }
-    GlassDialog(onDismiss = onDismiss) {
+    GlassDialog(onDismiss = onDismiss, scrollable = false, opaqueSurface = true, liquidButtons = false) {
         OverlayHeader(title = "Wi-Fi 导入视频", subtitle = "开启后，在同一局域网的浏览器访问地址并输入配对码。离开页面或进入后台会关闭接收。", onClose = onDismiss)
         LazyColumn(
             Modifier.fillMaxWidth().weight(1f, fill = false).heightIn(max = 600.dp),
@@ -103,19 +107,28 @@ private fun WifiImportDialog(onDismiss: () -> Unit) {
         ) {
             item {
                 if (state.running) {
-                    Text(state.address.orEmpty(), style = AppTypography.body.strong, color = palette.text)
-                    Text("配对码：${state.pairingCode}", style = AppTypography.section.strong, color = palette.text)
-                    TextButton(onClick = service::stop) { Text("停止接收") }
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            if (state.receiving) "正在接收视频" else "等待接收",
+                            style = AppTypography.body.strong,
+                            color = palette.text,
+                        )
+                        Text(state.address.orEmpty(), style = AppTypography.body.medium, color = palette.sub)
+                        Text("配对码：${state.pairingCode}", style = AppTypography.section.strong, color = palette.text)
+                        OverlayButton(label = "停止接收", onClick = service::stop)
+                    }
                 } else {
-                    TextButton(onClick = {
-                        if (localNetworkConnectionsRestricted() &&
-                            !localNetworkPermissionGranted()
-                        ) {
-                            requestPermission()
-                        } else {
-                            start()
-                        }
-                    }) { Text("开启临时接收") }
+                    OverlayButton(
+                        label = "开启临时接收",
+                        tone = OverlayButtonTone.Primary,
+                        onClick = {
+                            if (localNetworkConnectionsRestricted() && !localNetworkPermissionGranted()) {
+                                requestPermission()
+                            } else {
+                                start()
+                            }
+                        },
+                    )
                 }
                 Text(
                     "单文件 2 GiB · 本次 4 GiB · 本机总计 8 GiB / 200 个文件",
@@ -128,7 +141,7 @@ private fun WifiImportDialog(onDismiss: () -> Unit) {
                 Row(Modifier.fillMaxWidth()) {
                     OverlayActionRow(
                         label = file.name,
-                        description = "${file.sizeBytes / 1024 / 1024} MB · 已存入本机",
+                        description = "${formatFileSize(file.sizeBytes)} · 已存入本机",
                         modifier =
                             Modifier
                                 .weight(

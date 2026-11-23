@@ -94,6 +94,9 @@ internal class AndroidNativeTunnelYPlayer(
     @Volatile
     private var releasedAtMs: Long? = null
 
+    // A worker cancelled before its first instruction never acquired a session.
+    @Volatile private var cleanupCompleted = true
+
     private val worker: Job =
         scope.launch { runLoop() }.also { job ->
             job.invokeOnCompletion { playbackDispatcher.close() }
@@ -215,9 +218,6 @@ internal class AndroidNativeTunnelYPlayer(
 
     override fun retry() = send(Command.Prepare)
 
-    @Volatile
-    private var cleanupCompleted = false
-
     override val releaseCompleted: Boolean get() = worker.isCompleted && cleanupCompleted
 
     override suspend fun releaseAndJoin() {
@@ -278,6 +278,7 @@ internal class AndroidNativeTunnelYPlayer(
     }
 
     private suspend fun runLoop() {
+        cleanupCompleted = false
         val session =
             AndroidNativeTunnelSession(
                 appContext,

@@ -10,7 +10,7 @@ import kotlin.test.assertTrue
 
 /**
  * Emby and Jellyfin send a sidecar's `DeliveryUrl` as a path on the server. Passed on as it was,
- * YCore, MPV and Exo were each handed an address they could not open, so the subtitle never loaded.
+ * the player received a relative address and the subtitle never loaded.
  */
 class SidecarSubtitleUrlTest {
     @Test

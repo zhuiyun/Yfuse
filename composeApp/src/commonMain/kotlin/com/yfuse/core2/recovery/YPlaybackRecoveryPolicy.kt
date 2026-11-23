@@ -30,6 +30,8 @@ data class YPlaybackRecoveryContext(
      * without a compatibility executor an enhanced failure there has nowhere left to go.
      */
     val softwareFallbackAvailable: Boolean = true,
+    val platformDecoderOutputRejected: Boolean = false,
+    val videoOutputPreviouslyVerified: Boolean = true,
 ) {
     init {
         require(sameRouteAttempts >= 0)
@@ -62,6 +64,18 @@ object YPlaybackRecoveryPolicy {
             }
         }
         if (category == YPlaybackFailureCategory.Network) return YPlaybackRecoveryAction.Stop
+        // A decoder that previously presented this stream can recover from a temporary reset.
+        // If it rejects its first output, use the available software decoder on the original input.
+        if (
+            context.platformDecoderOutputRejected &&
+            (!context.videoOutputPreviouslyVerified || context.sameRouteAttempts >= MAX_SAME_ROUTE_ATTEMPTS) &&
+            context.route in PLATFORM_VIDEO_ROUTES &&
+            category == YPlaybackFailureCategory.Decoder &&
+            context.softwareFallbackAvailable &&
+            !context.protectedContent
+        ) {
+            return YPlaybackRecoveryAction.FallbackToSoftware
+        }
         if (
             !context.deterministic &&
             category in SAME_ROUTE_RECOVERABLE_FAILURES &&
@@ -102,3 +116,6 @@ private val SAME_ROUTE_RECOVERABLE_FAILURES =
     )
 
 private const val MAX_SAME_ROUTE_ATTEMPTS = 1
+
+private val PLATFORM_VIDEO_ROUTES =
+    setOf(YPlaybackRoute.NativeDirect, YPlaybackRoute.NativeEnhanced, YPlaybackRoute.GpuEnhanced)
