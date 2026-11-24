@@ -19,7 +19,7 @@ jobs:
           # Replay the six-model experiment with its matching runner and verifier.
           ref: 536e042a783ad86e9294c9dd96763c9d5c5ad637
           persist-credentials: false
-      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880
         with:
           distribution: temurin
           java-version: '17'
