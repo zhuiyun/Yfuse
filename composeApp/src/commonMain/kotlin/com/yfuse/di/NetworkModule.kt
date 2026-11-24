@@ -3,6 +3,7 @@ package com.yfuse.di
 import com.yfuse.backend.BackendAccess
 import com.yfuse.backend.BackendEndpoints
 import com.yfuse.core.account.AccountAccessTokenSource
+import com.yfuse.core.data.ServerIconCatalog
 import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.network.LanDiscovery
 import com.yfuse.core.network.TmdbAccountAccess
@@ -37,6 +38,7 @@ internal fun networkModule(appVersion: String): Module =
             )
         } onClose { it?.close() }
         single(named("danmaku-http")) { createDanmakuClient() } onClose { it?.close() }
+        single { ServerIconCatalog(get(named("danmaku-http"))) }
         single(named("theotherdb-http")) { createTheOtherDbClient() } onClose { it?.close() }
         // Own client (different host + bearer auth); qualified so the unqualified HttpClient
         // binding stays the Emby one. A signed-in account reads TMDB through the account server's

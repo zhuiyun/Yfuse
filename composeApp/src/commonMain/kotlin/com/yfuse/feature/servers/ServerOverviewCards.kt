@@ -52,6 +52,7 @@ import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MinTouchTarget
 import com.yfuse.core.designsystem.Semantic
+import com.yfuse.core.designsystem.ServerBadgeArtwork
 import com.yfuse.core.designsystem.contentColorForSurface
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.glassControlHighlight
@@ -314,11 +315,13 @@ internal fun CurrentServerHero(
                     ),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    server.iconEmoji ?: server.serverName.take(1).uppercase(),
-                    style = AppTypography.section.strong,
-                    color = if (server.iconEmoji == null) contentColorForSurface(badgeColor) else Color.Unspecified,
-                )
+                ServerBadgeArtwork(server.iconUrl) {
+                    Text(
+                        server.iconEmoji ?: server.serverName.take(1).uppercase(),
+                        style = AppTypography.section.strong,
+                        color = if (server.iconEmoji == null) contentColorForSurface(badgeColor) else Color.Unspecified,
+                    )
+                }
             }
             Column(Modifier.weight(1f)) {
                 Row(
@@ -621,14 +624,18 @@ internal fun ServerCard(
                         ),
                     contentAlignment = Alignment.Center,
                 ) {
-                    // An emoji is the picture the server does not have. It is drawn as-is rather
-                    // than tinted white, because a colour-blocked emoji is no longer the glyph
-                    // the user picked.
-                    Text(
-                        server.iconEmoji ?: server.serverName.take(1).uppercase(),
-                        style = AppTypography.body.strong,
-                        color = if (server.iconEmoji == null) contentColorForSurface(badgeColor) else Color.Unspecified,
-                    )
+                    ServerBadgeArtwork(server.iconUrl) {
+                        Text(
+                            server.iconEmoji ?: server.serverName.take(1).uppercase(),
+                            style = AppTypography.body.strong,
+                            color =
+                                if (server.iconEmoji == null) {
+                                    contentColorForSurface(badgeColor)
+                                } else {
+                                    Color.Unspecified
+                                },
+                        )
+                    }
                 }
                 Spacer(Modifier.width(9.dp))
                 Column(Modifier.weight(1f)) {

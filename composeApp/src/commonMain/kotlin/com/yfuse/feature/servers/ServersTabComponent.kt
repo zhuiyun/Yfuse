@@ -11,6 +11,7 @@ import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.LibraryCache
 import com.yfuse.core.data.ServerActivityStore
 import com.yfuse.core.data.ServerHealthMonitor
+import com.yfuse.core.data.ServerIconCatalog
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.ServerStatsStore
 import com.yfuse.core.data.ThemePreferences
@@ -334,12 +335,19 @@ class ServersTabComponent(
         }
     }
 
+    internal val iconCatalog: ServerIconCatalog by lazy {
+        org.koin.core.context.GlobalContext
+            .get()
+            .get<ServerIconCatalog>()
+    }
+
     fun setIcon(
         serverId: String,
         emoji: String?,
         tint: Long?,
+        iconUrl: String? = null,
     ) {
-        editRegistry { registry.setIcon(serverId, emoji, tint) }
+        editRegistry { registry.setIcon(serverId, emoji, tint, iconUrl) }
     }
 
     /**

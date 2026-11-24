@@ -66,6 +66,7 @@ private data class PersistedServer(
     @SerialName("ar") val activeRouteId: String? = null,
     @SerialName("ie") val iconEmoji: String? = null,
     @SerialName("it") val iconTint: Long? = null,
+    @SerialName("iu") val iconUrl: String? = null,
     @SerialName("lc") val localCleartextConfirmed: Boolean = false,
     @SerialName("k") val kind: MediaServerKind = MediaServerKind.Emby,
 )
@@ -90,6 +91,7 @@ private data class PortableServer(
     @SerialName("rt") val routes: List<ServerRoute> = emptyList(),
     @SerialName("ie") val iconEmoji: String? = null,
     @SerialName("it") val iconTint: Long? = null,
+    @SerialName("iu") val iconUrl: String? = null,
     @SerialName("k") val kind: MediaServerKind = MediaServerKind.Emby,
 )
 
@@ -430,23 +432,35 @@ class ServerRegistry(
         }
     }
 
-    /** Sets the card's emoji and tint. Both are cosmetic and neither affects identity. */
+    /** Updates the card artwork, fallback emoji and tint in one registry write. */
     fun setIcon(
         id: String,
         emoji: String?,
         tint: Long?,
+        iconUrl: String? = null,
     ): Boolean {
         synchronized(lock) {
             personal?.requireServerManagement()
             val current = _data.value
             val existing = current.servers.firstOrNull { it.id == id } ?: return false
             val normalizedEmoji = sanitizeIconEmoji(emoji)
-            if (existing.iconEmoji == normalizedEmoji && existing.iconTint == tint) return true
+            val url = normalizeServerIconUrl(iconUrl)
+            require(iconUrl.isNullOrBlank() || url != null) { "请输入有效的 HTTPS 图片地址" }
+            if (existing.iconEmoji == normalizedEmoji &&
+                existing.iconTint == tint &&
+                existing.iconUrl == url
+            ) {
+                return true
+            }
             commit(
                 current.copy(
                     servers =
-                        current.servers.map {
-                            if (it.id == id) it.copy(iconEmoji = normalizedEmoji, iconTint = tint) else it
+                        current.servers.map { server ->
+                            if (server.id == id) {
+                                server.copy(iconEmoji = normalizedEmoji, iconTint = tint, iconUrl = url)
+                            } else {
+                                server
+                            }
                         },
                 ),
             )
@@ -564,6 +578,7 @@ class ServerRegistry(
                             routes = server.routes,
                             iconEmoji = server.iconEmoji,
                             iconTint = server.iconTint,
+                            iconUrl = server.iconUrl,
                             localCleartextConfirmed = deviceConfirmation,
                             kind = server.kind,
                         )
@@ -738,6 +753,7 @@ class ServerRegistry(
                                 routes = it.routes,
                                 iconEmoji = it.iconEmoji,
                                 iconTint = it.iconTint,
+                                iconUrl = it.iconUrl,
                                 kind = it.kind,
                             )
                         },
@@ -778,6 +794,7 @@ class ServerRegistry(
                         routes = portable.routes,
                         iconEmoji = portable.iconEmoji,
                         iconTint = portable.iconTint,
+                        iconUrl = portable.iconUrl,
                         kind = portable.kind,
                     )
                 }
@@ -1139,6 +1156,7 @@ class ServerRegistry(
                             activeRouteId = stored.activeRouteId,
                             iconEmoji = sanitizeIconEmoji(stored.iconEmoji),
                             iconTint = stored.iconTint,
+                            iconUrl = normalizeServerIconUrl(stored.iconUrl),
                             localCleartextConfirmed = stored.localCleartextConfirmed,
                             kind = stored.kind,
                         ).withNormalizedRoutes()
@@ -1286,6 +1304,7 @@ class ServerRegistry(
                             activeRouteId = server.activeRouteId,
                             iconEmoji = server.iconEmoji,
                             iconTint = server.iconTint,
+                            iconUrl = server.iconUrl,
                             localCleartextConfirmed = server.localCleartextConfirmed,
                             kind = server.kind,
                         )
@@ -1440,6 +1459,7 @@ class ServerRegistry(
         routes: List<ServerRoute> = emptyList(),
         iconEmoji: String? = null,
         iconTint: Long? = null,
+        iconUrl: String? = null,
         localCleartextConfirmed: Boolean = false,
         kind: MediaServerKind = MediaServerKind.Emby,
     ): SavedServer {
@@ -1519,6 +1539,7 @@ class ServerRegistry(
             activeRouteId = ServerRoute.PRIMARY_ID,
             iconEmoji = sanitizeIconEmoji(iconEmoji),
             iconTint = iconTint,
+            iconUrl = normalizeServerIconUrl(iconUrl),
             localCleartextConfirmed = localCleartextConfirmed,
         ).withNormalizedRoutes()
     }
@@ -1566,6 +1587,7 @@ private fun SavedServer.carryingUserSettingsFrom(existing: SavedServer?): SavedS
         activeRouteId = ServerRoute.PRIMARY_ID.takeIf { routes.isNotEmpty() },
         iconEmoji = iconEmoji ?: existing.iconEmoji,
         iconTint = iconTint ?: existing.iconTint,
+        iconUrl = iconUrl ?: existing.iconUrl,
         localCleartextConfirmed = localCleartextConfirmed || existing.localCleartextConfirmed,
     )
 }

@@ -473,8 +473,9 @@ internal fun ServersGridScreen(component: ServersTabComponent) {
         } else {
             ServerIconDialog(
                 server = live,
-                onSave = { emoji, tint ->
-                    component.setIcon(live.id, emoji, tint)
+                catalog = component.iconCatalog,
+                onSave = { emoji, tint, url ->
+                    component.setIcon(live.id, emoji, tint, url)
                     iconFor = null
                 },
                 onDismiss = { iconFor = null },
