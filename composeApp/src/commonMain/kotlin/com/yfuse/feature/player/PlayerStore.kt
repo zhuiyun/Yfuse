@@ -8,6 +8,7 @@ import com.yfuse.core.data.MediaVersionPreference
 import com.yfuse.core.data.PlaybackFailoverRequest
 import com.yfuse.core.data.ServerHealthMonitor
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.sync.playback.PlaybackSyncManager
 
 data class PlayerState(
     val loading: Boolean = true,
@@ -72,6 +73,8 @@ class PlayerStoreFactory(
     private val healthMonitor: ServerHealthMonitor? = null,
     private val queueLoadTimeoutMs: Long = PLAYER_QUEUE_LOAD_TIMEOUT_MS,
     private val isSeriesLaunch: Boolean = false,
+    private val fromStart: Boolean = false,
+    private val playbackSync: PlaybackSyncManager? = null,
     private val optionalEnrichmentGate: (suspend () -> Unit)? = null,
 ) {
     fun create(): Store<PlayerIntent, PlayerState, Nothing> =
@@ -92,6 +95,8 @@ class PlayerStoreFactory(
                     healthMonitor = healthMonitor,
                     queueLoadTimeoutMs = queueLoadTimeoutMs,
                     isSeriesLaunch = isSeriesLaunch,
+                    fromStart = fromStart,
+                    playbackSync = playbackSync,
                     optionalEnrichmentGate = optionalEnrichmentGate,
                 )
             },

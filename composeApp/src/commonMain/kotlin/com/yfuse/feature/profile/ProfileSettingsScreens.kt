@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import com.yfuse.backend.BackendAccess
 import com.yfuse.core.data.Anime4KMode
 import com.yfuse.core.data.MediaVersionPreference
@@ -28,6 +29,9 @@ import com.yfuse.core.model.SEN_PLAYER_DISPLAY_NAME
 import com.yfuse.core.playback.PlaybackEngineSelection
 import com.yfuse.core.playback.PlaybackOptimizationMode
 import com.yfuse.feature.player.speedLabel
+
+/** False when a host (such as TV settings) already renders its own top-level back row. */
+val LocalSettingsShowBackButton = staticCompositionLocalOf { true }
 
 internal data class PlaybackOptionCopy(
     val label: String,

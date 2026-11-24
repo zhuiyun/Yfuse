@@ -10,7 +10,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -31,7 +33,7 @@ fun RatingBadges(
 ) {
     val palette = LocalPalette.current
     val ink = if (onArtwork) Color.White else palette.text
-    val shadow = if (onArtwork) Shadow(Color.Black.copy(alpha = 0.85f), Offset(0f, 1f), 3f) else null
+    val shadow = if (onArtwork) Shadow(Color.Black.copy(alpha = 0.92f), Offset(0f, 1f), 6f) else null
     FlowRow(
         modifier,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -40,7 +42,23 @@ fun RatingBadges(
         ratings.validRatings().forEach { rating ->
             Row(
                 Modifier
-                    .clearAndSetSemantics {
+                    .then(
+                        if (onArtwork) {
+                            Modifier.drawBehind {
+                                drawRect(
+                                    Brush.radialGradient(
+                                        0f to Color.Black.copy(alpha = 0.44f),
+                                        0.72f to Color.Black.copy(alpha = 0.18f),
+                                        1f to Color.Transparent,
+                                        center = Offset(size.width / 2f, size.height / 2f),
+                                        radius = maxOf(size.width, size.height) * 0.72f,
+                                    ),
+                                )
+                            }
+                        } else {
+                            Modifier
+                        },
+                    ).clearAndSetSemantics {
                         contentDescription =
                             "${rating.source.label} ${rating.display}，满分 ${rating.source.maximum}"
                     }.padding(vertical = 2.dp),

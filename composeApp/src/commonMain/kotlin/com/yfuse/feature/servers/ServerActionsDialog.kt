@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -86,7 +85,7 @@ internal fun ServerActionsDialog(
     onRemove: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val sheetShape = RoundedCornerShape(28.dp)
+    val sheetShape = AppShapes.sheet
     var managing by rememberSaveable(server.id, canManage) { mutableStateOf(false) }
     var copied by remember(server.id) { mutableStateOf(false) }
     LaunchedEffect(copied) {

@@ -75,6 +75,13 @@ public final class SenPlayerSessionHostChecks {
                   && options.get(prefix + "back-color").equals("#00000000"), "RGBA and transparent background");
         }
         check(options.get("subtitle-opacity").equals("1.0"), "subtitle output is opaque");
+        check(options.get("subtitle-hdr").equals("no"), "default subtitle options keep SDR luminance");
+        for (boolean hdr : new boolean[] {false, true}) {
+          java.util.Map<String, String> hdrOptions = SenPlayerSession.subtitleOptions(
+              secondary, 1.2, 0.8, 0.35, -0.5, "#FFFFFFFF", "#000000FF", "#00000000", 2.0, custom, hdr);
+          check(hdrOptions.get("subtitle-hdr").equals(hdr ? "yes" : "no"),
+              "HDR subtitle luminance tracks active HDR video presentation");
+        }
         List<String> order = new ArrayList<>(options.keySet());
         check(order.subList(order.size() - 2, order.size())
                 .equals(java.util.Arrays.asList("sub-visibility", "secondary-sub-visibility")),

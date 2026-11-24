@@ -22,7 +22,13 @@ internal class AndroidFrameRateManager(
     private val mode: YFrameRateSwitchMode = YFrameRateSwitchMode.SeamlessOnly,
 ) {
     private val display =
-        context.applicationContext
+        (
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                runCatching { context.display }.getOrNull()?.takeIf { it.isValid }
+            } else {
+                null
+            }
+        ) ?: context.applicationContext
             .getSystemService(DisplayManager::class.java)
             ?.getDisplay(Display.DEFAULT_DISPLAY)
     private var surface: Surface? = null

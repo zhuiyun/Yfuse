@@ -76,7 +76,11 @@ internal fun WidgetInstallSheet(
         onDismiss = { if (!installing) onDismiss() },
         alignment = Alignment.BottomCenter,
         windowPadding = PaddingValues(0.dp),
-        shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
+        shape =
+            RoundedCornerShape(
+                topStart = com.yfuse.core.designsystem.Dimens.large,
+                topEnd = com.yfuse.core.designsystem.Dimens.large,
+            ),
         animation = DialogAnimation.Lift,
         maxWidth = 560.dp,
         contentPadding = 16.dp,

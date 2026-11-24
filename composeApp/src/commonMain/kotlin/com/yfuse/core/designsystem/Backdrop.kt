@@ -1,12 +1,15 @@
 package com.yfuse.core.designsystem
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
@@ -28,11 +31,15 @@ import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 
 /**
  * Whether this platform can blur what is behind a surface.
@@ -149,10 +156,21 @@ class BackdropState internal constructor(
      * beneath it.
      */
     private val frames = BackdropFrames()
+    private var requestGeneration by mutableIntStateOf(0)
 
     internal fun recorded() {
         frames.recorded()
     }
+
+    /**
+     * Requests a fresh capture from [backdropSource] when child RenderNodes (such as tab
+     * transitions or nested scroll containers) update without invalidating the ancestor draw scope.
+     */
+    fun invalidate() {
+        if (enabled) requestGeneration++
+    }
+
+    internal fun observeRequests(): Int = requestGeneration
 
     /**
      * The captured content, and the subscription that keeps it live.
@@ -208,6 +226,7 @@ fun Modifier.backdropSource(
     return this
         .onGloballyPositioned { state.origin = it.positionInRoot() }
         .drawWithContent {
+            state.observeRequests()
             if (!record()) {
                 drawContent()
                 return@drawWithContent
@@ -216,6 +235,78 @@ fun Modifier.backdropSource(
             state.recorded()
             drawLayer(state.layer)
         }
+}
+
+/**
+ * Keeps a root shell's [BackdropState] synchronized across child tab transitions and scroll
+ * events while pausing full-screen offscreen capture during window resize handoffs.
+ */
+@Composable
+fun Modifier.shellBackdropSource(
+    state: BackdropState,
+    activeKey: Any?,
+    windowSize: Any?,
+    scrollActive: Boolean,
+    record: () -> Boolean,
+): Modifier {
+    val lastWindowSize = remember { mutableStateOf(windowSize) }
+    var resizingWindow by remember { mutableStateOf(false) }
+    if (lastWindowSize.value != windowSize) {
+        resizingWindow = true
+    }
+    LaunchedEffect(windowSize) {
+        if (lastWindowSize.value != windowSize) {
+            lastWindowSize.value = windowSize
+            delay(Motion.QUICK.toLong())
+            resizingWindow = false
+            state.invalidate()
+        }
+    }
+    LaunchedEffect(activeKey) {
+        val durationNs = (Motion.TAB + 120) * 1_000_000L
+        val startNs = withFrameNanos { it }
+        while (true) {
+            state.invalidate()
+            val nowNs = withFrameNanos { it }
+            if (nowNs - startNs >= durationNs) break
+        }
+        state.invalidate()
+    }
+    val scrollConnection =
+        remember(state) {
+            object : NestedScrollConnection {
+                private var lastInvalidate: kotlin.time.TimeMark? = null
+
+                override fun onPostScroll(
+                    consumed: Offset,
+                    available: Offset,
+                    source: NestedScrollSource,
+                ): Offset {
+                    if (consumed.x != 0f || consumed.y != 0f) {
+                        val last = lastInvalidate
+                        if (last == null || last.elapsedNow().inWholeMilliseconds >= 32L) {
+                            lastInvalidate =
+                                kotlin.time.TimeSource.Monotonic
+                                    .markNow()
+                            state.invalidate()
+                        }
+                    }
+                    return Offset.Zero
+                }
+
+                override suspend fun onPostFling(
+                    consumed: androidx.compose.ui.unit.Velocity,
+                    available: androidx.compose.ui.unit.Velocity,
+                ): androidx.compose.ui.unit.Velocity {
+                    lastInvalidate = null
+                    state.invalidate()
+                    return androidx.compose.ui.unit.Velocity.Zero
+                }
+            }
+        }
+    return this
+        .then(if (scrollActive) Modifier.nestedScroll(scrollConnection) else Modifier)
+        .backdropSource(state, record = { !resizingWindow && record() })
 }
 
 /**

@@ -593,7 +593,7 @@ internal fun PlayerRuntimeFaultRecovery(
                             "fault" to fault.kind.name,
                         ),
                 )
-                PlayerNotices.show("YCore 恢复失败，当前没有可用的服务器转码片源")
+                PlayerNotices.show("本地播放链路恢复失败，请重试或导出诊断日志")
             }
 
             PlaybackRuntimeFaultStep.ServerTranscode,

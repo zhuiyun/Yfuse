@@ -2,31 +2,28 @@ package com.yfuse.core.playback
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * A remote ISO can only reach the screen through the server.
- *
- * libdvdnav and libbluray use local device paths. A remote disc image therefore needs a main
- * feature stream from the server. The probe service skips the remote image itself.
+ * Unresolved remote disc images stay on the native local block-I/O / libbluray / FFmpeg pipeline
+ * instead of automatically delegating to server transcoding.
  */
 class RemoteDiscRoutingTest {
     @Test
-    fun a_remote_disc_with_server_transcode_is_routed_to_the_server() {
+    fun a_remote_disc_with_server_transcode_still_stays_on_native_pipeline() {
         val decision = planDiscPlayback(remoteDisc(hasServerTranscode = true))
 
-        assertEquals(PlaybackDiscStrategy.ServerMainFeature, decision.strategy)
-        assertTrue(decision.requiresServerTranscode)
+        assertEquals(PlaybackDiscStrategy.NativeRemoteFallback, decision.strategy)
+        assertFalse(decision.requiresServerTranscode)
+        assertTrue(decision.requiresNativeEngine)
     }
 
     @Test
-    fun a_remote_disc_is_never_routed_to_a_native_engine_when_the_server_can_parse_it() {
+    fun a_remote_disc_preserves_original_streams_without_forcing_server_transcode() {
         val decision = planDiscPlayback(remoteDisc(hasServerTranscode = true))
 
-        assertTrue(
-            !decision.requiresNativeEngine,
-            "Remote disc playback requires a main feature stream from the server",
-        )
+        assertTrue(decision.preservesOriginalStreams)
     }
 
     @Test

@@ -77,7 +77,9 @@ fun CustomHomeScreen(
         val horizontalPadding = widgetHomeHorizontalPadding(maxWidth)
         Column(Modifier.fillMaxSize()) {
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = horizontalPadding, vertical = 8.dp),
+                Modifier
+                    .fillMaxWidth()
+                    .padding(start = horizontalPadding, top = 12.dp, end = horizontalPadding, bottom = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {

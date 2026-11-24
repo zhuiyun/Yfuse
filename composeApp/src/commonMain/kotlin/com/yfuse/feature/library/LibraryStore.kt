@@ -19,6 +19,7 @@ import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.deduplicateFavoriteItems
 import com.yfuse.core.model.deduplicatePlaybackHistory
 import com.yfuse.core.network.toUserMessage
+import com.yfuse.core.sync.playback.PlaybackSyncManager
 import com.yfuse.core.util.LatestWins
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -147,6 +148,8 @@ private sealed interface Action {
         val servers: List<SavedServer>,
         val default: SavedServer?,
     ) : Action
+
+    data object LocalProgressChanged : Action
 }
 
 private sealed interface Msg {
@@ -288,6 +291,8 @@ class LibraryStoreFactory(
     private val forgetHistory: ((serverId: String, itemId: String) -> Unit)? = null,
     /** 标记为已看 from 播放记录; tests that never mark a title may leave the default. */
     private val playedWriter: LibraryPlayedWriter = { _, _, _ -> Result.success(Unit) },
+    /** Local playback sync manager for instant continue-watching progress re-projection. */
+    private val playbackSync: PlaybackSyncManager? = null,
 ) {
     fun create(): Store<LibraryIntent, LibraryState, Nothing> =
         storeFactory.create(
@@ -298,6 +303,11 @@ class LibraryStoreFactory(
                     registry.data
                         .onEach { dispatch(Action.Data(it.servers, it.defaultServer)) }
                         .launchIn(this)
+                    playbackSync
+                        ?.changes
+                        ?.drop(1)
+                        ?.onEach { dispatch(Action.LocalProgressChanged) }
+                        ?.launchIn(this)
                 },
             executorFactory = ::ExecutorImpl,
             reducer = ReducerImpl,
@@ -320,6 +330,19 @@ class LibraryStoreFactory(
                     } else if (server.libraryConnection() != loadedConnection) {
                         loadedConnection = server.libraryConnection()
                         load(server)
+                    }
+                }
+                Action.LocalProgressChanged -> {
+                    val sync = playbackSync ?: return
+                    val server = state().currentServer ?: return
+                    val content = state().content
+                    if (content.resume.isEmpty()) return
+                    val projected =
+                        content.resume.mapNotNull { item ->
+                            sync.projectResumeItem(server.id, item)
+                        }
+                    if (projected != content.resume) {
+                        dispatch(Msg.Progress(content.copy(resume = projected).withoutHeldHistory()))
                     }
                 }
             }

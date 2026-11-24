@@ -29,6 +29,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -48,14 +49,17 @@ import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.DialogPresence
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
+import com.yfuse.core.designsystem.HeroPageFade
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MediaSharedElementKey
+import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OverlayPage
 import com.yfuse.core.designsystem.SkeletonHandoff
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.WindowWidthTier
 import com.yfuse.core.designsystem.ZoomBackAnchor
+import com.yfuse.core.designsystem.artworkPageSurface
 import com.yfuse.core.designsystem.backdropSource
 import com.yfuse.core.designsystem.cinemaDetailArrival
 import com.yfuse.core.designsystem.liftOverHero
@@ -64,6 +68,7 @@ import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.playerArtworkOnClick
 import com.yfuse.core.designsystem.rememberAnimatedArtworkAccent
 import com.yfuse.core.designsystem.rememberAnimatedColorState
+import com.yfuse.core.designsystem.rememberArtworkPageColor
 import com.yfuse.core.designsystem.rememberBackdropState
 import com.yfuse.core.designsystem.windowWidthTier
 import com.yfuse.core.designsystem.zoomBackAnchor
@@ -547,10 +552,14 @@ fun DetailScreen(component: DetailComponent) {
             // Enough artwork to feel cinematic while still exposing the title and primary
             // decision on compact phones. The old 60% crop hid too much of the useful page.
             val preferredHeroHeight =
-                when (windowWidthTier(maxWidth)) {
-                    WindowWidthTier.Compact -> (maxHeight * 0.48f).coerceAtMost(520.dp)
-                    WindowWidthTier.Medium -> (maxHeight * 0.48f).coerceAtMost(580.dp)
-                    WindowWidthTier.Expanded -> (maxHeight * 0.46f).coerceAtMost(620.dp)
+                if (maxHeight < 480.dp) {
+                    (maxHeight * 0.42f).coerceAtMost(240.dp)
+                } else {
+                    when (windowWidthTier(maxWidth)) {
+                        WindowWidthTier.Compact -> (maxHeight * 0.48f).coerceAtMost(520.dp)
+                        WindowWidthTier.Medium -> (maxHeight * 0.48f).coerceAtMost(580.dp)
+                        WindowWidthTier.Expanded -> (maxHeight * 0.46f).coerceAtMost(620.dp)
+                    }
                 }
             // Lift the measured caption and the primary action over the artwork. The backdrop
             // continues 20dp below 播放, while the blend into the page still begins at the
@@ -565,9 +574,25 @@ fun DetailScreen(component: DetailComponent) {
             val heroHeight = preferredHeroHeight.coerceAtLeast(captionLift + statusBarHeight + TopBarHeight)
             val heroHeightPx = with(density) { heroHeight.toPx() }
 
-            // The artwork fades into the theme ground. Body text and technical panels keep the
-            // same contrast when the selected artwork changes.
-            val detailSurface = palette.background
+            // Automatically sample the lower dissolve band of the active hero artwork so the
+            // page background blends seamlessly into the top poster in both light and dark modes.
+            val sampledDetailPageColor =
+                rememberArtworkPageColor(
+                    url = artworkColorUrl,
+                    targetAspectRatio =
+                        if (heroHeight > 0.dp) maxWidth.value / heroHeight.value else 1f,
+                    fadeFraction =
+                        if (heroHeight > 0.dp) {
+                            (HeroPageFade.value / heroHeight.value).coerceIn(0.05f, 0.6f)
+                        } else {
+                            0.25f
+                        },
+                )
+            val detailSurface =
+                remember(sampledDetailPageColor, palette.isDark, palette.background) {
+                    sampledDetailPageColor?.let { artworkPageSurface(it, palette.isDark) } ?: palette.background
+                }
+            val detailSurfaceState = rememberAnimatedColorState(detailSurface, Motion.ACCENT)
             val detailPlayColor =
                 remember(detailAccent, detailSurface) {
                     readableStateAccent(detailAccent, detailSurface, minimumRatio = 3.0f)
@@ -613,7 +638,11 @@ fun DetailScreen(component: DetailComponent) {
                 StatusBarIconStyle(darkIcons = !pagePalette.isDark && (detail == null || barSolid))
 
                 // The only opaque ground on the page. Hero, sheet and tail all reveal this exact colour.
-                Box(Modifier.fillMaxSize().background(detailSurface))
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .drawBehind { drawRect(detailSurfaceState.value) },
+                )
 
                 // Still composed under 全部剧集, where a screen reader would walk on through the page
                 // and its top bar. Given back once that layer starts to leave, which the reader no

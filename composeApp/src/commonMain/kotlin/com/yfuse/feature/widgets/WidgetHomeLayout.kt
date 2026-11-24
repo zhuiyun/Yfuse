@@ -42,7 +42,15 @@ internal fun widgetGalleryViewportWidth(
 internal fun widgetRailItemWidth(
     preferred: Dp,
     available: Dp,
-): Dp = minOf(preferred * if (available >= 600.dp) 1.15f else 1f, available).coerceAtLeast(1.dp)
+): Dp {
+    val scale =
+        when {
+            available >= 840.dp -> 1.24f
+            available >= 600.dp -> 1.15f
+            else -> 1f
+        }
+    return minOf(preferred * scale, available).coerceAtLeast(1.dp)
+}
 
 internal fun widgetPagerCardWidth(
     available: Dp,

@@ -51,6 +51,11 @@ class SenPlayerStatePolicyTest {
         assertFalse(failure.message.contains("内核不可用"))
         assertFalse(failure.kind.penalizesEngine)
         assertEquals(PlaybackFailureKind.Network, senPlayerSourceFailure(410)?.kind)
+        assertEquals(PlaybackFailureKind.Network, senPlayerSourceFailure(502)?.kind)
+        assertEquals(
+            PlaybackFailureKind.Network,
+            senPlayerSourceFailure(null, error = java.net.SocketTimeoutException("read timed out"))?.kind,
+        )
         assertNull(senPlayerSourceFailure(null))
     }
 

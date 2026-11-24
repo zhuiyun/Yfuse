@@ -593,12 +593,12 @@ internal class AndroidNativeDirectSession(
         videoFormat =
             videoTrackIndex
                 ?.let(demux::trackFormat)
-                ?.also { format ->
-                    if (plannedDolbyVisionConfig != null) {
-                        format.applyDolbyVisionConfiguration(plannedDolbyVisionConfig)
-                    } else if (confirmedDolbyVisionNalIdentity) {
-                        format.setString(MediaFormat.KEY_MIME, DOLBY_VISION_MIME)
-                    }
+                ?.also {
+                    it.prepareNativeDirectVideoFormat(
+                        plannedDolbyVisionConfig,
+                        confirmedDolbyVisionNalIdentity,
+                        audioDisabled,
+                    )
                 }
         inspectHdr10PlusSamples =
             videoFormat?.containsKey(MediaFormat.KEY_HDR10_PLUS_INFO) == true ||

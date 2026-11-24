@@ -104,35 +104,35 @@ data class PlaybackMediaProbe(
                 (sourceSizeBytes ?: 0L) >= HUGE_REMOTE_MOV_BYTES
 
     /** Credential-free, URL-free key used by the bounded failure memory. */
-    val capabilitySignature: String
-        get() =
-            buildList {
-                add(normalizedContainer.ifEmpty { "UNKNOWN" })
-                add(source.videoRequirements.codec?.name ?: "UnknownCodec")
-                add(source.width?.resolutionBucket() ?: "UnknownWidth")
-                add(source.height?.resolutionBucket() ?: "UnknownHeight")
-                add(source.frameRate?.frameRateBucket() ?: "UnknownFps")
-                add(source.bitDepth?.toString() ?: "UnknownDepth")
-                add(source.hdrFormat?.name ?: "Sdr")
-                if (source.dolbyVision) {
-                    add(source.dolbyVisionProfile?.let { "DolbyP$it" } ?: "UnknownDolbyProfile")
-                    add(source.dolbyEnhancementLayerPresent?.let { "DolbyEL=$it" } ?: "UnknownDolbyEL")
-                    add(source.dolbyBaseLayerCompatibilityId?.let { "DolbyBL=$it" } ?: "UnknownDolbyBL")
-                }
-                add(audioCodec?.name ?: "UnknownAudio")
-                add(audioChannelCount?.toString() ?: "UnknownChannels")
-                add(discKind.name)
-                add(
-                    when {
-                        discMainFeatureResolved -> "ResolvedDiscMainFeature"
-                        discSource || discKind != PlaybackDiscKind.None -> "RawDiscSource"
-                        else -> "LinearMedia"
-                    },
-                )
-                add(if (styledSubtitles) "StyledSubtitles" else "PlainSubtitles")
-                add(if (drmProtected) "Drm" else "Clear")
-                add(if (usingServerTranscode) "Transcode" else "Original")
-            }.joinToString("|")
+    val capabilitySignature: String by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        buildList {
+            add(normalizedContainer.ifEmpty { "UNKNOWN" })
+            add(source.videoRequirements.codec?.name ?: "UnknownCodec")
+            add(source.width?.resolutionBucket() ?: "UnknownWidth")
+            add(source.height?.resolutionBucket() ?: "UnknownHeight")
+            add(source.frameRate?.frameRateBucket() ?: "UnknownFps")
+            add(source.bitDepth?.toString() ?: "UnknownDepth")
+            add(source.hdrFormat?.name ?: "Sdr")
+            if (source.dolbyVision) {
+                add(source.dolbyVisionProfile?.let { "DolbyP$it" } ?: "UnknownDolbyProfile")
+                add(source.dolbyEnhancementLayerPresent?.let { "DolbyEL=$it" } ?: "UnknownDolbyEL")
+                add(source.dolbyBaseLayerCompatibilityId?.let { "DolbyBL=$it" } ?: "UnknownDolbyBL")
+            }
+            add(audioCodec?.name ?: "UnknownAudio")
+            add(audioChannelCount?.toString() ?: "UnknownChannels")
+            add(discKind.name)
+            add(
+                when {
+                    discMainFeatureResolved -> "ResolvedDiscMainFeature"
+                    discSource || discKind != PlaybackDiscKind.None -> "RawDiscSource"
+                    else -> "LinearMedia"
+                },
+            )
+            add(if (styledSubtitles) "StyledSubtitles" else "PlainSubtitles")
+            add(if (drmProtected) "Drm" else "Clear")
+            add(if (usingServerTranscode) "Transcode" else "Original")
+        }.joinToString("|")
+    }
 }
 
 data class PlaybackPlan(
@@ -188,33 +188,17 @@ fun planPlayback(
             !probe.drmProtected &&
             !probe.source.dolbyVision &&
             !probe.usingServerTranscode &&
-            (softwareFirst || (videoSupport.isUnsupported && !probe.hasServerTranscode))
-    // A server fallback is a clear-stream compatibility operation, never a DRM bypass.
-    // Original Dolby stays local unless the viewer explicitly requests server conversion.
-    val requiresServer =
-        !probe.drmProtected &&
-            !probe.source.dolbyVision &&
-            !probe.usingServerTranscode &&
-            probe.hasServerTranscode &&
-            (
-                discDecision.requiresServerTranscode ||
-                    (
-                        primary == PlayerEngine.YCore &&
-                            !softwareFirst &&
-                            (
-                                hdrRoute.requiresServerTranscode ||
-                                    (videoSupport.isUnsupported && preferredDecoderMode != DecoderMode.Software)
-                            )
-                    )
-            )
+            (softwareFirst || videoSupport.isUnsupported)
+    // Playback never relies on automatic server transcoding; only an explicit viewer transcode
+    // selection (`usingServerTranscode == true`) enters the server transcode render path.
+    val requiresServer = false
     val reason =
         when {
             probe.drmProtected -> "当前内核尚未支持受保护内容的完整 DRM 播放流程"
             requested != primary -> "所选内核不适用于当前平台，使用 YCore"
             primary == PlayerEngine.SenPlayer -> "已选择 $SEN_PLAYER_DISPLAY_NAME，播放时按原内核规则验证许可"
-            requiresServer -> discDecision.reason ?: "设备未确认支持原始格式，使用可用的服务器转码"
             localSoftware && softwareFirst -> "ProRes 交由 YCore FFmpeg 软件解码，实际格式支持由运行时验证"
-            localSoftware -> "设备不支持此硬解格式且无服务器转码，尝试 YCore 软件解码"
+            localSoftware -> hdrRoute.reason ?: "硬件解码器不支持当前参数，改用 YCore 本地软件解码"
             hdrRoute.reason != null -> hdrRoute.reason
             discDecision.reason != null -> discDecision.reason
             probe.requiresNativeDemuxer -> "${probe.normalizedContainer} 使用 YCore 原生解封装"
@@ -228,17 +212,20 @@ fun planPlayback(
             when {
                 probe.drmProtected -> preferredDecoderMode
                 primary == PlayerEngine.SenPlayer -> preferredDecoderMode
-                requiresServer || probe.usingServerTranscode -> DecoderMode.Hardware
+                probe.usingServerTranscode -> DecoderMode.Hardware
                 localSoftware -> DecoderMode.Software
                 probe.source.dolbyVision -> hdrRoute.decoderMode
+                hdrRoute.localGpuToneMap -> hdrRoute.decoderMode
                 optimizationMode == PlaybackOptimizationMode.PowerSaver -> DecoderMode.Hardware
                 else -> preferredDecoderMode
             },
         renderPath =
             when {
-                requiresServer || probe.usingServerTranscode -> PlaybackRenderPath.ServerTranscode
+                probe.usingServerTranscode -> PlaybackRenderPath.ServerTranscode
                 primary == PlayerEngine.YCore && hdrRoute.dolbyVisionPath == PlaybackDolbyVisionPath.Hdr10BaseLayer ->
                     PlaybackRenderPath.Hdr10BaseLayer
+                primary == PlayerEngine.YCore && hdrRoute.localGpuToneMap ->
+                    PlaybackRenderPath.GpuToneMapped
                 else -> PlaybackRenderPath.NativeDirect
             },
         requiresServerTranscode = requiresServer,

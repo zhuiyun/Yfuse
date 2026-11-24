@@ -492,6 +492,16 @@ fun Poster(
                         layout(placeable.width + inset * 2, placeable.height) {
                             placeable.placeRelative(inset, 0)
                         }
+                    }.drawBehind {
+                        drawRect(
+                            Brush.radialGradient(
+                                0f to Color.Black.copy(alpha = 0.52f),
+                                0.68f to Color.Black.copy(alpha = 0.24f),
+                                1f to Color.Transparent,
+                                center = Offset(size.width / 2f, size.height / 2f),
+                                radius = maxOf(size.width, size.height) * 0.72f,
+                            ),
+                        )
                     }.semantics { this.contentDescription = "评分 $label，满分 10" },
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -500,7 +510,7 @@ fun Poster(
                     Icon(
                         AppIcons.StarFilled,
                         contentDescription = null,
-                        tint = Color.Black.copy(alpha = 0.75f),
+                        tint = Color.Black.copy(alpha = 0.85f),
                         modifier = Modifier.size(12.dp).graphicsLayer { translationY = 0.5.dp.toPx() },
                     )
                     Icon(AppIcons.StarFilled, null, tint = Color.White, modifier = Modifier.size(12.dp))
@@ -509,7 +519,7 @@ fun Poster(
                     label,
                     style =
                         AppTypography.caption.strong.copy(
-                            shadow = Shadow(Color.Black.copy(alpha = 0.9f), Offset(0f, 1f), 4f),
+                            shadow = Shadow(Color.Black.copy(alpha = 0.94f), Offset(0f, 1f), 6f),
                         ),
                     color = Color.White,
                     maxLines = 1,

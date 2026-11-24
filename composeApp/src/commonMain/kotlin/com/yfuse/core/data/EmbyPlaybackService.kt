@@ -110,8 +110,10 @@ internal class EmbyPlaybackService(
                         discoveredCapabilities.copy(directAudioFormats = emptySet())
                     }
                 val profile = DeviceProfileDto.yfuseAndroid(capabilities)
-                val forceVideoTranscode =
-                    sourceRequiresDolbyDecoder && !capabilities.supportsDolbyVisionOutput
+                // Local YCore / SenPlayer pipelines handle HDR tone-mapping, Dolby Vision
+                // (native DV, P7->P8.1 conversion, P7/P8/P10 base-layer extraction, and P5 RPU->SDR),
+                // and software decode locally without relying on server transcoding.
+                val forceVideoTranscode = false
                 val request =
                     PlaybackInfoRequestDto(
                         Id = itemId,

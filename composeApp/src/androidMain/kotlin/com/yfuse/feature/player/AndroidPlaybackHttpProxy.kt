@@ -160,6 +160,13 @@ internal class AndroidPlaybackHttpProxy(
         private val upstream: String,
     ) : BufferedScrubMedia.CachedSource {
         private val key = secureMediaCacheKeyForUrl(upstream)
+        private val readOnlyFactory =
+            cacheHandle?.cache?.let { cache ->
+                CacheDataSource
+                    .Factory()
+                    .setCache(cache)
+                    .setCacheWriteDataSinkFactory(null)
+            }
 
         override fun matches(
             uri: String,
@@ -183,13 +190,9 @@ internal class AndroidPlaybackHttpProxy(
             if (position >= length) return -1
             val count = minOf(size.toLong(), length - position).toInt()
             val cache = cacheHandle?.cache ?: throw EOFException("Playback cache closed")
+            val factory = readOnlyFactory ?: throw EOFException("Playback cache closed")
             if (!cache.isCached(key, position, count.toLong())) throw EOFException("Unbuffered preview")
-            val cursor =
-                CacheDataSource
-                    .Factory()
-                    .setCache(cache)
-                    .setCacheWriteDataSinkFactory(null)
-                    .createDataSource()
+            val cursor = factory.createDataSource()
             try {
                 cursor.open(
                     DataSpec

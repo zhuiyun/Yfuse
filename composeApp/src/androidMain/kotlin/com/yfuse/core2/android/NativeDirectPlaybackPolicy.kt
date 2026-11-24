@@ -96,9 +96,9 @@ internal fun yCoreDecoderFailureMessage(failure: YPlaybackException): String {
 
 internal fun yCoreNativeDirectFailureMessage(failure: YPlaybackException?): String =
     when (failure?.category) {
-        YPlaybackFailureCategory.Authorization -> "YCore 2.0 片源授权已失效，请刷新播放地址后重试"
+        YPlaybackFailureCategory.Authorization -> "片源授权已失效，请刷新播放地址后重试"
         YPlaybackFailureCategory.Drm -> "YCore 2.0 无法建立当前片源的 DRM 会话"
-        YPlaybackFailureCategory.Network -> "YCore 2.0 无法连接片源，请检查服务器或网络"
+        YPlaybackFailureCategory.Network -> "无法连接片源，请检查服务器或网络"
         YPlaybackFailureCategory.Container ->
             when {
                 failure.stage == YPlaybackFailureStage.Bitstream ->

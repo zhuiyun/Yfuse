@@ -859,4 +859,88 @@ class PlaybackSyncStoreTest {
 
         assertEquals(restartEpoch, started.document.state.progressEpoch)
     }
+
+    @Test
+    fun projectResumeItemReflectsLocalProgressAndRemovesCompletedOrRestarted() {
+        val settings = MapSettings()
+        var now = 30_000L
+        val store = PlaybackSyncStore(settings) { now++ }
+        val card =
+            com.yfuse.core.model.MediaItem(
+                id = "item-a",
+                title = "Demo Movie",
+                subtitle = null,
+                type = "Movie",
+                posterItemId = "item-a",
+                posterTag = null,
+                backdropItemId = null,
+                backdropTag = null,
+                playedPercentage = 10.0,
+                resumePositionTicks = 100_000_000L,
+                providerIds = mapOf("Tmdb" to "42"),
+            )
+
+        // Untracked item stays unchanged.
+        assertEquals(card, store.projectResumeItem("server-a", card))
+
+        // Local progress updates percentage and resume ticks immediately.
+        store.updatePlayback(
+            mediaKey = "tmdb:42",
+            aliases = emptyList(),
+            positionMs = 50_000L,
+            durationMs = 100_000L,
+            played = false,
+            sessionId = "s1",
+            serverId = "server-a",
+            serverItemId = "item-a",
+            mutationKind = PlaybackMutationKind.AutoProgress,
+            trigger = PlaybackSyncTrigger.Pause,
+        )
+        val updated = store.projectResumeItem("server-a", card)
+        assertEquals(500_000_000L, updated?.resumePositionTicks)
+        assertEquals(50.0, updated?.playedPercentage)
+
+        // Restarting to 0 removes it from continue watching.
+        store.markRestarted("tmdb:42", serverId = "server-a", serverItemId = "item-a")
+        assertEquals(null, store.projectResumeItem("server-a", card))
+    }
+
+    @Test
+    fun bindKnownSourceDefersDiskWriteAndSkipsChangeBroadcast() {
+        val settings = MapSettings()
+        var now = 40_000L
+        val store =
+            PlaybackSyncStore(settings) {
+                now += 100L
+                now
+            }
+        store.updatePlayback(
+            mediaKey = "tmdb:99",
+            aliases = emptyList(),
+            positionMs = 20_000L,
+            durationMs = 100_000L,
+            played = false,
+            sessionId = "s1",
+            serverId = "server-a",
+            serverItemId = "item-a",
+            mutationKind = PlaybackMutationKind.AutoProgress,
+            trigger = PlaybackSyncTrigger.Pause,
+        )
+        val changesBefore = store.changes.value
+
+        store.bindKnownSource(
+            mediaKey = "tmdb:99",
+            aliases = listOf("imdb:tt99"),
+            serverId = "server-b",
+            serverItemId = "item-b",
+        )
+
+        assertEquals(changesBefore, store.changes.value)
+        assertEquals(20_000L, store.stateForServerItem("server-b", "item-b")?.positionMs)
+
+        // Reloading after flush persists the binding.
+        store.flush()
+        val reloaded = PlaybackSyncStore(settings) { now }
+        assertEquals(20_000L, reloaded.stateForServerItem("server-b", "item-b")?.positionMs)
+    }
 }

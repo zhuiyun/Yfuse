@@ -39,6 +39,7 @@ import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.MediaSharedElementKey
 import com.yfuse.core.designsystem.PageHint
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
+import com.yfuse.core.designsystem.SegmentedRow
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.motionItems
@@ -116,6 +117,8 @@ fun PlaybackHistoryScreen(
         onDispose { component.updateVisibleRows(emptyList()) }
     }
     var notice by remember { mutableStateOf<String?>(null) }
+    var gridView by remember { mutableStateOf(false) }
+    val grouped = remember(rows) { groupHistoryRowsByRecency(rows) }
     StatusBarIconStyle(darkIcons = !LocalPalette.current.isDark)
     if (rootTab) ScrollToTopOnReselect(component.listState)
     Box(Modifier.fillMaxSize()) {
@@ -128,6 +131,22 @@ fun PlaybackHistoryScreen(
             bottomContentInset = if (rootTab) floatingNavigationContentInset() else systemNavigationContentInset(),
         ) {
             if (contentEntries != null) item(key = "watching-entries") { contentEntries() }
+            if (rows.isNotEmpty()) {
+                item(key = "history-view-toggle") {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = Dimens.pageHorizontal),
+                        horizontalArrangement = Arrangement.End,
+                    ) {
+                        SegmentedRow(
+                            options = listOf("沉浸列表", "宫格视图"),
+                            selectedIndex = if (gridView) 1 else 0,
+                            onSelect = { gridView = it == 1 },
+                        )
+                    }
+                }
+            }
             if (rows.isEmpty()) {
                 item(key = "history-empty") {
                     Box(Modifier.fillMaxWidth().padding(vertical = 72.dp), contentAlignment = Alignment.Center) {
@@ -135,36 +154,97 @@ fun PlaybackHistoryScreen(
                     }
                 }
             }
-            motionItems(rows, key = { it.entry.identity }, contentType = { "history-card" }) { row ->
-                val key = component.metadataKey(row)
-                val rowMetadata =
-                    remember(component, key) {
-                        component.metadata.map { cache -> cache[key] to cache.containsKey(key) }.distinctUntilChanged()
+            grouped.forEach { (bucket, bucketRows) ->
+                item(key = "history-bucket-${bucket.name}") {
+                    Text(
+                        bucket.label,
+                        style = AppTypography.section.strong,
+                        color = LocalPalette.current.text,
+                        modifier =
+                            Modifier
+                                .padding(horizontal = Dimens.pageHorizontal)
+                                .padding(top = 6.dp),
+                    )
+                }
+                if (gridView) {
+                    val pairs = bucketRows.chunked(2)
+                    motionItems(
+                        pairs,
+                        key = { pair -> "grid-${pair.first().entry.identity}" },
+                        contentType = { "history-grid-row" },
+                    ) { pair ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = Dimens.pageHorizontal),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            pair.forEach { row ->
+                                val key = component.metadataKey(row)
+                                val rowMetadata =
+                                    remember(component, key) {
+                                        component.metadata
+                                            .map { cache -> cache[key] to cache.containsKey(key) }
+                                            .distinctUntilChanged()
+                                    }
+                                val loaded by rowMetadata.collectAsState(
+                                    component.metadata.value.let { it[key] to it.containsKey(key) },
+                                )
+                                val enriched =
+                                    remember(row, loaded) {
+                                        row.copy(metadata = loaded.first, metadataLoaded = loaded.second)
+                                    }
+                                PlaybackHistoryGridTile(
+                                    row = enriched,
+                                    posterState = component.posterState(row),
+                                    sharedKey = key?.let { MediaSharedElementKey(it.serverId, it.itemId) },
+                                    onOpen = {
+                                        if (!component.open(row)) notice = "暂时无法打开详情，请先连接这条记录的来源服务器"
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                            if (pair.size == 1) {
+                                Box(Modifier.weight(1f))
+                            }
+                        }
                     }
-                val loaded by rowMetadata.collectAsState(
-                    component.metadata.value.let { it[key] to it.containsKey(key) },
-                )
-                val enriched =
-                    remember(row, loaded) { row.copy(metadata = loaded.first, metadataLoaded = loaded.second) }
-                PlaybackHistoryCard(
-                    row = enriched,
-                    posterState = component.posterState(row),
-                    onRetry = { component.retryMetadata(row) },
-                    sharedKey = key?.let { MediaSharedElementKey(it.serverId, it.itemId) },
-                    onContinue =
-                        if (component.canContinue(row)) {
-                            (
-                                {
-                                    if (!component.continuePlayback(row)) notice = "来源已变化，请重新打开影片"
-                                }
-                            )
-                        } else {
-                            null
-                        },
-                    onOpen = {
-                        if (!component.open(row)) notice = "暂时无法打开详情，请先连接这条记录的来源服务器"
-                    },
-                )
+                } else {
+                    motionItems(bucketRows, key = { it.entry.identity }, contentType = { "history-card" }) { row ->
+                        val key = component.metadataKey(row)
+                        val rowMetadata =
+                            remember(component, key) {
+                                component.metadata
+                                    .map { cache -> cache[key] to cache.containsKey(key) }
+                                    .distinctUntilChanged()
+                            }
+                        val loaded by rowMetadata.collectAsState(
+                            component.metadata.value.let { it[key] to it.containsKey(key) },
+                        )
+                        val enriched =
+                            remember(row, loaded) {
+                                row.copy(metadata = loaded.first, metadataLoaded = loaded.second)
+                            }
+                        PlaybackHistoryRichRowCard(
+                            row = enriched,
+                            posterState = component.posterState(row),
+                            sharedKey = key?.let { MediaSharedElementKey(it.serverId, it.itemId) },
+                            onContinue =
+                                if (component.canContinue(row)) {
+                                    (
+                                        {
+                                            if (!component.continuePlayback(row)) notice = "来源已变化，请重新打开影片"
+                                        }
+                                    )
+                                } else {
+                                    null
+                                },
+                            onOpen = {
+                                if (!component.open(row)) notice = "暂时无法打开详情，请先连接这条记录的来源服务器"
+                            },
+                        )
+                    }
+                }
             }
         }
         ActionToast(message = notice, onDismiss = { notice = null })

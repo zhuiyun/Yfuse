@@ -96,6 +96,8 @@ class HomeTabComponent(
             val startPlaybackRequested: Boolean = true,
             /** Only a freshly matched Series may skip the parent-item metadata request. */
             val isSeriesLaunch: Boolean = false,
+            /** True when the user explicitly chose 从头播放 from a card menu. */
+            val fromStart: Boolean = false,
         ) : Config
 
         @Serializable data class Info(
@@ -289,8 +291,16 @@ class HomeTabComponent(
                         onOpenEmbyItem = { serverId, itemId ->
                             navigation.openFrom(config, Config.Detail(serverId, itemId))
                         },
-                        onPlayEmbyItem = { serverId, itemId, isSeries, startPositionTicks ->
-                            openPlayer(Config.Player(serverId, itemId, startPositionTicks, isSeriesLaunch = isSeries))
+                        onPlayEmbyItem = { serverId, itemId, isSeries, startPositionTicks, fromStart ->
+                            openPlayer(
+                                Config.Player(
+                                    serverId = serverId,
+                                    itemId = itemId,
+                                    startPositionTicks = startPositionTicks,
+                                    isSeriesLaunch = isSeries,
+                                    fromStart = fromStart,
+                                ),
+                            )
                         },
                         onOpenTmdbItem = { item, embyItemId ->
                             navigation.openFrom(config, Config.Info(item, embyItemId))
@@ -334,6 +344,7 @@ class HomeTabComponent(
                         dependencies = dependencies,
                         startPlaybackRequested = config.startPlaybackRequested,
                         isSeriesLaunch = config.isSeriesLaunch,
+                        fromStart = config.fromStart,
                         onBack = {
                             playerNavigation.complete(config)
                             navigateBack()

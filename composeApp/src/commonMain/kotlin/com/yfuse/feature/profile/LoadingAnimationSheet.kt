@@ -1,6 +1,7 @@
 package com.yfuse.feature.profile
 
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -15,6 +16,7 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.OverlayButton
+import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -64,6 +66,11 @@ internal fun LoadingAnimationSheet(
             style = AppTypography.caption.regular,
         )
         Spacer(Modifier.height(12.dp))
-        OverlayButton("完成", onClick = overlayDismiss(onDismiss))
+        OverlayButton(
+            "完成",
+            onClick = overlayDismiss(onDismiss),
+            modifier = Modifier.fillMaxWidth(),
+            tone = OverlayButtonTone.Primary,
+        )
     }
 }

@@ -62,6 +62,19 @@ fun Modifier.mutedGlassPanel(
     // One definition of the fill, shared with the ink decision in [GlassMaterial.resolvedInk], so
     // the text colour is always chosen against the surface that is actually painted.
     val body = material.panelBody(dark, opaque)
+    // Low-haze, low-opacity recipes (e.g. Lens / Clear / Prism) let high-contrast artwork pass
+    // straight through behind modal copy. A gentle theme-matched readability wash stabilizes text
+    // legibility over busy posters without muddying the refractive rim.
+    val lowHazeWashAlpha =
+        if (!opaque && material.blur < 12f && material.opacity < 0.35f) {
+            val blurFactor = ((12f - material.blur) / 12f).coerceIn(0f, 1f)
+            val opacityFactor = ((0.35f - material.opacity) / 0.35f).coerceIn(0f, 1f)
+            (0.22f * blurFactor * opacityFactor).coerceIn(0.06f, 0.22f)
+        } else {
+            0f
+        }
+    val lowHazeWashColor =
+        (if (dark) DarkPalette.background else LightPalette.background).copy(alpha = lowHazeWashAlpha)
     val rimStart = material.rim * if (dark) 0.73f else 1f
     val rimSide = material.rim * (0.13f + material.prism * 0.87f)
     val rimEnd = material.rim * (0.53f + material.prism * 0.47f)
@@ -101,6 +114,12 @@ fun Modifier.mutedGlassPanel(
             Brush.verticalGradient(
                 listOf(body, body.copy(alpha = (body.alpha + 0.04f).coerceAtMost(1f))),
             ),
+        ).then(
+            if (lowHazeWashAlpha > 0f) {
+                Modifier.background(lowHazeWashColor)
+            } else {
+                Modifier
+            },
         ).background(
             Brush.verticalGradient(
                 0f to Color.White.copy(alpha = if (opaque) 0f else 0.035f),

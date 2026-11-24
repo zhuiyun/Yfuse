@@ -5,30 +5,16 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.liveRegion
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
@@ -36,11 +22,8 @@ import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.OrbProgressDefaults
 import com.yfuse.core.designsystem.glass
-import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.pressableTarget
-import com.yfuse.core.designsystem.rememberAccentColorsForSurface
 import com.yfuse.core.designsystem.ThemeIcon as Icon
-import com.yfuse.core.designsystem.ThemeText as Text
 
 @Composable
 fun PlayerScreen(component: PlayerComponent) {
@@ -140,61 +123,15 @@ private fun PlayerLoadError(
     message: String,
     onRetry: () -> Unit,
     onBack: () -> Unit,
-    modifier: Modifier = Modifier,
 ) {
-    val retryFocus = remember { FocusRequester() }
-    // A remote reaches these buttons only through focus, and nothing on this screen holds any: 重试
-    // takes it, so the first OK retries. Touch mode refuses focus to clickables, so a phone is
-    // untouched unless a keyboard is driving it.
-    LaunchedEffect(retryFocus) {
-        withFrameNanos { }
-        runCatching { retryFocus.requestFocus() }
-    }
-    Column(
-        modifier
-            .padding(horizontal = 32.dp)
-            .semantics { liveRegion = LiveRegionMode.Assertive },
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Text("无法开始播放", color = Color.White)
-        Text(
-            message,
-            color = Color.White.copy(alpha = 0.72f),
-            textAlign = TextAlign.Center,
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            PlayerLoadErrorAction(label = "返回", primary = false, onClick = onBack)
-            PlayerLoadErrorAction(
-                label = "重试",
-                primary = true,
-                onClick = onRetry,
-                modifier = Modifier.focusRequester(retryFocus),
-            )
-        }
-    }
-}
-
-@Composable
-private fun PlayerLoadErrorAction(
-    label: String,
-    primary: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val accent = rememberAccentColorsForSurface(dark = true)
-    Box(
-        modifier
-            .height(44.dp)
-            .widthIn(min = 104.dp)
-            .pressable(focusShape = CircleShape, onClickLabel = label, onClick = onClick)
-            .glass(
-                shape = CircleShape,
-                fill = if (primary) accent.accent else Color.Black.copy(alpha = 0.28f),
-                border = if (primary) accent.border else Color.White.copy(alpha = 0.32f),
-            ).padding(horizontal = 20.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(label, color = if (primary) accent.onAccent else Color.White)
-    }
+    PlaybackErrorSurface(
+        title = "无法开始播放",
+        message = message,
+        stage = "播放准备",
+        advice = "请检查服务器连接或片源可用性后重试。",
+        onRetry = onRetry,
+        onBack = onBack,
+        footer = { PlaybackDiagnosticExportButton() },
+        scrimAlpha = 0f,
+    )
 }

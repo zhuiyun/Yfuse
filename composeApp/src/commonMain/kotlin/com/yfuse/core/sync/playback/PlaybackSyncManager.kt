@@ -67,6 +67,15 @@ class PlaybackSyncManager(
 ) {
     internal val playbackScopeToken: String get() = store.scopeToken
 
+    /** Emits whenever locally held or cloud-pulled playback progress changes. */
+    val changes: StateFlow<Long> get() = store.changes
+
+    /** Re-projects a continue-watching card from local progress; returns null when no longer resumable. */
+    fun projectResumeItem(
+        serverId: String,
+        item: com.yfuse.core.model.MediaItem,
+    ): com.yfuse.core.model.MediaItem? = store.projectResumeItem(serverId, item)
+
     /** Cancels queued syncs when the DI graph is torn down. */
     fun close() {
         scope.cancel()

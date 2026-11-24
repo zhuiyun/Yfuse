@@ -52,22 +52,23 @@ class PlaybackTruthTest {
     }
 
     @Test
-    fun device_preflight_starts_on_transcode_before_the_engine_is_created() {
-        val item =
+    fun device_preflight_never_forces_automatic_transcode_while_viewer_request_still_works() {
+        val base =
             PlayerMediaItem(
                 id = "dolby",
                 url = "direct-dolby",
                 transcodeUrl = "safe-hls",
                 title = "杜比视界",
                 serverTranscodeSupported = true,
-            ).withForcedServerTranscode("设备不支持 4K60 Dolby Vision")
+            )
+        val automatic = base.withForcedServerTranscode("设备不支持 4K60 Dolby Vision")
+        assertFalse(automatic.startsWithServerTranscode())
+        assertEquals(PlaybackMethod.DirectPlay, automatic.effectivePlaybackMethod())
 
-        assertTrue(item.startsWithServerTranscode())
-        assertEquals(PlaybackMethod.Transcode, item.effectivePlaybackMethod())
-        assertEquals(
-            "设备不支持 4K60 Dolby Vision",
-            item.initialFallbackReason(),
-        )
+        val viewer = base.withForcedServerTranscode("手动切换转码", byViewer = true)
+        assertTrue(viewer.startsWithServerTranscode())
+        assertEquals(PlaybackMethod.Transcode, viewer.effectivePlaybackMethod())
+        assertEquals("手动切换转码", viewer.initialFallbackReason())
     }
 
     @Test

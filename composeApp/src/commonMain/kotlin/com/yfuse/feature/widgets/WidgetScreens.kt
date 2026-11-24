@@ -68,8 +68,10 @@ internal fun WidgetFrame(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Box(Modifier.align(Alignment.CenterStart)) {
-                WidgetIconButton(com.yfuse.core.designsystem.AppIcons.ChevronLeft, "返回", onBack)
+            if (com.yfuse.feature.profile.LocalSettingsShowBackButton.current) {
+                Box(Modifier.align(Alignment.CenterStart)) {
+                    WidgetIconButton(com.yfuse.core.designsystem.AppIcons.ChevronLeft, "返回", onBack)
+                }
             }
             Row(Modifier.align(Alignment.CenterEnd), verticalAlignment = Alignment.CenterVertically, content = action)
         }

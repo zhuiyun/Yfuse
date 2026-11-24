@@ -79,7 +79,7 @@ internal fun GroupLabel(text: String) {
         text,
         style = AppTypography.caption.medium,
         color = Color.White.copy(alpha = 0.48f),
-        modifier = Modifier.padding(top = 6.dp, bottom = 6.dp),
+        modifier = Modifier.padding(top = 4.dp, bottom = 4.dp),
     )
 }
 
@@ -97,6 +97,7 @@ internal fun OptionRow(
     enabled: Boolean = true,
 ) {
     val accent = rememberAccentColorsForSurface(dark = true)
+    val stackedDetail = detailLabel != null && !busy && actionLabel == null && detailLabel.length > 10
     Row(
         modifier
             .fillMaxWidth()
@@ -112,18 +113,38 @@ internal fun OptionRow(
             ).semantics {
                 if (!enabled || busy) disabled()
                 if (busy) stateDescription = "处理中"
-            }.padding(horizontal = 11.dp, vertical = 9.dp),
+            }.padding(horizontal = 11.dp, vertical = 7.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            label,
-            style = if (selected) AppTypography.body.strong else AppTypography.body.medium,
-            color = if (selected) accent.accent else Color.White.copy(alpha = 0.86f),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f, fill = false),
-        )
+        if (stackedDetail) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    label,
+                    style = if (selected) AppTypography.body.strong else AppTypography.body.medium,
+                    color = if (selected) accent.accent else Color.White.copy(alpha = 0.86f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    detailLabel.orEmpty(),
+                    style = AppTypography.caption.medium,
+                    color = Color.White.copy(alpha = 0.48f),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+        } else {
+            Text(
+                label,
+                style = if (selected) AppTypography.body.strong else AppTypography.body.medium,
+                color = if (selected) accent.accent else Color.White.copy(alpha = 0.86f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+        }
         when {
             busy -> OrbProgress(size = 18.dp, color = accent.accent, contentDescription = "处理中")
             actionLabel != null ->
@@ -138,7 +159,7 @@ internal fun OptionRow(
                             .padding(start = 10.dp, top = 2.dp, bottom = 2.dp),
                 )
 
-            detailLabel != null ->
+            detailLabel != null && !stackedDetail ->
                 Text(
                     detailLabel,
                     style = AppTypography.caption.medium,
@@ -147,6 +168,8 @@ internal fun OptionRow(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(start = 10.dp),
                 )
+
+            stackedDetail -> Unit
 
             cinemaMotion() -> CinemaSelectionCheck(selected, accent.accent, Modifier.padding(start = 10.dp))
 
@@ -216,7 +239,7 @@ internal fun PopupMenuRow(
         Modifier
             .fillMaxWidth()
             .playerChoiceFeedback(selected = selected, plated = false, onClick = onClick)
-            .padding(horizontal = 4.dp, vertical = 9.dp),
+            .padding(horizontal = 4.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

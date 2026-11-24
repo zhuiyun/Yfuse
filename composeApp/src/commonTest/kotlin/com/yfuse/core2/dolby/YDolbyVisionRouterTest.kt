@@ -232,6 +232,64 @@ class YDolbyVisionRouterTest {
         assertEquals(YVideoCodec.Av1, native.codec)
     }
 
+    @Test
+    fun `P7 converts RPU to P8 point 1 when Dolby display has P8 decoder without P7 decoder`() {
+        val decision =
+            YDolbyVisionRouter.decide(
+                video = video(YVideoCodec.H265, profile = 7),
+                evidence =
+                    evidence(
+                        profile = 7,
+                        compatibilityId = 6,
+                        el = true,
+                        layerKind = YDolbyVisionEnhancementLayerKind.Fel,
+                    ),
+                capabilities =
+                    capabilities(
+                        decoders =
+                            listOf(
+                                decoder(
+                                    name = "hevc.dv.p8",
+                                    codec = YVideoCodec.H265,
+                                    hdr = setOf(YHdrType.DolbyVision, YHdrType.Hdr10),
+                                    dolbyProfiles = setOf(8),
+                                ),
+                            ),
+                        display = setOf(YHdrType.DolbyVision, YHdrType.Hdr10),
+                    ),
+            )
+
+        val converted = assertIs<YDolbyVisionRouteDecision.ConvertedProfile81>(decision)
+        assertEquals("hevc.dv.p8", converted.decoderName)
+        assertEquals(YVideoCodec.H265, converted.codec)
+        assertEquals(YDolbyVisionEnhancementLayerKind.Fel, converted.sourceEnhancementLayerKind)
+    }
+
+    @Test
+    fun `P10 AV1 falls back to AV1 HDR10 compatible base when native P10 is unavailable`() {
+        val decision =
+            YDolbyVisionRouter.decide(
+                video = video(YVideoCodec.Av1, profile = 10),
+                evidence = evidence(profile = 10, compatibilityId = 1),
+                capabilities =
+                    capabilities(
+                        decoders =
+                            listOf(
+                                decoder(
+                                    name = "av1.hdr10",
+                                    codec = YVideoCodec.Av1,
+                                    hdr = setOf(YHdrType.Hdr10),
+                                ),
+                            ),
+                        display = setOf(YHdrType.Hdr10),
+                    ),
+            )
+
+        val fallback = assertIs<YDolbyVisionRouteDecision.CompatibleBase>(decision)
+        assertEquals(YVideoCodec.Av1, fallback.codec)
+        assertEquals(YHdrType.Hdr10, fallback.hdrType)
+    }
+
     private fun video(
         codec: YVideoCodec,
         profile: Int,

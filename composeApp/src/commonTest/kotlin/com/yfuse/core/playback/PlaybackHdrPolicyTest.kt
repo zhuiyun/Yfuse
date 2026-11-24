@@ -5,7 +5,6 @@ import com.yfuse.core.model.PlayerEngine
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertTrue
 
 class PlaybackHdrPolicyTest {
     @Test
@@ -44,7 +43,7 @@ class PlaybackHdrPolicyTest {
     }
 
     @Test
-    fun exact_decoder_rejection_forces_server_transcode_before_rendering() {
+    fun exact_decoder_rejection_falls_back_to_local_software_decoding_without_server_transcode() {
         val route =
             playbackHdrRoute(
                 source =
@@ -68,9 +67,9 @@ class PlaybackHdrPolicyTest {
                     ),
             )
 
-        assertTrue(route.requiresServerTranscode)
-        assertEquals("decoder: 不支持 3840x2160@59.94fps", route.reason)
-        assertEquals(DecoderMode.Hardware, route.decoderMode)
+        assertFalse(route.requiresServerTranscode)
+        assertEquals("decoder: 不支持 3840x2160@59.94fps；改用本地软解与色调映射", route.reason)
+        assertEquals(DecoderMode.Software, route.decoderMode)
     }
 
     @Test

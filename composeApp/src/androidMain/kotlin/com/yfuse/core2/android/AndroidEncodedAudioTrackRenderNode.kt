@@ -26,6 +26,11 @@ internal class AndroidEncodedAudioTrackRenderNode(
     private var format: YAudioTrackFormat? = null
     private var sinkCodec: YAudioCodec? = null
     private var basePresentationTimeUs: Long? = null
+    private var baseAnchorRealtimeNs: Long? = null
+    private var baseAnchorFrames: Long? = null
+    private var lastSubmittedPresentationTimeUs: Long? = null
+    private var awaitingTrueHdMajorSync = false
+    private var skippedNonMajorTrueHdPackets = 0
     private var requestedPlay = false
     private val routedOutputProgress = AndroidRoutedOutputProgress()
     private val clockProgressGuard = AndroidAudioClockProgressGuard()
@@ -121,6 +126,11 @@ internal class AndroidEncodedAudioTrackRenderNode(
             exactDolbyAtmosTransport &&
             format.codec in setOf(YAudioCodec.Eac3Joc, YAudioCodec.TrueHdAtmos)
         basePresentationTimeUs = null
+        baseAnchorRealtimeNs = null
+        baseAnchorFrames = null
+        lastSubmittedPresentationTimeUs = null
+        awaitingTrueHdMajorSync = format.codec in setOf(YAudioCodec.TrueHd, YAudioCodec.TrueHdAtmos)
+        skippedNonMajorTrueHdPackets = 0
         requestedPlay = false
         routedOutputProgress.reset()
         clockProgressGuard.reset()
@@ -163,9 +173,26 @@ internal class AndroidEncodedAudioTrackRenderNode(
     ): Int {
         val audioTrack = checkNotNull(track) { "Encoded AudioTrack has not been configured" }
         if (!data.hasRemaining()) return 0
+        if (awaitingTrueHdMajorSync) {
+            if (isTrueHdMajorSyncPacket(data)) {
+                awaitingTrueHdMajorSync = false
+                skippedNonMajorTrueHdPackets = 0
+            } else if (skippedNonMajorTrueHdPackets < MAX_SKIPPED_TRUEHD_DELTA_PACKETS) {
+                skippedNonMajorTrueHdPackets++
+                val skipped = data.remaining()
+                data.position(data.limit())
+                return skipped
+            } else {
+                awaitingTrueHdMajorSync = false
+            }
+        }
         val shouldAnchorClock = basePresentationTimeUs == null
         val written = audioTrack.write(data, data.remaining(), AudioTrack.WRITE_NON_BLOCKING)
         check(written >= 0) { "Encoded AudioTrack.write failed with code $written" }
+        if (written > 0) {
+            lastSubmittedPresentationTimeUs =
+                maxOf(lastSubmittedPresentationTimeUs ?: 0L, presentationTimeUs.coerceAtLeast(0L))
+        }
         if (shouldAnchorClock && written > 0) {
             basePresentationTimeUs = presentationTimeUs.coerceAtLeast(0L)
         }
@@ -190,8 +217,30 @@ internal class AndroidEncodedAudioTrackRenderNode(
                 timestampRealtimeNs = timestamp.nanoTime.takeIf { hasTimestamp },
                 playbackHeadFrames = head,
             ) ?: return null
+        val anchorNs = baseAnchorRealtimeNs ?: selection.realtimeNs.also { baseAnchorRealtimeNs = it }
+        val anchorFrames = baseAnchorFrames ?: selection.framePosition.also { baseAnchorFrames = it }
+        val elapsedNs = (selection.realtimeNs - anchorNs).coerceAtLeast(0L)
+        val deltaFrames = (selection.framePosition - anchorFrames).coerceAtLeast(0L)
+        val frameBasedAdvanceUs = deltaFrames * MICROS_PER_SECOND / source.sampleRate
+        val wallElapsedUs = elapsedNs / NANOS_PER_MICROSECOND
+        // Offloaded/direct bitstream AudioTracks frequently advance framePosition in raw bytes or
+        // 192 kHz IEC61937 carrier frames rather than source PCM sampleRate. When hardware frame
+        // rate diverges from plausible PCM rate, anchor position to elapsed monotonic time while
+        // hardware progress is actively advancing, bounded by submitted packet timestamps.
+        val plausiblePcmFrameUnits =
+            wallElapsedUs < 250_000L ||
+                frameBasedAdvanceUs in (wallElapsedUs * 4L / 10L)..(wallElapsedUs * 16L / 10L + 100_000L)
+        val advanceUs =
+            if (plausiblePcmFrameUnits) {
+                frameBasedAdvanceUs
+            } else {
+                val maxPositionAdvanceUs =
+                    ((lastSubmittedPresentationTimeUs ?: baseUs) - baseUs + MAX_PASSTHROUGH_CLOCK_LEAD_US)
+                        .coerceAtLeast(0L)
+                wallElapsedUs.coerceAtMost(maxPositionAdvanceUs)
+            }
         return YAudioClockSnapshot(
-            positionUs = (baseUs + selection.framePosition * MICROS_PER_SECOND / source.sampleRate).coerceAtLeast(0L),
+            positionUs = (baseUs + advanceUs).coerceAtLeast(0L),
             realtimeNs = selection.realtimeNs,
         )
     }
@@ -212,6 +261,11 @@ internal class AndroidEncodedAudioTrackRenderNode(
         if (audioTrack.playState == AudioTrack.PLAYSTATE_PLAYING) audioTrack.pause()
         audioTrack.flush()
         basePresentationTimeUs = null
+        baseAnchorRealtimeNs = null
+        baseAnchorFrames = null
+        lastSubmittedPresentationTimeUs = null
+        awaitingTrueHdMajorSync = format?.codec in setOf(YAudioCodec.TrueHd, YAudioCodec.TrueHdAtmos)
+        skippedNonMajorTrueHdPackets = 0
         routedOutputProgress.reset()
         clockProgressGuard.reset()
         if (resume) audioTrack.play()
@@ -225,6 +279,11 @@ internal class AndroidEncodedAudioTrackRenderNode(
         sinkCodec = null
         requestedPlay = false
         basePresentationTimeUs = null
+        baseAnchorRealtimeNs = null
+        baseAnchorFrames = null
+        lastSubmittedPresentationTimeUs = null
+        awaitingTrueHdMajorSync = false
+        skippedNonMajorTrueHdPackets = 0
         exactDolbyAtmosTransport = false
         routedOutputProgress.reset()
         clockProgressGuard.reset()
@@ -261,18 +320,30 @@ internal fun androidEncodedAudioEncoding(
             } else {
                 AudioFormat.ENCODING_E_AC3
             }
+        YAudioCodec.Ac4 ->
+            if (sdkInt >= Build.VERSION_CODES.P) {
+                AudioFormat.ENCODING_AC4
+            } else {
+                null
+            }
         YAudioCodec.TrueHd, YAudioCodec.TrueHdAtmos -> AudioFormat.ENCODING_DOLBY_TRUEHD
         YAudioCodec.Dts -> AudioFormat.ENCODING_DTS
-        YAudioCodec.DtsHd, YAudioCodec.DtsX -> AudioFormat.ENCODING_DTS_HD
+        YAudioCodec.DtsHd -> AudioFormat.ENCODING_DTS_HD
+        YAudioCodec.DtsX ->
+            if (sdkInt >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                AudioFormat.ENCODING_DTS_UHD_P1
+            } else {
+                AudioFormat.ENCODING_DTS_HD
+            }
         else -> null
     }
 
 /**
  * The encodings worth trying for a codec, most specific first.
  *
- * TrueHD has two carriers on Android: `ENCODING_DOLBY_TRUEHD` and, since API 30, Dolby MAT, which is
- * how most HDMI and eARC sinks actually accept it. A route that answers only for MAT used to get a
- * TrueHD track it then failed to open, and the audio fell back to PCM.
+ * Raw TrueHD access units must use `ENCODING_DOLBY_TRUEHD` (not `ENCODING_DOLBY_MAT`, which
+ * expects 61,440-byte Dolby MAT frames). For DTS:X on Android 14+, try UHD P2, UHD P1, then
+ * compatible `ENCODING_DTS_HD`.
  */
 @SuppressLint("InlinedApi")
 internal fun androidEncodedAudioEncodingCandidates(
@@ -280,11 +351,16 @@ internal fun androidEncodedAudioEncodingCandidates(
     sdkInt: Int = Build.VERSION.SDK_INT,
 ): List<Int> =
     when (codec) {
-        YAudioCodec.TrueHd, YAudioCodec.TrueHdAtmos ->
-            if (sdkInt >= Build.VERSION_CODES.R) {
-                listOf(AudioFormat.ENCODING_DOLBY_TRUEHD, AudioFormat.ENCODING_DOLBY_MAT)
+        YAudioCodec.TrueHd, YAudioCodec.TrueHdAtmos -> listOf(AudioFormat.ENCODING_DOLBY_TRUEHD)
+        YAudioCodec.DtsX ->
+            if (sdkInt >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                listOf(
+                    AudioFormat.ENCODING_DTS_UHD_P2,
+                    AudioFormat.ENCODING_DTS_UHD_P1,
+                    AudioFormat.ENCODING_DTS_HD,
+                )
             } else {
-                listOf(AudioFormat.ENCODING_DOLBY_TRUEHD)
+                listOf(AudioFormat.ENCODING_DTS_HD)
             }
         else -> listOfNotNull(androidEncodedAudioEncoding(codec, sdkInt))
     }
@@ -297,7 +373,6 @@ internal fun encodedSinkCodec(
     when {
         sourceCodec == YAudioCodec.Eac3Joc && !exactDolbyAtmosTransport -> YAudioCodec.Eac3
         sourceCodec == YAudioCodec.TrueHdAtmos && !exactDolbyAtmosTransport -> YAudioCodec.TrueHd
-        sourceCodec == YAudioCodec.DtsX -> YAudioCodec.DtsHd
         else -> sourceCodec
     }
 
@@ -359,6 +434,18 @@ private fun encodedChannelMaskForCount(channelCount: Int): Int =
         else -> if (channelCount > 6) AudioFormat.CHANNEL_OUT_7POINT1_SURROUND else AudioFormat.CHANNEL_OUT_5POINT1
     }
 
+/** True when [packet] begins with a Dolby TrueHD (`0xF8726FBA`) or MLP (`0xF8726FBB`) major sync header. */
+internal fun isTrueHdMajorSyncPacket(packet: ByteBuffer): Boolean {
+    val pos = packet.position()
+    if (packet.remaining() < 8) return false
+    return (packet.get(pos + 4).toInt() and 0xFF) == 0xF8 &&
+        (packet.get(pos + 5).toInt() and 0xFF) == 0x72 &&
+        (packet.get(pos + 6).toInt() and 0xFF) == 0x6F &&
+        ((packet.get(pos + 7).toInt() and 0xFE) == 0xBA)
+}
+
 private const val MICROS_PER_SECOND = 1_000_000L
 private const val NANOS_PER_MICROSECOND = 1_000L
 private const val DEFAULT_ENCODED_AUDIO_BUFFER_BYTES = 256 * 1024
+private const val MAX_SKIPPED_TRUEHD_DELTA_PACKETS = 64
+private const val MAX_PASSTHROUGH_CLOCK_LEAD_US = 250_000L

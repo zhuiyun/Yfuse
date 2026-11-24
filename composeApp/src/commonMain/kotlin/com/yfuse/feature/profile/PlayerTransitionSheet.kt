@@ -28,6 +28,7 @@ import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayButton
+import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.OverlayOptionSpacing
@@ -74,8 +75,14 @@ internal fun PlayerTransitionSheet(
                 )
                 Spacer(Modifier.height(OverlayOptionSpacing))
             }
-            OverlayButton("完成", onClick = overlayDismiss(onDismiss))
         }
+        Spacer(Modifier.height(12.dp))
+        OverlayButton(
+            "完成",
+            onClick = overlayDismiss(onDismiss),
+            modifier = Modifier.fillMaxWidth(),
+            tone = OverlayButtonTone.Primary,
+        )
     }
 }
 

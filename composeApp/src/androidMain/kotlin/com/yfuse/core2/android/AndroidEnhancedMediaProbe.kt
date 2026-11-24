@@ -285,7 +285,9 @@ internal class AndroidEnhancedMediaProbe(
                                 },
                             platformDemuxSupported = false,
                             enhancedDemuxSupported = true,
-                            fallbackHdrType = video.dolbyVisionConfig?.compatibleBaseHdr,
+                            fallbackHdrType =
+                                video.dolbyVisionConfig?.compatibleBaseHdr
+                                    ?: YHdrType.Hdr10.takeIf { video.hdrType == YHdrType.Hdr10Plus },
                             preferTunnel = false,
                         ),
                     videoMime = video.mimeType,

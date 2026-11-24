@@ -69,10 +69,11 @@ object YHdrRouter {
         type: YHdrType,
         capabilities: YDeviceCapabilities,
     ): YHdrRouteDecision =
-        if (capabilities.supportsDisplayHdr(type)) {
-            YHdrRouteDecision.Native(type)
-        } else {
-            YHdrRouteDecision.GpuToneMap(type)
+        when {
+            capabilities.supportsDisplayHdr(type) -> YHdrRouteDecision.Native(type)
+            type == YHdrType.Hdr10Plus && capabilities.supportsDisplayHdr(YHdrType.Hdr10) ->
+                YHdrRouteDecision.Native(YHdrType.Hdr10)
+            else -> YHdrRouteDecision.GpuToneMap(type)
         }
 }
 

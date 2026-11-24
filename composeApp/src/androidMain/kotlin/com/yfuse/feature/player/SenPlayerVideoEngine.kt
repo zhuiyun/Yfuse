@@ -20,6 +20,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.viewinterop.AndroidView
+import com.yfuse.core.data.PlaybackFrameRateMatch
 import com.yfuse.core.data.SenPlayerEnhancementLevel
 import com.yfuse.core.data.SenPlayerPictureSettings
 import com.yfuse.core.logging.AppLog
@@ -27,9 +28,12 @@ import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.model.SEN_PLAYER_DISPLAY_NAME
 import com.yfuse.core.playback.PlaybackFailureKind
+import com.yfuse.core2.android.AndroidFrameRateManager
 import com.yfuse.core2.android.AndroidSerializedPlayerRelease
 import com.yfuse.core2.api.YBufferSnapshot
 import com.yfuse.core2.api.YInitialTrackSelection
+import com.yfuse.core2.render.YFrameRateSwitchMode
+import com.yfuse.core2.render.videoFrameRateHint
 import com.yfuse.senplayer.SenPlayerSession
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -60,11 +64,22 @@ internal class SenPlayerVideoEngine(
     private val autoNext: Boolean,
     private val customUserAgent: String,
     private val videoCacheBytes: Long,
+    frameRateMatch: PlaybackFrameRateMatch = PlaybackFrameRateMatch.Disabled,
     private val pictureSettings: StateFlow<SenPlayerPictureSettings>? = null,
     private val initialTrackSelections: Map<String, YInitialTrackSelection> = emptyMap(),
 ) : VideoEngine,
     AndroidSerializedPlayerRelease {
     private val appContext = context.applicationContext
+    private val frameRateManager =
+        AndroidFrameRateManager(
+            context = context,
+            mode =
+                when (frameRateMatch) {
+                    PlaybackFrameRateMatch.Disabled -> YFrameRateSwitchMode.Disabled
+                    PlaybackFrameRateMatch.SeamlessOnly -> YFrameRateSwitchMode.SeamlessOnly
+                    PlaybackFrameRateMatch.Always -> YFrameRateSwitchMode.Always
+                },
+        )
     private var queue = items.toList()
     private val worker =
         Executors.newSingleThreadScheduledExecutor { task ->
@@ -168,7 +183,12 @@ internal class SenPlayerVideoEngine(
             }.take(8).filterIsInstance<SenPlayerSession.LicenseUnavailable>().firstOrNull()
         val evidence = proxy?.sourceFailureEvidence
         val httpStatus = evidence?.httpStatus
-        val sourceFailure = senPlayerSourceFailure(httpStatus, refusedRead = evidence?.refusedRead == true)
+        val sourceFailure =
+            senPlayerSourceFailure(
+                httpStatus = httpStatus,
+                refusedRead = evidence?.refusedRead == true,
+                error = error,
+            )
         val failureKind =
             if (license !=
                 null
@@ -278,7 +298,20 @@ internal class SenPlayerVideoEngine(
                         subtitles.surfaceChanged()
                         boundSurfaceEpoch = epoch
                         pictureController.reset()
-                        if (loadPending) loadCurrent() else current.play(requested)
+                        if (loadPending) {
+                            loadCurrent()
+                        } else {
+                            frameRateManager.attach(
+                                view.video.holder.surface,
+                                queue
+                                    .getOrNull(state.value.currentIndex)
+                                    ?.activeVersion
+                                    ?.sourceFrameRate
+                                    ?.toFloat()
+                                    ?.let(::videoFrameRateHint),
+                            )
+                            current.play(requested)
+                        }
                     }
                     if (attached === view && surfaceEpoch.get() == epoch && !released.get()) {
                         session?.let(view::resizeOutput)
@@ -377,6 +410,7 @@ internal class SenPlayerVideoEngine(
     private fun detachNativeSurface() {
         if (boundSurfaceEpoch == -1L) return
         boundSurfaceEpoch = -1L
+        frameRateManager.clear()
         subtitles.surfaceChanged()
         pictureController.reset()
         resetVideoEvidence(session?.sourceId() ?: 0L, reason = "surface_detached")
@@ -472,6 +506,27 @@ internal class SenPlayerVideoEngine(
         val previousOutput = current.snapshot()
         // Remove the previous source's effects before native open starts the next file.
         applyPictureSettings(current)
+        attached
+            ?.takeIf { it.ready }
+            ?.video
+            ?.holder
+            ?.surface
+            ?.let { videoSurface ->
+                frameRateManager.attach(
+                    videoSurface,
+                    item.activeVersion
+                        ?.sourceFrameRate
+                        ?.toFloat()
+                        ?.let(::videoFrameRateHint),
+                )
+            }
+        val sourceHdr =
+            item.activeVersion?.let { v ->
+                v.dolbyVision ||
+                    v.sourceDynamicRange?.uppercase().orEmpty().let {
+                        "HDR" in it || "HLG" in it || "DOVI" in it || "DOLBY" in it || "PQ" in it
+                    }
+            } == true
         current.open(url, emptyMap(), if (pendingSeekMs == null) state.value.positionMs else 0, requested)
         if (released.get()) return
         val restore = surfaceTracks?.takeIf { it.itemId == item.id }
@@ -479,6 +534,7 @@ internal class SenPlayerVideoEngine(
         restoredAudioId = restore?.audioId
         requestedAudioId = restore?.audioId
         subtitles.open(current, item, customUserAgent, initialTrackSelections[item.id], restore?.subtitles)
+        subtitles.setHdrActive(sourceHdr)
         resetVideoEvidence(current.sourceId(), previousOutput, "source_opened")
         current.option("speed", state.value.speed.toString())
         if (audioDelayMs != 0L) {
@@ -775,6 +831,31 @@ internal class SenPlayerVideoEngine(
         }
     }
 
+    private fun isHdrVideoActive(
+        sdrToHdrState: SenPlayerEnhancementState? = pictureController.state.sdrToHdr,
+    ): Boolean {
+        val range = pictureDynamicRange?.uppercase()
+        val sourceHdr =
+            if (range != null || pictureDolbyProfile > 0) {
+                pictureDolbyProfile > 0 ||
+                    (
+                        range != null &&
+                            ("HDR" in range || "HLG" in range || "DOVI" in range || "DOLBY" in range || "PQ" in range)
+                    )
+            } else {
+                queue.getOrNull(state.value.currentIndex)?.activeVersion?.let { v ->
+                    v.dolbyVision ||
+                        v.sourceDynamicRange?.uppercase().orEmpty().let {
+                            "HDR" in it || "HLG" in it || "DOVI" in it || "DOLBY" in it || "PQ" in it
+                        }
+                } == true
+            }
+        val sdrToHdrEnabled =
+            sdrToHdrState?.status == SenPlayerEnhancementStatus.Accepted &&
+                sdrToHdrState.level != SenPlayerEnhancementLevel.Off
+        return sourceHdr || sdrToHdrEnabled
+    }
+
     private fun updateTracks(media: JSONObject) {
         val tracks = media.optJSONArray("tracks") ?: return
         val videoTracks =
@@ -784,6 +865,15 @@ internal class SenPlayerVideoEngine(
         val video = videoTracks.firstOrNull { it.optBoolean("selected") } ?: videoTracks.firstOrNull()
         pictureDynamicRange = video?.optString("dynamicRange")?.takeIf { it.isNotBlank() }
         pictureDolbyProfile = video?.optInt("dvProfile") ?: 0
+        val reportedFps =
+            video
+                ?.optDouble("fps", Double.NaN)
+                ?.takeIf { it.isFinite() && it > 0.0 }
+                ?: video?.optDouble("frameRate", Double.NaN)?.takeIf { it.isFinite() && it > 0.0 }
+        if (reportedFps != null) {
+            frameRateManager.update(videoFrameRateHint(reportedFps.toFloat()))
+        }
+        subtitles.setHdrActive(isHdrVideoActive())
 
         var secondaryTrackId: String? = null
 
@@ -861,11 +951,19 @@ internal class SenPlayerVideoEngine(
         if (!valid()) return
         val supportsHdr10 =
             runCatching {
-                view.display
-                    ?.takeIf { it.isValid }
-                    ?.hdrCapabilities
-                    ?.supportedHdrTypes
-                    ?.contains(Display.HdrCapabilities.HDR_TYPE_HDR10) == true
+                val display = view.display?.takeIf { it.isValid } ?: return@runCatching false
+                val hdrTypes =
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                        display.mode.supportedHdrTypes.toSet() +
+                            display.supportedModes.flatMap { it.supportedHdrTypes.asIterable() }
+                    } else {
+                        @Suppress("DEPRECATION")
+                        display.hdrCapabilities
+                            ?.supportedHdrTypes
+                            ?.toSet()
+                            .orEmpty()
+                    }
+                Display.HdrCapabilities.HDR_TYPE_HDR10 in hdrTypes
             }.getOrDefault(false)
         val eligibility =
             senPlayerPictureEligibility(
@@ -886,6 +984,7 @@ internal class SenPlayerVideoEngine(
             pictureController.reset()
             return
         }
+        subtitles.setHdrActive(isHdrVideoActive(result.sdrToHdr))
         // Preserve an observed active flag only while this exact option acknowledgement is unchanged.
         mutableState.update { previous ->
             if (!valid()) return@update previous
@@ -1109,6 +1208,7 @@ internal class SenPlayerVideoEngine(
         } finally {
             session = null
             sessionOutputSize = null
+            frameRateManager.clear()
             subtitles.clear()
             pictureController.reset()
             try {

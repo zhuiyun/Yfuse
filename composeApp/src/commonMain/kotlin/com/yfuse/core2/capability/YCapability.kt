@@ -31,8 +31,10 @@ enum class YAudioCodec {
     Ac3,
     Eac3,
     Eac3Joc,
+    Ac4,
     Flac,
     Opus,
+    Vorbis,
     TrueHd,
     TrueHdAtmos,
     Dts,
@@ -154,6 +156,7 @@ data class YDeviceCapabilities(
 
     fun audioOutputPath(requirement: YAudioRequirement?): YAudioOutputPath {
         val codec = requirement?.codec ?: return YAudioOutputPath.None
+        if (codec == YAudioCodec.Pcm) return YAudioOutputPath.DecodePcm
         return when {
             audioPassthrough.supportsEncodedCarrier(codec) -> YAudioOutputPath.Passthrough
             audioDecoders.supportsDecoded(codec) -> YAudioOutputPath.DecodePcm

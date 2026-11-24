@@ -18,6 +18,9 @@ import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.TmdbItem
+import com.yfuse.core.sync.playback.PlaybackSyncManager
+import com.yfuse.core.sync.watchKey
+import com.yfuse.core.sync.watchMatchKeys
 import com.yfuse.feature.detail.DetailComponent
 import com.yfuse.feature.history.PlaybackHistoryComponent
 import com.yfuse.feature.home.HomeComponent
@@ -99,6 +102,8 @@ class LibraryComponent(
             val startPositionTicks: Long,
             /** Names one file when the item has several; null takes the server's first. */
             val mediaSourceId: String? = null,
+            val isSeriesLaunch: Boolean = false,
+            val fromStart: Boolean = false,
         ) : Config
     }
 
@@ -207,14 +212,43 @@ class LibraryComponent(
     ) {
         val serverId = registry.defaultServer?.id
         if (item.type == "Series") {
-            navigation.pushToFront(Config.Detail(serverId = serverId, itemId = item.id, autoPlay = true))
+            if (fromStart) {
+                openPlayer(
+                    Config.Player(
+                        serverId = serverId,
+                        itemId = item.id,
+                        startPositionTicks = 0L,
+                        isSeriesLaunch = true,
+                        fromStart = true,
+                    ),
+                )
+            } else {
+                navigation.pushToFront(Config.Detail(serverId = serverId, itemId = item.id, autoPlay = true))
+            }
             return
+        }
+        if (fromStart && serverId != null) {
+            runCatching {
+                org.koin.core.context.GlobalContext
+                    .get()
+                    .get<PlaybackSyncManager>()
+            }.getOrNull()?.markRestarted(
+                mediaKey = item.providerIds.watchKey(item.id),
+                aliases =
+                    watchMatchKeys(
+                        ownProviderIds = item.providerIds,
+                        fallbackId = item.id,
+                    ),
+                serverId = serverId,
+                serverItemId = item.id,
+            )
         }
         openPlayer(
             Config.Player(
                 serverId = serverId,
                 itemId = item.id,
                 startPositionTicks = if (fromStart) 0L else item.resumePositionTicks ?: 0L,
+                fromStart = fromStart,
             ),
         )
     }
@@ -262,8 +296,16 @@ class LibraryComponent(
                                 ->
                                 navigation.openFrom(config, Config.Detail(serverId, itemId))
                             },
-                            onPlayEmbyItem = { serverId, itemId, _, ticks ->
-                                openPlayer(Config.Player(serverId, itemId, ticks))
+                            onPlayEmbyItem = { serverId, itemId, isSeries, ticks, fromStart ->
+                                openPlayer(
+                                    Config.Player(
+                                        serverId = serverId,
+                                        itemId = itemId,
+                                        startPositionTicks = ticks,
+                                        isSeriesLaunch = isSeries,
+                                        fromStart = fromStart,
+                                    ),
+                                )
                             },
                             onOpenTmdbItem = onOpenDiscoveryTitle,
                             onOpenSearch = {},
@@ -380,6 +422,8 @@ class LibraryComponent(
                         serverId = config.serverId,
                         mediaSourceId = config.mediaSourceId,
                         dependencies = dependencies,
+                        isSeriesLaunch = config.isSeriesLaunch,
+                        fromStart = config.fromStart,
                         onBack = ::navigateBack,
                     ),
                 )

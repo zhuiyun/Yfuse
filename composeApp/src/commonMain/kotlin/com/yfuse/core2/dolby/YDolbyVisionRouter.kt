@@ -25,6 +25,16 @@ sealed interface YDolbyVisionRouteDecision {
         val canClaimFelComposition: Boolean,
     ) : YDolbyVisionRouteDecision
 
+    /**
+     * Profile 7 MEL/FEL converted in-band to single-layer Profile 8.1 (`dvhe.08`) for devices
+     * with a Dolby Vision display and Profile 8 hardware decoder that lack a Profile 7 decoder.
+     */
+    data class ConvertedProfile81(
+        val decoderName: String,
+        val codec: YVideoCodec,
+        val sourceEnhancementLayerKind: YDolbyVisionEnhancementLayerKind,
+    ) : YDolbyVisionRouteDecision
+
     data class CompatibleBase(
         val decoderName: String,
         val hdrType: YHdrType,
@@ -90,6 +100,25 @@ object YDolbyVisionRouter {
                     config.profile == 7 &&
                         outputEvidence?.canClaimFELComposition == true,
             )
+        }
+        if (
+            config.profile == 7 &&
+            codec == YVideoCodec.H265 &&
+            config.baseLayerPresent &&
+            evidence.rpuPresent &&
+            capabilities.supportsDisplayHdr(YHdrType.DolbyVision)
+        ) {
+            val profile8Decoder =
+                capabilities.bestDecoder(
+                    exactRequirement.copy(dolbyVisionProfile = 8),
+                )
+            if (profile8Decoder != null) {
+                return YDolbyVisionRouteDecision.ConvertedProfile81(
+                    decoderName = profile8Decoder.name,
+                    codec = codec,
+                    sourceEnhancementLayerKind = evidence.enhancementLayerKind,
+                )
+            }
         }
         val compatibleHdr = config.compatibleBaseHdr
         if (compatibleHdr != null) {

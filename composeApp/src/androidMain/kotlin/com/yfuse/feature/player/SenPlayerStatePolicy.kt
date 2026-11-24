@@ -2,12 +2,18 @@ package com.yfuse.feature.player
 
 import com.yfuse.core.model.SEN_PLAYER_DISPLAY_NAME
 import com.yfuse.core.playback.PlaybackFailureKind
+import com.yfuse.core.playback.classifyPlaybackFailure
 import com.yfuse.core2.api.YBufferRangeCoverage
 import com.yfuse.core2.api.YBufferRangeSource
 import com.yfuse.core2.api.YBufferSnapshot
 import com.yfuse.core2.api.YBufferedRange
 import com.yfuse.core2.api.normalizeBufferedRanges
 import com.yfuse.senplayer.SenPlayerSession
+import java.net.ConnectException
+import java.net.SocketException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
+import javax.net.ssl.SSLException
 
 internal fun PlaybackState.forSenPlayerLoad(
     sessionId: String,
@@ -59,24 +65,52 @@ internal data class SenPlayerSourceFailure(
     val message: String,
 )
 
-/** An upstream rejection is not evidence that the installed native engine is unavailable. */
+/** An upstream rejection or network failure is not evidence that the installed native engine failed. */
 internal fun senPlayerSourceFailure(
     httpStatus: Int?,
     refusedRead: Boolean = false,
+    error: Throwable? = null,
 ): SenPlayerSourceFailure? =
-    when (httpStatus) {
-        401, 403 ->
+    when {
+        httpStatus == 401 || httpStatus == 403 ->
             SenPlayerSourceFailure(
                 PlaybackFailureKind.Authorization,
                 "片源拒绝访问（HTTP $httpStatus），请刷新播放地址或检查服务器。",
             )
-        404, 410 ->
+        httpStatus == 404 || httpStatus == 410 ->
             SenPlayerSourceFailure(
                 PlaybackFailureKind.Network,
                 "片源地址已失效（HTTP $httpStatus），请刷新播放地址。",
             )
-        else -> if (refusedRead) SenPlayerSourceFailure(PlaybackFailureKind.Network, "片源服务器暂未接受视频读取请求，请稍后重试。") else null
+        httpStatus != null && httpStatus in 500..599 ->
+            SenPlayerSourceFailure(
+                PlaybackFailureKind.Network,
+                "片源服务器暂时不可用（HTTP $httpStatus），请稍后重试。",
+            )
+        refusedRead ->
+            SenPlayerSourceFailure(
+                PlaybackFailureKind.Network,
+                "片源服务器暂未接受视频读取请求，请稍后重试。",
+            )
+        error.isNetworkFailureCause() ->
+            SenPlayerSourceFailure(
+                PlaybackFailureKind.Network,
+                "无法连接片源，请检查服务器或网络后重试。",
+            )
+        else -> null
     }
+
+private fun Throwable?.isNetworkFailureCause(): Boolean =
+    generateSequence(this) { it.cause }
+        .take(8)
+        .any { cause ->
+            cause is SocketTimeoutException ||
+                cause is ConnectException ||
+                cause is UnknownHostException ||
+                cause is SocketException ||
+                cause is SSLException ||
+                classifyPlaybackFailure(cause.message) == PlaybackFailureKind.Network
+        }
 
 internal fun PlaybackState.forSenPlayerFailure(
     message: String,

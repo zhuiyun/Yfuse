@@ -6,7 +6,6 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -125,7 +124,6 @@ import com.yfuse.core.designsystem.SearchDockOrigin
 import com.yfuse.core.designsystem.SkeletonPulseProvider
 import com.yfuse.core.designsystem.YfuseTheme
 import com.yfuse.core.designsystem.attentionSweep
-import com.yfuse.core.designsystem.backdropSource
 import com.yfuse.core.designsystem.calmMotion
 import com.yfuse.core.designsystem.drawLensIsland
 import com.yfuse.core.designsystem.drawMotionSweep
@@ -143,7 +141,8 @@ import com.yfuse.core.designsystem.rememberPhaseLightCount
 import com.yfuse.core.designsystem.rememberRouteVisibility
 import com.yfuse.core.designsystem.resolveDark
 import com.yfuse.core.designsystem.searchDockSource
-import com.yfuse.core.designsystem.useNavigationRail
+import com.yfuse.core.designsystem.shellBackdropSource
+import com.yfuse.core.designsystem.useDualPaneLayout
 import com.yfuse.core.network.LocalNetworkAccessNotice
 import com.yfuse.feature.home.HomeTabComponent
 import com.yfuse.feature.home.HomeTabScreen
@@ -380,7 +379,8 @@ fun App(root: RootComponent) {
                     // The page's half of the player transitions draws over, and transforms, this whole
                     // shell — dock and capsules included — while a launch is under way; idle it adds nothing.
                     BoxWithConstraints(Modifier.fillMaxSize().playerHandoffStage()) {
-                        val wide = maxWidth > maxHeight && useNavigationRail(maxWidth, maxHeight)
+                        val wide = useDualPaneLayout(maxWidth, maxHeight)
+                        val dockMaxWidth = if (maxWidth >= 600.dp) 560.dp else 520.dp
                         val onSelectTab: (Tab) -> Unit = { tab ->
                             if (tab == active) {
                                 root.reselectTab(tab, atRoot)
@@ -404,8 +404,11 @@ fun App(root: RootComponent) {
                                     } else {
                                         Modifier
                                     },
-                                ).backdropSource(
-                                    backdrop,
+                                ).shellBackdropSource(
+                                    state = backdrop,
+                                    activeKey = Triple(active, atRoot, savedServers.servers.size),
+                                    windowSize = maxWidth to maxHeight,
+                                    scrollActive = dockShown,
                                     record = { dockOnScreen.value || liftMenu.isOpen },
                                 ),
                         ) {
@@ -484,8 +487,8 @@ fun App(root: RootComponent) {
                         val dockExit =
                             when {
                                 motionOff -> 0
-                                calmDock -> (Motion.PUSH * CALM_DURATION_SCALE).roundToInt()
-                                else -> Motion.PUSH
+                                calmDock -> (Motion.QUICK * CALM_DURATION_SCALE).roundToInt()
+                                else -> Motion.QUICK
                             }
                         val calmDockTravelPx = with(LocalDensity.current) { CalmDockTravel.roundToPx() }
                         // Half its own height, not all of it: the bar is furniture settling back
@@ -493,6 +496,9 @@ fun App(root: RootComponent) {
                         // from off-screen.
                         val dockTravel: (Int) -> Int = { height ->
                             if (calmDock) minOf(height / 2, calmDockTravelPx) else height / 2
+                        }
+                        val dockExitTravel: (Int) -> Int = { height ->
+                            if (calmDock) minOf(height, calmDockTravelPx) else height
                         }
                         val dockEnterTransition =
                             fadeIn(tween(dockEnter, easing = Motion.Curve)) +
@@ -504,7 +510,7 @@ fun App(root: RootComponent) {
                             fadeOut(tween(dockExit, easing = Motion.Curve)) +
                                 slideOutVertically(
                                     animationSpec = tween(dockExit, easing = Motion.Curve),
-                                    targetOffsetY = dockTravel,
+                                    targetOffsetY = dockExitTravel,
                                 )
                         AnimatedVisibility(
                             visible = dockShown,
@@ -570,7 +576,7 @@ fun App(root: RootComponent) {
                             Modifier
                                 .align(Alignment.BottomCenter)
                                 .navigationBarsPadding()
-                                .widthIn(max = 520.dp)
+                                .widthIn(max = dockMaxWidth)
                                 .padding(horizontal = Dimens.tabBarInset)
                                 // The dock's own height — it grows with the font scale — plus
                                 // its margin below and a step of air above it.
@@ -1005,9 +1011,10 @@ private fun BottomNavigationDock(
     val glass = rememberLiquidNavigationGlass(backdrop)
     val density = LocalDensity.current
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    val dockMaxWidth = if (LocalWideWindow.current) 560.dp else 520.dp
     Row(
         modifier
-            .widthIn(max = 520.dp)
+            .widthIn(max = dockMaxWidth)
             .fillMaxWidth()
             .padding(horizontal = Dimens.tabBarInset)
             .padding(bottom = Dimens.tabBarInset)
@@ -1048,12 +1055,7 @@ private fun BottomNavigationDock(
                 animateDpAsState(
                     targetValue = if (collapsed) height else maxWidth,
                     // The liquid owns every change of shape, so the pane is at its new width at once.
-                    animationSpec =
-                        if (reduceMotion || liquidMotion) {
-                            snap()
-                        } else {
-                            spring(dampingRatio = 0.92f, stiffness = 360f)
-                        },
+                    animationSpec = Motion.dockWidth(reduceMotion || liquidMotion),
                     label = "navigationDockWidth",
                 )
             // Under the liquid the pane spans the row and is clipped to the liquid's capsule; it
@@ -1073,7 +1075,7 @@ private fun BottomNavigationDock(
                             if (liquidDrawing) {
                                 Modifier.clipToLiquidCapsule(liquid, rtl)
                             } else {
-                                Modifier.clip(CircleShape).navigationGlass(backdrop, CircleShape)
+                                Modifier.navigationGlass(backdrop, CircleShape)
                             },
                         ).navigationDockViewport(dockWidth, expandedWidth),
                 contentAlignment = Alignment.CenterStart,

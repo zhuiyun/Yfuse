@@ -813,6 +813,14 @@ object Motion {
      */
     fun <T> tabIndicatorTrailing(): SpringSpec<T> = spring(dampingRatio = 0.88f, stiffness = Spring.StiffnessMediumLow)
 
+    /** Dock width expansion/collapse spring; snaps when reduceMotion is active. */
+    fun dockWidth(reduceMotion: Boolean): FiniteAnimationSpec<androidx.compose.ui.unit.Dp> =
+        if (reduceMotion) snap() else spring(dampingRatio = 0.92f, stiffness = 360f)
+
+    /** Widget carousel/orbit snap spring; snaps when reduceMotion is active. */
+    fun carouselSnap(reduceMotion: Boolean): FiniteAnimationSpec<Float> =
+        if (reduceMotion) snap() else spring(dampingRatio = 0.94f, stiffness = 340f)
+
     /** Selected tab glyphs arrive with one restrained overshoot, then settle at full size. */
     fun tabIcon(reduceMotion: Boolean): FiniteAnimationSpec<Float> =
         if (reduceMotion) {

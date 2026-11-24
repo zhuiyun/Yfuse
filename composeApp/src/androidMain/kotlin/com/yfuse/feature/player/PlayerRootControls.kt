@@ -192,11 +192,30 @@ internal fun PlayerRootControls(
                     gestures.invalidate()
                     sourceSwitchCoordinator.invalidate()
                     sleepTimer.follow(index, castState.sessionRevision.takeIf { castState.hasActiveSession })
+                    val targetResumeMs =
+                        activeItems
+                            .getOrNull(index)
+                            ?.takeIf { index != state.currentIndex }
+                            ?.let { target ->
+                                runCatching {
+                                    org.koin.core.context.GlobalContext
+                                        .get()
+                                        .get<com.yfuse.core.sync.playback.PlaybackSyncManager>()
+                                }.getOrNull()
+                                    ?.startPositionMs(
+                                        mediaKey = target.watchKey,
+                                        aliases = target.matchKeys,
+                                        serverId = target.serverId,
+                                        serverItemId = target.id,
+                                    )
+                                    ?: target.resumePositionMs
+                            }?.coerceAtLeast(0L)
+                            ?: 0L
                     val deviceId = castState.activeDeviceId
                     if (castState.hasActiveSession && deviceId != null) {
-                        scope.launch { loadCastItem(deviceId, index, 0L) }
+                        scope.launch { loadCastItem(deviceId, index, targetResumeMs) }
                     } else {
-                        playbackGate.selectItem(index)
+                        playbackGate.selectItem(index, startPositionMs = targetResumeMs)
                     }
                 },
                 onPreviousItem = {

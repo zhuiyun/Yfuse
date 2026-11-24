@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -240,8 +241,8 @@ internal fun BoxScope.PlayerPictureStatus(
 }
 
 /**
- * The failure surface: the message, 重试 and the ways around it — another version, another engine,
- * an external player — and 查看原因与导出日志 behind it.
+ * The failure surface: contextual failure stage, retry/back actions, alternative versions (never
+ * engine-switching controls), and detailed diagnostics behind it.
  */
 @Composable
 internal fun PlayerErrorLayer(
@@ -253,22 +254,18 @@ internal fun PlayerErrorLayer(
     onBack: () -> Unit,
 ) {
     var showProblem by remember { mutableStateOf(false) }
+    LaunchedEffect(errorMessage) {
+        if (errorMessage == null) showProblem = false
+    }
     if (showProblem) PlaybackProblemDialog(playback = playback, onDismiss = { showProblem = false })
     ChromeContent(errorMessage, modifier = Modifier.fillMaxSize(), coversScreen = true) { message ->
+        val currentPlayback = playback.value
+        val explanation = explainPlaybackProblem(currentPlayback)
         val otherVersions =
             source.versions
                 .filter { (id, _) -> id != source.selectedVersionId }
                 .take(MAX_ERROR_ALTERNATIVES)
                 .map { (id, label) -> "版本 · $label" to { sourceActions.onSelectVersion(id) } }
-        // One strategy on offer (a native-only package) is no alternative to itself, whichever
-        // row happens to be marked: reloading it replays the same path into the same failure.
-        val otherEngines =
-            source.engineOptions
-                .takeIf { it.size > 1 }
-                .orEmpty()
-                .mapIndexedNotNull { index, (label, selected) ->
-                    if (selected) null else label to { sourceActions.onSelectEngine(index) }
-                }.take(MAX_ERROR_ALTERNATIVES)
         // Saves the position and restarts the app's process: the only way to get back a decoder that
         // a previous player never released.
         val restart =
@@ -278,10 +275,13 @@ internal fun PlayerErrorLayer(
             )
         PlaybackErrorOverlay(
             message = message,
+            errorKind = currentPlayback.errorKind,
+            stage = explanation.stage,
+            advice = explanation.advice,
             onRetry = onRetry,
             onExternalPlayer = sourceActions.onExternalPlayer,
             onBack = onBack,
-            alternatives = restart + otherVersions + otherEngines,
+            alternatives = restart + otherVersions,
             onExplain = { showProblem = true },
         )
     }

@@ -62,9 +62,10 @@ data class PlaybackHdrRoute(
     val reason: String? = null,
     val dolbyVisionPath: PlaybackDolbyVisionPath = PlaybackDolbyVisionPath.None,
     val stripDolbyVisionToBaseLayer: Boolean = false,
+    val localGpuToneMap: Boolean = false,
 )
 
-/** Plans HDR requests without treating a native engine name as verified output capability. */
+/** Plans HDR requests locally without offloading HDR/Dolby conversion to server transcoding. */
 fun playbackHdrRoute(
     source: PlaybackSourceRequirements,
     capabilities: PlaybackDeviceCapabilities,
@@ -106,21 +107,22 @@ fun playbackHdrRoute(
             stripDolbyVisionToBaseLayer = dolbyRoute.stripDolbyVisionToBaseLayer,
         )
     }
-    if (
-        videoSupport.isUnsupported &&
-        (source.hdrFormat != null || preferredDecoderMode == DecoderMode.Hardware)
-    ) {
+    if (videoSupport.isUnsupported) {
         return PlaybackHdrRoute(
             engine = preferredEngine,
-            decoderMode = DecoderMode.Hardware,
-            requiresServerTranscode = true,
-            reason = videoSupport.detail,
+            decoderMode = DecoderMode.Software,
+            requiresServerTranscode = false,
+            reason = "${videoSupport.detail}；改用本地软解与色调映射",
         )
     }
     val hdrFormat =
         source.hdrFormat
             ?: return PlaybackHdrRoute(preferredEngine, preferredDecoderMode, false)
 
+    val nativeHdr10PlusFallback =
+        hdrFormat == PlaybackHdrFormat.Hdr10Plus &&
+            PlaybackHdrFormat.Hdr10Plus !in capabilities.hdrFormats &&
+            capabilities.supportsHdrOutput(PlaybackHdrFormat.Hdr10, source.videoCodec)
     val compatibleOutput =
         when (hdrFormat) {
             PlaybackHdrFormat.DolbyVision ->
@@ -128,12 +130,20 @@ fun playbackHdrRoute(
                     PlaybackHdrFormat.Hdr10,
                     PlaybackVideoCodec.Hevc,
                 )
-            else -> capabilities.supportsHdrOutput(hdrFormat)
+            else -> capabilities.supportsHdrOutput(hdrFormat, source.videoCodec)
         }
+    val effectiveDecoderMode =
+        if (preferredDecoderMode == DecoderMode.Software) DecoderMode.Software else DecoderMode.Hardware
     return PlaybackHdrRoute(
         engine = preferredEngine,
-        decoderMode = DecoderMode.Hardware,
-        requiresServerTranscode = !compatibleOutput,
-        reason = "当前显示设备未确认支持片源 HDR；需要服务器色调映射或运行时验证本地输出".takeUnless { compatibleOutput },
+        decoderMode = effectiveDecoderMode,
+        requiresServerTranscode = false,
+        reason =
+            when {
+                nativeHdr10PlusFallback -> "当前显示设备未声明 HDR10+，保留 10-bit HDR10 兼容层本地直放"
+                !compatibleOutput -> "当前显示设备不支持原生 HDR，由本地内核执行色调映射输出"
+                else -> null
+            },
+        localGpuToneMap = !compatibleOutput && effectiveDecoderMode != DecoderMode.Software,
     )
 }

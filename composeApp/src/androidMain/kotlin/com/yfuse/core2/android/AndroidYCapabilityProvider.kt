@@ -27,9 +27,9 @@ import com.yfuse.core2.capability.YVideoDecoderCapability
  * output simply because the source metadata says one exists.
  */
 internal class AndroidYCapabilityProvider(
-    context: Context,
+    private val rawContext: Context,
 ) : YCapabilityProvider {
-    private val appContext = context.applicationContext
+    private val appContext = rawContext.applicationContext
 
     override fun current(): YDeviceCapabilities {
         val codecInfos = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos
@@ -62,7 +62,7 @@ internal class AndroidYCapabilityProvider(
             .filterNot(MediaCodecInfo::isEncoder)
             .flatMap { info -> info.supportedTypes.asSequence() }
             .mapNotNull { type -> type.lowercase().toYAudioCodec() }
-            .toSet()
+            .toSet() + YAudioCodec.Pcm
 
     private fun queryAudioPassthrough(): Set<YAudioCodec> {
         val manager = appContext.getSystemService(AudioManager::class.java) ?: return emptySet()
@@ -185,16 +185,29 @@ internal class AndroidYCapabilityProvider(
             }
     }
 
+    private fun activeDisplay(): Display? {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            runCatching { rawContext.display }.getOrNull()?.takeIf { it.isValid }?.let { return it }
+        }
+        val manager = appContext.getSystemService(DisplayManager::class.java) ?: return null
+        return manager.getDisplay(Display.DEFAULT_DISPLAY) ?: manager.displays.firstOrNull { it.isValid }
+    }
+
     private fun queryDisplayHdrTypes(): Set<YHdrType> {
-        val display =
-            appContext
-                .getSystemService(DisplayManager::class.java)
-                ?.getDisplay(Display.DEFAULT_DISPLAY)
-                ?: return setOf(YHdrType.Sdr)
+        val display = activeDisplay() ?: return setOf(YHdrType.Sdr)
         val platformTypes =
             runCatching {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                    display.mode.supportedHdrTypes
+                    val activeTypes = display.mode.supportedHdrTypes.toSet()
+                    val modeSwitchTypes =
+                        if (display.supportedModes.size > 1) {
+                            display.supportedModes.flatMapTo(mutableSetOf()) { it.supportedHdrTypes.asIterable() }
+                        } else {
+                            emptySet()
+                        }
+                    (activeTypes + modeSwitchTypes)
+                        .ifEmpty { display.legacySupportedHdrTypes().toSet() }
+                        .toIntArray()
                 } else {
                     display.legacySupportedHdrTypes()
                 }
@@ -218,11 +231,7 @@ internal class AndroidYCapabilityProvider(
 
     private fun queryFrameRateSwitching(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return false
-        val display =
-            appContext
-                .getSystemService(DisplayManager::class.java)
-                ?.getDisplay(Display.DEFAULT_DISPLAY)
-                ?: return false
+        val display = activeDisplay() ?: return false
         return display.supportedModes
             .map { it.refreshRate }
             .distinct()
@@ -452,30 +461,39 @@ internal fun String.toYAudioCodec(): YAudioCodec? =
         "audio/ac3" -> YAudioCodec.Ac3
         "audio/eac3" -> YAudioCodec.Eac3
         "audio/eac3-joc" -> YAudioCodec.Eac3Joc
+        "audio/ac4" -> YAudioCodec.Ac4
         "audio/flac" -> YAudioCodec.Flac
         "audio/opus" -> YAudioCodec.Opus
+        "audio/vorbis" -> YAudioCodec.Vorbis
         "audio/true-hd", "audio/vnd.dolby.mlp" -> YAudioCodec.TrueHd
         "audio/vnd.dts" -> YAudioCodec.Dts
         "audio/vnd.dts.hd" -> YAudioCodec.DtsHd
-        // DtsX existed in the enum with no MIME reaching it, so a DTS:X track could never be
-        // identified as one.
         "audio/vnd.dts.uhd" -> YAudioCodec.DtsX
+        "audio/raw", "audio/pcm" -> YAudioCodec.Pcm
         else -> null
     }
 
 private const val MIME_DOLBY_VISION = "video/dolby-vision"
 
-/** Encodings asked of the active route directly, with the API level that introduced each constant. */
+/**
+ * Encodings asked of the active route directly, with the API level that introduced each constant.
+ *
+ * Raw TrueHD access units require `ENCODING_DOLBY_TRUEHD` (not `ENCODING_DOLBY_MAT`, which expects
+ * 61,440-byte MAT transport frames rather than raw MLP syncframes). When only MAT is offered by the
+ * sink, YCore decodes lossless TrueHD locally to multichannel PCM instead of writing unframed bytes.
+ */
 @SuppressLint("InlinedApi")
 private val DIRECT_PLAYBACK_PROBE_ENCODINGS: List<Pair<Int, Int>> =
     listOf(
         AudioFormat.ENCODING_AC3 to Build.VERSION_CODES.LOLLIPOP,
         AudioFormat.ENCODING_E_AC3 to Build.VERSION_CODES.LOLLIPOP,
         AudioFormat.ENCODING_E_AC3_JOC to Build.VERSION_CODES.P,
+        AudioFormat.ENCODING_AC4 to Build.VERSION_CODES.P,
         AudioFormat.ENCODING_DOLBY_TRUEHD to Build.VERSION_CODES.P,
-        AudioFormat.ENCODING_DOLBY_MAT to Build.VERSION_CODES.R,
         AudioFormat.ENCODING_DTS to Build.VERSION_CODES.LOLLIPOP,
         AudioFormat.ENCODING_DTS_HD to Build.VERSION_CODES.LOLLIPOP,
+        AudioFormat.ENCODING_DTS_UHD_P1 to Build.VERSION_CODES.UPSIDE_DOWN_CAKE,
+        AudioFormat.ENCODING_DTS_UHD_P2 to Build.VERSION_CODES.UPSIDE_DOWN_CAKE,
     )
 private const val DIRECT_PLAYBACK_PROBE_SAMPLE_RATE = 48_000
 
@@ -486,6 +504,8 @@ internal fun directPlaybackProbeChannelMask(encoding: Int): Int =
         AudioFormat.ENCODING_DOLBY_TRUEHD,
         AudioFormat.ENCODING_DOLBY_MAT,
         AudioFormat.ENCODING_DTS_HD,
+        AudioFormat.ENCODING_DTS_UHD_P1,
+        AudioFormat.ENCODING_DTS_UHD_P2,
         -> AudioFormat.CHANNEL_OUT_7POINT1_SURROUND
         else -> AudioFormat.CHANNEL_OUT_5POINT1
     }
@@ -496,12 +516,14 @@ internal fun audioCodecsForEncoding(encoding: Int): Set<YAudioCodec> =
         AudioFormat.ENCODING_AC3 -> setOf(YAudioCodec.Ac3)
         AudioFormat.ENCODING_E_AC3 -> setOf(YAudioCodec.Eac3)
         AudioFormat.ENCODING_E_AC3_JOC -> setOf(YAudioCodec.Eac3, YAudioCodec.Eac3Joc)
-        AudioFormat.ENCODING_DOLBY_TRUEHD -> setOf(YAudioCodec.TrueHd)
-        // Dolby MAT is the HDMI/eARC carrier TrueHD travels in since API 30; a route that only
-        // accepts MAT still takes the TrueHD bitstream, framed by the sink.
-        AudioFormat.ENCODING_DOLBY_MAT -> setOf(YAudioCodec.TrueHd)
+        AudioFormat.ENCODING_AC4 -> setOf(YAudioCodec.Ac4)
+        AudioFormat.ENCODING_DOLBY_TRUEHD -> setOf(YAudioCodec.TrueHd, YAudioCodec.TrueHdAtmos)
+        AudioFormat.ENCODING_DOLBY_MAT -> emptySet()
         AudioFormat.ENCODING_DTS -> setOf(YAudioCodec.Dts)
         AudioFormat.ENCODING_DTS_HD -> setOf(YAudioCodec.DtsHd)
         AudioFormat.ENCODING_DTS_HD_MA -> setOf(YAudioCodec.DtsHd)
+        AudioFormat.ENCODING_DTS_UHD_P1,
+        AudioFormat.ENCODING_DTS_UHD_P2,
+        -> setOf(YAudioCodec.DtsHd, YAudioCodec.DtsX)
         else -> emptySet()
     }

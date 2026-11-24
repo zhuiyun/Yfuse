@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -14,6 +15,7 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.feature.handoff.DeviceHandoffScreen
 import com.yfuse.feature.personal.PersonalCenterScreen
 import com.yfuse.feature.personal.PersonalCenterTab
+import com.yfuse.feature.profile.LocalSettingsShowBackButton
 import com.yfuse.feature.profile.ProfileComponent
 import com.yfuse.feature.trakt.TraktSettingsScreen
 
@@ -41,41 +43,43 @@ internal fun TvProductSettingsPage(
             focusRequester = firstRowRequester,
             navigationRequester = navigationRequester,
         )
-        Box(Modifier.weight(1f).focusGroup()) {
-            when (page) {
-                TvSettingsPage.Handoff -> DeviceHandoffScreen(component.handoff, onBack, onOpenAccount)
-                TvSettingsPage.Trakt -> TraktSettingsScreen(component.trakt, onBack, television = true)
-                TvSettingsPage.Stremio ->
-                    com.yfuse.feature.stremio
-                        .StremioScreen(component.personal, onBack)
-                TvSettingsPage.ViewingStatistics ->
-                    com.yfuse.feature.personal.ViewingStatisticsScreen(
-                        component.viewing,
-                        onBack,
-                        component.onOpenPersonalMedia,
-                    )
-                else ->
-                    PersonalCenterScreen(
-                        personal = component.personal,
-                        account = component.account,
-                        playbackSync = component.playbackSync,
-                        serverSync = component.dependencies.serverSyncManager,
-                        servers =
-                            if (component.personal.policy.value.canManageServers) {
-                                component.familyServers()
-                            } else {
-                                servers.servers
-                            },
-                        onBack = onBack,
-                        onOpenMedia = component.onOpenPersonalMedia,
-                        initialTab =
-                            when (page) {
-                                TvSettingsPage.Family -> PersonalCenterTab.Profiles
-                                TvSettingsPage.SyncStatus -> PersonalCenterTab.Sync
-                                else -> PersonalCenterTab.WatchLater
-                            },
-                        repo = component.repository,
-                    )
+        CompositionLocalProvider(LocalSettingsShowBackButton provides false) {
+            Box(Modifier.weight(1f).focusGroup()) {
+                when (page) {
+                    TvSettingsPage.Handoff -> DeviceHandoffScreen(component.handoff, onBack, onOpenAccount)
+                    TvSettingsPage.Trakt -> TraktSettingsScreen(component.trakt, onBack, television = true)
+                    TvSettingsPage.Stremio ->
+                        com.yfuse.feature.stremio
+                            .StremioScreen(component.personal, onBack)
+                    TvSettingsPage.ViewingStatistics ->
+                        com.yfuse.feature.personal.ViewingStatisticsScreen(
+                            component.viewing,
+                            onBack,
+                            component.onOpenPersonalMedia,
+                        )
+                    else ->
+                        PersonalCenterScreen(
+                            personal = component.personal,
+                            account = component.account,
+                            playbackSync = component.playbackSync,
+                            serverSync = component.dependencies.serverSyncManager,
+                            servers =
+                                if (component.personal.policy.value.canManageServers) {
+                                    component.familyServers()
+                                } else {
+                                    servers.servers
+                                },
+                            onBack = onBack,
+                            onOpenMedia = component.onOpenPersonalMedia,
+                            initialTab =
+                                when (page) {
+                                    TvSettingsPage.Family -> PersonalCenterTab.Profiles
+                                    TvSettingsPage.SyncStatus -> PersonalCenterTab.Sync
+                                    else -> PersonalCenterTab.WatchLater
+                                },
+                            repo = component.repository,
+                        )
+                }
             }
         }
     }

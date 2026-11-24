@@ -43,6 +43,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
@@ -314,8 +315,9 @@ sealed interface HomeLabel {
         val serverId: String,
         val itemId: String,
         val isSeries: Boolean = false,
-        /** Where to start; 0 plays from the beginning. Ignored for a series, which resolves its episode. */
+        /** Where to start; 0 plays from the beginning. Ignored for a series unless [fromStart] is true. */
         val startPositionTicks: Long = 0L,
+        val fromStart: Boolean = false,
     ) : HomeLabel
 }
 
@@ -328,6 +330,9 @@ private sealed interface Action {
         val default: SavedServer?,
         val servers: List<SavedServer>,
     ) : Action
+
+    /** Local or cloud-pulled playback progress changed while this page is alive. */
+    data object LocalProgressChanged : Action
 }
 
 private sealed interface Msg {
@@ -577,6 +582,11 @@ class HomeStoreFactory(
                             .distinctUntilChanged()
                             .onEach { (default, servers) -> dispatch(Action.Servers(default, servers)) }
                             .launchIn(this)
+                        playbackSync
+                            ?.changes
+                            ?.drop(1)
+                            ?.onEach { dispatch(Action.LocalProgressChanged) }
+                            ?.launchIn(this)
                     }
                 },
             executorFactory = ::ExecutorImpl,
@@ -607,6 +617,7 @@ class HomeStoreFactory(
                     loadResume(action.servers)
                     loadNextUp(action.servers)
                 }
+                Action.LocalProgressChanged -> reprojectLocalResume()
             }
         }
 
@@ -637,6 +648,7 @@ class HomeStoreFactory(
                 }
                 HomeIntent.RefreshLibrary -> {
                     if (!libraryEnabled) return
+                    reprojectLocalResume()
                     if (resumeLoad.isActive || nextUpLoad.isActive) return
                     if (lastLibraryRevisit?.elapsedNow()?.inWholeMilliseconds?.let { it < 15_000L } == true) return
                     lastLibraryRevisit =
@@ -659,12 +671,25 @@ class HomeStoreFactory(
                 is HomeIntent.SetPlayed -> setPlayed(listOf(intent.entry), intent.value)
                 is HomeIntent.PlayEntry -> {
                     val item = intent.entry.item
+                    if (intent.fromStart && item.type != "Series") {
+                        playbackSync?.markRestarted(
+                            mediaKey = item.providerIds.watchKey(item.id),
+                            aliases =
+                                watchMatchKeys(
+                                    ownProviderIds = item.providerIds,
+                                    fallbackId = item.id,
+                                ),
+                            serverId = intent.entry.server.id,
+                            serverItemId = item.id,
+                        )
+                    }
                     publish(
                         HomeLabel.PlayEmbyItem(
                             serverId = intent.entry.server.id,
                             itemId = item.id,
                             isSeries = item.type == "Series",
                             startPositionTicks = if (intent.fromStart) 0L else item.resumePositionTicks ?: 0L,
+                            fromStart = intent.fromStart,
                         ),
                     )
                 }
@@ -683,6 +708,21 @@ class HomeStoreFactory(
                     cardChanges
                         .undo { it.key == intent.key }
                         ?.let { dispatch(Msg.CardsRestored(it.cards)) }
+            }
+        }
+
+        private fun reprojectLocalResume() {
+            val sync = playbackSync ?: return
+            val current = state().resume
+            if (current.isEmpty()) return
+            val projected =
+                current.mapNotNull { entry ->
+                    sync.projectResumeItem(entry.server.id, entry.item)?.let { updated ->
+                        if (updated == entry.item) entry else entry.copy(item = updated)
+                    }
+                }
+            if (projected != current) {
+                dispatch(Msg.ResumeLoaded(projected))
             }
         }
 

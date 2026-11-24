@@ -46,7 +46,8 @@ internal class SenPlayerSubtitles(
     private var restoredSelection: Map<Int, String>? = null
     private var rendererActive = false
     private var secondaryActive = false
-    private var applied: Pair<SenSubtitleStyle, Boolean>? = null
+    private var hdrSubtitleActive = false
+    private var applied: Triple<SenSubtitleStyle, Boolean, Boolean>? = null
     var style = SenSubtitleStyle()
         private set
 
@@ -90,6 +91,7 @@ internal class SenPlayerSubtitles(
         initialPending = false
         rendererActive = false
         secondaryActive = false
+        hdrSubtitleActive = false
         initial = null
         restoredSelection = null
         applied = null
@@ -104,6 +106,13 @@ internal class SenPlayerSubtitles(
     fun setStyle(value: SenSubtitleStyle) {
         if (style == value) return
         style = value
+        applied = null
+        session?.let { applyStyle(it, secondaryActive) }
+    }
+
+    fun setHdrActive(value: Boolean) {
+        if (hdrSubtitleActive == value) return
+        hdrSubtitleActive = value
         applied = null
         session?.let { applyStyle(it, secondaryActive) }
     }
@@ -128,11 +137,11 @@ internal class SenPlayerSubtitles(
         // An audio/video-only source has no subtitle output to configure. Keep preferences until
         // the native track snapshot confirms a selected primary or secondary subtitle.
         if (!rendererActive) return
-        val next = style to secondary
+        val next = Triple(style, secondary, hdrSubtitleActive)
         if (applied == next) return
         applied = next
         try {
-            style.configureRenderer(current, secondary)
+            style.configureRenderer(current, secondary, hdrSubtitleActive)
             AppLog.info(
                 "player.senplayer",
                 "subtitle_renderer_ready",
@@ -295,6 +304,7 @@ internal data class SenSubtitleStyle(
     fun configureRenderer(
         session: SenPlayerSession,
         secondary: Boolean,
+        hdrActive: Boolean = false,
     ) {
         fun rgba(argb: Long): String =
             String.format(Locale.ROOT, "#%08X", ((argb and 0xFFFFFF) shl 8) or ((argb ushr 24) and 0xFF))
@@ -310,6 +320,7 @@ internal data class SenSubtitleStyle(
             rgba(styled.backgroundColorArgb),
             appearance.outlineWidth.toDouble(),
             styled != SubtitleAppearance(),
+            hdrActive,
         )
     }
 

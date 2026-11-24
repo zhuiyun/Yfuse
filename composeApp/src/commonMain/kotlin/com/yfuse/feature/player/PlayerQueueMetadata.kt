@@ -178,6 +178,7 @@ internal fun PlayerMediaItem.withQueueMetadata(metadata: PlayerMediaItem): Playe
         episodeNumber = metadata.episodeNumber ?: episodeNumber,
         seriesId = metadata.seriesId ?: seriesId,
         seriesName = metadata.seriesName ?: seriesName,
+        resumePositionMs = metadata.resumePositionMs.takeIf { it > 0L } ?: resumePositionMs,
         seriesKey = metadata.seriesKey,
         watchKey = metadata.watchKey,
         matchKeys = metadata.matchKeys,

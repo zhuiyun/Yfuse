@@ -108,7 +108,7 @@ internal class DialogMotionHost {
 }
 
 /** How long a touch stays the anchor a dialog unfolds from. */
-private val TouchAnchorWindow = 500.milliseconds
+private val TouchAnchorWindow = 1_500.milliseconds
 
 internal val LocalDialogMotionHost = staticCompositionLocalOf { DialogMotionHost() }
 

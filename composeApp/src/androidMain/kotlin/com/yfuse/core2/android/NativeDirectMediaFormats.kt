@@ -1,12 +1,17 @@
 package com.yfuse.core2.android
 
 import android.media.MediaFormat
+import android.os.Build
 import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.api.YMediaSourceHints
+import com.yfuse.core2.api.YPlaybackException
+import com.yfuse.core2.api.YPlaybackFailureCategory
+import com.yfuse.core2.api.YPlaybackFailureStage
 import com.yfuse.core2.bitstream.YBitstream
 import com.yfuse.core2.bitstream.YSamplePacking
 import com.yfuse.core2.capability.YAudioCodec
 import com.yfuse.core2.demux.YAudioTrackFormat
+import com.yfuse.core2.dolby.YDolbyVisionConfig
 import com.yfuse.core2.render.videoFrameRateHint
 import com.yfuse.core2.subtitle.YSubtitleFormat
 import java.nio.ByteBuffer
@@ -170,6 +175,37 @@ internal fun extractNativeDirectHdr10PlusPayload(data: ByteBuffer): ByteArray? {
         .mapNotNull { packing ->
             runCatching { YBitstream.hdr10PlusItuT35Payload(bytes, packing) }.getOrNull()
         }.firstOrNull()
+}
+
+/**
+ * Applies Dolby Vision identity and, for muted TextureView hero previews (`audioDisabled = true`),
+ * requests hardware HDR->SDR tone-mapping (`KEY_COLOR_TRANSFER_REQUEST`) on Android 12+ or refuses
+ * unmapped HDR into TextureView on older OS releases so the poster still stays clean.
+ */
+internal fun MediaFormat.prepareNativeDirectVideoFormat(
+    plannedDolbyVisionConfig: YDolbyVisionConfig?,
+    confirmedDolbyVisionNalIdentity: Boolean,
+    mutedTexturePreview: Boolean,
+) {
+    if (plannedDolbyVisionConfig != null) {
+        applyDolbyVisionConfiguration(plannedDolbyVisionConfig)
+    } else if (confirmedDolbyVisionNalIdentity) {
+        setString(MediaFormat.KEY_MIME, DOLBY_VISION_MIME)
+    }
+    if (!mutedTexturePreview) return
+    val isHdr =
+        getString(MediaFormat.KEY_MIME)?.equals(DOLBY_VISION_MIME, ignoreCase = true) == true ||
+            intOrZero(MediaFormat.KEY_COLOR_TRANSFER) in setOf(COLOR_TRANSFER_ST2084, COLOR_TRANSFER_HLG)
+    if (!isHdr) return
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        setInteger(MediaFormat.KEY_COLOR_TRANSFER_REQUEST, MediaFormat.COLOR_TRANSFER_SDR_VIDEO)
+    } else {
+        throw YPlaybackException(
+            category = YPlaybackFailureCategory.Renderer,
+            stage = YPlaybackFailureStage.VideoDecoderConfigure,
+            safeDetail = "Muted TextureView preview requires API 31+ SDR transfer request for HDR video",
+        )
+    }
 }
 
 internal const val DOLBY_VISION_MIME = "video/dolby-vision"

@@ -1,7 +1,5 @@
 package com.yfuse.core.designsystem
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
@@ -429,10 +427,26 @@ fun frostedGlass(): Boolean = LocalGlassStyle.current == GlassStyle.Frosted
 /** 液态玻璃 lift — the shadow that separates a glass control from the page beneath it. */
 object GlassLift {
     /** 主按钮 — wide keys that sit on the page itself. */
-    val key = CssShadow(0.dp, 10.dp, 26.dp, 0.dp, Color(0xFF1C243A).copy(alpha = 0.20f))
+    val key =
+        CssShadow(
+            0.dp,
+            10.dp,
+            26.dp,
+            0.dp,
+            Color(0xFF1C243A).copy(alpha = 0.20f),
+            darkColor = Color.Black.copy(alpha = 0.38f),
+        )
 
     /** 圆形/胶囊小按钮 — enough to detach from a white surface, not enough to read as a card. */
-    val control = CssShadow(0.dp, 4.dp, 12.dp, 0.dp, Color(0xFF1C243A).copy(alpha = 0.10f))
+    val control =
+        CssShadow(
+            0.dp,
+            4.dp,
+            12.dp,
+            0.dp,
+            Color(0xFF1C243A).copy(alpha = 0.10f),
+            darkColor = Color.Black.copy(alpha = 0.28f),
+        )
 }
 
 /**
@@ -459,27 +473,32 @@ fun Modifier.glass(
             frosted -> frostedMaterialBorder(materialBorder, palette)
             else -> materialBorder
         }
-    return this
-        .clip(shape)
-        .then(
-            if (accessibility.reduceTransparency) {
-                Modifier.background(palette.reducedFill.card)
-            } else {
-                Modifier.background(fill)
-            },
-        ).then(
+    return clip(shape).drawWithCache {
+        val outline = shape.createOutline(size, layoutDirection, this)
+        val stroke = Stroke(Dimens.hairline.toPx() * 2f)
+        val frostedOverlay =
             if (frosted && !accessibility.reduceTransparency) {
-                Modifier.background(resolveFrostedMaterialTones(palette.card, palette).body)
+                resolveFrostedMaterialTones(palette.card, palette).body
             } else {
-                Modifier
-            },
-        ).let {
-            if (resolvedBorder != null) {
-                it.border(Dimens.hairline, resolvedBorder, shape)
-            } else {
-                it
+                null
             }
+        val opticalRim =
+            if (resolvedBorder != null && !accessibility.reduceTransparency && !frosted) {
+                glassRim(palette.isDark, GlassWeight.Standard.liquidSheen)
+            } else {
+                null
+            }
+        onDrawBehind {
+            if (accessibility.reduceTransparency) {
+                drawOutline(outline, palette.reducedFill.card)
+            } else {
+                drawOutline(outline, brush = fill)
+                if (frostedOverlay != null) drawOutline(outline, frostedOverlay)
+            }
+            if (resolvedBorder != null) drawOutline(outline, resolvedBorder, style = stroke)
+            if (opticalRim != null) drawOutline(outline, brush = opticalRim, style = stroke)
         }
+    }
 }
 
 /**
@@ -587,19 +606,59 @@ fun formDivider(): Color =
 /** Elevation presets transcribed from the prototype's `box-shadow` declarations. */
 object Shadows {
     /** 首页搜索入口 `0 6px 18px rgba(90,120,180,.12)` */
-    val searchBar = CssShadow(0.dp, 6.dp, 18.dp, 0.dp, Color(0xFF5A78B4).copy(alpha = 0.12f))
+    val searchBar =
+        CssShadow(
+            0.dp,
+            6.dp,
+            18.dp,
+            0.dp,
+            Color(0xFF5A78B4).copy(alpha = 0.12f),
+            darkColor = Color.Black.copy(alpha = 0.28f),
+        )
 
     /** 搜索页输入框 `0 6px 18px rgba(90,120,180,.15)` */
-    val searchBarFocused = CssShadow(0.dp, 6.dp, 18.dp, 0.dp, Color(0xFF5A78B4).copy(alpha = 0.15f))
+    val searchBarFocused =
+        CssShadow(
+            0.dp,
+            6.dp,
+            18.dp,
+            0.dp,
+            Color(0xFF5A78B4).copy(alpha = 0.15f),
+            darkColor = Color.Black.copy(alpha = 0.34f),
+        )
 
     /** Hero `0 10px 30px rgba(30,40,70,.18)` */
-    val hero = CssShadow(0.dp, 10.dp, 30.dp, 0.dp, Color(0xFF1E2846).copy(alpha = 0.18f))
+    val hero =
+        CssShadow(
+            0.dp,
+            10.dp,
+            30.dp,
+            0.dp,
+            Color(0xFF1E2846).copy(alpha = 0.18f),
+            darkColor = Color.Black.copy(alpha = 0.36f),
+        )
 
     /** Tab bar `0 12px 30px rgba(60,90,150,.18)` */
-    val tabBar = CssShadow(0.dp, 12.dp, 30.dp, 0.dp, Color(0xFF3C5A96).copy(alpha = 0.18f))
+    val tabBar =
+        CssShadow(
+            0.dp,
+            12.dp,
+            30.dp,
+            0.dp,
+            Color(0xFF3C5A96).copy(alpha = 0.18f),
+            darkColor = Color.Black.copy(alpha = 0.36f),
+        )
 
     /** 用户卡 `0 8px 24px rgba(90,120,180,.12)` */
-    val profileCard = CssShadow(0.dp, 8.dp, 24.dp, 0.dp, Color(0xFF5A78B4).copy(alpha = 0.12f))
+    val profileCard =
+        CssShadow(
+            0.dp,
+            8.dp,
+            24.dp,
+            0.dp,
+            Color(0xFF5A78B4).copy(alpha = 0.12f),
+            darkColor = Color.Black.copy(alpha = 0.30f),
+        )
 
     /** Emphasis-button lift tinted from the active semantic accent. */
     fun primaryButton(accent: Color): CssShadow = CssShadow(0.dp, 10.dp, 24.dp, 0.dp, accent.copy(alpha = 0.30f))
@@ -608,16 +667,40 @@ object Shadows {
     val detailPoster = CssShadow(0.dp, 10.dp, 24.dp, 0.dp, Color.Black.copy(alpha = 0.25f))
 
     /** 弹层 `0 20px 44px -10px rgba(30,40,70,.3)` */
-    val sheet = CssShadow(0.dp, 20.dp, 44.dp, (-10).dp, Color(0xFF1E2846).copy(alpha = 0.30f))
+    val sheet =
+        CssShadow(
+            0.dp,
+            20.dp,
+            44.dp,
+            (-10).dp,
+            Color(0xFF1E2846).copy(alpha = 0.30f),
+            darkColor = Color.Black.copy(alpha = 0.48f),
+        )
 
     /** 下拉菜单 `0 16px 36px -8px rgba(30,40,70,.3)` */
-    val menu = CssShadow(0.dp, 16.dp, 36.dp, (-8).dp, Color(0xFF1E2846).copy(alpha = 0.30f))
+    val menu =
+        CssShadow(
+            0.dp,
+            16.dp,
+            36.dp,
+            (-8).dp,
+            Color(0xFF1E2846).copy(alpha = 0.30f),
+            darkColor = Color.Black.copy(alpha = 0.46f),
+        )
 
     /** 播放器底部面板 `0 20px 40px rgba(0,0,0,.35)` */
     val playerPanel = CssShadow(0.dp, 20.dp, 40.dp, 0.dp, Color.Black.copy(alpha = 0.35f))
 
     /** 播放器设置面板 `0 20px 50px -12px rgba(30,40,70,.3)` */
-    val playerSheet = CssShadow(0.dp, 20.dp, 50.dp, (-12).dp, Color(0xFF1E2846).copy(alpha = 0.30f))
+    val playerSheet =
+        CssShadow(
+            0.dp,
+            20.dp,
+            50.dp,
+            (-12).dp,
+            Color(0xFF1E2846).copy(alpha = 0.30f),
+            darkColor = Color.Black.copy(alpha = 0.50f),
+        )
 
     /** 下一集提示 `0 16px 36px rgba(0,0,0,.4)` */
     val nextUp = CssShadow(0.dp, 16.dp, 36.dp, 0.dp, Color.Black.copy(alpha = 0.40f))
@@ -631,19 +714,34 @@ object Shadows {
 @ReadOnlyComposable
 fun semanticPrimaryButtonShadow(): CssShadow = Shadows.primaryButton(LocalAccentColors.current.accent)
 
-/** A single `box-shadow` declaration. */
+/** A single `box-shadow` declaration, with an optional dark-theme tint so dark surfaces never halo. */
 data class CssShadow(
     val offsetX: androidx.compose.ui.unit.Dp,
     val offsetY: androidx.compose.ui.unit.Dp,
     val blur: androidx.compose.ui.unit.Dp,
     val spread: androidx.compose.ui.unit.Dp,
     val color: Color,
-)
+    val darkColor: Color? = null,
+) {
+    fun resolvedColor(dark: Boolean): Color = if (dark) darkColor ?: color else color
 
+    fun forTheme(dark: Boolean): CssShadow =
+        if (dark && darkColor != null) copy(color = darkColor, darkColor = null) else this
+}
+
+@Composable
 fun Modifier.shadow(
     shadow: CssShadow,
     shape: Shape,
-): Modifier = cssShadow(shadow.offsetX, shadow.offsetY, shadow.blur, shadow.spread, shadow.color, shape)
+): Modifier =
+    cssShadow(
+        shadow.offsetX,
+        shadow.offsetY,
+        shadow.blur,
+        shadow.spread,
+        shadow.resolvedColor(LocalPalette.current.isDark),
+        shape,
+    )
 
 /** Shared paint math for fixed and animated material; geometry never depends on the frame colour. */
 private fun liquidGlassBrushes(
@@ -727,7 +825,10 @@ fun Modifier.liquidGlass(
                     val (ramp, gloss) = liquidGlassBrushes(body, over(), sheen)
                     drawOutline(outline, ramp)
                     drawOutline(outline, gloss)
-                    if (edge != null) drawOutline(outline, edge, style = stroke)
+                    if (edge != null) {
+                        drawOutline(outline, edge, style = stroke)
+                        drawOutline(outline, brush = glassRim(palette.isDark, sheen), style = stroke)
+                    }
                 }
             }
         }

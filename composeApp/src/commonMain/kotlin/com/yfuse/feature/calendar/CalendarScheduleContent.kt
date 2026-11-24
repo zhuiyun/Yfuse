@@ -1,6 +1,5 @@
 package com.yfuse.feature.calendar
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -22,7 +21,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
@@ -38,6 +36,7 @@ import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.SkeletonBlock
+import com.yfuse.core.designsystem.flatGlass
 import com.yfuse.core.designsystem.glassSelection
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberGlassSelectionStyle
@@ -56,8 +55,7 @@ internal fun CalendarLoadingContent() {
         Modifier
             .fillMaxSize()
             .padding(horizontal = Dimens.pageHorizontal)
-            .clip(AppShapes.card)
-            .background(palette.card2)
+            .flatGlass(AppShapes.card, palette.card2, palette.border)
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {

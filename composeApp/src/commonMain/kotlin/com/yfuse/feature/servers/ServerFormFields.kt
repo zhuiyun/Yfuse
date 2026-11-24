@@ -82,7 +82,7 @@ internal fun ServerFormRow(
     content: @Composable () -> Unit,
 ) {
     val palette = LocalPalette.current
-    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 9.dp)) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
         Text(
             label,
             style = AppTypography.caption.regular,
@@ -197,8 +197,8 @@ internal fun ServerFormInput(
                                         } else {
                                             palette.controlBorder
                                         },
-                                ).defaultMinSize(minHeight = 48.dp)
-                                .padding(horizontal = 12.dp, vertical = 10.dp)
+                                ).defaultMinSize(minHeight = 44.dp)
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
                         } else {
                             Modifier
                         },

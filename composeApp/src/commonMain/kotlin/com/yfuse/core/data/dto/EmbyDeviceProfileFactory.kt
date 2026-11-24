@@ -62,15 +62,15 @@ internal object EmbyDeviceProfileFactory {
                 listOf(
                     TranscodingProfileDto(
                         Container = "ts",
-                        VideoCodec = "h264",
-                        AudioCodec = "aac",
+                        VideoCodec = "hevc,h264",
+                        AudioCodec = "eac3,ac3,aac",
                         Protocol = "hls",
                         MaxAudioChannels = transcodeMaxAudioChannels.toString(),
                     ),
                     TranscodingProfileDto(
                         Container = "mp4",
-                        VideoCodec = "h264",
-                        AudioCodec = "aac",
+                        VideoCodec = "hevc,h264",
+                        AudioCodec = "eac3,ac3,aac",
                         Protocol = "http",
                         MaxAudioChannels = transcodeMaxAudioChannels.toString(),
                     ),
@@ -111,7 +111,7 @@ internal object EmbyDeviceProfileFactory {
                 add(
                     videoRangeProfile(
                         "vp9",
-                        openHdrRangeTypes(capabilities, PlaybackVideoCodec.Vp9),
+                        LOCAL_OPEN_HDR_INPUT_RANGE_TYPES,
                     ),
                 )
             }
@@ -119,7 +119,7 @@ internal object EmbyDeviceProfileFactory {
                 add(
                     videoRangeProfile(
                         "av1",
-                        openHdrRangeTypes(capabilities, PlaybackVideoCodec.Av1),
+                        LOCAL_AV1_INPUT_RANGE_TYPES,
                     ),
                 )
             }
@@ -160,11 +160,9 @@ internal object EmbyDeviceProfileFactory {
 
     private fun hevcRangeTypes(capabilities: PlaybackDeviceCapabilities): Set<String> =
         buildSet {
-            addAll(LOCAL_HEVC_INPUT_RANGE_TYPES)
+            addAll(LOCAL_OPEN_HDR_INPUT_RANGE_TYPES)
+            addAll(DOLBY_VISION_INPUT_RANGE_TYPES)
             addAll(openHdrRangeTypes(capabilities, PlaybackVideoCodec.Hevc))
-            if (capabilities.supportsDolbyVisionOutput) {
-                addAll(DOLBY_VISION_INPUT_RANGE_TYPES)
-            }
         }
 
     private fun openHdrRangeTypes(
@@ -201,18 +199,36 @@ internal object EmbyDeviceProfileFactory {
         )
 }
 
-private const val DIRECT_PLAY_VIDEO_CONTAINERS = "mkv,mp4,m4v,mov,ts,m2ts,webm"
+private const val DIRECT_PLAY_VIDEO_CONTAINERS = "mkv,mp4,m4v,mov,ts,m2ts,webm,avi,flv,mpg,mpeg,vob,ogv,wmv,asf"
 private val LOCAL_VIDEO_DECODERS =
     setOf(
         PlaybackVideoCodec.H264,
         PlaybackVideoCodec.Hevc,
+        PlaybackVideoCodec.Av1,
+        PlaybackVideoCodec.Vp9,
+        PlaybackVideoCodec.Vp8,
+        PlaybackVideoCodec.Mpeg2,
+        PlaybackVideoCodec.Mpeg4,
+        PlaybackVideoCodec.Vc1,
+        PlaybackVideoCodec.ProRes,
     )
-private val LOCAL_HEVC_INPUT_RANGE_TYPES =
+private val LOCAL_OPEN_HDR_INPUT_RANGE_TYPES =
     setOf(
         "SDR",
         "HDR10",
         "HDR10Plus",
         "HLG",
+    )
+private val LOCAL_AV1_INPUT_RANGE_TYPES =
+    setOf(
+        "SDR",
+        "HDR10",
+        "HDR10Plus",
+        "HLG",
+        "DOVI",
+        "DOVIWithHDR10",
+        "DOVIWithHLG",
+        "DOVIWithSDR",
     )
 private val DOLBY_VISION_INPUT_RANGE_TYPES =
     setOf(
@@ -227,6 +243,7 @@ private val DOLBY_VISION_INPUT_RANGE_TYPES =
 private val LOCAL_AUDIO_DECODERS =
     setOf(
         PlaybackAudioCodec.Aac,
+        PlaybackAudioCodec.Alac,
         PlaybackAudioCodec.Mp3,
         PlaybackAudioCodec.Ac3,
         PlaybackAudioCodec.Eac3,
@@ -234,6 +251,7 @@ private val LOCAL_AUDIO_DECODERS =
         PlaybackAudioCodec.TrueHd,
         PlaybackAudioCodec.Dts,
         PlaybackAudioCodec.DtsHd,
+        PlaybackAudioCodec.DtsX,
         PlaybackAudioCodec.Flac,
         PlaybackAudioCodec.Opus,
         PlaybackAudioCodec.Vorbis,

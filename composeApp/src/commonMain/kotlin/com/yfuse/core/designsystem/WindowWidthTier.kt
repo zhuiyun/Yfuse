@@ -12,6 +12,7 @@ enum class WindowWidthTier {
 
 object WindowWidthBreakpoints {
     val medium = 600.dp
+    val foldableExpanded = 700.dp
     val expanded = 840.dp
 }
 
@@ -28,3 +29,15 @@ fun useNavigationRail(
     width: Dp,
     height: Dp,
 ): Boolean = width >= WindowWidthBreakpoints.expanded && height >= 480.dp
+
+/**
+ * Whether the window has enough width and height for two-pane list/detail and settings
+ * layouts: expanded tablets in any orientation, plus unfolded book-style foldables
+ * (700dp+ wide with at least 520dp height, excluding short landscape phones).
+ */
+fun useDualPaneLayout(
+    width: Dp,
+    height: Dp,
+): Boolean =
+    useNavigationRail(width, height) ||
+        (width >= WindowWidthBreakpoints.foldableExpanded && height >= 520.dp)

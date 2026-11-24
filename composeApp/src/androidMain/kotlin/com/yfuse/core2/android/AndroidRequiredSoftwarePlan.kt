@@ -7,6 +7,7 @@ import com.yfuse.core2.capability.YHdrType
 import com.yfuse.core2.capability.YVideoCodec
 import com.yfuse.core2.capability.YVideoRequirement
 import com.yfuse.core2.demux.YVideoTrackFormat
+import com.yfuse.core2.dolby.YDolbyVisionCodecFamily
 import com.yfuse.core2.dolby.YDolbyVisionConfig
 import com.yfuse.core2.strategy.YPlaybackPlan
 
@@ -35,7 +36,7 @@ internal fun softwareRecoveryPlanFromDemux(
                     },
             ),
         protectedContent = protectedContent,
-        dolbyConfig = video.dolbyVisionConfig.takeIf { video.samplePacking != null },
+        dolbyConfig = video.dolbyVisionConfig.takeIf { video.samplePacking != null || video.codec == YVideoCodec.Av1 },
     )
 
 /** Resolve explicit software intent against demux evidence, never server hints or a hardware plan. */
@@ -57,7 +58,11 @@ internal fun requiredYCoreSoftwarePlan(
             stage = YPlaybackFailureStage.Demux,
             safeDetail = "Software decode requires confirmed video format",
         )
-    val config = dolbyConfig.takeIf { video.codec == YVideoCodec.H265 }
+    val config =
+        dolbyConfig?.takeIf { cfg ->
+            (video.codec == YVideoCodec.H265 && cfg.codecFamily == YDolbyVisionCodecFamily.Hevc) ||
+                (video.codec == YVideoCodec.Av1 && cfg.codecFamily == YDolbyVisionCodecFamily.Av1)
+        }
     return yCoreInternalSoftwareRecoveryPlan(video.hdrType, config) ?: throw YPlaybackException(
         category = YPlaybackFailureCategory.Decoder,
         stage = YPlaybackFailureStage.VideoDecoderConfigure,

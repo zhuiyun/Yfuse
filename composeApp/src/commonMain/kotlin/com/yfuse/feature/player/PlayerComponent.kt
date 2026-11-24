@@ -8,6 +8,8 @@ import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.playback.PlaybackLaunchTiming
 import com.yfuse.core.playback.PlaybackLaunchTimings
+import com.yfuse.core.sync.playback.PlaybackSyncManager
+import org.koin.core.context.GlobalContext
 
 class PlayerComponent(
     componentContext: ComponentContext,
@@ -21,6 +23,7 @@ class PlayerComponent(
     private val dependencies: AppDependencies,
     val startPlaybackRequested: Boolean = true,
     private val isSeriesLaunch: Boolean = false,
+    private val fromStart: Boolean = false,
     val onBack: () -> Unit,
 ) : ComponentContext by componentContext {
     private var storeOwnershipTransferred = false
@@ -44,7 +47,9 @@ class PlayerComponent(
             startPositionTicks = startPositionTicks,
             mediaSourceId = mediaSourceId,
         )
-    private val preparedStore = PreparedPlaybackRegistry.claim(preloadKey, launchTiming)
+    private val preparedStore =
+        if (fromStart) null else PreparedPlaybackRegistry.claim(preloadKey, launchTiming)
+    private val playbackSync = runCatching { GlobalContext.get().get<PlaybackSyncManager>() }.getOrNull()
 
     /**
      * A detail page starts this exact Store before the tap. Claiming it preserves both a
@@ -67,6 +72,8 @@ class PlayerComponent(
                 failoverRequest = dependencies.playbackFailoverRequest,
                 healthMonitor = dependencies.serverHealthMonitor,
                 isSeriesLaunch = isSeriesLaunch,
+                fromStart = fromStart,
+                playbackSync = playbackSync,
             ).create()
 
     init {

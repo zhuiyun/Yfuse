@@ -15,17 +15,20 @@ import kotlin.test.assertTrue
 
 class EmbyDeviceProfileFactoryTest {
     @Test
-    fun conservative_profile_does_not_claim_unavailable_dolby_vision() {
+    fun profile_advertises_local_dolby_hdr_and_codec_capabilities_to_prevent_server_transcode() {
         val profile = DeviceProfileDto.yfuseAndroid()
         val direct = profile.DirectPlayProfiles.single()
         val codecs = direct.VideoCodec.split(',').toSet()
         val hevcRanges = profile.videoRanges("hevc")
+        val av1Ranges = profile.videoRanges("av1")
         val audio = direct.AudioCodec.split(',').toSet()
 
-        assertTrue(codecs.containsAll(setOf("h264", "hevc")))
-        assertTrue(audio.containsAll(setOf("aac", "ac3", "eac3", "truehd", "dts", "dca")))
-        assertTrue(hevcRanges.containsAll(setOf("SDR", "HDR10", "HLG")))
-        assertFalse(hevcRanges.any { it.startsWith("DOVI") })
+        assertTrue(codecs.containsAll(setOf("h264", "hevc", "av1", "vp9", "prores")))
+        assertTrue(audio.containsAll(setOf("aac", "ac3", "eac3", "truehd", "dts", "dca", "dtsx", "alac")))
+        assertTrue(
+            hevcRanges.containsAll(setOf("SDR", "HDR10", "HDR10Plus", "HLG", "DOVI", "DOVIWithHDR10", "DOVIWithEL")),
+        )
+        assertTrue(av1Ranges.containsAll(setOf("SDR", "HDR10", "HDR10Plus", "HLG", "DOVI", "DOVIWithHDR10")))
         assertEquals("8", profile.audioChannelLimit())
         assertEquals("2", profile.TranscodingProfiles.first().MaxAudioChannels)
     }
@@ -77,7 +80,7 @@ class EmbyDeviceProfileFactoryTest {
     }
 
     @Test
-    fun hdr10_only_panel_does_not_claim_dolby_vision_without_an_output_path() {
+    fun hdr10_only_panel_keeps_dolby_and_hdr10_plus_direct_play_for_local_routing() {
         val profile =
             DeviceProfileDto.yfuseAndroid(
                 capabilities(
@@ -88,11 +91,13 @@ class EmbyDeviceProfileFactoryTest {
         val ranges = profile.videoRanges("hevc")
 
         assertTrue("HDR10" in ranges)
-        assertFalse(ranges.any { it.startsWith("DOVI") })
+        assertTrue("HDR10Plus" in ranges)
+        assertTrue("DOVIWithHDR10" in ranges)
+        assertFalse("DOVIInvalid" in ranges)
     }
 
     @Test
-    fun sdr_panel_does_not_claim_dolby_vision_without_an_output_path() {
+    fun sdr_panel_keeps_hdr_and_dolby_direct_play_for_local_tone_mapping_and_rpu_sdr() {
         val profile = DeviceProfileDto.yfuseAndroid(capabilities())
         val ranges = profile.videoRanges("hevc")
         val directVideoCodecs =
@@ -102,7 +107,7 @@ class EmbyDeviceProfileFactoryTest {
                 .split(',')
 
         assertTrue("hevc" in directVideoCodecs)
-        assertFalse(ranges.any { it.startsWith("DOVI") })
+        assertTrue("DOVI" in ranges)
         assertFalse("DOVIInvalid" in ranges)
         assertTrue("HDR10" in ranges)
     }

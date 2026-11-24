@@ -66,18 +66,20 @@ enum class PlaybackAudioCodec(
     val embyNames: Set<String>,
 ) {
     Aac(setOf("aac")),
+    Alac(setOf("alac")),
     Mp3(setOf("mp3")),
     Ac3(setOf("ac3")),
     Eac3(setOf("eac3")),
     Eac3Joc(setOf("eac3")),
-    TrueHd(setOf("truehd")),
+    TrueHd(setOf("truehd", "mlp")),
     Dts(setOf("dts", "dca")),
     DtsHd(setOf("dts", "dca")),
+    DtsX(setOf("dts", "dca", "dtsx")),
     Ac4(setOf("ac4")),
     Flac(setOf("flac")),
     Opus(setOf("opus")),
     Vorbis(setOf("vorbis")),
-    Pcm(setOf("pcm")),
+    Pcm(setOf("pcm", "pcm_s16le", "pcm_s24le", "pcm_bluray")),
 }
 
 enum class PlaybackAudioRoute {
@@ -122,11 +124,21 @@ data class PlaybackDeviceCapabilities(
         format: PlaybackHdrFormat,
         codec: PlaybackVideoCodec? = null,
     ): Boolean {
-        if (format !in hdrFormats) return false
+        val effectiveFormat =
+            if (format == PlaybackHdrFormat.Hdr10Plus &&
+                format !in hdrFormats &&
+                PlaybackHdrFormat.Hdr10 in hdrFormats
+            ) {
+                PlaybackHdrFormat.Hdr10
+            } else {
+                format
+            }
+        if (effectiveFormat !in hdrFormats) return false
         return if (codec == null) {
-            hdrDecoders.values.any { format in it }
+            hdrDecoders.values.any { effectiveFormat in it || format in it }
         } else {
-            format in hdrDecoders[codec].orEmpty()
+            val codecHdr = hdrDecoders[codec].orEmpty()
+            effectiveFormat in codecHdr || format in codecHdr
         }
     }
 
@@ -139,7 +151,12 @@ data class PlaybackDeviceCapabilities(
             return PlaybackVideoSupport.unsupported("设备没有 ${codec.name} 解码器")
         }
         val hdr = requirements.hdrFormat
-        if (hdr != null && hdr !in hdrDecoders[codec].orEmpty()) {
+        val codecHdr = hdrDecoders[codec].orEmpty()
+        val hdrCompatible =
+            hdr == null ||
+                hdr in codecHdr ||
+                (hdr == PlaybackHdrFormat.Hdr10Plus && PlaybackHdrFormat.Hdr10 in codecHdr)
+        if (!hdrCompatible) {
             return PlaybackVideoSupport.unsupported("${codec.name} 解码器未声明 ${hdr.name} 配置")
         }
         return PlaybackVideoSupport.supported("${codec.name} 解码能力已声明")

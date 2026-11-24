@@ -3,7 +3,6 @@ package com.yfuse.feature.widgets
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.FlingBehavior
@@ -140,7 +139,7 @@ internal fun WidgetOrbitResume(
                             animate(
                                 0f,
                                 distance,
-                                animationSpec = spring(dampingRatio = .94f, stiffness = 340f),
+                                animationSpec = Motion.carouselSnap(reduceMotion),
                             ) { value, _ ->
                                 scrollBy(value - previous)
                                 previous = value
@@ -157,7 +156,7 @@ internal fun WidgetOrbitResume(
                 if (reduceMotion) {
                     scroll.scrollBy(delta)
                 } else {
-                    scroll.animateScrollBy(delta, spring(dampingRatio = .94f, stiffness = 340f))
+                    scroll.animateScrollBy(delta, Motion.carouselSnap(reduceMotion))
                 }
             }
         }

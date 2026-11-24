@@ -9,6 +9,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -291,7 +292,8 @@ fun GlassDialog(
         val materialDark = LocalGlassAppearance.current ?: palette.isDark
         val recipePalette = if (materialDark) DarkPalette else LightPalette
         val material = LocalGlassMaterials.current.forTheme(materialDark).normalized(materialDark)
-        val scrimColor = palette.scrim.copy(alpha = material.scrim)
+        val scrimAlpha = if (opaqueSurface) maxOf(material.scrim, 0.54f) else material.scrim
+        val scrimColor = palette.scrim.copy(alpha = scrimAlpha)
         // The grey pane is not the page: `body` and `sub2` were measured against `background`
         // and landed at about 3:1 on the light dialog. Every dialog reads the recalibrated pair
         // from here, so the 48 call sites keep writing `palette.body` and get the right ink.
@@ -383,13 +385,32 @@ fun GlassDialog(
             LocalDialogPresence provides null,
         ) {
             SurfaceContentTheme(dialogPalette) {
-                Box(
+                BoxWithConstraints(
                     Modifier
                         .fillMaxSize()
                         .trackDialogOrigin(LocalDialogMotionHost.current)
                         .pointerInput(requestDismiss) { detectTapGestures { requestDismiss() } },
                     contentAlignment = alignment,
                 ) {
+                    val shortViewport = maxHeight < 480.dp
+                    val effectiveWindowPadding =
+                        if (shortViewport) {
+                            PaddingValues(horizontal = Dimens.space.xl, vertical = Dimens.space.md)
+                        } else {
+                            windowPadding
+                        }
+                    val effectiveContentPadding =
+                        if (shortViewport && contentPadding > Dimens.space.lg) {
+                            Dimens.space.lg
+                        } else {
+                            contentPadding
+                        }
+                    val effectiveMaxWidth =
+                        if (maxWidth == OverlayMaxWidth && this.maxWidth >= WindowWidthBreakpoints.expanded) {
+                            600.dp
+                        } else {
+                            maxWidth
+                        }
                     Box(
                         Modifier
                             .fillMaxSize()
@@ -406,8 +427,8 @@ fun GlassDialog(
                             // from leftover scroll. Scrolling a panel with nothing to type into must
                             // never summon an empty keyboard.
                             .imePadding()
-                            .padding(windowPadding)
-                            .widthIn(max = maxWidth)
+                            .padding(effectiveWindowPadding)
+                            .widthIn(max = effectiveMaxWidth)
                             .fillMaxWidth()
                             // TalkBack announces the pane by the title its [OverlayHeader] publishes.
                             .semantics { shownTitle?.let { this.paneTitle = it } }
@@ -421,7 +442,7 @@ fun GlassDialog(
                             .phaseLightEdge(progress, phaseLights)
                             .pointerInput(Unit) { detectTapGestures { } }
                             .then(modifier)
-                            .padding(contentPadding)
+                            .padding(effectiveContentPadding)
                             .then(
                                 if (scrollable) {
                                     Modifier.verticalScroll(panelScrollState)

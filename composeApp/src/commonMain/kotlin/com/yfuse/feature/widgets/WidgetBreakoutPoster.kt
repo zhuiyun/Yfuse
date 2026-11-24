@@ -25,9 +25,12 @@ import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
@@ -324,7 +327,20 @@ private fun BreakoutLayers(
     WidgetArtworkImage(
         model = artwork.foregroundModel,
         contentDescription = null,
-        modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(bottomStart = 18.dp, bottomEnd = 18.dp)),
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .clip(RoundedCornerShape(bottomStart = 18.dp, bottomEnd = 18.dp))
+                .drawWithContent {
+                    drawContent()
+                    drawRect(
+                        Brush.verticalGradient(
+                            0f to Color.Transparent,
+                            0.84f to Color.Transparent,
+                            1f to surface.copy(alpha = 0.36f),
+                        ),
+                    )
+                },
         alignment = alignment,
         contentScale = contentScale,
         onError = {

@@ -27,7 +27,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
@@ -52,6 +51,7 @@ import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MinTouchTarget
 import com.yfuse.core.designsystem.Semantic
+import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.contentColorForSurface
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.glassControlHighlight
@@ -287,16 +287,13 @@ internal fun CurrentServerHero(
                 onLongClick = onMore,
                 onLongClickLabel = "打开${server.serverName}操作",
                 onClick = onOpen,
-            ).background(
-                color =
-                    lerp(
-                        palette.card2.compositeOver(palette.background),
-                        accent.container.compositeOver(palette.background),
-                        0.2f,
-                    ),
+            ).shadow(Shadows.profileCard, AppShapes.card)
+            .glass(
                 shape = AppShapes.card,
-            ).padding(18.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+                fill = lerp(palette.card2, accent.container, 0.18f),
+                border = glassControlHighlight(accent, palette.isDark),
+            ).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Row(
             Modifier.fillMaxWidth(),
@@ -381,16 +378,21 @@ internal fun CurrentServerHero(
                         onClickLabel = "$enterLabel${server.serverName}",
                         onClick = onOpen,
                     ).heightIn(min = MinTouchTarget)
-                    .background(accent.accent, AppShapes.pill)
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                    .shadow(GlassLift.control, AppShapes.pill)
+                    .liquidGlass(
+                        shape = AppShapes.pill,
+                        fill = accent.container,
+                        border = glassControlHighlight(accent, palette.isDark),
+                        sheen = 0.82f,
+                    ).padding(horizontal = 14.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(5.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(enterLabel, style = AppTypography.body.strong, color = accent.onAccent)
+                Text(enterLabel, style = AppTypography.body.strong, color = accent.accent)
                 Icon(
                     AppIcons.ChevronRight,
                     contentDescription = null,
-                    tint = accent.onAccent,
+                    tint = accent.accent,
                     modifier = Modifier.size(12.dp),
                 )
             }

@@ -214,12 +214,14 @@ private fun SourceRow(
                 RecommendBadge()
             }
             Spacer(Modifier.weight(1f))
-            Text(
-                source?.size ?: "—",
-                style = AppTypography.caption.strong,
-                color = if (selected) accent else palette.body,
-                maxLines = 1,
-            )
+            if (!source?.size.isNullOrBlank()) {
+                Text(
+                    source.size.orEmpty(),
+                    style = AppTypography.caption.strong,
+                    color = if (selected) accent else palette.body,
+                    maxLines = 1,
+                )
+            }
         }
         FlowRow(
             Modifier.fillMaxWidth(),
@@ -229,8 +231,8 @@ private fun SourceRow(
         ) {
             if (source?.dolbyVision == true) {
                 DolbyChip("VISION", if (selected) accent else palette.sub)
-            } else {
-                FactChip(source?.rangeLabel ?: "—")
+            } else if (!source?.rangeLabel.isNullOrBlank()) {
+                FactChip(source.rangeLabel.orEmpty())
             }
             source?.bitrate?.let { FactChip(it) }
             source?.frameRate?.let { FactChip(it) }

@@ -185,8 +185,13 @@ private class AndroidPlaybackDeviceCapabilitiesProbe(
                     }
             val profiles = capabilities.profileLevels.map { it.profile }
             val requiredHdr = requirements.hdrFormat
-            if (requiredHdr != null && requiredHdr !in decoderHdrFormats(codec, profiles)) {
-                rejected += "${info.name}: 不支持 ${requiredHdr.name} profile"
+            val supportedHdr = decoderHdrFormats(codec, profiles)
+            val hdrCompatible =
+                requiredHdr == null ||
+                    requiredHdr in supportedHdr ||
+                    (requiredHdr == PlaybackHdrFormat.Hdr10Plus && PlaybackHdrFormat.Hdr10 in supportedHdr)
+            if (!hdrCompatible) {
+                rejected += "${info.name}: 不支持 ${requiredHdr?.name} profile"
                 return@forEach
             }
             if (!decoderSupportsBitDepth(codec, profiles, requirements.bitDepth)) {
@@ -234,14 +239,42 @@ private class AndroidPlaybackDeviceCapabilitiesProbe(
 
     @Suppress("DEPRECATION")
     fun displayHdrFormats(): Set<PlaybackHdrFormat> {
+        val activeDisplay =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                runCatching { context.display }.getOrNull()?.takeIf { it.isValid }
+            } else {
+                null
+            }
         val manager = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
-        val display = manager.getDisplay(Display.DEFAULT_DISPLAY) ?: manager.displays.firstOrNull()
+        val display =
+            activeDisplay
+                ?: manager.getDisplay(Display.DEFAULT_DISPLAY)
+                ?: manager.displays.firstOrNull { it.isValid }
         val supported =
-            display
-                ?.hdrCapabilities
-                ?.supportedHdrTypes
-                ?.toSet()
-                .orEmpty()
+            runCatching {
+                if (display == null) {
+                    emptySet()
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    val activeTypes = display.mode.supportedHdrTypes.toSet()
+                    val modeSwitchTypes =
+                        if (display.supportedModes.size > 1) {
+                            display.supportedModes.flatMapTo(mutableSetOf()) { it.supportedHdrTypes.asIterable() }
+                        } else {
+                            emptySet()
+                        }
+                    (activeTypes + modeSwitchTypes).ifEmpty {
+                        display.hdrCapabilities
+                            ?.supportedHdrTypes
+                            ?.toSet()
+                            .orEmpty()
+                    }
+                } else {
+                    display.hdrCapabilities
+                        ?.supportedHdrTypes
+                        ?.toSet()
+                        .orEmpty()
+                }
+            }.getOrDefault(emptySet())
         return buildSet {
             if (Display.HdrCapabilities.HDR_TYPE_HDR10 in supported) add(PlaybackHdrFormat.Hdr10)
             if (Display.HdrCapabilities.HDR_TYPE_HLG in supported) add(PlaybackHdrFormat.Hlg)
@@ -266,7 +299,7 @@ private class AndroidPlaybackDeviceCapabilitiesProbe(
         MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.forEach { info ->
             if (info.isEncoder) return@forEach
             info.supportedTypes.forEach { rawType ->
-                val type = rawType.lowercase()
+                val type = rawType.lowercase().substringBefore(';').trim()
                 val videoCodec = VIDEO_MIME_TYPES[type]
                 videoCodec?.let(video::add)
                 val audioCodec = AUDIO_MIME_TYPES[type]
@@ -480,12 +513,14 @@ private fun formatFrameRate(rate: Double): String {
     return "${hundredths / 100}.${(hundredths % 100).toString().padStart(2, '0')}fps"
 }
 
+@SuppressLint("InlinedApi")
 private fun dolbyVisionBaseCodecs(profiles: Set<Int>): Set<PlaybackVideoCodec> =
     buildSet {
         if (
             profiles.any {
                 it == MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvavPen ||
-                    it == MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvavPer
+                    it == MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvavPer ||
+                    it == MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvavSe
             }
         ) {
             add(PlaybackVideoCodec.H264)
@@ -497,10 +532,14 @@ private fun dolbyVisionBaseCodecs(profiles: Set<Int>): Set<PlaybackVideoCodec> =
                     it == MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvheDtb ||
                     it == MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvheDth ||
                     it == MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvheDtr ||
-                    it == MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvheStn
+                    it == MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvheStn ||
+                    it == MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvheSt
             }
         ) {
             add(PlaybackVideoCodec.Hevc)
+        }
+        if (MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvav110 in profiles) {
+            add(PlaybackVideoCodec.Av1)
         }
     }
 
@@ -576,57 +615,93 @@ private val VIDEO_MIME_TYPES =
 private val AUDIO_MIME_TYPES =
     mapOf(
         "audio/mp4a-latm" to PlaybackAudioCodec.Aac,
+        "audio/aac" to PlaybackAudioCodec.Aac,
+        "audio/alac" to PlaybackAudioCodec.Alac,
+        "audio/x-alac" to PlaybackAudioCodec.Alac,
         "audio/mpeg" to PlaybackAudioCodec.Mp3,
         "audio/ac3" to PlaybackAudioCodec.Ac3,
         "audio/eac3" to PlaybackAudioCodec.Eac3,
         "audio/eac3-joc" to PlaybackAudioCodec.Eac3Joc,
         "audio/true-hd" to PlaybackAudioCodec.TrueHd,
+        "audio/vnd.dolby.mlp" to PlaybackAudioCodec.TrueHd,
         "audio/vnd.dts" to PlaybackAudioCodec.Dts,
         "audio/vnd.dts.hd" to PlaybackAudioCodec.DtsHd,
+        "audio/vnd.dts.uhd" to PlaybackAudioCodec.DtsX,
         "audio/ac4" to PlaybackAudioCodec.Ac4,
         "audio/flac" to PlaybackAudioCodec.Flac,
         "audio/opus" to PlaybackAudioCodec.Opus,
         "audio/vorbis" to PlaybackAudioCodec.Vorbis,
         "audio/raw" to PlaybackAudioCodec.Pcm,
+        "audio/pcm" to PlaybackAudioCodec.Pcm,
     )
 
 @SuppressLint("InlinedApi")
 @Suppress("DEPRECATION")
 private val DIRECT_AUDIO_ENCODINGS =
-    listOf(
-        DirectAudioEncoding(
-            PlaybackAudioCodec.Ac3,
-            AudioFormat.ENCODING_AC3,
-            AudioFormat.CHANNEL_OUT_5POINT1,
-        ),
-        DirectAudioEncoding(
-            PlaybackAudioCodec.Eac3,
-            AudioFormat.ENCODING_E_AC3,
-            AudioFormat.CHANNEL_OUT_5POINT1,
-        ),
-        DirectAudioEncoding(
-            PlaybackAudioCodec.Eac3Joc,
-            AudioFormat.ENCODING_E_AC3_JOC,
-            AudioFormat.CHANNEL_OUT_5POINT1,
-        ),
-        DirectAudioEncoding(
-            PlaybackAudioCodec.TrueHd,
-            AudioFormat.ENCODING_DOLBY_TRUEHD,
-            AudioFormat.CHANNEL_OUT_7POINT1_SURROUND,
-        ),
-        DirectAudioEncoding(
-            PlaybackAudioCodec.Dts,
-            AudioFormat.ENCODING_DTS,
-            AudioFormat.CHANNEL_OUT_5POINT1,
-        ),
-        DirectAudioEncoding(
-            PlaybackAudioCodec.DtsHd,
-            AudioFormat.ENCODING_DTS_HD,
-            AudioFormat.CHANNEL_OUT_7POINT1_SURROUND,
-        ),
-        DirectAudioEncoding(
-            PlaybackAudioCodec.Ac4,
-            AudioFormat.ENCODING_AC4,
-            AudioFormat.CHANNEL_OUT_5POINT1,
-        ),
-    )
+    buildList {
+        add(
+            DirectAudioEncoding(
+                PlaybackAudioCodec.Ac3,
+                AudioFormat.ENCODING_AC3,
+                AudioFormat.CHANNEL_OUT_5POINT1,
+            ),
+        )
+        add(
+            DirectAudioEncoding(
+                PlaybackAudioCodec.Eac3,
+                AudioFormat.ENCODING_E_AC3,
+                AudioFormat.CHANNEL_OUT_5POINT1,
+            ),
+        )
+        add(
+            DirectAudioEncoding(
+                PlaybackAudioCodec.Eac3Joc,
+                AudioFormat.ENCODING_E_AC3_JOC,
+                AudioFormat.CHANNEL_OUT_5POINT1,
+            ),
+        )
+        add(
+            DirectAudioEncoding(
+                PlaybackAudioCodec.TrueHd,
+                AudioFormat.ENCODING_DOLBY_TRUEHD,
+                AudioFormat.CHANNEL_OUT_7POINT1_SURROUND,
+            ),
+        )
+        add(
+            DirectAudioEncoding(
+                PlaybackAudioCodec.Dts,
+                AudioFormat.ENCODING_DTS,
+                AudioFormat.CHANNEL_OUT_5POINT1,
+            ),
+        )
+        add(
+            DirectAudioEncoding(
+                PlaybackAudioCodec.DtsHd,
+                AudioFormat.ENCODING_DTS_HD,
+                AudioFormat.CHANNEL_OUT_7POINT1_SURROUND,
+            ),
+        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            add(
+                DirectAudioEncoding(
+                    PlaybackAudioCodec.DtsX,
+                    AudioFormat.ENCODING_DTS_UHD_P1,
+                    AudioFormat.CHANNEL_OUT_7POINT1_SURROUND,
+                ),
+            )
+            add(
+                DirectAudioEncoding(
+                    PlaybackAudioCodec.DtsX,
+                    AudioFormat.ENCODING_DTS_UHD_P2,
+                    AudioFormat.CHANNEL_OUT_7POINT1_SURROUND,
+                ),
+            )
+        }
+        add(
+            DirectAudioEncoding(
+                PlaybackAudioCodec.Ac4,
+                AudioFormat.ENCODING_AC4,
+                AudioFormat.CHANNEL_OUT_5POINT1,
+            ),
+        )
+    }

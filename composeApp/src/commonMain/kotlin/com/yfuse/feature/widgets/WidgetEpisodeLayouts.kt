@@ -2,7 +2,6 @@ package com.yfuse.feature.widgets
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -21,7 +20,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -44,6 +42,7 @@ import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.widget.WidgetEpisodeResult
 import com.yfuse.core.widget.WidgetMedia
 import com.yfuse.core.widget.WidgetStyle
@@ -164,7 +163,7 @@ private fun WidgetNextDirect(
                 .fillMaxWidth()
                 .weight(1f)
                 .clip(AppShapes.thumb)
-                .clickable(role = Role.Button) { onOpen(item) },
+                .pressable(role = Role.Button, focusShape = AppShapes.thumb) { onOpen(item) },
         ) {
             Artwork(next ?: item, Modifier.fillMaxSize())
             Text(
@@ -186,7 +185,7 @@ private fun WidgetNextDirect(
                 maxLines = 1,
             )
         }
-        EpisodeTitle(item.title, Modifier.fillMaxWidth().clickable { onOpen(item) })
+        EpisodeTitle(item.title, Modifier.fillMaxWidth().pressable(role = Role.Button) { onOpen(item) })
         if (metadata && next != null) {
             Text(
                 listOf(episodeCoordinate(next), next.title).filter(String::isNotBlank).joinToString(" · "),
@@ -226,7 +225,7 @@ private fun WidgetSeasonShowcase(
     val visible = episodes.filter { it.season == selected }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(
-            Modifier.fillMaxWidth().clickable(role = Role.Button) { onOpen(item) },
+            Modifier.fillMaxWidth().pressable(role = Role.Button) { onOpen(item) },
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -255,7 +254,11 @@ private fun WidgetSeasonShowcase(
                             .width(
                                 116.dp,
                             ).fillMaxHeight()
-                            .clickable(enabled = episode.available != false, role = Role.Button) {
+                            .pressable(
+                                enabled = episode.available != false,
+                                role = Role.Button,
+                                focusShape = AppShapes.thumb,
+                            ) {
                                 onOpen(episode)
                             },
                         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -295,7 +298,11 @@ private fun WidgetEpisodePreview(
                             .width(
                                 216.dp,
                             ).fillMaxHeight()
-                            .clickable(enabled = episode.available != false, role = Role.Button) {
+                            .pressable(
+                                enabled = episode.available != false,
+                                role = Role.Button,
+                                focusShape = AppShapes.thumb,
+                            ) {
                                 onOpen(episode)
                             },
                         verticalArrangement = Arrangement.spacedBy(7.dp),
@@ -390,9 +397,10 @@ private fun WidgetEpisodeMatrix(
                                                     .weight(1f)
                                                     .fillMaxHeight()
                                                     .episodeGlass()
-                                                    .clickable(
+                                                    .pressable(
                                                         enabled = episode.available != false,
                                                         role = Role.Button,
+                                                        focusShape = AppShapes.thumb,
                                                     ) { onOpen(episode) }
                                                     .padding(7.dp),
                                                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -459,7 +467,7 @@ private fun EpisodeHeader(
     onOpen: (WidgetMedia) -> Unit,
 ) {
     Row(
-        Modifier.fillMaxWidth().clickable(role = Role.Button) {
+        Modifier.fillMaxWidth().pressable(role = Role.Button) {
             onOpen(item)
         },
         verticalAlignment = Alignment.CenterVertically,
@@ -479,7 +487,7 @@ private fun EpisodeEmpty(
     onOpen: (WidgetMedia) -> Unit,
 ) {
     Row(
-        modifier.fillMaxWidth().clickable(role = Role.Button) { onOpen(item) },
+        modifier.fillMaxWidth().pressable(role = Role.Button) { onOpen(item) },
         horizontalArrangement = Arrangement.spacedBy(14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -613,7 +621,7 @@ private fun WidgetDecadeShelf(
                                         28.dp,
                                     ).background(
                                         LocalAccentColors.current.accent.copy(alpha = .65f),
-                                        RoundedCornerShape(2.dp),
+                                        AppShapes.track,
                                     ),
                             )
                             Text(
@@ -635,7 +643,9 @@ private fun WidgetDecadeShelf(
                                             .weight(
                                                 1f,
                                             ).fillMaxHeight()
-                                            .clickable(role = Role.Button) { onOpen(item) },
+                                            .pressable(role = Role.Button, focusShape = AppShapes.thumb) {
+                                                onOpen(item)
+                                            },
                                         verticalArrangement = Arrangement.spacedBy(6.dp),
                                     ) {
                                         Artwork(

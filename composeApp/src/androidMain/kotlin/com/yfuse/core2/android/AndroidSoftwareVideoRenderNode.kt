@@ -229,9 +229,12 @@ internal class AndroidSoftwareVideoRenderNode {
         require(output.isValid)
         val width = target.width
         val height = target.height
-        // Keep software presentation independent of HWUI's asynchronous rendering context.
-        // The owned Surface keeps this CPU connection separate from SurfaceView replacement.
-        val canvas = output.lockCanvas(null)
+        // Prefer GPU-accelerated HWUI Surface rendering (`lockHardwareCanvas`) so 4K scaling,
+        // rotation and composition do not run on the CPU; fall back to CPU Canvas only if an
+        // output consumer rejects hardware rendering.
+        val canvas =
+            runCatching { output.lockHardwareCanvas() }
+                .getOrElse { output.lockCanvas(null) }
         try {
             if (generation != renderGeneration.get()) return
             require(canvas.width > 0 && canvas.height > 0) { "Software video output has no drawable area" }

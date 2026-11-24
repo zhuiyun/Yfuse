@@ -38,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -53,6 +54,7 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.ThemeIcon
 import com.yfuse.core.designsystem.YfFormField
 import com.yfuse.core.designsystem.overlayAction
+import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.widget.InstalledWidget
 import com.yfuse.core.widget.WidgetMedia
 import com.yfuse.core.widget.WidgetModule
@@ -844,7 +846,7 @@ private fun WidgetStylePicker(
                         // Title and preview taps share one exit-completed handoff to the next sheet.
                         val selectStyle = overlayAction { onSelect(style) }
                         Column(
-                            Modifier.fillMaxWidth().clickable(onClick = selectStyle),
+                            Modifier.fillMaxWidth().pressable(role = Role.Button, onClick = selectStyle),
                             verticalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

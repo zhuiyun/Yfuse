@@ -96,6 +96,8 @@ data class YPlaybackPlan(
     val softwareVideoToneMap: Boolean = false,
     /** True when the original HDR representation cannot be used and a compatible base is selected. */
     val usesHdrFallback: Boolean = false,
+    /** True when Profile 7 MEL/FEL is converted in-band into single-layer Profile 8.1 DV. */
+    val convertsDolbyProfile7To8: Boolean = false,
     val reason: String,
 )
 
@@ -151,6 +153,26 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
             } else {
                 capabilities.preferredDecoder(request.video, effectiveDecoderPreference)
             }
+        val profile7To8Requirement =
+            if (
+                !forceSoftware &&
+                originalDecoder == null &&
+                request.enhancedDemuxSupported &&
+                request.video.hdrType == YHdrType.DolbyVision &&
+                request.video.dolbyVisionProfile == 7 &&
+                request.video.codec == com.yfuse.core2.capability.YVideoCodec.H265 &&
+                capabilities.supportsDisplayHdr(YHdrType.DolbyVision)
+            ) {
+                request.video.copy(
+                    bitDepth = maxOf(request.video.bitDepth, 10),
+                    dolbyVisionProfile = 8,
+                )
+            } else {
+                null
+            }
+        val profile7To8Decoder =
+            profile7To8Requirement?.let { capabilities.preferredDecoder(it, effectiveDecoderPreference) }
+        val convertsDolbyProfile7To8 = profile7To8Decoder != null
         val fallbackRequirement =
             request.fallbackHdrType
                 ?.takeIf { it != request.video.hdrType }
@@ -167,7 +189,8 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
                 fallbackRequirement?.let { capabilities.preferredDecoder(it, effectiveDecoderPreference) }
             }
         val originalNativeOutput =
-            originalDecoder != null && capabilities.supportsDisplayHdr(request.video.hdrType)
+            (originalDecoder != null || convertsDolbyProfile7To8) &&
+                capabilities.supportsDisplayHdr(request.video.hdrType)
         val fallbackNativeOutput =
             fallbackDecoder != null &&
                 capabilities.supportsDisplayHdr(requireNotNull(fallbackRequirement).hdrType)
@@ -184,12 +207,20 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
             }
         val selectedRequirement =
             when {
+                convertsDolbyProfile7To8 -> profile7To8Requirement
                 usesHdrFallback -> fallbackRequirement
                 originalDecoder != null -> request.video
                 fallbackDecoder != null -> fallbackRequirement
                 else -> null
             }
-        val selectedDecoder = if (usesHdrFallback) fallbackDecoder else originalDecoder ?: fallbackDecoder
+        val selectedDecoder =
+            when {
+                convertsDolbyProfile7To8 -> profile7To8Decoder
+                usesHdrFallback -> fallbackDecoder
+                else -> originalDecoder ?: fallbackDecoder
+            }
+        val effectiveDemuxPath =
+            if (convertsDolbyProfile7To8) YDemuxPath.Enhanced else demuxPath
         val decodePath =
             if (selectedDecoder?.hardwareAccelerated == false) {
                 YDecodePath.PlatformSoftware
@@ -206,7 +237,7 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
         val nativeAudio = request.audio == null || audioPath != YAudioOutputPath.None
 
         if (
-            demuxPath != null &&
+            effectiveDemuxPath != null &&
             selectedDecoder != null &&
             selectedRequirement != null &&
             nativeAudio
@@ -216,7 +247,7 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
             val renderPath =
                 when {
                     !displayCanPresent -> YRenderPath.Gpu
-                    demuxPath == YDemuxPath.Platform &&
+                    effectiveDemuxPath == YDemuxPath.Platform &&
                         selectedDecoder.hardwareAccelerated &&
                         canUseNativeTunnel(request, capabilities, selectedDecoder) -> YRenderPath.Tunnel
                     else -> YRenderPath.SurfaceDirect
@@ -224,15 +255,18 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
             val route =
                 when {
                     renderPath == YRenderPath.Gpu -> YPlaybackRoute.GpuEnhanced
-                    demuxPath == YDemuxPath.Enhanced -> YPlaybackRoute.NativeEnhanced
+                    effectiveDemuxPath == YDemuxPath.Enhanced -> YPlaybackRoute.NativeEnhanced
                     renderPath == YRenderPath.Tunnel -> YPlaybackRoute.NativeTunnel
                     else -> YPlaybackRoute.NativeDirect
                 }
             val outputHdr =
-                if (displayCanPresent) selectedRequirement.hdrType else YHdrType.Sdr
+                when (hdrRoute) {
+                    is YHdrRouteDecision.Native -> hdrRoute.outputType
+                    is YHdrRouteDecision.GpuToneMap -> hdrRoute.outputType
+                }
             return YPlaybackPlan(
                 route = route,
-                demuxPath = demuxPath,
+                demuxPath = effectiveDemuxPath,
                 decodePath = decodePath,
                 renderPath = renderPath,
                 inputHdrType = selectedRequirement.hdrType,
@@ -241,13 +275,16 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
                 nativeAudio = true,
                 audioPath = audioPath,
                 usesHdrFallback = usesHdrFallback,
+                convertsDolbyProfile7To8 = convertsDolbyProfile7To8,
                 reason =
                     when {
+                        convertsDolbyProfile7To8 ->
+                            "Convert Dolby Vision Profile 7 in-band to single-layer Profile 8.1 for native Dolby output"
                         usesHdrFallback ->
                             "Original HDR path unsupported; use compatible ${selectedRequirement.hdrType} base layer"
                         !selectedDecoder.hardwareAccelerated ->
                             "No hardware decoder is available; use the platform software codec under YCore scheduling"
-                        demuxPath == YDemuxPath.Enhanced ->
+                        effectiveDemuxPath == YDemuxPath.Enhanced ->
                             "Platform extractor is insufficient; normalize compressed samples then keep hardware decode"
                         renderPath == YRenderPath.Tunnel ->
                             "Platform demux, tunneled hardware video and HW_AV_SYNC audio are available"
@@ -265,6 +302,7 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
             selectedDecoder = selectedDecoder,
             selectedRequirement = selectedRequirement,
             usesHdrFallback = usesHdrFallback,
+            convertsDolbyProfile7To8 = convertsDolbyProfile7To8,
             nativeAudio = nativeAudio,
         )?.let { return it }
 
@@ -327,8 +365,10 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
         selectedDecoder: YVideoDecoderCapability?,
         selectedRequirement: YVideoRequirement?,
         usesHdrFallback: Boolean,
+        convertsDolbyProfile7To8: Boolean,
         nativeAudio: Boolean,
     ): YPlaybackPlan? {
+        val hdrRoute = selectedRequirement?.let { YHdrRouter.decide(it.hdrType, capabilities) }
         if (
             nativeAudio ||
             request.audio == null ||
@@ -337,7 +377,7 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
             selectedDecoder == null ||
             !selectedDecoder.hardwareAccelerated ||
             selectedRequirement == null ||
-            YHdrRouter.decide(selectedRequirement.hdrType, capabilities) !is YHdrRouteDecision.Native
+            hdrRoute !is YHdrRouteDecision.Native
         ) {
             return null
         }
@@ -347,12 +387,13 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
             decodePath = YDecodePath.Hardware,
             renderPath = YRenderPath.SurfaceDirect,
             inputHdrType = selectedRequirement.hdrType,
-            outputHdrType = selectedRequirement.hdrType,
+            outputHdrType = hdrRoute.outputType,
             decoderName = selectedDecoder.name,
             nativeAudio = true,
             audioPath = YAudioOutputPath.DecodePcm,
             softwareAudioDecode = true,
             usesHdrFallback = usesHdrFallback,
+            convertsDolbyProfile7To8 = convertsDolbyProfile7To8,
             reason =
                 "Selected audio codec has no platform decoder; decode it to PCM with FFmpeg " +
                     "and keep hardware video decode",

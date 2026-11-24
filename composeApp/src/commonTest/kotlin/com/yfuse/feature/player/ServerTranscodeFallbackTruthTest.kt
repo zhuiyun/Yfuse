@@ -23,7 +23,7 @@ class ServerTranscodeFallbackTruthTest {
     }
 
     @Test
-    fun server_approved_transcode_with_a_concrete_url_remains_available() {
+    fun server_approved_transcode_with_a_concrete_url_requires_viewer_request() {
         val item =
             PlayerMediaItem(
                 id = "movie",
@@ -33,11 +33,12 @@ class ServerTranscodeFallbackTruthTest {
                 serverTranscodeSupported = true,
             )
 
-        assertTrue(item.allowsServerTranscodeFallback(viewerRequested = false))
+        assertFalse(item.allowsServerTranscodeFallback(viewerRequested = false))
+        assertTrue(item.allowsServerTranscodeFallback(viewerRequested = true))
     }
 
     @Test
-    fun an_explicit_transcode_play_method_is_server_evidence() {
+    fun an_explicit_transcode_play_method_allows_viewer_transcode_without_auto_fallback() {
         val item =
             PlayerMediaItem(
                 id = "movie",
@@ -47,7 +48,8 @@ class ServerTranscodeFallbackTruthTest {
                 playMethod = PlaybackMethod.Transcode,
             )
 
-        assertTrue(item.allowsServerTranscodeFallback(viewerRequested = false))
+        assertFalse(item.allowsServerTranscodeFallback(viewerRequested = false))
+        assertTrue(item.allowsServerTranscodeFallback(viewerRequested = true))
     }
 
     @Test
@@ -63,5 +65,6 @@ class ServerTranscodeFallbackTruthTest {
             )
 
         assertFalse(item.allowsServerTranscodeFallback(viewerRequested = false))
+        assertFalse(item.allowsServerTranscodeFallback(viewerRequested = true))
     }
 }

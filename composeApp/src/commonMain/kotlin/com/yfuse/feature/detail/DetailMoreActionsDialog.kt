@@ -45,8 +45,10 @@ import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccentColors
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.PillSwitch
+import com.yfuse.core.designsystem.backdropBlurAvailable
 import com.yfuse.core.designsystem.flatGlass
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.overlayDismiss
@@ -231,19 +233,14 @@ private fun DetailMoreHero(
     artworkUrls: List<String>,
     onDismiss: () -> Unit,
 ) {
+    val allowArtworkBlur =
+        backdropBlurAvailable() &&
+            !LocalAccessibilityOptions.current.reduceTransparency
     Box(
         Modifier
             .fillMaxWidth()
             .height(DetailMoreHeroHeight)
-            .background(
-                Brush.linearGradient(
-                    listOf(
-                        LocalAccentColors.current.accent,
-                        LocalAccentColors.current.accent,
-                        LocalAccentColors.current.accent,
-                    ),
-                ),
-            ),
+            .background(LocalAccentColors.current.accent),
     ) {
         if (artworkUrls.isNotEmpty()) {
             FallbackImage(
@@ -252,7 +249,7 @@ private fun DetailMoreHero(
                 modifier =
                     Modifier
                         .matchParentSize()
-                        .blur(10.dp)
+                        .then(if (allowArtworkBlur) Modifier.blur(10.dp) else Modifier)
                         .graphicsLayer {
                             scaleX = 1.08f
                             scaleY = 1.08f

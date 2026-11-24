@@ -35,12 +35,15 @@ class NativeRemoteBluRayPlanningTest {
     }
 
     @Test
-    fun server_approved_remote_iso_keeps_server_main_feature_fallback() {
+    fun server_approved_remote_iso_stays_local_until_explicit_transcode_is_active() {
         val item = rawDiscItem(url = "https://media.example/master.m3u8", method = PlaybackMethod.Transcode)
         val probe = item.playbackMediaProbe(usingServerTranscode = false)
 
         assertTrue(probe.hasServerTranscode)
-        assertEquals(PlaybackDiscStrategy.ServerMainFeature, planDiscPlayback(probe).strategy)
+        assertEquals(PlaybackDiscStrategy.NativeRemoteFallback, planDiscPlayback(probe).strategy)
+
+        val explicitProbe = item.playbackMediaProbe(usingServerTranscode = true)
+        assertEquals(PlaybackDiscStrategy.ServerMainFeature, planDiscPlayback(explicitProbe).strategy)
     }
 
     private fun rawDiscItem(

@@ -200,7 +200,7 @@ class AndroidAdaptiveCore2RecoveryFailureTest {
         val timedOut =
             YPlayerState(
                 phase = YPlaybackPhase.Failed,
-                error = "YCore 2.0 无法连接片源，请检查服务器或网络",
+                error = "无法连接片源，请检查服务器或网络",
                 errorCategory = YPlaybackFailureCategory.Network,
                 diagnostics = YPlayerDiagnostics(route = YPlaybackRoute.NativeEnhanced, reason = "enhanced"),
             )

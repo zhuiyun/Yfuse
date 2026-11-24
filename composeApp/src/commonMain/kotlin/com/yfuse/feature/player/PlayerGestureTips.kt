@@ -33,7 +33,7 @@ internal fun BoxScope.PlayerGestureTips(
     /** An upright 短剧 this viewer can flick through, up for the next episode and down for the last. */
     episodeSwipe: Boolean = false,
 ) {
-    val place = Modifier.align(Alignment.TopCenter).padding(top = 88.dp)
+    val place = Modifier.align(Alignment.TopCenter).padding(top = 64.dp)
     ContextualTip(
         id = Tips.PLAYER_CENTER_HOLD,
         text = "长按画面可以临时加速，按住左右滑动换挡",

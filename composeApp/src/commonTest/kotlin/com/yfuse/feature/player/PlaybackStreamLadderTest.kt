@@ -12,19 +12,29 @@ class PlaybackStreamLadderTest {
     ) = PlaybackFallbackLadder.nextStreamStep(rung, item, viewer)
 
     @Test
-    fun original_hls_and_mp4_are_a_finite_ordered_source_ladder() {
-        assertEquals(PlaybackStreamStep.Transcode, step(PlaybackStreamRung.Original))
-        assertEquals(PlaybackStreamStep.Progressive, step(PlaybackStreamRung.Transcode))
-        assertEquals(PlaybackStreamStep.InProgress, step(PlaybackStreamRung.ProgressivePending))
-        assertEquals(PlaybackStreamStep.Exhausted, step(PlaybackStreamRung.Progressive))
+    fun original_hls_and_mp4_are_a_finite_ordered_source_ladder_only_when_viewer_requests() {
+        assertEquals(PlaybackStreamStep.Exhausted, step(PlaybackStreamRung.Original, viewer = false))
+        assertEquals(PlaybackStreamStep.Transcode, step(PlaybackStreamRung.Original, viewer = true))
+        assertEquals(PlaybackStreamStep.Progressive, step(PlaybackStreamRung.Transcode, viewer = true))
+        assertEquals(PlaybackStreamStep.InProgress, step(PlaybackStreamRung.ProgressivePending, viewer = true))
+        assertEquals(PlaybackStreamStep.Exhausted, step(PlaybackStreamRung.Progressive, viewer = true))
     }
 
     @Test
     fun absent_and_blank_urls_are_not_playable_fallbacks() {
-        assertEquals(PlaybackStreamStep.Progressive, step(PlaybackStreamRung.Original, ladderItem(hls = " ")))
-        assertEquals(PlaybackStreamStep.Exhausted, step(PlaybackStreamRung.Original, ladderItem(hls = "", mp4 = " ")))
-        assertEquals(PlaybackStreamStep.Exhausted, step(PlaybackStreamRung.Transcode, ladderItem(mp4 = "")))
-        assertEquals(PlaybackStreamStep.Exhausted, step(PlaybackStreamRung.Original, null))
+        assertEquals(
+            PlaybackStreamStep.Progressive,
+            step(PlaybackStreamRung.Original, ladderItem(hls = " "), viewer = true),
+        )
+        assertEquals(
+            PlaybackStreamStep.Exhausted,
+            step(PlaybackStreamRung.Original, ladderItem(hls = "", mp4 = " "), viewer = true),
+        )
+        assertEquals(
+            PlaybackStreamStep.Exhausted,
+            step(PlaybackStreamRung.Transcode, ladderItem(mp4 = ""), viewer = true),
+        )
+        assertEquals(PlaybackStreamStep.Exhausted, step(PlaybackStreamRung.Original, null, viewer = true))
     }
 
     @Test

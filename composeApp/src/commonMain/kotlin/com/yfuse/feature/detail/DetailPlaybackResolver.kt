@@ -31,7 +31,7 @@ internal class DetailPlaybackResolver(
         cancellableResult {
             if (sourceDetail.type != "Series") {
                 val targetDetail =
-                    if (server.kind == MediaServerKind.Emby) {
+                    if (server.kind != MediaServerKind.Plex) {
                         repo.playbackItemDetail(server, sourceDetail.id).getOrThrow()
                     } else {
                         // Plex ignores the lightweight-field flag and already returned its

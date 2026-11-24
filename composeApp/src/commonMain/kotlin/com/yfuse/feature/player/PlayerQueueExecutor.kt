@@ -21,6 +21,8 @@ import com.yfuse.core.model.episodeTitle
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.EmbyStream
 import com.yfuse.core.playback.PlaybackLaunchTimings
+import com.yfuse.core.sync.playback.PlaybackSyncManager
+import com.yfuse.core.sync.watchKey
 import com.yfuse.core.sync.watchMatchKeys
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -46,6 +48,8 @@ internal class PlayerQueueExecutor(
     private val healthMonitor: ServerHealthMonitor? = null,
     private val queueLoadTimeoutMs: Long = PLAYER_QUEUE_LOAD_TIMEOUT_MS,
     private val isSeriesLaunch: Boolean = false,
+    private val fromStart: Boolean = false,
+    private val playbackSync: PlaybackSyncManager? = null,
     private val optionalEnrichmentGate: (suspend () -> Unit)? = null,
 ) : CoroutineExecutor<PlayerIntent, PlayerAction, PlayerState, PlayerMsg, Nothing>() {
     private var loadJob: Job? = null
@@ -63,6 +67,24 @@ internal class PlayerQueueExecutor(
                 load()
             }
         }
+    }
+
+    private fun markRestarted(
+        serverId: String,
+        detail: MediaDetail,
+    ) {
+        playbackSync?.markRestarted(
+            mediaKey = detail.providerIds.watchKey(detail.id),
+            aliases =
+                watchMatchKeys(
+                    ownProviderIds = detail.providerIds,
+                    seasonNumber = detail.seasonNumber,
+                    episodeNumber = detail.episodeNumber,
+                    fallbackId = detail.id,
+                ),
+            serverId = serverId,
+            serverItemId = detail.id,
+        )
     }
 
     /**
@@ -108,8 +130,11 @@ internal class PlayerQueueExecutor(
                 opened.series?.let { resolution ->
                     effectiveItemId = resolution.target.itemId
                     effectiveMediaSourceId = null
-                    effectiveStartPositionTicks = resolution.target.startPositionTicks
+                    effectiveStartPositionTicks = if (fromStart) 0L else resolution.target.startPositionTicks
                     resolvedSeriesEpisodes = resolution.episodes
+                    if (fromStart) {
+                        markRestarted(server.id, resolution.detail)
+                    }
                 }
                 var detailResult = opened.detail
                 val failoverPlan = failoverRequest.consume(itemId)
@@ -186,9 +211,12 @@ internal class PlayerQueueExecutor(
                     val target = resolution.target
                     effectiveItemId = target.itemId
                     effectiveMediaSourceId = null
-                    effectiveStartPositionTicks = target.startPositionTicks
+                    effectiveStartPositionTicks = if (fromStart) 0L else target.startPositionTicks
                     detailResult = Result.success(resolution.detail)
                     resolvedSeriesEpisodes = resolution.episodes
+                    if (fromStart) {
+                        markRestarted(server.id, resolution.detail)
+                    }
                 }
                 stages.record("item_detail_ready", effectiveItemId, server.id)
                 val startMs = effectiveStartPositionTicks / 10_000L
@@ -587,6 +615,12 @@ internal class PlayerQueueExecutor(
                         } else {
                             ep.runtimeTicks
                         },
+                    resumePositionTicks =
+                        if (ep.id == currentItemId) {
+                            detail.resumePositionTicks ?: ep.resumePositionTicks
+                        } else {
+                            ep.resumePositionTicks
+                        },
                     chapters =
                         if (ep.id == currentItemId) {
                             detail.playbackChapters.ifEmpty { ep.playbackChapters }
@@ -630,6 +664,12 @@ internal class PlayerQueueExecutor(
                         detail.runtimeTicks ?: video.runtimeTicks
                     } else {
                         video.runtimeTicks
+                    },
+                resumePositionTicks =
+                    if (video.id == currentItemId) {
+                        detail.resumePositionTicks ?: video.resumePositionTicks
+                    } else {
+                        video.resumePositionTicks
                     },
                 chapters =
                     if (video.id == currentItemId) {

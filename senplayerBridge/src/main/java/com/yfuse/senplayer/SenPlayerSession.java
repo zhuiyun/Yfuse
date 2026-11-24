@@ -208,9 +208,16 @@ public final class SenPlayerSession implements AutoCloseable {
   public void configureSubtitles(boolean secondary, double primaryScale, double secondaryScale,
       double primaryDelay, double secondaryDelay, String foreground, String outline, String background,
       double outlineWidth, boolean customStyle) throws Exception {
+    configureSubtitles(secondary, primaryScale, secondaryScale, primaryDelay, secondaryDelay,
+        foreground, outline, background, outlineWidth, customStyle, false);
+  }
+
+  public void configureSubtitles(boolean secondary, double primaryScale, double secondaryScale,
+      double primaryDelay, double secondaryDelay, String foreground, String outline, String background,
+      double outlineWidth, boolean customStyle, boolean subtitleHdr) throws Exception {
     ensureUsable();
     for (Map.Entry<String, String> option : subtitleOptions(secondary, primaryScale, secondaryScale,
-        primaryDelay, secondaryDelay, foreground, outline, background, outlineWidth, customStyle).entrySet()) {
+        primaryDelay, secondaryDelay, foreground, outline, background, outlineWidth, customStyle, subtitleHdr).entrySet()) {
       command("option", new String[] {option.getKey(), option.getValue()});
     }
   }
@@ -218,6 +225,13 @@ public final class SenPlayerSession implements AutoCloseable {
   static Map<String, String> subtitleOptions(boolean secondary, double primaryScale, double secondaryScale,
       double primaryDelay, double secondaryDelay, String foreground, String outline, String background,
       double outlineWidth, boolean customStyle) {
+    return subtitleOptions(secondary, primaryScale, secondaryScale, primaryDelay, secondaryDelay,
+        foreground, outline, background, outlineWidth, customStyle, false);
+  }
+
+  static Map<String, String> subtitleOptions(boolean secondary, double primaryScale, double secondaryScale,
+      double primaryDelay, double secondaryDelay, String foreground, String outline, String background,
+      double outlineWidth, boolean customStyle, boolean subtitleHdr) {
     Map<String, String> options = new LinkedHashMap<>();
     for (boolean second : new boolean[] {false, true}) {
       String prefix = second ? "secondary-sub-" : "sub-";
@@ -237,7 +251,7 @@ public final class SenPlayerSession implements AutoCloseable {
     }
     options.put("subtitle-brightness", "1.0");
     options.put("subtitle-opacity", "1.0");
-    options.put("subtitle-hdr", "no");
+    options.put("subtitle-hdr", subtitleHdr ? "yes" : "no");
     options.put("sub-visibility", "yes");
     options.put("secondary-sub-visibility", secondary ? "yes" : "no");
     return options;

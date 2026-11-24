@@ -76,7 +76,7 @@ class UhdBluRayPlaybackPlannerTest {
     }
 
     @Test
-    fun unresolved_remote_iso_still_uses_server_main_feature_fallback() {
+    fun unresolved_remote_iso_stays_on_native_local_disc_pipeline_without_server_transcode() {
         val probe =
             resolvedBluRayProbe().copy(
                 container = "ISO",
@@ -92,8 +92,9 @@ class UhdBluRayPlaybackPlannerTest {
                 videoSupport = PlaybackVideoSupport.supported("HEVC Main10"),
             )
 
-        assertTrue(plan.requiresServerTranscode)
-        assertEquals(PlaybackRenderPath.ServerTranscode, plan.renderPath)
+        assertFalse(plan.requiresServerTranscode)
+        assertEquals(PlayerEngine.YCore, plan.primaryEngine)
+        assertEquals(PlaybackRenderPath.NativeDirect, plan.renderPath)
     }
 
     private fun resolvedBluRayProbe() =

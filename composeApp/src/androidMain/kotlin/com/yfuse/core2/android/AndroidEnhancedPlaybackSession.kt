@@ -22,7 +22,6 @@ import com.yfuse.core2.api.YPlaybackRoute
 import com.yfuse.core2.api.yPlaybackStage
 import com.yfuse.core2.bitstream.YBitstream
 import com.yfuse.core2.bitstream.YParameterSets
-import com.yfuse.core2.bitstream.YSamplePacking
 import com.yfuse.core2.capability.YAudioOutputPath
 import com.yfuse.core2.capability.YAudioRequirement
 import com.yfuse.core2.capability.YDeviceCapabilities
@@ -42,7 +41,6 @@ import com.yfuse.core2.dolby.FailClosedYDolbyVisionFelEvidenceProvider
 import com.yfuse.core2.dolby.YDolbyVisionConfig
 import com.yfuse.core2.dolby.YDolbyVisionFelCompositionRequest
 import com.yfuse.core2.dolby.YDolbyVisionFelEvidenceProvider
-import com.yfuse.core2.dolby.dolbyVisionHevcBaseLayerSample
 import com.yfuse.core2.dolby.verifyDolbyVisionFelComposition
 import com.yfuse.core2.network.YBufferConditions
 import com.yfuse.core2.network.YBufferController
@@ -1487,7 +1485,7 @@ internal class AndroidEnhancedPlaybackSession(
 
         val videoTrack = requireNotNull(sourceVideoTrack)
         if (sample.trackId == videoTrack.id &&
-            plan?.extractsDolbyBaseLayer == true &&
+            plan?.extractsDolbyBaseLayerFor(videoTrack.video) == true &&
             preparedVideoAccessUnit(sample).data.isEmpty()
         ) {
             // Enhancement-only packets have no picture in the compatible base. Passing an empty
@@ -1500,7 +1498,7 @@ internal class AndroidEnhancedPlaybackSession(
                 videoTrack.id -> {
                     if (softwareVideoActive) {
                         val softwareSample =
-                            if (requireNotNull(plan).extractsDolbyBaseLayer) {
+                            if (requireNotNull(plan).extractsDolbyBaseLayerFor(videoTrack.video)) {
                                 sample.copy(data = preparedVideoAccessUnit(sample).data)
                             } else {
                                 sample
@@ -1610,32 +1608,13 @@ internal class AndroidEnhancedPlaybackSession(
         return queued
     }
 
-    private fun transformVideoSample(data: ByteArray): ByteArray {
-        val sourceTrack = requireNotNull(sourceVideoTrack?.video)
-        val currentPlan = requireNotNull(plan)
-        if (currentPlan.extractsDolbyBaseLayer) {
-            val config =
-                requireNotNull(sourceTrack.dolbyVisionConfig) {
-                    "HDR fallback requires explicit Dolby Vision configuration"
-                }
-            require(
-                config.profile in setOf(7, 8) &&
-                    config.codecFamily == com.yfuse.core2.dolby.YDolbyVisionCodecFamily.Hevc,
-            ) {
-                "Only HEVC Dolby Vision Profile 7/8 compatible-base fallback is executable"
-            }
-            require(config.compatibleBaseHdr == currentPlan.inputHdrType) {
-                "Dolby compatible base does not match the selected pipeline input HDR route"
-            }
-            val packing =
-                requireNotNull(sourceTrack.samplePacking) {
-                    "Dolby HEVC fallback requires known NAL packing"
-                }
-            val decoderPacking = if (softwareVideoActive) packing else YSamplePacking.AnnexB
-            return dolbyVisionHevcBaseLayerSample(data, packing, decoderPacking)
-        }
-        return normalizeVideoSampleForMediaCodec(data, sourceTrack)
-    }
+    private fun transformVideoSample(data: ByteArray): ByteArray =
+        transformEnhancedVideoSample(
+            data = data,
+            sourceTrack = requireNotNull(sourceVideoTrack?.video),
+            currentPlan = requireNotNull(plan),
+            softwareVideoActive = softwareVideoActive,
+        )
 
     /** Records input to the exact Dolby decoder without inferring enhancement-layer composition. */
     private fun recordDolbyVisionLayerDelivery(data: ByteArray) {
@@ -2703,33 +2682,7 @@ internal class AndroidEnhancedPlaybackSession(
     private fun effectiveVideoTrack(
         source: YVideoTrackFormat,
         plan: YPlaybackPlan,
-    ): YVideoTrackFormat {
-        if (!plan.usesHdrFallback) return source
-        val config =
-            requireNotNull(source.dolbyVisionConfig) {
-                "HDR fallback route requires Dolby Vision configuration"
-            }
-        if (plan.decodePath == YDecodePath.Software && plan.inputHdrType == YHdrType.DolbyVision) {
-            require(
-                yCoreSoftwarePlanPassesDolbyGuard(plan, config) &&
-                    source.codec == YVideoCodec.H265 &&
-                    source.samplePacking != null,
-            ) {
-                "Profile 5 SDR conversion needs single-layer HEVC with identified packet packing and RPU"
-            }
-            return source
-        }
-        require(config.profile in setOf(7, 8) && config.compatibleBaseHdr == plan.inputHdrType) {
-            "Only explicit Profile 7/8 compatible-base fallback is supported"
-        }
-        require(source.codec == YVideoCodec.H265) { "Profile 7/8 compatible base requires HEVC" }
-        return source.copy(
-            mimeType = "video/hevc",
-            hdrType = plan.inputHdrType,
-            samplePacking = YSamplePacking.AnnexB,
-            dolbyVisionConfig = null,
-        )
-    }
+    ): YVideoTrackFormat = resolveEffectiveEnhancedVideoTrack(source, plan)
 }
 
 internal fun validateEnhancedDolbyVisionIdentity(

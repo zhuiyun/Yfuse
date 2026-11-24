@@ -1,6 +1,7 @@
 package com.yfuse.feature.player
 
 import android.content.Context
+import android.os.Build
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 import com.yfuse.core.data.PlaybackFrameRateMatch
@@ -15,17 +16,29 @@ import com.yfuse.core.playback.PlaybackOptimizationMode
 import com.yfuse.core2.android.AndroidCore2TrialFactory
 import com.yfuse.core2.android.core2NativeBaselineBlockReason
 import com.yfuse.feature.filesource.isFileSourcePlayback
+import com.yfuse.senplayer.SenPlayerSession
 import kotlinx.coroutines.flow.StateFlow
 
-/** A selected SenPlayer session must not silently become a different engine for a file transport. */
+/** A selected SenPlayer session must not silently become a different engine for unsupported media/ABIs. */
 internal fun playbackEngineUnsupportedReason(
     kind: PlayerEngine,
     items: List<PlayerMediaItem>,
+    senPlayerProcessSupported: Boolean =
+        if (Build.VERSION.SDK_INT == 0 && Build.SUPPORTED_ABIS.isNullOrEmpty()) {
+            true
+        } else {
+            SenPlayerSession.supportsProcess()
+        },
 ): String? =
-    if (kind == PlayerEngine.SenPlayer && items.any { it.requiresYCoreFileTransport() }) {
-        "$SEN_PLAYER_DISPLAY_NAME 不支持此队列所需的文件源凭据或传输协议，请手动选择 YCore"
-    } else {
-        null
+    when {
+        kind != PlayerEngine.SenPlayer -> null
+        !senPlayerProcessSupported ->
+            "$SEN_PLAYER_DISPLAY_NAME 仅支持 64 位 arm64-v8a 设备（Android 9+），请手动选择 YCore"
+        items.any { it.drmConfiguration != null || it.activeVersion?.drmConfiguration != null } ->
+            "$SEN_PLAYER_DISPLAY_NAME 暂不支持受保护的 DRM 加密片源，请手动选择 YCore"
+        items.any { it.requiresYCoreFileTransport() } ->
+            "$SEN_PLAYER_DISPLAY_NAME 不支持此队列所需的文件源凭据或传输协议，请手动选择 YCore"
+        else -> null
     }
 
 /** Android engine construction boundary; callers depend only on [VideoEngine]. */
@@ -93,6 +106,7 @@ internal fun createVideoEngine(
             autoNext = autoNext,
             customUserAgent = customUserAgent,
             videoCacheBytes = videoCacheBytes,
+            frameRateMatch = frameRateMatch,
             initialTrackSelections = initialTrackSelections,
             pictureSettings = senPlayerPictureSettings,
         )

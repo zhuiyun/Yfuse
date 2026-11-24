@@ -160,6 +160,7 @@ internal class PlayerQueueItemBuilder(
         progress: Float? = null,
         caption: String? = null,
         runtimeTicks: Long? = null,
+        resumePositionTicks: Long? = null,
         chapters: List<PlaybackChapter> = emptyList(),
     ): PlayerMediaItem {
         val effectiveVersions =
@@ -293,6 +294,17 @@ internal class PlayerQueueItemBuilder(
             progress = progress,
             caption = caption,
             durationMsHint = runtimeTicks?.takeIf { it > 0L }?.div(10_000L) ?: 0L,
+            resumePositionMs =
+                if (progress == 1f) {
+                    0L
+                } else {
+                    val rawTicks = resumePositionTicks?.coerceAtLeast(0L) ?: 0L
+                    val nearEnd =
+                        runtimeTicks != null &&
+                            runtimeTicks > 0L &&
+                            rawTicks >= (runtimeTicks * 0.95).toLong()
+                    if (nearEnd) 0L else rawTicks / 10_000L
+                },
             externalSubtitles = unqualified.externalSubtitles,
         )
     }

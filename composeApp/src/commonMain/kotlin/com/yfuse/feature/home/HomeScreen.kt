@@ -41,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
@@ -201,7 +202,7 @@ fun HomeScreen(component: HomeComponent) {
     val pageColor = rememberCarouselPageColor(retainedPageColor.value)
     var heroAccent by remember { mutableStateOf<Color?>(null) }
     ArtworkPageTheme(
-        background = null,
+        background = retainedPageColor.value,
         artworkAccent = heroAccent,
     ) {
         HomeContent(
@@ -387,7 +388,13 @@ internal fun HomeContentBody(
     // this tab is the one where tapping the tab again matters most.
     ScrollToTopOnReselect(listState)
 
-    BoxWithConstraints(Modifier.fillMaxSize()) {
+    BoxWithConstraints(
+        Modifier
+            .fillMaxSize()
+            .drawBehind {
+                if (!heroFolded) drawRect(heroPageColor.value)
+            },
+    ) {
         val heroHeight = livingPosterHeroHeight(maxHeight, wideLayout = maxWidth >= 600.dp)
         // Clears the floating dock as it is actually laid out: the fixed 122dp left the last shelf
         // under the glass with three-button navigation or large text.

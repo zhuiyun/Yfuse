@@ -7,6 +7,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -228,39 +229,43 @@ internal fun BoxScope.PlayerSettingsLayers(
                         fadeIn(tween(duration, easing = Motion.Curve)) togetherWith
                             fadeOut(tween(duration, easing = Motion.Curve))
                     ).using(
-                        SizeTransform(clip = false) { _, _ ->
+                        SizeTransform(clip = true) { _, _ ->
                             if (reduceMotion) snap() else Motion.settle()
                         },
                     )
                 },
                 contentAlignment = Alignment.BottomEnd,
-                modifier = functionPopupModifier,
+                modifier = Modifier.fillMaxSize(),
                 label = "player-quick-popup",
             ) { current ->
-                when (current) {
-                    QuickPopup.Source ->
-                        SourcePickerPopup(
-                            options = source.sourceOptions,
-                            selectedId = source.selectedSourceId,
-                            onSelect = {
-                                sourceActions.onSelectSource(it)
-                                chrome.quickPopup = null
-                            },
-                            onDismiss = { chrome.quickPopup = null },
-                        )
+                Box(Modifier.fillMaxSize()) {
+                    when (current) {
+                        QuickPopup.Source ->
+                            SourcePickerPopup(
+                                modifier = functionPopupModifier,
+                                options = source.sourceOptions,
+                                selectedId = source.selectedSourceId,
+                                onSelect = {
+                                    sourceActions.onSelectSource(it)
+                                    chrome.quickPopup = null
+                                },
+                                onDismiss = { chrome.quickPopup = null },
+                            )
 
-                    QuickPopup.Speed ->
-                        SpeedPickerPopup(
-                            speeds = SPEEDS,
-                            selectedSpeed = state.speed,
-                            onSelect = {
-                                if (transport.speedUnavailableReason == null && !watchLocked && !cast.active) {
-                                    transportActions.onSpeed(it)
-                                }
-                                chrome.quickPopup = null
-                            },
-                            onDismiss = { chrome.quickPopup = null },
-                        )
+                        QuickPopup.Speed ->
+                            SpeedPickerPopup(
+                                modifier = functionPopupModifier,
+                                speeds = SPEEDS,
+                                selectedSpeed = state.speed,
+                                onSelect = {
+                                    if (transport.speedUnavailableReason == null && !watchLocked && !cast.active) {
+                                        transportActions.onSpeed(it)
+                                    }
+                                    chrome.quickPopup = null
+                                },
+                                onDismiss = { chrome.quickPopup = null },
+                            )
+                    }
                 }
             }
         }

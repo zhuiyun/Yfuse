@@ -212,7 +212,20 @@ internal fun PlayerRoot(
             createPlaybackPerformanceMemory(playbackPreferences)
         }
     val initialPlaybackPlan =
-        run {
+        remember(
+            items,
+            startIndex,
+            deviceCapabilities,
+            capabilityProvider,
+            capabilityRevision,
+            initialEngine,
+            decoderMode,
+            allowAudioPassthrough,
+            effectiveOptimizationMode,
+            choices.sessionEngineSelection,
+            dolbyVisionRuntime,
+            performanceMemory,
+        ) {
             val probe = items.getOrNull(startIndex).playbackMediaProbe()
             planPlayback(
                 probe = probe,
@@ -686,21 +699,36 @@ internal fun PlayerRoot(
             activeProbe,
         )
         val activePlan =
-            planPlayback(
-                probe = activeProbe,
-                capabilities = deviceCapabilities,
-                preferredEngine = build.kind,
-                preferredDecoderMode = build.effectiveDecoderMode,
-                allowAudioPassthrough = allowAudioPassthrough,
-                optimizationMode = effectiveOptimizationMode,
-                engineSelection = choices.sessionEngineSelection,
-                excludedEngines = failureMemory.excludedEngines(activeProbe.capabilitySignature),
-                engineCosts = performanceMemory.engineCosts(activeProbe.capabilitySignature),
-                videoSupport =
-                    capabilityProvider?.videoSupport(activeProbe.source.videoRequirements)
-                        ?: deviceCapabilities.videoSupport(activeProbe.source.videoRequirements),
-                dolbyVisionRuntime = dolbyVisionRuntime,
-            )
+            remember(
+                activeProbe,
+                deviceCapabilities,
+                capabilityProvider,
+                capabilityRevision,
+                build.kind,
+                build.effectiveDecoderMode,
+                allowAudioPassthrough,
+                effectiveOptimizationMode,
+                choices.sessionEngineSelection,
+                dolbyVisionRuntime,
+                failureMemory,
+                performanceMemory,
+            ) {
+                planPlayback(
+                    probe = activeProbe,
+                    capabilities = deviceCapabilities,
+                    preferredEngine = build.kind,
+                    preferredDecoderMode = build.effectiveDecoderMode,
+                    allowAudioPassthrough = allowAudioPassthrough,
+                    optimizationMode = effectiveOptimizationMode,
+                    engineSelection = choices.sessionEngineSelection,
+                    excludedEngines = failureMemory.excludedEngines(activeProbe.capabilitySignature),
+                    engineCosts = performanceMemory.engineCosts(activeProbe.capabilitySignature),
+                    videoSupport =
+                        capabilityProvider?.videoSupport(activeProbe.source.videoRequirements)
+                            ?: deviceCapabilities.videoSupport(activeProbe.source.videoRequirements),
+                    dolbyVisionRuntime = dolbyVisionRuntime,
+                )
+            }
         RecordPlaybackSourceRoute(
             localCastItem,
             localState,

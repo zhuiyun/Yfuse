@@ -3,9 +3,11 @@ package com.yfuse.feature.profile
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -40,6 +42,7 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OverlayButton
+import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.calmMotion
@@ -117,8 +120,22 @@ internal fun DialogAnimationSheet(
             }
             Spacer(Modifier.height(8.dp))
         }
-        OverlayButton("预览：${highlighted.label}", onClick = openPreview)
-        OverlayButton("完成", onClick = overlayDismiss(onDismiss))
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            OverlayButton(
+                "预览：${highlighted.label}",
+                onClick = openPreview,
+                modifier = Modifier.weight(1f),
+            )
+            OverlayButton(
+                "完成",
+                onClick = overlayDismiss(onDismiss),
+                modifier = Modifier.weight(1f),
+                tone = OverlayButtonTone.Primary,
+            )
+        }
     }
     preview?.let { animation ->
         CompositionLocalProvider(
@@ -135,7 +152,11 @@ internal fun DialogAnimationSheet(
                     OverlayOptionRow("第二个选项", false, {})
                 }
                 Spacer(Modifier.height(18.dp))
-                OverlayButton("关闭预览", onClick = overlayDismiss { preview = null })
+                OverlayButton(
+                    "关闭预览",
+                    onClick = overlayDismiss { preview = null },
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
     }
@@ -170,18 +191,19 @@ private fun DialogAnimationCardPreview(
             progress.snapTo(1f)
             return@LaunchedEffect
         }
-        progress.snapTo(0f)
+        progress.snapTo(1f)
+        delay(450)
         while (isActive) {
-            progress.animateTo(
-                1f,
-                tween((animation.enterMillis * durationScale).toInt(), easing = Motion.Dialog.EnterCurve),
-            )
-            delay(900)
             progress.animateTo(
                 0f,
                 tween((animation.exitMillis * durationScale).toInt(), easing = Motion.Dialog.ExitCurve),
             )
-            delay(300)
+            delay(120)
+            progress.animateTo(
+                1f,
+                tween((animation.enterMillis * durationScale).toInt(), easing = Motion.Dialog.EnterCurve),
+            )
+            delay(1_050)
         }
     }
     val palette = LocalPalette.current
@@ -196,6 +218,7 @@ private fun DialogAnimationCardPreview(
                     .size(104.dp, 76.dp)
                     .dialogMotion(animation, progress = frame)
                     .mutedGlassPanel(AppShapes.thumb, samplePage = false)
+                    .border(1.dp, palette.border, AppShapes.thumb)
                     .dialogInteriorMotion(animation, frame)
                     .padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),

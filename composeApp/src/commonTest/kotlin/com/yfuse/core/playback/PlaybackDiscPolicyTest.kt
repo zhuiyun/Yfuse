@@ -37,7 +37,7 @@ class PlaybackDiscPolicyTest {
     }
 
     @Test
-    fun remote_iso_prefers_server_main_feature_parsing_when_no_linear_stream_exists() {
+    fun remote_iso_uses_local_native_disc_pipeline_without_automatic_server_transcode() {
         val decision =
             planDiscPlayback(
                 probe(
@@ -47,10 +47,10 @@ class PlaybackDiscPolicyTest {
                 ),
             )
 
-        assertEquals(PlaybackDiscStrategy.ServerMainFeature, decision.strategy)
-        assertTrue(decision.requiresServerTranscode)
-        assertFalse(decision.requiresNativeEngine)
-        assertFalse(decision.preservesOriginalStreams)
+        assertEquals(PlaybackDiscStrategy.NativeRemoteFallback, decision.strategy)
+        assertFalse(decision.requiresServerTranscode)
+        assertTrue(decision.requiresNativeEngine)
+        assertTrue(decision.preservesOriginalStreams)
     }
 
     @Test

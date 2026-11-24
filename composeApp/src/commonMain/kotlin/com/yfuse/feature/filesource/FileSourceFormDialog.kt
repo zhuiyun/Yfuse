@@ -3,9 +3,7 @@ package com.yfuse.feature.filesource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
@@ -191,7 +189,6 @@ private fun FileSourceFormDialog(
                     modifier = Modifier.padding(horizontal = 4.dp).liveStatus(assertive = true),
                 )
             }
-            Spacer(Modifier.height(4.dp))
             FormLabel("账号")
             if (draft.kind == FileSourceKind.Pan123 || draft.kind == FileSourceKind.Baidu) {
                 CloudSourceFields(controller, state)

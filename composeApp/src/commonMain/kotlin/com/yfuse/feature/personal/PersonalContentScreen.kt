@@ -65,6 +65,7 @@ import com.yfuse.core.network.TmdbImages
 import com.yfuse.core.personal.PersonalCollection
 import com.yfuse.core.personal.PersonalEntry
 import com.yfuse.core.personal.PersonalMediaRef
+import com.yfuse.feature.profile.LocalSettingsShowBackButton
 import com.yfuse.feature.profile.SettingsBackButton
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -184,7 +185,9 @@ private fun PersonalContentHeader(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        SettingsBackButton(onBack)
+        if (LocalSettingsShowBackButton.current) {
+            SettingsBackButton(onBack)
+        }
         Column(Modifier.weight(1f)) {
             Text("我的片单", style = AppTypography.section.strong, color = palette.text)
             Text(

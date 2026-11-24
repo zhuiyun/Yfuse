@@ -1,7 +1,6 @@
 package com.yfuse.feature.widgets
 
 import androidx.compose.animation.core.animate
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.FlingBehavior
 import androidx.compose.foundation.gestures.Orientation
@@ -64,6 +63,7 @@ import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.widget.WidgetMedia
 import kotlinx.coroutines.Job
@@ -157,7 +157,7 @@ internal fun rememberWidgetGalleryMotion(
                                 animate(
                                     start,
                                     0f,
-                                    animationSpec = spring(dampingRatio = .94f, stiffness = 340f),
+                                    animationSpec = Motion.carouselSnap(reduceMotion),
                                 ) { value, _ ->
                                     pitchDegrees = value
                                 }
@@ -168,7 +168,10 @@ internal fun rememberWidgetGalleryMotion(
                     if (reduceMotion) {
                         scrollState.scrollBy(distance)
                     } else {
-                        scrollState.animateScrollBy(distance, spring(dampingRatio = .94f, stiffness = 340f))
+                        scrollState.animateScrollBy(
+                            distance,
+                            Motion.carouselSnap(reduceMotion),
+                        )
                     }
                 }
         }
@@ -186,7 +189,7 @@ internal fun rememberWidgetGalleryMotion(
                         animate(
                             0f,
                             distance,
-                            animationSpec = spring(dampingRatio = .94f, stiffness = 340f),
+                            animationSpec = Motion.carouselSnap(reduceMotion),
                         ) { value, _ ->
                             scrollBy(value - previous)
                             previous = value

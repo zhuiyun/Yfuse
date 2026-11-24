@@ -68,6 +68,16 @@ data class YDolbyVisionConfig(
             }
         }
 
+    /** Rewrites a Profile 7 configuration record into single-layer Profile 8.1 (HDR10 base + RPU). */
+    fun toProfile81Config(): YDolbyVisionConfig =
+        copy(
+            profile = 8,
+            rpuPresent = true,
+            enhancementLayerPresent = false,
+            baseLayerPresent = true,
+            baseLayerCompatibilityId = 1,
+        )
+
     /** Encodes the ISOBMFF Dolby Vision decoder configuration record used as Android csd-2. */
     fun toConfigurationBytes(): ByteArray {
         require(versionMajor in 0..0xff)

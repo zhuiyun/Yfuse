@@ -26,19 +26,18 @@ internal val PlayerMediaItem.requiresLocalDolbyPipeline: Boolean
 internal const val VIEWER_TRANSCODE_REASON = "用户手动选择服务器转码"
 
 /**
- * Automatic decoder/network recovery may use only a server-approved, concrete fallback stream. A local
- * Dolby title leaves its original file only when [viewerRequested] it (转码播放).
+ * Automatic decoder/network recovery never switches onto server transcoding; playback stays on the
+ * local kernel pipeline unless [viewerRequested] is true (用户手动选择服务器转码) with a server-approved URL.
  */
 internal fun PlayerMediaItem.allowsServerTranscodeFallback(viewerRequested: Boolean): Boolean {
+    if (!viewerRequested) return false
     if (drmConfiguration != null || activeVersion?.drmConfiguration != null) return false
     val serverApproved =
         serverTranscodeSupported ||
             activeVersion?.serverTranscodeSupported == true ||
             playMethod == PlaybackMethod.Transcode
     val fallbackAvailable = transcodeUrl.isNotBlank() || fallbackTranscodeUrl.isNotBlank()
-    val dolbyPolicyAllowsFallback =
-        !requiresLocalDolbyPipeline || viewerRequested
-    return serverApproved && fallbackAvailable && dolbyPolicyAllowsFallback
+    return serverApproved && fallbackAvailable
 }
 
 /** Evaluates P7 output from source-layer facts plus explicit runtime trace evidence. */
@@ -81,8 +80,8 @@ internal fun PlayerMediaItem.initialFallbackReason(): String? =
         requiresLocalDolbyPipeline && playMethod == PlaybackMethod.Transcode ->
             "服务器建议转码，已保留杜比原始流并由客户端本地解码"
         playMethod == PlaybackMethod.DirectStream -> "服务器协商为直串流"
-        startsWithServerTranscode() -> "服务器协商要求转码"
-        playMethod == PlaybackMethod.Transcode -> "转码条件未满足，已保留原始流"
+        startsWithServerTranscode() -> "用户已启用服务器转码"
+        playMethod == PlaybackMethod.Transcode -> "服务器建议转码，已保留原始流并由客户端本地解码"
         else -> null
     }
 

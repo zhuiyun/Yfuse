@@ -14,7 +14,6 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class PlaybackNegotiationContractTest {
@@ -49,7 +48,7 @@ class PlaybackNegotiationContractTest {
         }
 
     @Test
-    fun dolby_only_source_disables_direct_routes_when_device_has_no_dolby_output() =
+    fun dolby_only_source_keeps_direct_routes_enabled_for_local_pipeline() =
         runTest {
             val repo =
                 testRepo { request ->
@@ -58,12 +57,12 @@ class PlaybackNegotiationContractTest {
                             request.body.toByteArray().decodeToString(),
                         )
 
-                    assertFalse(posted.EnableDirectPlay)
-                    assertFalse(posted.EnableDirectStream)
-                    assertFalse(posted.AllowVideoStreamCopy)
+                    assertTrue(posted.EnableDirectPlay)
+                    assertTrue(posted.EnableDirectStream)
+                    assertTrue(posted.AllowVideoStreamCopy)
                     assertTrue(posted.EnableTranscoding)
                     json(
-                        """{"MediaSources":[{"Id":"dv-p5","SupportsDirectPlay":false,"SupportsTranscoding":true,"TranscodingUrl":"/Videos/movie/master.m3u8"}]}""",
+                        """{"MediaSources":[{"Id":"dv-p5","SupportsDirectPlay":true,"SupportsTranscoding":true,"TranscodingUrl":"/Videos/movie/master.m3u8"}]}""",
                     )
                 }
 
@@ -77,12 +76,12 @@ class PlaybackNegotiationContractTest {
                 )
 
             assertEquals(
-                "/Videos/movie/master.m3u8",
+                true,
                 result
                     .getOrThrow()
                     .MediaSources
                     .single()
-                    .TranscodingUrl,
+                    .SupportsDirectPlay,
             )
         }
 }

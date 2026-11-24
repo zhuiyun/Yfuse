@@ -1,7 +1,6 @@
 package com.yfuse.feature.widgets
 
 import androidx.compose.animation.core.animate
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.FlingBehavior
 import androidx.compose.foundation.gestures.Orientation
@@ -63,6 +62,7 @@ import androidx.compose.ui.zIndex
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.widget.WidgetMedia
 import com.yfuse.core.widget.WidgetStyle
@@ -133,7 +133,7 @@ internal fun WidgetKineticLayouts(
                             animate(
                                 initialValue = 0f,
                                 targetValue = distance,
-                                animationSpec = spring(dampingRatio = .94f, stiffness = 340f),
+                                animationSpec = Motion.carouselSnap(reduceMotion),
                             ) { value, _ ->
                                 scrollBy(value - previous)
                                 previous = value
@@ -150,7 +150,7 @@ internal fun WidgetKineticLayouts(
                 if (reduceMotion) {
                     scrollState.scrollBy(delta)
                 } else {
-                    scrollState.animateScrollBy(delta, spring(dampingRatio = .94f, stiffness = 340f))
+                    scrollState.animateScrollBy(delta, Motion.carouselSnap(reduceMotion))
                 }
             }
         }

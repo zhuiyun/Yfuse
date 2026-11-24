@@ -55,6 +55,7 @@ import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.SettingSegmentControl
+import com.yfuse.core.designsystem.flatGlass
 import com.yfuse.core.designsystem.glassSelection
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberGlassSelectionStyle
@@ -236,7 +237,7 @@ internal fun GlassMaterialSettingsScreen(
         if (section != 0) {
             item(key = "glass-controls-$section") {
                 Column(
-                    inset.fillMaxWidth().background(palette.card, AppShapes.sheet).padding(20.dp),
+                    inset.fillMaxWidth().flatGlass(AppShapes.sheet, palette.card, palette.border).padding(20.dp),
                     verticalArrangement = Arrangement.spacedBy(18.dp),
                 ) {
                     Text(
@@ -253,7 +254,7 @@ internal fun GlassMaterialSettingsScreen(
             if (advanced) {
                 item(key = "glass-advanced") {
                     Column(
-                        inset.fillMaxWidth().background(palette.card, AppShapes.sheet).padding(20.dp),
+                        inset.fillMaxWidth().flatGlass(AppShapes.sheet, palette.card, palette.border).padding(20.dp),
                         verticalArrangement = Arrangement.spacedBy(18.dp),
                     ) {
                         SettingSegmentControl(
@@ -374,9 +375,7 @@ private fun MaterialPresetCard(
                 if (chosen) {
                     Modifier.glassSelection(AppShapes.control, selection)
                 } else {
-                    Modifier
-                        .background(palette.card, AppShapes.control)
-                        .border(1.dp, palette.border, AppShapes.control)
+                    Modifier.flatGlass(AppShapes.control, palette.card, palette.border)
                 },
             ).semantics { selected = chosen }
             .padding(14.dp),

@@ -100,6 +100,7 @@ import com.yfuse.core.designsystem.glassControlHighlight
 import com.yfuse.core.designsystem.glassSelection
 import com.yfuse.core.designsystem.liftAnchor
 import com.yfuse.core.designsystem.liftable
+import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.mediaLazyItemKey
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
@@ -813,7 +814,7 @@ internal fun SearchField(
             // Keep the shadow stable while loading feedback animates inside the intact field.
             .shadow(Shadows.searchBarFocused, shape)
             .then(motion)
-            .glass(shape, palette.card3, glassControlHighlight(accent, palette.isDark))
+            .liquidGlass(shape, palette.card3, glassControlHighlight(accent, palette.isDark), sheen = 0.72f)
             // The conditional clear action already owns a 48dp touch target. Vertical padding
             // here would add to that real layout height and make the field jump when text appears.
             .padding(horizontal = 16.dp),
@@ -850,13 +851,13 @@ internal fun SearchField(
         }
         // The field itself says the search is running: the same orb as every other loader,
         // at the end of the row where the answer will land.
-        Box(Modifier.size(SearchFieldOrbSize), contentAlignment = Alignment.Center) {
-            val reduce = LocalAccessibilityOptions.current.reduceMotion || !LocalRouteVisible.current
-            this@Row.AnimatedVisibility(
-                visible = loading,
-                enter = fadeIn(Motion.tween(if (reduce) 0 else Motion.QUICK)),
-                exit = fadeOut(Motion.tween(if (reduce) 0 else Motion.QUICK)),
-            ) {
+        val reduce = LocalAccessibilityOptions.current.reduceMotion || !LocalRouteVisible.current
+        AnimatedVisibility(
+            visible = loading,
+            enter = fadeIn(Motion.tween(if (reduce) 0 else Motion.QUICK)),
+            exit = fadeOut(Motion.tween(if (reduce) 0 else Motion.QUICK)),
+        ) {
+            Box(Modifier.size(SearchFieldOrbSize), contentAlignment = Alignment.Center) {
                 OrbProgress(size = SearchFieldOrbSize, contentDescription = "正在搜索")
             }
         }

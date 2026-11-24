@@ -35,7 +35,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.RoundRect
@@ -73,8 +72,10 @@ import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.DolbyBadge
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.HeroInk
+import com.yfuse.core.designsystem.HeroTextShadow
 import com.yfuse.core.designsystem.InlineLoadingContent
 import com.yfuse.core.designsystem.LiftMenu
+import com.yfuse.core.designsystem.LightPalette
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MediaSharedElementKey
@@ -379,7 +380,14 @@ internal fun DetailTopBar(
     // less and the poster underneath read straight through the title. Now that §8.1's blur
     // is actually under the plate, the fill can go back to being a fill — this bar was the
     // last chrome in the app still compensating for a missing material with alpha.
-    val plateFill = surfaceColor.copy(alpha = 0.72f)
+    val plateBrush =
+        remember(surfaceColor) {
+            Brush.verticalGradient(
+                0f to surfaceColor.copy(alpha = 0.84f),
+                0.78f to surfaceColor.copy(alpha = 0.72f),
+                1f to surfaceColor.copy(alpha = 0.52f),
+            )
+        }
     Box(modifier.fillMaxWidth()) {
         Box(
             Modifier
@@ -388,7 +396,7 @@ internal fun DetailTopBar(
                 // The layer above carries the fade; this only says "not on screen yet", so the
                 // page is not blurred under a bar that is still fully transparent.
                 .backdropBlur(backdrop, RectangleShape, alpha = { if (progress.value > 0f) 1f else 0f })
-                .background(plateFill),
+                .background(plateBrush),
         )
         Box(
             Modifier
@@ -601,16 +609,22 @@ internal fun TitleBlock(
 ) {
     // 一镜到底: opened by a lifted card, the words rise into place one row after another once the
     // card has handed the artwork over (LiftExpansion.kt). Opened any other way they are there.
+    val palette = LocalPalette.current
+    val darkArtwork = palette.isDark
+    val primaryInk = if (darkArtwork) ArtworkInk else LightPalette.text
+    val subInk = if (darkArtwork) ArtworkInkSub else LightArtworkInkSub
+    val faintInk = if (darkArtwork) ArtworkInkFaint else LightArtworkInkFaint
+    val captionShadow = if (darkArtwork) HeroTextShadow else HeroLightTextShadow
     val arrival = rememberOneTakeArrival(detail.id)
     var row = 0
     Column(
-        modifier.fillMaxWidth().detailCaptionScrim(),
+        modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.Start,
     ) {
         Text(
             title,
-            style = AppTypography.display.strong,
-            color = ArtworkInk,
+            style = AppTypography.display.strong.copy(shadow = captionShadow),
+            color = primaryInk,
             textAlign = TextAlign.Start,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
@@ -625,8 +639,8 @@ internal fun TitleBlock(
             Spacer(Modifier.height(8.dp))
             Text(
                 facts.joinToString(" · "),
-                style = AppTypography.body.regular,
-                color = ArtworkInkSub,
+                style = AppTypography.body.regular.copy(shadow = captionShadow),
+                color = subInk,
                 textAlign = TextAlign.Start,
                 maxLines = 1,
                 modifier = Modifier.oneTakeArrival(arrival, row++),
@@ -638,16 +652,16 @@ internal fun TitleBlock(
                 Modifier.oneTakeArrival(arrival, row++),
                 verticalArrangement = Arrangement.spacedBy(7.dp),
             ) {
-                RatingBadges(detail.displayRatings(), onArtwork = true)
-                detail.officialRating?.let { CertificationBadge(it) }
+                RatingBadges(detail.displayRatings(), onArtwork = darkArtwork)
+                detail.officialRating?.let { CertificationBadge(it, subInk) }
             }
         }
         detail.genres.take(2).joinToString(" · ").takeIf { it.isNotBlank() }?.let { genre ->
             Spacer(Modifier.height(8.dp))
             Text(
                 genre,
-                style = AppTypography.body.medium,
-                color = ArtworkInkFaint,
+                style = AppTypography.body.medium.copy(shadow = captionShadow),
+                color = faintInk,
                 maxLines = 1,
                 modifier = Modifier.oneTakeArrival(arrival, row++),
             )
@@ -660,8 +674,8 @@ internal fun TitleBlock(
         if (dolbyVision || dolbyAtmos) {
             Spacer(Modifier.height(12.dp))
             Row(Modifier.oneTakeArrival(arrival, row++), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
-                if (dolbyVision) DolbyBadge("VISION", ArtworkInk)
-                if (dolbyAtmos) DolbyBadge("ATMOS", ArtworkInk)
+                if (dolbyVision) DolbyBadge("VISION", primaryInk)
+                if (dolbyAtmos) DolbyBadge("ATMOS", primaryInk)
             }
         }
         // Its 48dp touch target is its spacing: the chips sit centred in it, a gap either side.
@@ -808,52 +822,37 @@ internal fun primaryActionContentColor(accent: Color): Color {
 }
 
 /**
- * The title block's inks.
- *
- * It sits on the artwork now, not on the page, so it cannot take the palette: the page
- * ink is dark in the light theme and the artwork underneath is dark in both. This is the
- * same answer the library hero and the player's panel already reach — white copy over a
- * scrim, and the accent's light end rather than the spec's `#3D64C9`, which is a
- * light-theme ink and goes muddy on a photograph.
+ * Adaptive inks for detail hero text sitting directly over artwork without a dark caption band.
+ * Soft contrast-matched text shadows keep copy legible across bright skies and dark scenes alike.
  */
-private fun Modifier.detailCaptionScrim(): Modifier =
-    drawWithCache {
-        val fade = 16.dp.toPx()
-        val edge = Dimens.pageHorizontal.toPx()
-        val height = size.height + fade * 2
-        val inset = fade / height
-        val shade = Color.Black.copy(alpha = 0.62f)
-        val brush =
-            Brush.verticalGradient(
-                0f to Color.Transparent,
-                inset to shade,
-                (1f - inset) to shade,
-                1f to Color.Transparent,
-                startY = -fade,
-                endY = size.height + fade,
-            )
-        onDrawBehind {
-            drawRect(brush, Offset(-edge, -fade), Size(size.width + edge * 2, height))
-        }
-    }
-
 private val ArtworkInk = Color.White
-private val ArtworkInkSub = Color.White.copy(alpha = 0.94f)
+private val ArtworkInkSub = Color.White.copy(alpha = 0.92f)
 private val ArtworkInkFaint = Color.White.copy(alpha = 0.84f)
+private val LightArtworkInkSub = Color(0xFF28303E)
+private val LightArtworkInkFaint = Color(0xFF3A4454)
+private val HeroLightTextShadow =
+    androidx.compose.ui.graphics.Shadow(
+        color = Color.White.copy(alpha = 0.72f),
+        offset = Offset(0f, 1f),
+        blurRadius = 12f,
+    )
 
 /** 分级 is a classification, not a score — it gets a neutral outline, not a brand colour. */
 @Composable
-private fun CertificationBadge(label: String) {
+private fun CertificationBadge(
+    label: String,
+    ink: Color = ArtworkInkSub,
+) {
     Text(
         label,
         style = AppTypography.caption.strong,
-        color = ArtworkInkSub,
+        color = ink,
         modifier =
             Modifier
                 .solidGlass(
                     shape = AppShapes.micro,
                     fill = Color.Transparent,
-                    border = ArtworkInkSub.copy(alpha = 0.42f),
+                    border = ink.copy(alpha = 0.42f),
                 ).padding(horizontal = 7.dp, vertical = 2.dp),
     )
 }

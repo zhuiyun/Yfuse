@@ -36,6 +36,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.DialogAnimation
 import com.yfuse.core.designsystem.GlassDialog
@@ -69,7 +70,11 @@ internal fun WidgetSheet(
             contentPadding = 16.dp,
             alignment = Alignment.BottomCenter,
             windowPadding = PaddingValues(0.dp),
-            shape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp),
+            shape =
+                RoundedCornerShape(
+                    topStart = com.yfuse.core.designsystem.Dimens.large,
+                    topEnd = com.yfuse.core.designsystem.Dimens.large,
+                ),
             maxWidth = 600.dp,
             animation = DialogAnimation.Slide,
         ) {
@@ -241,7 +246,7 @@ internal fun WidgetEmptyState(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(
-            Modifier.size(64.dp).glass(RoundedCornerShape(22.dp), palette.card, palette.border),
+            Modifier.size(64.dp).glass(AppShapes.card, palette.card, palette.border),
             contentAlignment = Alignment.Center,
         ) {
             ThemeIcon(icon, null, tint = LocalAccentColors.current.accent, modifier = Modifier.size(27.dp))

@@ -89,15 +89,22 @@ class WatchGatedPlayback(
             publish(positionMs = positionMs)
         }
 
-    fun selectItem(index: Int): Boolean {
+    fun selectItem(
+        index: Int,
+        startPositionMs: Long = 0L,
+    ): Boolean {
         if (index !in items().indices) return false
+        val targetMs = startPositionMs.coerceAtLeast(0L)
         return gated(requestsPlay = { true }) { player ->
             player.selectItem(index)
+            if (targetMs > 0L) {
+                player.seekTo(targetMs)
+            }
             // Core2 also uses selectItem for paused timeline synchronization. A manual choice,
             // after playback admission, must explicitly request play before publishing it.
             player.play()
             observedIndex = index
-            publish(index = index, positionMs = 0L, paused = false)
+            publish(index = index, positionMs = targetMs, paused = false)
         }
     }
 

@@ -626,12 +626,12 @@ private fun AdvancedPageHost(
     ) { current ->
         Column(
             Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(5.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
             header(current)
             Column(
                 Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(5.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
             ) {
                 content(current)
             }
@@ -672,7 +672,7 @@ private fun AnimatedContentTransitionScope<*>.advancedPageTransform(
         }
     // The two levels are nowhere near the same height, so the surface travels between them
     // instead of cutting — otherwise it changes shape under a page that is still arriving.
-    return transform.using(SizeTransform(clip = false) { _, _ -> Motion.settle() })
+    return transform.using(SizeTransform(clip = true) { _, _ -> Motion.settle() })
 }
 
 @Composable

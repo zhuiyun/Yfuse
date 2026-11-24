@@ -47,7 +47,7 @@ internal fun nativePlaybackLogFailure(details: String?): NativePlaybackFailure? 
             )
         TERMINAL_NETWORK_FAILURES.any(normalized::contains) || HTTP_SERVER_FAILURE.containsMatchIn(normalized) ->
             NativePlaybackFailure(
-                message = "播放器无法读取媒体流，请检查服务器网络或尝试其他线路",
+                message = "无法读取媒体流，请检查服务器网络或尝试其他线路",
                 blocksAutomaticFallback = false,
                 kind = PlaybackFailureKind.Network,
             )

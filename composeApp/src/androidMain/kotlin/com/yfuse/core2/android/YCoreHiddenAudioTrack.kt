@@ -23,7 +23,7 @@ internal const val YCORE_HIDDEN_AUDIO_TRACK_MESSAGE =
     "YCore 2.0 当前解封装路径未识别到片源声明的音轨"
 
 internal const val YCORE_STARTUP_TIMEOUT_MESSAGE =
-    "YCore 2.0 起播超时，请重试或切换内核"
+    "片源起播超时，请检查服务器或网络后重试"
 
 internal fun hiddenServerAudioTrackDetail(
     prefix: String,

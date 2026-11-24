@@ -1289,9 +1289,9 @@ internal fun shouldProxyEnhancedSourceUri(uri: String): Boolean {
 
 internal fun yCoreEnhancedFailureMessage(failure: YPlaybackException?): String =
     when (failure?.category) {
-        YPlaybackFailureCategory.Authorization -> "YCore 2.0 片源访问被拒绝，请检查访问权限或刷新播放地址"
+        YPlaybackFailureCategory.Authorization -> "片源访问被拒绝，请检查访问权限或刷新播放地址"
         YPlaybackFailureCategory.Drm -> "YCore 2.0 无法建立当前片源的 DRM 会话"
-        YPlaybackFailureCategory.Network -> "YCore 2.0 无法连接片源，请检查服务器或网络"
+        YPlaybackFailureCategory.Network -> "无法连接片源，请检查服务器或网络"
         YPlaybackFailureCategory.Container ->
             if (failure.isHiddenServerAudioTrackFailure()) {
                 YCORE_HIDDEN_AUDIO_TRACK_MESSAGE

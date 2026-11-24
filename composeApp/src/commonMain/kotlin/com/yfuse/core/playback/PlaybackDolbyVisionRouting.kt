@@ -43,7 +43,7 @@ fun playbackDolbyVisionRoute(
         source.dolbyBaseLayerPresent != false &&
             (
                 source.dolbyVisionProfile == 7 ||
-                    (source.dolbyVisionProfile == 8 && source.dolbyBaseLayerCompatibilityId == 1) ||
+                    (source.dolbyVisionProfile in setOf(8, 10) && source.dolbyBaseLayerCompatibilityId == 1) ||
                     (!source.needsDolbyDecoder && source.dolbyVisionProfile == null)
             )
     if (runtime.verifiedNativeDolbyVision && !enhancementLayer && capabilities.supportsDolbyVisionOutput) {

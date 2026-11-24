@@ -335,7 +335,7 @@ private fun AnimatedContentTransitionScope<*>.settingsKindTransform(reduceMotion
     return if (reduceMotion) {
         crossfade.using(null)
     } else {
-        crossfade.using(SizeTransform(clip = false) { _, _ -> Motion.settle() })
+        crossfade.using(SizeTransform(clip = true) { _, _ -> Motion.settle() })
     }
 }
 

@@ -379,7 +379,9 @@ internal class AndroidCore2MediaProbe(
                             platformDemuxSupported = true,
                             platformAudioDemuxSupported = audioIndex != null,
                             enhancedDemuxSupported = true,
-                            fallbackHdrType = dolbyVisionConfig?.compatibleBaseHdr,
+                            fallbackHdrType =
+                                dolbyVisionConfig?.compatibleBaseHdr
+                                    ?: YHdrType.Hdr10.takeIf { video.hdrType == YHdrType.Hdr10Plus },
                             preferTunnel = true,
                         ),
                     videoMime = effectiveVideoMime,
@@ -839,12 +841,17 @@ internal class AndroidCore2RouteEvaluator(
                 )
             }
         // Dolby routing is authoritative, not a diagnostic decoration. A profile/display/decoder
-        // mismatch must not fall through to the generic HEVC planner and produce a green picture.
-        if (dolbyDecision is YDolbyVisionRouteDecision.Unsupported) {
+        // mismatch or an unverified Profile 5 IPT-PQ-c2 GPU output must not fall through to the
+        // BT.2020-only Vulkan/HEVC pipeline and produce a green/magenta picture.
+        val unverifiedProfile5GpuOutput =
+            dolbyDecision is YDolbyVisionRouteDecision.GpuDecoded &&
+                dolbyDecision.requiresRuntimeColorVerification &&
+                resolved.dolbyVisionConfig?.compatibleBaseHdr == null
+        if (dolbyDecision is YDolbyVisionRouteDecision.Unsupported || unverifiedProfile5GpuOutput) {
             if (!request.enhancedDemuxSupported ||
                 item.drmConfiguration != null ||
                 request.video.secureDecodeRequired ||
-                request.video.codec != YVideoCodec.H265 ||
+                request.video.codec !in setOf(YVideoCodec.H265, YVideoCodec.Av1) ||
                 request.video.hdrType != YHdrType.DolbyVision
             ) {
                 return null
@@ -874,7 +881,7 @@ internal class AndroidCore2RouteEvaluator(
                     codecConfigurationProbe.probe(
                         decoderName = unseenRuntimeKey.decoderName,
                         mimeType = normalizedProbe.activeProbeMime(plan),
-                        requirement = request.video,
+                        requirement = request.video.effectiveForProbe(plan),
                         item = item,
                         budget = budget,
                     )
@@ -931,8 +938,17 @@ internal class AndroidCore2RouteEvaluator(
     }
 }
 
+private fun YVideoRequirement.effectiveForProbe(plan: YPlaybackPlan): YVideoRequirement =
+    when {
+        plan.convertsDolbyProfile7To8 -> copy(hdrType = YHdrType.DolbyVision, dolbyVisionProfile = 8)
+        plan.usesHdrFallback -> copy(hdrType = plan.inputHdrType, dolbyVisionProfile = null)
+        else -> this
+    }
+
 private fun YCore2ProbeResult.Success.activeProbeMime(plan: YPlaybackPlan): String =
-    if (!plan.usesHdrFallback && playbackRequest.video.hdrType == YHdrType.DolbyVision) {
+    if (plan.convertsDolbyProfile7To8) {
+        MIME_DOLBY_VISION
+    } else if (!plan.usesHdrFallback && playbackRequest.video.hdrType == YHdrType.DolbyVision) {
         videoMime
     } else {
         when (playbackRequest.video.codec) {
@@ -951,6 +967,8 @@ private fun YDolbyVisionRouteDecision.diagnosticLabel(): String =
     when (this) {
         is YDolbyVisionRouteDecision.Native ->
             "DV P$profile native, enhancement=$enhancementLayerKind, FEL-claim=$canClaimFelComposition"
+        is YDolbyVisionRouteDecision.ConvertedProfile81 ->
+            "DV P7->P8.1 RPU conversion, sourceEnhancement=$sourceEnhancementLayerKind"
         is YDolbyVisionRouteDecision.GpuDecoded ->
             "DV P$profile MediaCodec decoded to Vulkan, enhancement=$enhancementLayerKind"
         is YDolbyVisionRouteDecision.CompatibleBase ->

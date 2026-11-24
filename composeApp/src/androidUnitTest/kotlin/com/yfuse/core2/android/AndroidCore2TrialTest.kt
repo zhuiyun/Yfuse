@@ -416,12 +416,20 @@ class AndroidCore2TrialTest {
 
     @Test
     fun core2_queue_mapping_uses_the_active_server_transcode_url() {
-        val item =
+        val unrequested =
             mediaItem("https://media.example.test/original.mkv").copy(
                 transcodeUrl = "https://media.example.test/transcode.m3u8",
                 playMethod = PlaybackMethod.Transcode,
             )
+        assertEquals(
+            unrequested.url,
+            listOf(unrequested)
+                .toCore2MediaItems("")
+                .single()
+                .uri,
+        )
 
+        val item = unrequested.copy(forcedTranscodeByViewer = true)
         val mapped =
             listOf(item)
                 .toCore2MediaItems("")
@@ -449,6 +457,7 @@ class AndroidCore2TrialTest {
             mediaItem(version.transcodeUrl).copy(
                 transcodeUrl = version.transcodeUrl,
                 playMethod = PlaybackMethod.Transcode,
+                forcedTranscodeByViewer = true,
                 versions = listOf(version),
                 versionId = version.id,
             )

@@ -1381,7 +1381,7 @@ internal fun SettingsPage(
             title = title,
             subtitle = subtitle,
             onBack = onBack,
-            showBackButton = showBackButton,
+            showBackButton = showBackButton && LocalSettingsShowBackButton.current,
         )
         LazyColumn(
             modifier = Modifier.fillMaxWidth().weight(1f),

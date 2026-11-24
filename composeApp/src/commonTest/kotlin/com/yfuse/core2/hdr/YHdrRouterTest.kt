@@ -43,6 +43,27 @@ class YHdrRouterTest {
     }
 
     @Test
+    fun `HDR10 plus falls back to native 10-bit HDR10 on HDR10 displays instead of 8-bit SDR`() {
+        val descriptor =
+            YHdrPlaybackDescriptor(
+                type = YHdrType.Hdr10Plus,
+                primaries = YColorPrimaries.Bt2020,
+                transfer = YColorTransfer.Pq,
+                hdr10PlusMetadata = YHdr10PlusMetadata(byteArrayOf(0x01, 0x02)),
+            )
+        val capabilities =
+            YDeviceCapabilities(
+                videoDecoders = emptyList(),
+                displayHdrTypes = setOf(YHdrType.Sdr, YHdrType.Hdr10),
+            )
+
+        val route = assertIs<YHdrRouteDecision.Native>(YHdrRouter.decide(descriptor, capabilities))
+        assertEquals(YHdrType.Hdr10, route.outputType)
+        val runtimeRoute = assertIs<YHdrRouteDecision.Native>(YHdrRouter.decide(YHdrType.Hdr10Plus, capabilities))
+        assertEquals(YHdrType.Hdr10, runtimeRoute.outputType)
+    }
+
+    @Test
     fun `runtime type route works before optional metadata is decoded`() {
         val route =
             assertIs<YHdrRouteDecision.GpuToneMap>(

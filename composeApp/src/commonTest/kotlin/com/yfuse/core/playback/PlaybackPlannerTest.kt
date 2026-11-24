@@ -120,7 +120,7 @@ class PlaybackPlannerTest {
     }
 
     @Test
-    fun unresolved_disc_with_server_support_keeps_server_main_feature_selection() {
+    fun unresolved_disc_with_server_support_keeps_local_native_disc_pipeline() {
         val plan =
             planPlayback(
                 probe("iso", disc = true, transcode = true),
@@ -128,12 +128,13 @@ class PlaybackPlannerTest {
                 PlayerEngine.YCore,
                 DecoderMode.Auto,
             )
-        assertTrue(plan.requiresServerTranscode)
-        assertEquals(PlaybackRenderPath.ServerTranscode, plan.renderPath)
+        assertFalse(plan.requiresServerTranscode)
+        assertEquals(PlayerEngine.YCore, plan.primaryEngine)
+        assertEquals(PlaybackRenderPath.NativeDirect, plan.renderPath)
     }
 
     @Test
-    fun hardware_rejection_uses_only_an_existing_server_or_local_software_attempt() {
+    fun hardware_rejection_uses_local_software_decoding_even_when_server_transcode_exists() {
         listOf(false, true).forEach { server ->
             val plan =
                 planPlayback(
@@ -143,8 +144,8 @@ class PlaybackPlannerTest {
                     DecoderMode.Hardware,
                     videoSupport = PlaybackVideoSupport.unsupported("exact format rejected"),
                 )
-            assertEquals(server, plan.requiresServerTranscode)
-            assertEquals(if (server) DecoderMode.Hardware else DecoderMode.Software, plan.decoderMode)
+            assertFalse(plan.requiresServerTranscode)
+            assertEquals(DecoderMode.Software, plan.decoderMode)
             assertEquals(listOf(PlayerEngine.YCore), plan.engineOrder)
         }
     }
@@ -207,7 +208,7 @@ class PlaybackPlannerTest {
     }
 
     @Test
-    fun sdr_display_requests_server_hdr_conversion_only_when_server_exists() {
+    fun sdr_display_keeps_local_hdr_pipeline_without_server_transcode() {
         listOf(false, true).forEach { server ->
             val media =
                 probe("mkv", transcode = server).let {
@@ -220,7 +221,7 @@ class PlaybackPlannerTest {
                     )
                 }
             val plan = planPlayback(media, capabilities(), PlayerEngine.YCore, DecoderMode.Auto)
-            assertEquals(server, plan.requiresServerTranscode)
+            assertFalse(plan.requiresServerTranscode)
             assertFalse(plan.renderPath == PlaybackRenderPath.GpuToneMapped)
         }
     }

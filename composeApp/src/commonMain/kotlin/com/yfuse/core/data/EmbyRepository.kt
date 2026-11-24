@@ -683,7 +683,10 @@ class EmbyRepository(
     internal suspend fun resolveSeriesPlayback(
         server: SavedServer,
         seriesId: String,
-    ): Result<SeriesPlaybackResolution> = adapterFor(server).resolveSeriesPlayback(server, seriesId)
+    ): Result<SeriesPlaybackResolution> =
+        adapterFor(server).resolveSeriesPlayback(server, seriesId).onSuccess { resolution ->
+            playbackDetails.put(server to resolution.target.itemId, resolution.detail)
+        }
 
     /** Libraries available to advanced search filters. */
     suspend fun mediaLibraries(server: SavedServer): Result<List<MediaLibrary>> = libraries(server)
@@ -923,17 +926,20 @@ class EmbyRepository(
         embyApiCall("playback_item_detail") {
             playbackDetails
                 .get(server to itemId) {
-                    if (server.kind == MediaServerKind.Plex) {
-                        adapterFor(server).itemDetail(server, itemId, includeInheritedPeople = false).getOrThrow()
-                    } else {
-                        detailService
-                            .itemDetail(
-                                server,
-                                itemId,
-                                includeInheritedPeople = false,
-                                playbackOnly = true,
-                            ).getOrThrow()
-                    }
+                    detailSnapshots
+                        .peek(server to itemId)
+                        ?.takeIf { it.versions.isNotEmpty() || it.source != null }
+                        ?: if (server.kind == MediaServerKind.Plex) {
+                            adapterFor(server).itemDetail(server, itemId, includeInheritedPeople = false).getOrThrow()
+                        } else {
+                            detailService
+                                .itemDetail(
+                                    server,
+                                    itemId,
+                                    includeInheritedPeople = false,
+                                    playbackOnly = true,
+                                ).getOrThrow()
+                        }
                 }.let { progressProjection.projectDetail(server, it) }
         }
 

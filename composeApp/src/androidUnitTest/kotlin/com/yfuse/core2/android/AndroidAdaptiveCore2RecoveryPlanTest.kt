@@ -104,7 +104,7 @@ class AndroidAdaptiveCore2RecoveryPlanTest {
     @Test
     fun `real playback failures replace the preflight gate with an actionable category`() {
         assertEquals(
-            "YCore 2.0 无法连接片源，请检查服务器或网络",
+            "无法连接片源，请检查服务器或网络",
             yCoreNativeDirectFailureMessage(
                 YPlaybackException(
                     category = YPlaybackFailureCategory.Network,

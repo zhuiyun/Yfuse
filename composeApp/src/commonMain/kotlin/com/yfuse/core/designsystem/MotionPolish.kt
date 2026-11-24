@@ -86,12 +86,11 @@ internal fun Modifier.windowSizeHandoff(): Modifier {
         if (size.width > 0 && size.height > 0) {
             val width = size.width / density
             windowClass = (
-                if (width < 600f) {
-                    0
-                } else if (width < 840f) {
-                    1
-                } else {
-                    2
+                when {
+                    width < 600f -> 0
+                    width < 700f -> 1
+                    width < 840f -> 2
+                    else -> 3
                 }
             ) to (size.width > size.height)
         }

@@ -680,17 +680,30 @@ internal fun ffmpegAudioCodec(
         "mp3", "mp2" -> YAudioCodec.Mp3
         "ac3" -> YAudioCodec.Ac3
         "eac3" -> if (profile == ATMOS_PROFILE) YAudioCodec.Eac3Joc else YAudioCodec.Eac3
+        "ac4" -> YAudioCodec.Ac4
         "flac" -> YAudioCodec.Flac
         "opus" -> YAudioCodec.Opus
-        "truehd" -> if (profile == ATMOS_PROFILE) YAudioCodec.TrueHdAtmos else YAudioCodec.TrueHd
+        "vorbis" -> YAudioCodec.Vorbis
+        "truehd", "mlp" -> if (profile == ATMOS_PROFILE) YAudioCodec.TrueHdAtmos else YAudioCodec.TrueHd
         "dca", "dts" ->
             when (profile) {
                 in DTS_X_PROFILES -> YAudioCodec.DtsX
                 in DTS_HD_PROFILES -> YAudioCodec.DtsHd
                 else -> YAudioCodec.Dts
             }
-        "pcm_s16le", "pcm_s16be", "pcm_s24le", "pcm_s24be", "pcm_s32le", "pcm_s32be", "pcm_f32le" ->
-            YAudioCodec.Pcm
+        "pcm_s16le",
+        "pcm_s16be",
+        "pcm_s24le",
+        "pcm_s24be",
+        "pcm_s32le",
+        "pcm_s32be",
+        "pcm_f32le",
+        "pcm_f64le",
+        "pcm_u8",
+        "pcm_s8",
+        "pcm_bluray",
+        "pcm_dvd",
+        -> YAudioCodec.Pcm
         else -> YAudioCodec.Unknown
     }
 
@@ -777,13 +790,15 @@ private fun ffmpegAudioMime(codec: YAudioCodec): String =
         YAudioCodec.Ac3 -> "audio/ac3"
         YAudioCodec.Eac3 -> "audio/eac3"
         YAudioCodec.Eac3Joc -> "audio/eac3-joc"
+        YAudioCodec.Ac4 -> "audio/ac4"
         YAudioCodec.Flac -> "audio/flac"
         YAudioCodec.Opus -> "audio/opus"
+        YAudioCodec.Vorbis -> "audio/vorbis"
         YAudioCodec.TrueHd -> "audio/true-hd"
         YAudioCodec.TrueHdAtmos -> "audio/true-hd"
         YAudioCodec.Dts -> "audio/vnd.dts"
         YAudioCodec.DtsHd -> "audio/vnd.dts.hd"
-        YAudioCodec.DtsX -> "audio/vnd.dts.hd"
+        YAudioCodec.DtsX -> "audio/vnd.dts.uhd"
         YAudioCodec.Pcm -> "audio/raw"
         YAudioCodec.Unknown -> "audio/x-ffmpeg-unknown"
     }

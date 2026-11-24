@@ -86,6 +86,7 @@ class LibraryHomeComponent(
                 )
                 GlobalContext.get().get<ServerSyncManager>().setPlayed(server, item.id, item.title, value)
             },
+            playbackSync = playbackSync,
         ).create()
 
     init {

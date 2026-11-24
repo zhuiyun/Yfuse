@@ -1,7 +1,6 @@
 package com.yfuse.feature.profile
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -37,6 +36,7 @@ import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.flatGlass
 import com.yfuse.core.designsystem.glassSelection
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberGlassSelectionStyle
@@ -94,9 +94,7 @@ internal fun <T> AnimationCardList(
                             if (chosen) {
                                 Modifier.glassSelection(AppShapes.card, selection)
                             } else {
-                                Modifier
-                                    .background(palette.card2, AppShapes.card)
-                                    .border(1.dp, palette.border, AppShapes.card)
+                                Modifier.flatGlass(AppShapes.card, palette.card2, palette.border)
                             },
                         ).padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),

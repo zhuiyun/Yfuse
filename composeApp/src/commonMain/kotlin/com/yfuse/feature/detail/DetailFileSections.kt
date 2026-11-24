@@ -18,12 +18,16 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -37,6 +41,7 @@ import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.DecorativeTints
 import com.yfuse.core.designsystem.Dimens
+import com.yfuse.core.designsystem.DisclosureContent
 import com.yfuse.core.designsystem.DolbyChip
 import com.yfuse.core.designsystem.GlassLift
 import com.yfuse.core.designsystem.LocalPalette
@@ -44,11 +49,13 @@ import com.yfuse.core.designsystem.Palette
 import com.yfuse.core.designsystem.RecommendBadge
 import com.yfuse.core.designsystem.SectionHeader
 import com.yfuse.core.designsystem.contentColorForSurface
+import com.yfuse.core.designsystem.flatGlass
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.motionItemsIndexed
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.rememberDisclosureProgress
 import com.yfuse.core.designsystem.rememberTouchTargetFocus
 import com.yfuse.core.designsystem.resolveArtworkPagePalette
 import com.yfuse.core.designsystem.shadow
@@ -229,94 +236,130 @@ internal fun MediaInfoSection(
 ) {
     val palette = LocalPalette.current
     val cardPalette = remember(palette) { mediaInfoCardPalette(palette) }
+    var expanded by remember(version.id) { mutableStateOf(false) }
+    val disclosureProgress = rememberDisclosureProgress(expanded)
     Column(modifier) {
-        SectionHeader("媒体信息", Modifier.padding(horizontal = Dimens.pageHorizontal))
-        // Two cards fill the width, as in the reference; a third and beyond (a release with
-        // several audio tracks) scroll in from the right rather than shrinking the pair.
-        BoxWithConstraints {
-            val cardWidth = (maxWidth - Dimens.pageHorizontal * 2 - 10.dp) / 2
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .pressable(
+                    onClickLabel = if (expanded) "收起媒体信息" else "展开媒体信息",
+                    onClick = { expanded = !expanded },
+                ).padding(horizontal = Dimens.pageHorizontal, vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SectionHeader("媒体信息")
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                version.video?.let { video ->
-                    motionItem(key = "video") {
-                        SpecCard(
-                            palette = cardPalette,
-                            icon = AppIcons.Play,
-                            title = "视频",
-                            width = cardWidth,
-                            rows =
-                                listOfNotNull(
-                                    video.displayTitle?.let { "显示标题" to it },
-                                    video.language?.let { "语言" to it },
-                                    video.codec?.let { "编码" to it },
-                                    video.resolutionLabel?.let { "分辨率" to it },
-                                    video.frameRateLabel?.let { "帧率" to it },
-                                    video.bitrateBps
-                                        ?.takeIf { it > 0 }
-                                        ?.let { "比特率" to "${it / 1_000_000} Mbps" },
-                                    video.videoRange?.let { "动态范围" to it },
-                                    video.interlaced?.let { "隔行扫描" to if (it) "是" else "否" },
-                                    video.colorPrimaries?.let { "色彩原色" to it },
-                                    video.colorSpace?.let { "色彩空间" to it },
-                                    video.profile?.let { "配置" to it },
-                                    video.level?.takeIf { it > 0 }?.let { "等级" to it.toInt().toString() },
-                                    video.aspectRatio?.let { "长宽比" to it },
-                                    video.bitDepth?.takeIf { it > 0 }?.let { "位深" to it.toString() },
-                                ),
-                        )
-                    }
-                }
-                motionItemsIndexed(version.audioTracks) { index, audio ->
-                    SpecCard(
-                        palette = cardPalette,
-                        icon = AppIcons.Volume,
-                        title = if (version.audioTracks.size > 1) "音频 ${index + 1}" else "音频",
-                        width = cardWidth,
-                        rows =
-                            listOfNotNull(
-                                audio.displayTitle?.let { "标题" to it },
-                                audio.language?.let { "语言" to it },
-                                audio.codec?.uppercase()?.let { "编码" to it },
-                                audio.profile?.let { "配置" to it },
-                                audio.bitrateLabel?.let { "比特率" to it },
-                                audio.channelLayout?.let { "布局" to it },
-                                audio.channelCount?.takeIf { it > 0 }?.let { "声道" to it.toString() },
-                                audio.sampleRateLabel?.let { "采样率" to it },
-                                audio.external?.let { "外部" to if (it) "是" else "否" },
-                                audio.default?.let { "默认" to if (it) "是" else "否" },
-                                audio.displayLanguage?.let { "显示语言" to it },
-                            ),
-                    )
-                }
+                Text(
+                    if (expanded) "收起" else "展开详情",
+                    style = AppTypography.caption.medium,
+                    color = palette.sub,
+                )
+                Icon(
+                    AppIcons.ChevronDown,
+                    contentDescription = null,
+                    tint = palette.sub2,
+                    modifier =
+                        Modifier
+                            .size(16.dp)
+                            .graphicsLayer { rotationZ = 180f * disclosureProgress.value },
+                )
             }
         }
-        val footer =
-            listOfNotNull(
-                version.container?.uppercase(),
-                version.sizeLabel,
-                dateCreated,
-            )
-        if (version.path != null || footer.isNotEmpty()) {
-            Column(
-                Modifier
-                    .padding(top = 10.dp)
-                    .padding(horizontal = Dimens.pageHorizontal)
-                    .fillMaxWidth()
-                    .mediaInfoSurface(cardPalette)
-                    .padding(horizontal = 12.dp, vertical = 11.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                version.path?.let { path ->
-                    Text(path, style = AppTypography.caption.regular, color = cardPalette.sub2)
+        DisclosureContent(expanded, disclosureProgress) {
+            Column {
+                // Two cards fill the width, as in the reference; a third and beyond (a release with
+                // several audio tracks) scroll in from the right rather than shrinking the pair.
+                BoxWithConstraints {
+                    val cardWidth = (maxWidth - Dimens.pageHorizontal * 2 - 10.dp) / 2
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
+                    ) {
+                        version.video?.let { video ->
+                            motionItem(key = "video") {
+                                SpecCard(
+                                    palette = cardPalette,
+                                    icon = AppIcons.Play,
+                                    title = "视频",
+                                    width = cardWidth,
+                                    rows =
+                                        listOfNotNull(
+                                            video.displayTitle?.let { "显示标题" to it },
+                                            video.language?.let { "语言" to it },
+                                            video.codec?.let { "编码" to it },
+                                            video.resolutionLabel?.let { "分辨率" to it },
+                                            video.frameRateLabel?.let { "帧率" to it },
+                                            video.bitrateBps
+                                                ?.takeIf { it > 0 }
+                                                ?.let { "比特率" to "${it / 1_000_000} Mbps" },
+                                            video.videoRange?.let { "动态范围" to it },
+                                            video.interlaced?.let { "隔行扫描" to if (it) "是" else "否" },
+                                            video.colorPrimaries?.let { "色彩原色" to it },
+                                            video.colorSpace?.let { "色彩空间" to it },
+                                            video.profile?.let { "配置" to it },
+                                            video.level?.takeIf { it > 0 }?.let { "等级" to it.toInt().toString() },
+                                            video.aspectRatio?.let { "长宽比" to it },
+                                            video.bitDepth?.takeIf { it > 0 }?.let { "位深" to it.toString() },
+                                        ),
+                                )
+                            }
+                        }
+                        motionItemsIndexed(version.audioTracks) { index, audio ->
+                            SpecCard(
+                                palette = cardPalette,
+                                icon = AppIcons.Volume,
+                                title = if (version.audioTracks.size > 1) "音频 ${index + 1}" else "音频",
+                                width = cardWidth,
+                                rows =
+                                    listOfNotNull(
+                                        audio.displayTitle?.let { "标题" to it },
+                                        audio.language?.let { "语言" to it },
+                                        audio.codec?.uppercase()?.let { "编码" to it },
+                                        audio.profile?.let { "配置" to it },
+                                        audio.bitrateLabel?.let { "比特率" to it },
+                                        audio.channelLayout?.let { "布局" to it },
+                                        audio.channelCount?.takeIf { it > 0 }?.let { "声道" to it.toString() },
+                                        audio.sampleRateLabel?.let { "采样率" to it },
+                                        audio.external?.let { "外部" to if (it) "是" else "否" },
+                                        audio.default?.let { "默认" to if (it) "是" else "否" },
+                                        audio.displayLanguage?.let { "显示语言" to it },
+                                    ),
+                            )
+                        }
+                    }
                 }
-                if (footer.isNotEmpty()) {
-                    Text(
-                        footer.joinToString(" · "),
-                        style = AppTypography.caption.medium,
-                        color = cardPalette.sub2,
+                val footer =
+                    listOfNotNull(
+                        version.container?.uppercase(),
+                        version.sizeLabel,
+                        dateCreated,
                     )
+                if (version.path != null || footer.isNotEmpty()) {
+                    Column(
+                        Modifier
+                            .padding(top = 10.dp)
+                            .padding(horizontal = Dimens.pageHorizontal)
+                            .fillMaxWidth()
+                            .mediaInfoSurface(cardPalette)
+                            .padding(horizontal = 12.dp, vertical = 11.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        version.path?.let { path ->
+                            Text(path, style = AppTypography.caption.regular, color = cardPalette.sub2)
+                        }
+                        if (footer.isNotEmpty()) {
+                            Text(
+                                footer.joinToString(" · "),
+                                style = AppTypography.caption.medium,
+                                color = cardPalette.sub2,
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -329,8 +372,9 @@ internal fun mediaInfoCardPalette(page: Palette): Palette {
     return resolveArtworkPagePalette(tint.compositeOver(page.background))
 }
 
+@Composable
 private fun Modifier.mediaInfoSurface(palette: Palette): Modifier =
-    background(palette.background, AppShapes.card).border(Dimens.hairline, palette.border, AppShapes.card)
+    flatGlass(AppShapes.card, palette.card2, palette.border)
 
 /** One stream's specification, as a fixed-width card of label/value rows. */
 @Composable

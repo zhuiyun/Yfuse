@@ -88,6 +88,21 @@ internal class PlaybackMetadataCache<K, V>(
             val completed = entry.completedAtMs ?: return@synchronized null
             entry.value.takeIf { nowMs() - completed in 0 until ttlMs }
         }
+
+    fun put(
+        key: K,
+        value: V,
+    ) = synchronized(lock) {
+        val entry =
+            Entry<V>().also {
+                it.completedAtMs = nowMs()
+                it.value = value
+                it.result.complete(Result.success(value))
+            }
+        entries.remove(key)
+        entries[key] = entry
+        while (entries.size > capacity) entries.remove(entries.keys.first())
+    }
 }
 
 private fun monotonicMillis(): () -> Long {

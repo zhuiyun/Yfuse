@@ -115,6 +115,7 @@ fun LivingPosterAmbient(
 }
 
 /** The continuous-corner, luminous-edge frame shared by both reels. */
+@Composable
 fun Modifier.livingPosterFrame(): Modifier =
     this
         .shadow(Shadows.hero, AppShapes.sheet)

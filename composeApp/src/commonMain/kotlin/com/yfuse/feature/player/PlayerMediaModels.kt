@@ -217,6 +217,8 @@ data class PlayerMediaItem(
     val serverFallbacks: List<PlayerMediaItem> = emptyList(),
     /** Exact server runtime used until the active engine reports an authoritative duration. */
     val durationMsHint: Long = 0L,
+    /** Normalized saved resume position for manual episode selection within the player. */
+    val resumePositionMs: Long = 0L,
     /** In-memory credentials for direct SMB/WebDAV/HTTP sources; diagnostics remain redacted. */
     val transportCredentials: YTransportCredentials? = null,
     /** In-memory component headers, scoped to the original stream origin by the transport. */

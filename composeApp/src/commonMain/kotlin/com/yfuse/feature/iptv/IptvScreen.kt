@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.TextButton
@@ -16,14 +17,19 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayActionRow
+import com.yfuse.core.designsystem.OverlayButton
+import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayHeader
+import com.yfuse.core.designsystem.flatGlass
 import com.yfuse.core.iptv.IptvChannel
 import com.yfuse.core.iptv.IptvRepository
 import com.yfuse.core.iptv.IptvSubscription
@@ -32,6 +38,7 @@ import com.yfuse.core.playback.PlayerCustomHeaders
 import com.yfuse.feature.player.PlayerLauncher
 import com.yfuse.feature.player.PlayerMediaItem
 import com.yfuse.feature.servers.ServerFormInput
+import com.yfuse.feature.servers.ServerProtocolSegment
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -122,35 +129,63 @@ private fun IptvDialog(onDismiss: () -> Unit) {
         ) {
             item {
                 Text("订阅管理", style = AppTypography.section.strong, color = palette.text)
-                ServerFormInput(label = "订阅名称", value = name, divider = true, enabled = !busy, onValueChange = {
-                    name =
-                        it
-                })
-                ServerFormInput(
-                    label = "M3U 地址",
-                    value = url,
-                    divider = false,
-                    enabled = !busy,
-                    placeholder = "http:// 或 https://",
-                    onValueChange = { url = it },
-                )
-                Row {
-                    TextButton(enabled = !busy && name.isNotBlank() && url.isNotBlank(), onClick = {
-                        perform {
-                            selectedId = repository.add(name, url.trim())
-                            group = null
-                            favoritesOnly = false
-                            name = ""
-                            url = ""
-                            message = "订阅已添加"
-                        }
-                    }) { Text(if (busy) "处理中…" else "添加订阅") }
-                    TextButton(enabled = !busy, onClick = importFile) { Text("导入 M3U 文件") }
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = 6.dp)
+                        .flatGlass(AppShapes.card, palette.card2, palette.border)
+                        .padding(vertical = 4.dp),
+                ) {
+                    ServerFormInput(
+                        outlined = true,
+                        label = "订阅名称",
+                        value = name,
+                        placeholder = "如：家庭直播",
+                        divider = false,
+                        enabled = !busy,
+                        onValueChange = { name = it },
+                    )
+                    ServerFormInput(
+                        outlined = true,
+                        label = "M3U 地址",
+                        value = url,
+                        divider = false,
+                        enabled = !busy,
+                        placeholder = "http:// 或 https://",
+                        onValueChange = { url = it },
+                    )
+                }
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    OverlayButton(
+                        label = if (busy) "处理中…" else "添加订阅",
+                        enabled = !busy && name.isNotBlank() && url.isNotBlank(),
+                        tone = OverlayButtonTone.Primary,
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            perform {
+                                selectedId = repository.add(name, url.trim())
+                                group = null
+                                favoritesOnly = false
+                                name = ""
+                                url = ""
+                                message = "订阅已添加"
+                            }
+                        },
+                    )
+                    OverlayButton(
+                        label = "导入 M3U 文件",
+                        enabled = !busy,
+                        modifier = Modifier.weight(1f),
+                        onClick = importFile,
+                    )
                 }
             }
             message?.let { value -> item { Text(value, style = AppTypography.caption.regular, color = palette.sub2) } }
             items(subscriptions, key = { "subscription:${it.id}" }) { subscription ->
-                Column {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     OverlayActionRow(
                         label = (if (subscription.id == selected?.id) "✓ " else "") + subscription.name,
                         description =
@@ -162,52 +197,83 @@ private fun IptvDialog(onDismiss: () -> Unit) {
                             query = ""
                         },
                     )
-                    Row {
-                        if (subscription.sourceUrl !=
-                            null
-                        ) {
-                            TextButton(enabled = !busy, onClick = {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (subscription.sourceUrl != null) {
+                            ServerProtocolSegment(
+                                label = "刷新",
+                                selected = false,
+                                enabled = !busy,
+                                outlined = true,
+                            ) {
                                 perform {
                                     repository.refresh(subscription.id)
-                                    message =
-                                        "频道已更新"
+                                    message = "频道已更新"
                                 }
-                            }) { Text("刷新") }
+                            }
                         }
-                        TextButton(enabled = !busy, onClick = { removing = subscription }) { Text("移除") }
+                        ServerProtocolSegment(
+                            label = "移除",
+                            selected = false,
+                            enabled = !busy,
+                            outlined = true,
+                        ) { removing = subscription }
                     }
                 }
             }
             if (selected != null) {
                 item {
                     Text("频道浏览", style = AppTypography.section.strong, color = palette.text)
-                    ServerFormInput(label = "搜索频道", value = query, divider = false, onValueChange = { query = it })
-                    Row {
-                        TextButton(
-                            onClick = { favoritesOnly = !favoritesOnly },
-                        ) { Text(if (favoritesOnly) "✓ 仅收藏" else "全部频道") }
-                        TextButton(onClick = { group = null }) { Text(if (group == null) "✓ 所有分组" else "清除分组") }
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(top = 6.dp)
+                            .flatGlass(AppShapes.card, palette.card2, palette.border)
+                            .padding(vertical = 4.dp),
+                    ) {
+                        ServerFormInput(
+                            outlined = true,
+                            label = "搜索频道",
+                            value = query,
+                            placeholder = "输入频道名称筛选",
+                            divider = false,
+                            onValueChange = { query = it },
+                        )
+                    }
+                    Row(
+                        Modifier.fillMaxWidth().padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        ServerProtocolSegment(
+                            label = if (favoritesOnly) "✓ 仅收藏" else "全部频道",
+                            selected = favoritesOnly,
+                            modifier = Modifier.weight(1f),
+                            outlined = true,
+                        ) { favoritesOnly = !favoritesOnly }
+                        ServerProtocolSegment(
+                            label = if (group == null) "✓ 所有分组" else "清除分组",
+                            selected = group == null,
+                            modifier = Modifier.weight(1f),
+                            outlined = true,
+                        ) { group = null }
                     }
                 }
                 items(selected.channels.map { it.group }.distinct(), key = { "group:$it" }) { label ->
-                    TextButton(onClick = {
-                        group =
-                            if (group ==
-                                label
-                            ) {
-                                null
-                            } else {
-                                label
-                            }
-                    }) { Text((if (group == label) "✓ " else "") + label) }
+                    ServerProtocolSegment(
+                        label = (if (group == label) "✓ " else "") + label,
+                        selected = group == label,
+                        outlined = true,
+                    ) {
+                        group = if (group == label) null else label
+                    }
                 }
                 items(channels, key = { "channel:${it.id}" }) { channel ->
-                    Row(Modifier.fillMaxWidth()) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         OverlayActionRow(
-                            modifier =
-                                Modifier.weight(
-                                    1f,
-                                ),
+                            modifier = Modifier.weight(1f),
                             label = channel.name,
                             description = channel.group,
                             onClick = {

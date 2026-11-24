@@ -47,6 +47,7 @@ import com.yfuse.core.designsystem.DialogAnimation
 import com.yfuse.core.designsystem.DialogContentMotion
 import com.yfuse.core.designsystem.DialogDragHandle
 import com.yfuse.core.designsystem.DialogDragHandleHeight
+import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassInk
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalDialogAnimation
@@ -77,20 +78,18 @@ internal val PlayerPanelWidth = 340.dp
 
 /** Compact floating settings popover. Search, chat, and episode lists keep their drawers. */
 internal val PlayerPopupWidth = 320.dp
-internal val PlayerPopupBottomClearance = 70.dp
+internal val PlayerPopupBottomClearance = 66.dp
 
 private val PlayerPopupCompactMinHeight = 124.dp
 
 private val PlayerPopupCompactMaxHeight = 190.dp
 
-private val PlayerPopupMinHeight = 176.dp
+private val PlayerPopupMinHeight = 160.dp
 
-private val PlayerPopupMaxHeight = 308.dp
+private val PlayerPopupMaxHeight = 252.dp
 
 /** Rounded on the leading edge only; the panel is attached to the screen's right edge. */
-internal val PlayerPanelShape = RoundedCornerShape(topStart = 24.dp, bottomStart = 24.dp)
-
-private val PlayerPanelBorder = Color.White.copy(alpha = 0.24f)
+internal val PlayerPanelShape = RoundedCornerShape(topStart = Dimens.large, bottomStart = Dimens.large)
 
 /**
  * The shared shell: a dismiss catcher over the picture, and the drawer itself.
@@ -278,9 +277,12 @@ internal fun PlayerSidePanel(
                 materialOverride =
                     LocalGlassMaterials.current.dark.copy(
                         tintRgb = 0x191E27,
-                        opacity = 1f,
+                        opacity = 0.76f,
+                        rim = 0.46f,
+                        rimWidth = 0.75f,
                         ink = GlassInk.Light,
                     ),
+                translucentOverVideo = !LocalMotionBudget.current.reduced,
             ).semantics { shownPaneTitle?.let { this.paneTitle = it } }
             // Taps inside the panel must not reach the catcher behind it.
             .pointerInput(Unit) { detectTapGestures { } }
@@ -478,7 +480,9 @@ internal fun PlayerPopupPanel(
                 materialOverride =
                     LocalGlassMaterials.current.dark.copy(
                         tintRgb = 0x191E27,
-                        opacity = 0.72f,
+                        opacity = 0.70f,
+                        rim = 0.48f,
+                        rimWidth = 0.75f,
                         ink = GlassInk.Light,
                     ),
                 translucentOverVideo = !LocalMotionBudget.current.reduced,

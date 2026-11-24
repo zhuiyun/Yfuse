@@ -222,11 +222,6 @@ private fun InputStream.readExactlyBounded(expected: Int): ByteArray {
 
 private fun String.isSafeHttpHeader(): Boolean = isNotBlank() && '\r' !in this && '\n' !in this
 
-private fun Long.saturatedMultiply(other: Long): Long =
-    if (this > Long.MAX_VALUE / other) Long.MAX_VALUE else this * other
-
-private fun Long.saturatedAdd(other: Long): Long = if (this > Long.MAX_VALUE - other) Long.MAX_VALUE else this + other
-
 private const val UNKNOWN_SIZE = -1L
 private const val MIN_BLOCK_BYTES = 64 * 1024
 private const val MAX_BLOCK_BYTES = 2 * 1024 * 1024

@@ -389,6 +389,7 @@ internal fun RefinedBottomBar(
     /** An upright phone window: the transport and the keys stack, 选集 first. */
     compact: Boolean = false,
     speedUnavailableReason: String? = null,
+    showEndsAt: Boolean = true,
 ) {
     // A new timeline sample arrives twice a second, and this function is called with it. Only
     // this frame stops here: everything below takes the holder and reads it from a draw or a
@@ -433,6 +434,7 @@ internal fun RefinedBottomBar(
         playKeyModifier = playKeyModifier,
         compact = compact,
         speedUnavailableReason = speedUnavailableReason,
+        showEndsAt = showEndsAt,
     )
 }
 
@@ -474,6 +476,7 @@ private fun RefinedBottomBarContent(
     playKeyModifier: Modifier = Modifier,
     compact: Boolean = false,
     speedUnavailableReason: String? = null,
+    showEndsAt: Boolean = true,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val tips = LocalTips.current
@@ -736,16 +739,15 @@ private fun RefinedBottomBarContent(
                 RefinedTimeText(durationMs) { durationMs.coerceAtLeast(0L) / 1_000L }
                 // The changing wall-clock label must not participate in the rail's measurement.
                 // Anchor its right edge to the duration's safe margin and allow it to extend left.
-                Box(
-                    Modifier.matchParentSize().offset(y = (-6).dp),
-                    contentAlignment = Alignment.TopEnd,
-                ) {
-                    PlaybackEndsAt(
-                        positionMs = shownPositionMs,
-                        durationMs = durationMs,
-                        speed = speed,
-                        modifier = Modifier.wrapContentWidth(Alignment.End, unbounded = true),
-                    )
+                if (showEndsAt) {
+                    Box(Modifier.matchParentSize().offset(y = (-6).dp), contentAlignment = Alignment.TopEnd) {
+                        PlaybackEndsAt(
+                            positionMs = shownPositionMs,
+                            durationMs = durationMs,
+                            speed = speed,
+                            modifier = Modifier.wrapContentWidth(Alignment.End, unbounded = true),
+                        )
+                    }
                 }
             }
         }
@@ -1699,13 +1701,7 @@ private val SeekTierPillGap = 4.dp
 private val SeekTimeBubbleHeight = 22.dp
 private val SeekTimeBubbleRise = 26.dp
 
-/**
- * Rail and thumb geometry.
- *
- * Under a finger the track thickens to nearly twice itself and the thumb grows with it: the thing
- * being dragged should look like it can take the weight. Both are laid out at the pressed size and
- * scaled down to the resting one, so the press spring never re-measures the row it sits in.
- */
+/** Rail and thumb geometry: laid out at pressed size and scaled to resting size so press springs never re-measure. */
 private val SeekTrackRestingHeight = 3.5.dp
 private val SeekTrackGrowth = 2.5.dp
 private val SeekTrackPressedHeight = SeekTrackRestingHeight + SeekTrackGrowth
@@ -1732,10 +1728,8 @@ internal fun magneticSeekTarget(
 ): MagneticSeekTarget {
     val raw = rawFraction.coerceIn(0f, 1f)
     val nearest = markerFractions.indices.minByOrNull { index -> abs(markerFractions[index] - raw) }
-    return if (
-        nearest != null &&
-        abs(markerFractions[nearest] - raw) <= thresholdFraction.coerceAtLeast(0f)
-    ) {
+    val snapped = nearest != null && abs(markerFractions[nearest] - raw) <= thresholdFraction.coerceAtLeast(0f)
+    return if (snapped) {
         MagneticSeekTarget(markerFractions[nearest].coerceIn(0f, 1f), nearest)
     } else {
         MagneticSeekTarget(raw, null)

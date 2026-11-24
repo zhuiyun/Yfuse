@@ -67,7 +67,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
@@ -107,10 +106,7 @@ import com.yfuse.core.designsystem.ThemeText as Text
 private val TrickplayPreviewWidth = 160.dp
 
 /**
- * [alternatives] are the other ways this title can be played, offered right where playback
- * failed: another file the server holds, another engine. The label says what changes; the
- * action performs it. Server transcoding is deliberately not among them: it would hide the
- * client's failure behind the server's CPU.
+ * In-player failure overlay backed by the redesigned [PlaybackErrorSurface].
  */
 @Composable
 internal fun PlaybackErrorOverlay(
@@ -120,118 +116,22 @@ internal fun PlaybackErrorOverlay(
     onBack: () -> Unit,
     alternatives: List<Pair<String, () -> Unit>> = emptyList(),
     onExplain: (() -> Unit)? = null,
+    errorKind: com.yfuse.core.playback.PlaybackFailureKind? = null,
+    stage: String? = null,
+    advice: String? = null,
 ) {
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.72f)),
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            // Spoken at once, reason included: the failure has stopped what the person was doing.
-            // The title stays a heading, where the explanation and the ways out below are found from.
-            Column(
-                Modifier.liveStatus(assertive = true),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
-                Text(
-                    "播放遇到问题",
-                    style = AppTypography.section.strong,
-                    color = Color.White,
-                    modifier = Modifier.semantics { heading() },
-                )
-                Text(
-                    message,
-                    style = AppTypography.body.regular,
-                    color = Color.White.copy(alpha = 0.72f),
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            onExplain?.let { explain ->
-                Text(
-                    "查看原因与导出日志",
-                    style = AppTypography.body.strong,
-                    color = Color.White,
-                    modifier = Modifier.noRippleClickable(explain).padding(12.dp),
-                )
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    "返回",
-                    style = AppTypography.body.medium,
-                    color = Color.White.copy(alpha = 0.82f),
-                    modifier =
-                        Modifier
-                            .glass(
-                                shape = AppShapes.pill,
-                                fill = Color.White.copy(alpha = 0.10f),
-                                border = Color.White.copy(alpha = 0.28f),
-                            ).noRippleClickable(onBack)
-                            .padding(horizontal = 18.dp, vertical = 9.dp),
-                )
-                Text(
-                    "重试",
-                    style = AppTypography.body.strong,
-                    color = Color(0xFF1B2436),
-                    modifier =
-                        Modifier
-                            .glass(
-                                shape = AppShapes.pill,
-                                fill = Color.White.copy(alpha = 0.68f),
-                                border = Color.White.copy(alpha = 0.88f),
-                            ).noRippleClickable(onRetry)
-                            .padding(horizontal = 18.dp, vertical = 9.dp),
-                )
-                onExternalPlayer?.let { open ->
-                    Text(
-                        "外部播放器",
-                        style = AppTypography.body.strong,
-                        color = Color.White,
-                        modifier =
-                            Modifier
-                                .glass(
-                                    shape = AppShapes.pill,
-                                    fill = Color.White.copy(alpha = 0.16f),
-                                    border = Color.White.copy(alpha = 0.36f),
-                                ).noRippleClickable(open)
-                                .padding(horizontal = 18.dp, vertical = 9.dp),
-                    )
-                }
-            }
-            if (alternatives.isNotEmpty()) {
-                Text(
-                    "换一种方式播放",
-                    style = AppTypography.caption.regular,
-                    color = Color.White.copy(alpha = 0.6f),
-                    modifier = Modifier.padding(top = 6.dp),
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    alternatives.forEach { (label, action) ->
-                        Text(
-                            label,
-                            style = AppTypography.caption.strong,
-                            color = Color.White.copy(alpha = 0.9f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier =
-                                Modifier
-                                    .glass(
-                                        shape = AppShapes.pill,
-                                        fill = Color.White.copy(alpha = 0.10f),
-                                        border = Color.White.copy(alpha = 0.28f),
-                                    ).noRippleClickable(action)
-                                    .padding(horizontal = 14.dp, vertical = 7.dp),
-                        )
-                    }
-                }
-            }
-        }
-    }
+    PlaybackErrorSurface(
+        title = playbackFailureHeadline(errorKind),
+        message = message,
+        stage = stage,
+        advice = advice,
+        preferBackAsPrimary = errorKind == com.yfuse.core.playback.PlaybackFailureKind.Authorization,
+        onRetry = onRetry,
+        onBack = onBack,
+        onExternalPlayer = onExternalPlayer,
+        alternatives = alternatives,
+        onExplain = onExplain,
+    )
 }
 
 /**

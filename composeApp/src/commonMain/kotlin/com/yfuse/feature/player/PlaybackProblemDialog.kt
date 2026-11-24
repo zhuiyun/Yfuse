@@ -31,7 +31,7 @@ internal fun PlaybackProblemDialog(
             val palette = LocalPalette.current
             val readablePalette =
                 remember(palette) {
-                    palette.copy(body = palette.text, sub = palette.text, sub2 = palette.text)
+                    palette.copy(body = palette.text)
                 }
             CompositionLocalProvider(LocalPalette provides readablePalette) {
                 OverlayHeader("播放状态", explanation.stage, onClose = onDismiss)

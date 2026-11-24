@@ -23,6 +23,10 @@ class AndroidAudioCodecMappingTest {
         assertEquals(YAudioCodec.Eac3, "audio/eac3".toYAudioCodec())
         assertEquals(YAudioCodec.TrueHd, "audio/true-hd".toYAudioCodec())
         assertEquals(YAudioCodec.DtsHd, "audio/vnd.dts.hd".toYAudioCodec())
+        assertEquals(YAudioCodec.Pcm, "audio/raw".toYAudioCodec())
+        assertEquals(YAudioCodec.Vorbis, "audio/vorbis".toYAudioCodec())
+        assertEquals(YAudioCodec.Ac4, "audio/ac4".toYAudioCodec())
+        assertEquals(YAudioCodec.Alac, "audio/alac".toYAudioCodec())
     }
 
     @Test
@@ -86,8 +90,8 @@ class AndroidAudioCodecMappingTest {
         // AndroidYCapabilityProvider builds the device decoder set through this function. Mapping
         // an unrecognised type to Unknown here would claim support for every codec; only callers
         // describing one concrete track substitute Unknown.
-        assertNull("audio/raw".toYAudioCodec())
-        assertNull("audio/vorbis".toYAudioCodec())
+        assertNull("audio/unknown".toYAudioCodec())
+        assertNull("audio/amr-wb".toYAudioCodec())
         assertNull("video/avc".toYAudioCodec())
         assertNull("".toYAudioCodec())
     }

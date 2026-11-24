@@ -20,7 +20,7 @@ import kotlin.test.assertTrue
 class YCoreServerTranscodeRoutingTest {
     @Test
     fun approved_output_enters_ycore_and_discards_the_original_format_and_cache_identity() {
-        val item = fixture().copy(serverTranscodeSupported = true).withForcedServerTranscode("decoder recovery")
+        val item = fixture().copy(serverTranscodeSupported = true).withForcedServerTranscode("viewer", byViewer = true)
         assertTrue(listOf(item).canUseCore2Trial(0))
         assertNull(listOf(item).core2NativeBaselineBlockReason(0))
         val mapped = listOf(item).toCore2MediaItems("test", cacheMaximumBytes = 1024, appVersion = { "1" }).single()
@@ -90,7 +90,12 @@ class YCoreServerTranscodeRoutingTest {
 
     @Test
     fun approval_does_not_make_an_unknown_output_protocol_supported() {
-        val item = fixture().copy(transcodeUrl = "unimplemented://output", playMethod = PlaybackMethod.Transcode)
+        val item =
+            fixture().copy(
+                transcodeUrl = "unimplemented://output",
+                playMethod = PlaybackMethod.Transcode,
+                forcedTranscodeByViewer = true,
+            )
         assertTrue(item.startsWithServerTranscode())
         assertFalse(listOf(item).canUseCore2Trial(0))
         assertNotNull(listOf(item).core2NativeBaselineBlockReason(0))

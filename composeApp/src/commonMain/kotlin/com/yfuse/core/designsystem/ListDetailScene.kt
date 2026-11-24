@@ -2,6 +2,7 @@ package com.yfuse.core.designsystem
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -37,16 +38,21 @@ private data class ListDetailScene<T : Any>(
 ) : Scene<T> {
     override val key: Any = entries.first().contentKey
     override val content: @Composable () -> Unit = {
-        Row(Modifier.fillMaxSize()) {
-            entries.forEachIndexed { index, entry ->
-                key(entry.contentKey) {
-                    if (index == 1) {
-                        Box(Modifier.width(1.dp).fillMaxHeight().background(LocalPalette.current.border))
-                    }
-                    val fraction = if (index == 0) 0.45f else 0.55f
-                    Box(Modifier.weight(fraction).fillMaxHeight().clipToBounds()) {
-                        CompositionLocalProvider(LocalInListPane provides (entries.size > 1 && index == 0)) {
-                            entry.Content()
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val foldableMedium = maxWidth < WindowWidthBreakpoints.expanded
+            val listFraction = if (foldableMedium) 0.42f else 0.45f
+            val detailFraction = 1f - listFraction
+            Row(Modifier.fillMaxSize()) {
+                entries.forEachIndexed { index, entry ->
+                    key(entry.contentKey) {
+                        if (index == 1) {
+                            Box(Modifier.width(1.dp).fillMaxHeight().background(LocalPalette.current.border))
+                        }
+                        val fraction = if (index == 0) listFraction else detailFraction
+                        Box(Modifier.weight(fraction).fillMaxHeight().clipToBounds()) {
+                            CompositionLocalProvider(LocalInListPane provides (entries.size > 1 && index == 0)) {
+                                entry.Content()
+                            }
                         }
                     }
                 }

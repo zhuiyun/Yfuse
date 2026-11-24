@@ -108,23 +108,27 @@ fun planDiscPlayback(probe: PlaybackMediaProbe): PlaybackDiscDecision {
                 strategy = PlaybackDiscStrategy.ServerResolvedLinear,
                 reason = "服务器已解析${kind.label}主标题，保留原始音视频流直放",
             )
-        probe.hasServerTranscode ->
-            PlaybackDiscDecision(
-                kind = kind,
-                strategy = PlaybackDiscStrategy.ServerMainFeature,
-                reason = "${kind.label}由服务器解析主标题后交给平台硬解",
-            )
         probe.localSource ->
             PlaybackDiscDecision(
                 kind = kind,
                 strategy = PlaybackDiscStrategy.NativeLocalImage,
-                reason = "本地${kind.label}使用原生 FFmpeg/libbluray 解封装",
+                reason =
+                    if (kind == PlaybackDiscKind.Dvd) {
+                        "本地 DVD 源尝试使用 FFmpeg 解封装（不含菜单导航）"
+                    } else {
+                        "本地${kind.label}使用原生 libbluray / FFmpeg 解封装"
+                    },
             )
         else ->
             PlaybackDiscDecision(
                 kind = kind,
                 strategy = PlaybackDiscStrategy.NativeRemoteFallback,
-                reason = "服务器未提供${kind.label}可播放主标题，尝试原生读取",
+                reason =
+                    if (kind == PlaybackDiscKind.Dvd) {
+                        "远程 DVD 源尝试使用本地 FFmpeg 直读解封装"
+                    } else {
+                        "远程${kind.label}使用本地 libbluray 分块直读与 FFmpeg 解封装"
+                    },
             )
     }
 }

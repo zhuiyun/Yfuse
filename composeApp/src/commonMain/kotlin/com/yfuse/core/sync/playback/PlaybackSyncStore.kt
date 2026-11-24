@@ -2,6 +2,8 @@ package com.yfuse.core.sync.playback
 
 import com.russhwolf.settings.Settings
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core.sync.watchKey
+import com.yfuse.core.sync.watchMatchKeys
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -356,6 +358,50 @@ class PlaybackSyncStore(
             }
         }
 
+    /**
+     * Re-projects a continue-watching [item] against the latest locally held state without
+     * hitting the network. Returns null when the item has been completed or restarted to 0.
+     */
+    fun projectResumeItem(
+        serverId: String,
+        item: com.yfuse.core.model.MediaItem,
+    ): com.yfuse.core.model.MediaItem? {
+        val state =
+            resolveState(
+                mediaKey = item.providerIds.watchKey(item.id),
+                aliases =
+                    watchMatchKeys(
+                        ownProviderIds = item.providerIds,
+                        fallbackId = item.id,
+                    ),
+                serverId = serverId,
+                serverItemId = item.id,
+            ) ?: return item
+        if (state.played || state.positionMs <= 0L) return null
+        val durationMs =
+            state.durationMs
+                .takeIf { it > 0L }
+                ?: item.runtimeMinutes?.takeIf { it > 0 }?.let { it * 60_000L }
+                ?: 0L
+        val percentage =
+            if (durationMs > 0L) {
+                (state.positionMs.toDouble() * 100.0 / durationMs.toDouble()).coerceIn(0.0, 100.0)
+            } else {
+                item.playedPercentage
+            }
+        val ticks =
+            if (state.positionMs > Long.MAX_VALUE / 10_000L) {
+                Long.MAX_VALUE
+            } else {
+                state.positionMs * 10_000L
+            }
+        return item.copy(
+            played = false,
+            playedPercentage = percentage,
+            resumePositionTicks = ticks,
+        )
+    }
+
     /** Learn a verified library source without creating playback or changing its timeline. */
     fun bindKnownSource(
         mediaKey: String,
@@ -374,7 +420,12 @@ class PlaybackSyncStore(
                 serverItems = mergePlaybackBindings(state.sourceBindings(), mapOf(serverId to listOf(serverItemId))),
             )
         if (updated == state) return@synchronized
-        replaceLocked(index, existing.copy(document = existing.document.copy(state = updated)))
+        replaceLocked(
+            index = index,
+            value = existing.copy(document = existing.document.copy(state = updated)),
+            deferrable = true,
+            notifyChanges = false,
+        )
     }
 
     /** Latest per-episode records for a catalog series, scoped to the active profile. */
@@ -1074,6 +1125,7 @@ class PlaybackSyncStore(
         index: Int,
         value: StoredPlaybackDocument,
         deferrable: Boolean = false,
+        notifyChanges: Boolean = true,
     ) {
         val previousState = documents.getOrNull(index)?.document?.state
         if (previousState != null && previousState != value.document.state) {
@@ -1105,7 +1157,7 @@ class PlaybackSyncStore(
             return
         }
         trimDocumentsLocked()
-        publishChangeLocked()
+        if (notifyChanges) publishChangeLocked()
         if (deferrable && !deferredPersistOverdueLocked()) {
             documentsUnsaved = true
             return

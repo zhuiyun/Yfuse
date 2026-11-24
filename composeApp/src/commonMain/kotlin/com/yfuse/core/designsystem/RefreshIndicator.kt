@@ -67,9 +67,14 @@ internal fun RefreshIndicator(
                 scaleX = if (reduced) 1f else 0.8f + 0.2f * fraction
                 scaleY = scaleX
             }.size(40.dp)
+            .shadow(GlassLift.control, AppShapes.pill)
             .lightOnChange(refreshing, if (refreshing) LightEffect.Node else LightEffect.Edge)
-            .glass(AppShapes.chip, palette.card, palette.border)
-            .padding(10.dp),
+            .liquidGlass(
+                shape = AppShapes.pill,
+                fill = palette.glassStrong,
+                border = palette.tabbarBorder,
+                sheen = 0.85f,
+            ).padding(10.dp),
         contentAlignment = Alignment.Center,
     ) {
         InlineLoadingContent(loading = refreshing, slotSize = 20.dp, color = LocalAccentColors.current.accent) {

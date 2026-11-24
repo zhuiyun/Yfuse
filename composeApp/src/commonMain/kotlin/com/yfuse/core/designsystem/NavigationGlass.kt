@@ -123,7 +123,7 @@ internal class LiquidNavigationGlass internal constructor(
     /** Paints the glass for [paths]: the lift and the blurred page under the whole outline, then each piece. */
     fun DrawScope.drawGlass(paths: LiquidPaths) {
         if (paths.pieces.isEmpty()) return
-        drawPathShadow(paths.outline, if (liquid) ink.shadow else Shadows.tabBar)
+        drawPathShadow(paths.outline, if (liquid) ink.shadow else Shadows.tabBar.forTheme(palette.isDark))
         blur?.run { drawBlurred(paths.outline) }
         paths.pieces.forEach { piece ->
             val box = piece.bounds
@@ -133,8 +133,19 @@ internal class LiquidNavigationGlass internal constructor(
         }
     }
 
+    private val tintBrush = Brush.verticalGradient(0f to ink.tintTop, 1f to ink.tintBottom)
+    private val rimBrush =
+        cssLinearGradient(
+            135f,
+            0f to Color.White.copy(alpha = ink.rimNear),
+            0.38f to Color.White.copy(alpha = ink.rimSide),
+            0.68f to Color.White.copy(alpha = ink.rimSide),
+            1f to Color.White.copy(alpha = ink.rimFar),
+        )
+    private val plateSurfaceBrush = glassPlateSurface(plateFill, palette, reduceTransparency, frosted)
+
     private fun DrawScope.drawLiquidPane(outline: Path) {
-        drawPath(outline, Brush.verticalGradient(0f to ink.tintTop, 1f to ink.tintBottom))
+        drawPath(outline, tintBrush)
         drawPath(
             outline,
             Brush.linearGradient(
@@ -154,20 +165,12 @@ internal class LiquidNavigationGlass internal constructor(
                 radius = (size.width * 0.65f).coerceAtLeast(1f),
             ),
         )
-        val rim =
-            cssLinearGradient(
-                135f,
-                0f to Color.White.copy(alpha = ink.rimNear),
-                0.38f to Color.White.copy(alpha = ink.rimSide),
-                0.68f to Color.White.copy(alpha = ink.rimSide),
-                1f to Color.White.copy(alpha = ink.rimFar),
-            )
         // Clipped to the outline, as the pane is, so the doubled stroke leaves exactly the token.
-        clipPath(outline) { drawPath(outline, rim, style = Stroke(NavigationGlassRim.toPx() * 2f)) }
+        clipPath(outline) { drawPath(outline, rimBrush, style = Stroke(NavigationGlassRim.toPx() * 2f)) }
     }
 
     private fun DrawScope.drawPlatePane(outline: Path) {
-        drawPath(outline, glassPlateSurface(plateFill, palette, reduceTransparency, frosted))
+        drawPath(outline, plateSurfaceBrush)
         val edge = plateBorder ?: return
         clipPath(outline) { drawPath(outline, edge, style = Stroke(Dimens.hairline.toPx() * 2f)) }
     }
@@ -257,6 +260,19 @@ fun DrawScope.drawLensIsland(
         size = rect.size,
         cornerRadius = CornerRadius(minOf(rect.width, rect.height) / 2f),
     )
+    // Subtle top-center lens specular gives the selected pill a liquid-lens depth over scrolled posters.
+    drawRoundRect(
+        brush =
+            Brush.radialGradient(
+                0f to Color.White.copy(alpha = (if (dark) 0.16f else 0.28f) * a),
+                1f to Color.Transparent,
+                center = Offset(rect.center.x, rect.top),
+                radius = (rect.width * 0.62f).coerceAtLeast(1f),
+            ),
+        topLeft = rect.topLeft,
+        size = rect.size,
+        cornerRadius = CornerRadius(minOf(rect.width, rect.height) / 2f),
+    )
     val rim =
         Brush.linearGradient(
             0f to Color.White.copy(alpha = ink.rimNear * a),
@@ -332,7 +348,7 @@ val NavigationGlassBlurRadius: Dp = 18.dp
 
 internal val NavigationGlassRim: Dp = 0.75.dp
 internal val NavigationGlassRefraction = BackdropRefraction(edgeX = 0.12f, edgeY = 0.18f, strength = 4.dp)
-private const val NAVIGATION_GLASS_SATURATION = 1.30f
+private const val NAVIGATION_GLASS_SATURATION = 1.45f
 
 internal class NavigationGlassInk(
     val tintTop: Color,
@@ -356,12 +372,12 @@ internal class NavigationGlassInk(
             )
         val Dark =
             NavigationGlassInk(
-                tintTop = Color(0xFF313743).copy(alpha = 0.26f),
-                tintBottom = Color(0xFF171B24).copy(alpha = 0.36f),
-                sheenAlpha = 0.06f,
-                rimNear = 0.34f,
-                rimSide = 0.08f,
-                rimFar = 0.18f,
+                tintTop = Color(0xFF313743).copy(alpha = 0.20f),
+                tintBottom = Color(0xFF171B24).copy(alpha = 0.28f),
+                sheenAlpha = 0.08f,
+                rimNear = 0.38f,
+                rimSide = 0.09f,
+                rimFar = 0.20f,
                 shadow = CssShadow(0.dp, 8.dp, 24.dp, 0.dp, Color.Black.copy(alpha = 0.30f)),
             )
     }

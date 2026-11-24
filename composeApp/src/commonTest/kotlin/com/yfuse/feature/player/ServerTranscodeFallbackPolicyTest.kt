@@ -24,7 +24,7 @@ class ServerTranscodeFallbackPolicyTest {
     }
 
     @Test
-    fun an_explicitly_approved_server_stream_remains_available_for_recovery() {
+    fun an_explicitly_approved_server_stream_is_available_only_when_viewer_requests_it() {
         val item =
             PlayerMediaItem(
                 id = "movie",
@@ -36,7 +36,8 @@ class ServerTranscodeFallbackPolicyTest {
                 serverTranscodeSupported = true,
             )
 
-        assertTrue(item.allowsServerTranscodeFallback(viewerRequested = false))
+        assertFalse(item.allowsServerTranscodeFallback(viewerRequested = false))
+        assertTrue(item.allowsServerTranscodeFallback(viewerRequested = true))
     }
 
     @Test
@@ -52,5 +53,6 @@ class ServerTranscodeFallbackPolicyTest {
             )
 
         assertFalse(item.allowsServerTranscodeFallback(viewerRequested = false))
+        assertFalse(item.allowsServerTranscodeFallback(viewerRequested = true))
     }
 }

@@ -107,7 +107,7 @@ class YPlaybackStrategyTest {
                                 codec = YVideoCodec.H265,
                                 hdrType = YHdrType.DolbyVision,
                                 bitDepth = 10,
-                                dolbyVisionProfile = 7,
+                                dolbyVisionProfile = 5,
                             ),
                         platformDemuxSupported = true,
                     ),
@@ -117,7 +117,7 @@ class YPlaybackStrategyTest {
                             listOf(
                                 decoder(
                                     hdr = setOf(YHdrType.Sdr, YHdrType.DolbyVision),
-                                    dolbyProfiles = setOf(5, 8),
+                                    dolbyProfiles = setOf(7, 8),
                                 ),
                             ),
                         displayHdrTypes = setOf(YHdrType.Sdr, YHdrType.DolbyVision),

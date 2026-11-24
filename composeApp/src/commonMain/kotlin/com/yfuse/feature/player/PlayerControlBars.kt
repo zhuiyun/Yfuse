@@ -219,6 +219,7 @@ internal fun BoxScope.PlayerBottomChrome(
                     onSeekBackwardLongPress = onMissedLine,
                     playKeyModifier = playKeyModifier,
                     compact = compact,
+                    showEndsAt = chrome.settingsPanelKind == null && chrome.quickPopup == null,
                 )
             }
         }
