@@ -26,9 +26,11 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -43,12 +45,14 @@ import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.DialogPresence
 import com.yfuse.core.designsystem.GlassDialog
+import com.yfuse.core.designsystem.ServerBadgeArtwork
 import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.network.rememberLocalNetworkPermissionRequest
 import com.yfuse.core.remote.RemoteSignInRequest
 import com.yfuse.feature.servers.QuickConnectUiState
+import com.yfuse.feature.servers.ServerIconDialog
 import com.yfuse.feature.servers.ServersIntent
 import com.yfuse.feature.servers.ServersLabel
 import com.yfuse.feature.servers.ServersState
@@ -70,6 +74,7 @@ internal fun TvServersScreen(
 ) {
     val state by component.store.states.collectAsState(component.store.state)
     val refreshing by component.refreshing.collectAsState()
+    val access by component.access.collectAsState()
     val store = component.store
     val serverGridState = focusMemory.gridState("servers")
     val serverCandidates =
@@ -221,11 +226,25 @@ internal fun TvServersScreen(
     // The store closes the dialog itself once a server connects. Held here, it plays its exit
     // from the state it last showed instead of vanishing in a frame.
     DialogPresence(state.takeIf { it.dialogVisible }) { shown ->
+        val editing = shown.servers.firstOrNull { it.id == shown.editingServerId && access.canManageServers }
+        var choosingIcon by rememberSaveable(shown.editingServerId) { mutableStateOf(false) }
         TvServerDialog(
             state = shown,
+            onChooseIcon = if (editing == null) null else ({ choosingIcon = true }),
             focusMemory = focusMemory,
             onIntent = store::accept,
         )
+        if (choosingIcon && editing != null) {
+            ServerIconDialog(
+                server = editing,
+                catalog = component.iconCatalog,
+                onSave = { emoji, tint, url ->
+                    component.setIcon(editing.id, emoji, tint, url)
+                    choosingIcon = false
+                },
+                onDismiss = { choosingIcon = false },
+            )
+        }
     }
 }
 
@@ -265,13 +284,16 @@ private fun TvServerCard(
                     Modifier
                         .width(48.dp)
                         .height(48.dp)
+                        .clip(RoundedCornerShape(12.dp))
                         .background(
                             if (focused) Color.Black.copy(alpha = 0.12f) else TvAccent.copy(alpha = 0.15f),
                             RoundedCornerShape(12.dp),
                         ),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(server.iconEmoji ?: server.serverName.take(1), fontSize = TvType.section)
+                    ServerBadgeArtwork(server.iconUrl) {
+                        Text(server.iconEmoji ?: server.serverName.take(1), fontSize = TvType.section)
+                    }
                 }
                 Spacer(Modifier.width(13.dp))
                 Column {
@@ -318,6 +340,7 @@ private fun TvServerCard(
 @Composable
 private fun TvServerDialog(
     state: ServersState,
+    onChooseIcon: (() -> Unit)?,
     focusMemory: TvUiFocusMemory,
     onIntent: (ServersIntent) -> Unit,
 ) {
@@ -368,6 +391,16 @@ private fun TvServerDialog(
                 fontSize = TvType.section,
                 fontWeight = FontWeight.ExtraBold,
             )
+            if (onChooseIcon != null) {
+                TvActionButton(
+                    label = "图标与颜色",
+                    stableId = "server-dialog:icon",
+                    focusScope = "server-dialog:actions",
+                    focusMemory = focusMemory,
+                    onClick = onChooseIcon,
+                    icon = AppIcons.Grid,
+                )
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 MediaServerKind.entries.forEach { kind ->
                     TvActionButton(
