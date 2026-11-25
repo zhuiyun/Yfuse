@@ -40,6 +40,7 @@ import com.yfuse.core.model.PlayTarget
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.Season
 import com.yfuse.core.model.ServerSource
+import com.yfuse.core.model.SourceInfo
 import com.yfuse.core.model.ThemeSong
 import com.yfuse.core.model.TrickplayInfo
 import com.yfuse.core.model.plexRating
@@ -1057,6 +1058,7 @@ internal class PlexMediaServerAdapter(
         seasonNumber: Int?,
         episodeNumber: Int?,
         forceRefresh: Boolean = false,
+        titleOnly: Boolean = false,
     ): ServerSource =
         withContext(if (forceRefresh) PlexSourceRetry() else EmptyCoroutineContext) {
             val lookup =
@@ -1072,10 +1074,20 @@ internal class PlexMediaServerAdapter(
                                     "movie" -> item.type == "Movie"
                                     else -> true
                                 }
-                        } ?: page.items.firstOrNull()
+                        } ?: page.items.firstOrNull().takeIf { !titleOnly && mediaType != "tv" }
                     }
                 }
             var item = lookup.getOrNull()
+            if (titleOnly && item != null) {
+                return@withContext ServerSource(
+                    server.id,
+                    server.serverName,
+                    server.id == currentServerId,
+                    SourceInfo("已收录", null, null),
+                    reachable = true,
+                    itemId = item.id,
+                )
+            }
             val series = item
             if (
                 series?.type == "Series" &&

@@ -23,9 +23,11 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -502,6 +504,157 @@ class DetailStoreTest {
                         ?.id,
                 )
                 assertEquals(1, playbackFieldRequests)
+            } finally {
+                store.dispose()
+            }
+        }
+
+    @Test
+    fun slow_resume_does_not_block_lists_and_late_result_confirms_the_episode() =
+        runTest {
+            val store =
+                seriesStore(
+                    includeSecondSource = true,
+                    beforeInitialEpisodes = { delay(6_000L) },
+                    mainContext = UnconfinedTestDispatcher(testScheduler),
+                )
+            try {
+                runCurrent()
+                assertEquals(2, store.state.episodes.size)
+                assertEquals(2, store.state.sources.size)
+                assertTrue(!store.state.sourcesLoading)
+                assertNull(store.state.playTarget)
+                assertEquals(
+                    "已收录",
+                    store.state.sources
+                        .first { it.serverId == "two" }
+                        .source
+                        ?.quality,
+                )
+                advanceTimeBy(5_001)
+                assertTrue(!store.state.selectionLoading)
+                assertNull(store.state.playTarget)
+                advanceUntilIdle()
+                assertEquals("e1", store.state.playTarget?.id)
+                assertTrue(!store.state.sourcesLoading)
+                val alternate = store.state.sources.single { it.serverId == "two" }
+                assertTrue(alternate.source?.let { it.quality != "已收录" } == true)
+                assertEquals(listOf("e1", "e2"), store.state.episodes.map { it.id })
+            } finally {
+                store.dispose()
+            }
+        }
+
+    @Test
+    fun choosing_episode_while_resume_is_pending_keeps_the_new_episode_and_its_resources() =
+        runTest {
+            val release = CompletableDeferred<Unit>()
+            val store =
+                seriesStore(
+                    includeSecondSource = true,
+                    beforeInitialEpisodes = { release.await() },
+                    mainContext = UnconfinedTestDispatcher(testScheduler),
+                )
+            try {
+                store.states.first { it.episodes.size == 2 && it.sources.size == 2 }
+                store.accept(DetailIntent.SelectEpisode("e2", 0L))
+                store.states.first { it.playTarget?.id == "e2" && !it.sourcesLoading }
+                release.complete(Unit)
+                advanceUntilIdle()
+                assertEquals("e2", store.state.selectedEpisodeId)
+                assertEquals("e2", store.state.playTarget?.id)
+                assertNull(
+                    store.state.sources
+                        .first { it.serverId == "two" }
+                        .source,
+                )
+            } finally {
+                release.complete(Unit)
+                store.dispose()
+            }
+        }
+
+    @Test
+    fun browsing_another_season_while_resume_is_pending_keeps_that_season() =
+        runTest {
+            val release = CompletableDeferred<Unit>()
+            val store =
+                seriesStore(
+                    beforeInitialEpisodes = { release.await() },
+                    seasonTwoEpisodesFailure = { null },
+                    mainContext = UnconfinedTestDispatcher(testScheduler),
+                )
+            try {
+                store.states.first { it.episodes.size == 2 }
+                store.accept(DetailIntent.SelectSeason("season2"))
+                store.states.first { it.listedSeasonId == "season2" }
+                release.complete(Unit)
+                advanceUntilIdle()
+                assertEquals("e1", store.state.playTarget?.id)
+                assertEquals("season2", store.state.selectedSeasonId)
+                assertEquals(listOf("e3"), store.state.episodes.map { it.id })
+            } finally {
+                release.complete(Unit)
+                store.dispose()
+            }
+        }
+
+    @Test
+    fun resource_retry_recovers_the_alternate_library_while_resume_remains_unavailable() =
+        runTest {
+            var alternateOffline = true
+            var seasonRequests = 0
+            val store =
+                seriesStore(
+                    includeSecondSource = true,
+                    beforeInitialEpisodes = { awaitCancellation() },
+                    beforeFirstSeasons = { seasonRequests++ },
+                    beforeSecondSourceLookup = { if (alternateOffline) error("library unavailable") },
+                    mainContext = UnconfinedTestDispatcher(testScheduler),
+                )
+            try {
+                advanceUntilIdle()
+                assertNull(store.state.playTarget)
+                assertTrue(store.state.sourcesError != null)
+                assertEquals(2, store.state.episodes.size)
+                alternateOffline = false
+                store.accept(DetailIntent.RetrySources)
+                advanceUntilIdle()
+                assertNull(store.state.sourcesError)
+                assertEquals(
+                    "s2",
+                    store.state.sources
+                        .single { it.serverId == "two" }
+                        .itemId,
+                )
+                assertNull(store.state.playTarget)
+                assertEquals(1, seasonRequests)
+            } finally {
+                store.dispose()
+            }
+        }
+
+    @Test
+    fun retrying_a_failed_episode_directory_only_reloads_that_directory() =
+        runTest {
+            var seasonsRequests = 0
+            var targetRequests = 0
+            val store =
+                seriesStore(
+                    beforeFirstSeasons = {
+                        if (++seasonsRequests == 1) error("season catalog unavailable")
+                    },
+                    beforeInitialEpisodes = { targetRequests++ },
+                    mainContext = UnconfinedTestDispatcher(testScheduler),
+                )
+            try {
+                store.states.first { it.episodesError != null && it.playTarget?.id == "e1" }
+                assertTrue(!store.state.episodesLoading)
+                assertTrue(store.state.sources.isNotEmpty())
+                store.accept(DetailIntent.RetryEpisodes)
+                store.states.first { it.episodes.size == 2 && it.episodesError == null }
+                assertEquals(2, seasonsRequests)
+                assertEquals(1, targetRequests)
             } finally {
                 store.dispose()
             }
@@ -1451,6 +1604,7 @@ class DetailStoreTest {
         onFirstEpisodesRequest: (String?) -> Unit = {},
         beforeFirstSeasons: suspend () -> Unit = {},
         beforeSecondEpisodes: suspend () -> Unit = {},
+        beforeSecondSourceLookup: () -> Unit = {},
         secondEpisodesBody: String = """{"Items":[$ALT_EPISODE_ONE]}""",
         onSecondEpisodeDetail: () -> Unit = {},
         onSecondNextUp: () -> Unit = {},
@@ -1558,7 +1712,8 @@ class DetailStoreTest {
                         json(secondEpisodesBody)
                     }
                     path.endsWith("/Similar") -> json("""{"Items":[]}""")
-                    path.endsWith("/Items") ->
+                    path.endsWith("/Items") -> {
+                        if (host == "two") beforeSecondSourceLookup()
                         json(
                             if (host == "two") {
                                 """{"Items":[$SERIES_TWO]}"""
@@ -1566,6 +1721,7 @@ class DetailStoreTest {
                                 """{"Items":[$SERIES]}"""
                             },
                         )
+                    }
                     else -> json("{}")
                 }
             }

@@ -73,7 +73,6 @@ internal class DetailPlaybackResolver(
                 sourceDetail = sourceDetail,
                 target = targetDetail,
                 positionTicks = resolution.target.startPositionTicks,
-                catalogEpisodes = resolution.episodes,
             )
         }
 
@@ -85,6 +84,15 @@ internal class DetailPlaybackResolver(
     ): Result<ResolvedPlaybackSelection> =
         cancellableResult {
             if (sourceDetail.type != "Series") {
+                if (preferredEpisode?.episodeNumber != null &&
+                    (
+                        sourceDetail.type != "Episode" ||
+                            sourceDetail.seasonNumber != preferredEpisode.seasonNumber ||
+                            sourceDetail.episodeNumber != preferredEpisode.episodeNumber
+                    )
+                ) {
+                    throw EpisodeUnavailableException(preferredEpisode.seasonNumber, preferredEpisode.episodeNumber)
+                }
                 val catalog =
                     seriesIdOf(sourceDetail)?.let { seriesId ->
                         loadSeriesCatalog(server, seriesId, sourceDetail, allEpisodes = null)

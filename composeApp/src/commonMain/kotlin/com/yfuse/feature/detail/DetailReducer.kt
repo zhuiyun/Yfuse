@@ -74,17 +74,29 @@ internal object DetailReducer : Reducer<DetailState, DetailMsg> {
                     actionMessage = null,
                 )
             is DetailMsg.SeasonsLoaded -> copy(seasons = msg.seasons, selectedSeasonId = msg.selected)
-            DetailMsg.EpisodesLoading -> copy(episodesLoading = true)
+            DetailMsg.EpisodesLoading -> copy(episodesLoading = true, episodesError = null)
+            is DetailMsg.EpisodesFailed -> copy(episodesLoading = false, episodesError = msg.message)
             DetailMsg.EpisodesLoadingFinished -> copy(episodesLoading = false)
             // Only ever sent for the season that is selected when they land.
             is DetailMsg.EpisodesLoaded ->
-                copy(episodesLoading = false, episodes = msg.episodes, listedSeasonId = selectedSeasonId)
+                copy(
+                    episodesLoading = false,
+                    episodesError = null,
+                    episodes = msg.episodes,
+                    listedSeasonId = selectedSeasonId,
+                )
             DetailMsg.SourcesLoading -> copy(sourcesLoading = true, sourcesError = null)
             is DetailMsg.SourcesFailed -> copy(sourcesLoading = false, sourcesError = msg.message)
             is DetailMsg.SourcesLoaded -> {
                 val selected = msg.sources.firstOrNull { it.isCurrent && it.itemId != null }
                 copy(
-                    sources = msg.sources,
+                    sources =
+                        msg.sources.withResolvedCurrentSource(
+                            playTarget?.versions?.firstOrNull { it.id == selectedVersionId },
+                            playServer?.id,
+                            playServer?.serverName,
+                            playSourceDetail?.id,
+                        ),
                     sourcesLoading = !msg.complete,
                     sourcesError = null,
                     selectedSourceServerId = selectedSourceServerId ?: selected?.serverId,
@@ -292,6 +304,13 @@ internal object DetailReducer : Reducer<DetailState, DetailMsg> {
                     playSourceDetail = resolvedSource,
                     playTarget = msg.target,
                     playPositionTicks = msg.positionTicks,
+                    sources =
+                        sources.withResolvedCurrentSource(
+                            msg.target.versions.firstOrNull { it.id == versionId },
+                            msg.server.id,
+                            msg.server.serverName,
+                            msg.sourceDetail.id,
+                        ),
                     selectedSourceServerId = msg.server.id,
                     selectedSourceItemId = msg.sourceDetail.id,
                     selectedEpisodeId = msg.target.id.takeIf { msg.target.type == "Episode" },
@@ -312,7 +331,8 @@ internal object DetailReducer : Reducer<DetailState, DetailMsg> {
                     watchLaterLoading = if (organizationSourceChanged) true else watchLaterLoading,
                     watchLaterMutating = if (organizationSourceChanged) false else watchLaterMutating,
                     episodes = msg.episodes ?: episodes,
-                    episodesLoading = false,
+                    episodesLoading = msg.episodes == null && episodesLoading,
+                    episodesError = if (msg.episodes != null) null else episodesError,
                     selectionLoading = false,
                     related = if (sourceChanged) emptyList() else related,
                     actionMessage = null,
