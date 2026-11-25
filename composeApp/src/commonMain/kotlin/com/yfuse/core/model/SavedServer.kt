@@ -47,6 +47,8 @@ data class SavedServer(
      */
     @Transient
     val localCleartextConfirmed: Boolean = false,
+    /** HTTPS artwork selected for this server. Older records use the emoji or initial. */
+    val iconUrl: String? = null,
 ) {
     /**
      * The routes as the user sees them. A server saved before multi-route existed has one

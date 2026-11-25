@@ -23,6 +23,26 @@ import kotlin.test.assertTrue
 
 class ServerRegistryTest {
     @Test
+    fun selectedOnlineIconSurvivesReloadAndReloginAndCanBeCleared() {
+        val settings = MapSettings()
+        val secrets = TestSecureStore()
+        val original = server("a")
+        val url = "https://icons.example/cinema.png"
+        val registry = registry(settings, secrets)
+        registry.addOrUpdate(original)
+        assertTrue(registry.setIcon(original.id, "🎬", 42L, url))
+
+        val reopened = ServerRegistry(settings, secrets)
+        reopened.addOrUpdate(original.copy(accessToken = "renewed"))
+        assertEquals(url, reopened.serverById(original.id)?.iconUrl)
+        assertTrue(reopened.setIcon(original.id, "🎬", 42L, null))
+        val cleared = ServerRegistry(settings, secrets).serverById(original.id)
+        assertNull(cleared?.iconUrl)
+        assertEquals("🎬", cleared?.iconEmoji)
+        assertEquals(42L, cleared?.iconTint)
+    }
+
+    @Test
     fun httpServersSyncAndReloadWithoutConfirmation() {
         val settings = MapSettings()
         val secrets = TestSecureStore()
@@ -323,6 +343,7 @@ class ServerRegistryTest {
                 "u1",
                 "Alice",
                 "secret-one",
+                iconUrl = "https://icons.example/cinema.png",
             )
         val second =
             SavedServer(
@@ -350,6 +371,7 @@ class ServerRegistryTest {
         assertEquals(second.id, target.defaultServer?.id)
         assertEquals("secret-one", target.serverById(first.id)?.accessToken)
         assertEquals("客厅影院", target.serverById(first.id)?.serverName)
+        assertEquals(first.iconUrl, target.serverById(first.id)?.iconUrl)
         assertTrue(
             registry()
                 .importProtectedBackup(

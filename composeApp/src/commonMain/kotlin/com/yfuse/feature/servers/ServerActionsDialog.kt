@@ -48,6 +48,7 @@ import com.yfuse.core.designsystem.GlassButtonEmphasis
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.ServerBadgeArtwork
 import com.yfuse.core.designsystem.SettingIconTile
 import com.yfuse.core.designsystem.SettingTint
 import com.yfuse.core.designsystem.flatGlass
@@ -330,14 +331,22 @@ private fun ServerActionsHeader(
         verticalAlignment = Alignment.Top,
     ) {
         val serverTint = serverTintColor(server.id, server.iconTint)
-        if (server.iconEmoji == null) {
-            SettingIconTile(AppIcons.Server, serverTint, size = 44.dp)
-        } else {
-            Box(
-                Modifier.size(44.dp).background(serverTint.copy(alpha = 0.18f), AppShapes.thumb),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(server.iconEmoji.orEmpty(), style = AppTypography.section.strong, color = Color.Unspecified)
+        Box(Modifier.size(44.dp).clip(AppShapes.thumb), contentAlignment = Alignment.Center) {
+            ServerBadgeArtwork(server.iconUrl) {
+                if (server.iconEmoji == null) {
+                    SettingIconTile(AppIcons.Server, serverTint, size = 44.dp)
+                } else {
+                    Box(
+                        Modifier.size(44.dp).background(serverTint.copy(alpha = 0.18f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            server.iconEmoji.orEmpty(),
+                            style = AppTypography.section.strong,
+                            color = Color.Unspecified,
+                        )
+                    }
+                }
             }
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {

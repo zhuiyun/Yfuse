@@ -94,6 +94,7 @@ import com.yfuse.core.designsystem.RefreshIndicator
 import com.yfuse.core.designsystem.RefreshThresholdHaptics
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.SectionHeader
+import com.yfuse.core.designsystem.ServerBadgeArtwork
 import com.yfuse.core.designsystem.SettingRow
 import com.yfuse.core.designsystem.SkeletonArrivalScope
 import com.yfuse.core.designsystem.SkeletonBlock
@@ -1028,11 +1029,13 @@ private fun ServerSheet(
                             .background(serverBadgeColor(server.id)),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text(
-                            server.serverName.take(1).uppercase(),
-                            style = AppTypography.caption.strong,
-                            color = Color.White,
-                        )
+                        ServerBadgeArtwork(server.iconUrl) {
+                            Text(
+                                server.serverName.take(1).uppercase(),
+                                style = AppTypography.caption.strong,
+                                color = Color.White,
+                            )
+                        }
                     }
                     Column(Modifier.weight(1f)) {
                         Text(
