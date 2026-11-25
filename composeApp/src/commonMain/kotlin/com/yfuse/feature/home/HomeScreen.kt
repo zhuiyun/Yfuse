@@ -64,9 +64,9 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.ArrivalMotion
-import com.yfuse.core.designsystem.ArtworkPageTheme
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.CaptionedPoster
+import com.yfuse.core.designsystem.CarouselArtworkPageTheme
 import com.yfuse.core.designsystem.CloudPlayerLogo
 import com.yfuse.core.designsystem.ContextualTip
 import com.yfuse.core.designsystem.Dimens
@@ -77,6 +77,7 @@ import com.yfuse.core.designsystem.HeroActionDock
 import com.yfuse.core.designsystem.HeroTextShadow
 import com.yfuse.core.designsystem.ItemAction
 import com.yfuse.core.designsystem.LiftMenu
+import com.yfuse.core.designsystem.LivingPosterArtwork
 import com.yfuse.core.designsystem.LivingPosterDefaults
 import com.yfuse.core.designsystem.LivingPosterHeroCarousel
 import com.yfuse.core.designsystem.LocalAccentColors
@@ -91,6 +92,7 @@ import com.yfuse.core.designsystem.OrbProgressDefaults
 import com.yfuse.core.designsystem.OverlayPage
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.PrimaryGradient
+import com.yfuse.core.designsystem.PublishLivingPosterPageColor
 import com.yfuse.core.designsystem.RatingBadges
 import com.yfuse.core.designsystem.RefreshIndicator
 import com.yfuse.core.designsystem.RefreshThresholdHaptics
@@ -102,7 +104,6 @@ import com.yfuse.core.designsystem.Tips
 import com.yfuse.core.designsystem.ToastAction
 import com.yfuse.core.designsystem.ZoomBackAnchor
 import com.yfuse.core.designsystem.arrivalSweep
-import com.yfuse.core.designsystem.artworkReelGround
 import com.yfuse.core.designsystem.carouselArtworkMotion
 import com.yfuse.core.designsystem.carouselCaptionEntry
 import com.yfuse.core.designsystem.fadeIntoPage
@@ -127,9 +128,7 @@ import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.pressableTarget
 import com.yfuse.core.designsystem.refreshAction
 import com.yfuse.core.designsystem.rememberArtworkAccentTarget
-import com.yfuse.core.designsystem.rememberArtworkPageColor
 import com.yfuse.core.designsystem.rememberCarouselCaptionProgress
-import com.yfuse.core.designsystem.rememberCarouselPageColor
 import com.yfuse.core.designsystem.rememberRefreshReveal
 import com.yfuse.core.designsystem.rememberRetainedArtworkPageColor
 import com.yfuse.core.designsystem.rememberScrolledPastHero
@@ -199,12 +198,11 @@ fun HomeScreen(component: HomeComponent) {
     val navigationState by component.store.states.collectAsState(component.store.state)
     val retainedPageColor =
         rememberRetainedArtworkPageColor("home:${navigationState.server?.id.orEmpty()}")
-    val pageColor = rememberCarouselPageColor(retainedPageColor.value)
     var heroAccent by remember { mutableStateOf<Color?>(null) }
-    ArtworkPageTheme(
-        background = retainedPageColor.value,
+    CarouselArtworkPageTheme(
+        background = retainedPageColor.value.takeIf { navigationState.featuredSlides.isNotEmpty() },
         artworkAccent = heroAccent,
-    ) {
+    ) { pageColor ->
         HomeContent(
             component = component,
             heroPageColor = pageColor,
@@ -484,7 +482,6 @@ internal fun HomeContentBody(
                                     onFavorite = { onIntent(HomeIntent.Favorite(it)) },
                                     onAccent = onHeroAccent,
                                     onPageColor = onHeroPageColor,
-                                    groundColor = heroPageColor,
                                     canResolvePlayback = state.server != null,
                                     onBack = onBack,
                                 )
@@ -938,12 +935,11 @@ private fun HomeHeroCarousel(
     onFavorite: (TmdbItem) -> Unit,
     onAccent: (Color) -> Unit,
     onPageColor: (Color) -> Unit,
-    groundColor: State<Color>,
     canResolvePlayback: Boolean,
     onBack: (() -> Unit)? = null,
 ) {
     val hero = rememberHomeRecommendationHeroState(items)
-    val ambientItem = items.getOrNull(hero.settledIndex(items.size))
+    val ambientItem = items.getOrNull(hero.currentIndex(items.size))
     val ambientUrls = remember(ambientItem) { tmdbHeroArtworkUrls(ambientItem) }
 
     BoxWithConstraints(
@@ -959,7 +955,7 @@ private fun HomeHeroCarousel(
             // A 浮起菜单 holds it too, from inside the reel.
             held = held || !visible,
             ambientUrls = ambientUrls,
-            modifier = Modifier.fillMaxSize().artworkReelGround(groundColor),
+            modifier = Modifier.fillMaxSize(),
             lit = visible,
             empty = {
                 HeroSlide(
@@ -968,8 +964,7 @@ private fun HomeHeroCarousel(
                     onPlay = {},
                     onDetails = {},
                     onFavorite = {},
-                    artworkAspectRatio = artwork.aspectRatio,
-                    artworkFadeFraction = artwork.fadeFraction,
+                    artwork = artwork,
                     modifier =
                         Modifier
                             .fillMaxSize(),
@@ -1003,12 +998,12 @@ private fun HomeHeroCarousel(
                 onDetails = { onDetails(item) },
                 onFavorite = { onFavorite(item) },
                 canResolvePlayback = canResolvePlayback,
+                current = page.current,
                 settled = page.settled,
                 pageOffset = page.offset,
                 onAccent = onAccent,
                 onPageColor = onPageColor,
-                artworkAspectRatio = artwork.aspectRatio,
-                artworkFadeFraction = artwork.fadeFraction,
+                artwork = artwork,
                 framed = showSidePreview,
                 modifier = page.modifier,
             )
@@ -1036,12 +1031,12 @@ private fun HeroSlide(
     onDetails: () -> Unit,
     onFavorite: () -> Unit,
     canResolvePlayback: Boolean = false,
+    current: Boolean = false,
     settled: Boolean = false,
     pageOffset: () -> Float = { 0f },
     onAccent: (Color) -> Unit = {},
     onPageColor: (Color) -> Unit = {},
-    artworkAspectRatio: Float,
-    artworkFadeFraction: Float,
+    artwork: LivingPosterArtwork,
     framed: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
@@ -1049,31 +1044,17 @@ private fun HeroSlide(
     val playerArtworkKey = item?.let { MediaSharedElementKey(null, "tmdb:${it.id}") }
     val artworkUrls: List<String?> =
         remember(item) { tmdbHeroArtworkUrls(item) }
-    var resolvedArtworkUrl by remember(item?.id) { mutableStateOf<String?>(null) }
-    // Colour sampling makes a second image request. Let the selected slide's visible artwork
-    // finish first, and avoid decoding colours for neighbours that may never be shown.
-    val colorArtworkUrl = resolvedArtworkUrl.takeIf { settled }
+    var resolvedArtworkUrl by remember(item?.id, artworkUrls) { mutableStateOf<String?>(null) }
     val artworkAccent =
         rememberArtworkAccentTarget(
-            url = colorArtworkUrl,
+            url = resolvedArtworkUrl.takeIf { settled },
             fallback = Brand.Primary, // design-system: brand-identity
             darkTheme = palette.isDark,
             identity = item?.id,
         )
-    val artworkPageColor =
-        rememberArtworkPageColor(
-            url = colorArtworkUrl,
-            targetAspectRatio = artworkAspectRatio,
-            fadeFraction = artworkFadeFraction,
-        )
-    // Only the slide the reader is actually on gets to colour the page; the pager keeps its
-    // neighbours composed, and letting those report would tint the page from a slide that is
-    // off screen.
-    LaunchedEffect(settled, artworkAccent, artworkPageColor) {
-        if (settled) {
-            onAccent(artworkAccent)
-            artworkPageColor?.let(onPageColor)
-        }
+    PublishLivingPosterPageColor(resolvedArtworkUrl, artwork, current, onPageColor)
+    LaunchedEffect(settled, artworkAccent) {
+        if (settled) onAccent(artworkAccent)
     }
     Box(
         modifier
@@ -1099,7 +1080,6 @@ private fun HeroSlide(
                 FallbackImage(
                     urls = artworkUrls,
                     contentDescription = item.title,
-                    alphaOnly = false,
                     onResolvedUrl = { resolvedArtworkUrl = it },
                     modifier =
                         Modifier

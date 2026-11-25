@@ -19,10 +19,12 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -30,7 +32,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
 /**
- * What the screen around the reel shares with it: the looping pager, whose settled page picks the
+ * What the screen around the reel shares with it: the looping pager, whose current page picks the
  * artwork and colour the rest of the page follows, and the scope a chosen dot scrolls in. The
  * screen keeps it, so the reel can come and go (scrolled out of a list) without losing its place.
  */
@@ -50,8 +52,8 @@ class LivingPosterHeroState internal constructor(
      */
     internal var interaction by mutableIntStateOf(0)
 
-    /** Which of [itemCount] items the reel has settled on. */
-    fun settledIndex(itemCount: Int): Int = loopingCarouselItemIndex(pagerState.settledPage, itemCount)
+    /** Which of [itemCount] items is closest to the snap position, including during a swipe. */
+    fun currentIndex(itemCount: Int): Int = loopingCarouselItemIndex(pagerState.currentPage, itemCount)
 }
 
 @Composable
@@ -70,6 +72,8 @@ class LivingPosterPage internal constructor(
     val page: Int,
     /** Which of the screen's items the page shows. */
     val index: Int,
+    /** Whether this is the artwork closest to the snap position. */
+    val current: Boolean,
     /** Whether the reel has come to rest on this page. */
     val settled: Boolean,
     /** How far the page sits from the current one, signed, while the reel turns. */
@@ -104,6 +108,22 @@ fun livingPosterArtwork(
     )
 }
 
+/** Sample only decoded artwork. A composed neighbour may get ready, but only the current page can publish. */
+@Composable
+internal fun PublishLivingPosterPageColor(
+    resolvedUrl: String?,
+    artwork: LivingPosterArtwork,
+    current: Boolean,
+    onPageColor: (Color) -> Unit,
+) {
+    val color = rememberArtworkPageColor(resolvedUrl, artwork.aspectRatio, artwork.fadeFraction)
+    val publish by rememberUpdatedState(onPageColor)
+    val routeVisible = LocalRouteVisible.current
+    LaunchedEffect(current, routeVisible, color) {
+        if (current && routeVisible) color?.let(publish)
+    }
+}
+
 /**
  * The living-poster reel that 首页 and 媒体库 both open on: a looping pager of posters that turns on
  * its own, the dots under it, and the light it throws when it is dragged or comes to rest.
@@ -121,7 +141,7 @@ fun LivingPosterHeroCarousel(
     pageCount: Int,
     showSidePreview: Boolean,
     held: Boolean,
-    /** The settled artwork, blurred behind the inset poster when [showSidePreview]. */
+    /** The current artwork, blurred behind the inset poster when [showSidePreview]. */
     ambientUrls: List<String?>,
     modifier: Modifier = Modifier,
     lit: Boolean = true,
@@ -199,6 +219,7 @@ fun LivingPosterHeroCarousel(
                     LivingPosterPage(
                         page = page,
                         index = loopingCarouselItemIndex(page, pageCount),
+                        current = page == pagerState.currentPage,
                         settled = page == pagerState.settledPage,
                         offset = { (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction },
                         modifier =

@@ -180,20 +180,6 @@ private fun HeroFavoriteButton(
     }
 }
 
-/** A sampled colour belongs to the artwork area and fades out before the content rail. */
-internal fun Modifier.artworkReelGround(color: State<Color>): Modifier =
-    drawWithCache {
-        val tint = color.value
-        val wash =
-            Brush.verticalGradient(
-                0.30f to Color.Transparent,
-                0.72f to tint.copy(alpha = 0.54f),
-                1f to Color.Transparent,
-                endY = size.height,
-            )
-        onDrawBehind { drawRect(wash) }
-    }
-
 /**
  * Scrim for a hero whose lower edge dissolves into the page — dark at the top, where the
  * status bar and the floating header need it, and nothing at all below the midpoint.

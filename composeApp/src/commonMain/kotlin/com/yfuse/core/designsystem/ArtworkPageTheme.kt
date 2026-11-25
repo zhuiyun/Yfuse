@@ -5,7 +5,11 @@ package com.yfuse.core.designsystem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.structuralEqualityPolicy
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.lerp
@@ -81,6 +85,44 @@ fun rememberArtworkPagePalette(background: Color?): Palette {
     }
 }
 
+internal fun Palette.artworkPageForegrounds(): List<Color> = listOf(text, sub, sub2, body, hint, error)
+
+internal fun carouselArtworkPagePalette(
+    target: Palette,
+    displayed: Color,
+): Palette =
+    if (displayed == target.background ||
+        target.artworkPageForegrounds().all {
+            artworkPageContrastRatio(it.compositeOver(displayed), displayed) >= MinimumArtworkPageContrast
+        }
+    ) {
+        target
+    } else {
+        resolveArtworkPagePalette(displayed)
+    }
+
+/** Keep the normal palette stable through a carousel transition while its ink remains readable. */
+@Composable
+internal fun CarouselArtworkPageTheme(
+    background: Color?,
+    artworkAccent: Color?,
+    content: @Composable (State<Color>) -> Unit,
+) {
+    val targetPalette = rememberArtworkPagePalette(background)
+    // Match the detail surface. A route returning to view already starts at its retained colour.
+    val pageColor =
+        if (LocalRouteVisible.current) {
+            rememberAnimatedColorState(targetPalette.background)
+        } else {
+            rememberUpdatedState(targetPalette.background)
+        }
+    val palette =
+        remember(targetPalette, pageColor) {
+            derivedStateOf(structuralEqualityPolicy()) { carouselArtworkPagePalette(targetPalette, pageColor.value) }
+        }
+    ArtworkPaletteTheme(palette.value, artworkAccent) { content(pageColor) }
+}
+
 /** Publishes the poster-aware semantic palette to Yfuse and Material controls. */
 @Composable
 fun ArtworkPageTheme(
@@ -88,7 +130,15 @@ fun ArtworkPageTheme(
     artworkAccent: Color?,
     content: @Composable () -> Unit,
 ) {
-    val palette = rememberArtworkPagePalette(background)
+    ArtworkPaletteTheme(rememberArtworkPagePalette(background), artworkAccent, content)
+}
+
+@Composable
+private fun ArtworkPaletteTheme(
+    palette: Palette,
+    artworkAccent: Color?,
+    content: @Composable () -> Unit,
+) {
     val inheritedArtwork = LocalArtworkAccent.current
     val resolvedArtwork = artworkAccent ?: inheritedArtwork
     val inheritedAccent = LocalAccentColors.current

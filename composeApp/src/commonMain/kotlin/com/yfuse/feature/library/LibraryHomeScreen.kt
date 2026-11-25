@@ -42,6 +42,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalDensity
@@ -60,9 +61,9 @@ import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
-import com.yfuse.core.designsystem.ArtworkPageTheme
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.CaptionedPoster
+import com.yfuse.core.designsystem.CarouselArtworkPageTheme
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.FallbackImage
@@ -72,6 +73,7 @@ import com.yfuse.core.designsystem.HeroTextShadow
 import com.yfuse.core.designsystem.LaunchWaveState
 import com.yfuse.core.designsystem.LiftAnchor
 import com.yfuse.core.designsystem.LiftMenu
+import com.yfuse.core.designsystem.LivingPosterArtwork
 import com.yfuse.core.designsystem.LivingPosterDefaults
 import com.yfuse.core.designsystem.LivingPosterHeroCarousel
 import com.yfuse.core.designsystem.LocalAccentColors
@@ -87,6 +89,7 @@ import com.yfuse.core.designsystem.OverlayActionRow
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.PageHint
 import com.yfuse.core.designsystem.Poster
+import com.yfuse.core.designsystem.PublishLivingPosterPageColor
 import com.yfuse.core.designsystem.RefreshIndicator
 import com.yfuse.core.designsystem.RefreshThresholdHaptics
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
@@ -98,7 +101,6 @@ import com.yfuse.core.designsystem.SkeletonRail
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.ToastAction
 import com.yfuse.core.designsystem.arrivalSweep
-import com.yfuse.core.designsystem.artworkReelGround
 import com.yfuse.core.designsystem.carouselArtworkMotion
 import com.yfuse.core.designsystem.carouselCaptionEntry
 import com.yfuse.core.designsystem.fadeIntoPage
@@ -128,9 +130,7 @@ import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.pressableTarget
 import com.yfuse.core.designsystem.refreshAction
 import com.yfuse.core.designsystem.rememberArtworkAccentTarget
-import com.yfuse.core.designsystem.rememberArtworkPageColor
 import com.yfuse.core.designsystem.rememberCarouselCaptionProgress
-import com.yfuse.core.designsystem.rememberCarouselPageColor
 import com.yfuse.core.designsystem.rememberLaunchWave
 import com.yfuse.core.designsystem.rememberLivingPosterHeroState
 import com.yfuse.core.designsystem.rememberRefreshReveal
@@ -263,10 +263,10 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     val accessToken = state.currentServer?.accessToken.orEmpty()
 
     val slides = state.content.featured.take(8)
-    // Kept by the page, not the list item the reel sits in: the settled slide picks this page's
+    // Kept by the page, not the list item the reel sits in: the current slide picks this page's
     // accent and colour, and the reel keeps its place while it is scrolled out of the list.
     val hero = rememberLivingPosterHeroState(slides.map { it.id })
-    val slideIndex = hero.settledIndex(slides.size)
+    val slideIndex = hero.currentIndex(slides.size)
     val slide = slides.getOrNull(slideIndex)
     val slideUrls =
         slide
@@ -279,16 +279,15 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     val slideUrl = slideUrls.firstOrNull { it != null }
     val retainedPageColor =
         rememberRetainedArtworkPageColor("library:${state.currentServer?.id.orEmpty()}")
-    val sampledPageColor = rememberCarouselPageColor(retainedPageColor.value)
+    val artworkVisible = libraryCarousel && slide != null
     val showSmartPlaylists =
         com.yfuse.feature.search
             .hasPinnedSmartPlaylists()
-    val palette = LocalPalette.current
     val accent =
         rememberArtworkAccentTarget(
             url = slideUrl,
             fallback = Brand.Primary, // design-system: brand-identity
-            darkTheme = palette.isDark,
+            darkTheme = LocalPalette.current.isDark,
             identity = slide?.id,
         )
 
@@ -321,18 +320,23 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     ScrollToTopOnReselect(listState)
 
     val bottomContentInset = floatingNavigationContentInset()
-    ArtworkPageTheme(
-        background = null,
+    CarouselArtworkPageTheme(
+        background = retainedPageColor.value.takeIf { artworkVisible },
         artworkAccent = accent,
-    ) {
-        BoxWithConstraints(Modifier.fillMaxSize()) {
+    ) { pageColor ->
+        val palette = LocalPalette.current
+        BoxWithConstraints(
+            Modifier.fillMaxSize().drawBehind {
+                if (artworkVisible) drawRect(pageColor.value)
+            },
+        ) {
             val heroHeight = libraryHeroHeight(maxHeight, wideLayout = maxWidth >= 600.dp)
             // The reel is switched on, but the first load has not brought anything to show in it.
             val heroPending = libraryCarousel && state.loading && state.content.isEmpty
             val lightPageReached by rememberScrolledPastHero(listState, heroHeight)
             val showSidePreview = maxWidth >= 600.dp || maxWidth > maxHeight
             val artwork = livingPosterArtwork(maxWidth, heroHeight, showSidePreview)
-            StatusBarIconStyle(darkIcons = (!libraryCarousel || slide == null || lightPageReached) && !palette.isDark)
+            StatusBarIconStyle(darkIcons = (!artworkVisible || lightPageReached) && !palette.isDark)
             when {
                 state.currentServer == null && access.canManageServers ->
                     PageHint(
@@ -438,8 +442,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                                 Modifier
                                                     .fillMaxWidth()
                                                     .height(heroHeight)
-                                                    .heroScrollCollapse(listState, heroHeight)
-                                                    .artworkReelGround(sampledPageColor),
+                                                    .heroScrollCollapse(listState, heroHeight),
                                             beyondViewportPageCount = if (showSidePreview) 1 else 0,
                                         ) { page ->
                                             val animatedItem = slides.getOrNull(page.index) ?: slide
@@ -481,10 +484,10 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                                     ),
                                                 detailKey = MediaSharedElementKey(currentServerId, animatedItem.id),
                                                 serverName = state.currentServer?.serverName.orEmpty(),
+                                                current = page.current,
                                                 settled = page.settled,
                                                 pageOffset = page.offset,
-                                                artworkAspectRatio = artwork.aspectRatio,
-                                                artworkFadeFraction = artwork.fadeFraction,
+                                                artwork = artwork,
                                                 onPageColor = retainedPageColor::update,
                                                 framed = showSidePreview,
                                                 // The first stop TalkBack makes on this page, so 下拉刷新 lives
@@ -650,12 +653,12 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
             // Once the hero has scrolled away, content must stop at the safe edge instead of
             // continuing underneath the clock and status icons. A page-coloured guard keeps
             // the full-bleed artwork at launch, then becomes the clipped top edge for shelves.
-            if (!libraryCarousel || lightPageReached) {
+            if (!artworkVisible || lightPageReached) {
                 Box(
                     Modifier
                         .fillMaxWidth()
                         .windowInsetsTopHeight(WindowInsets.statusBars)
-                        .background(palette.background),
+                        .drawBehind { drawRect(pageColor.value) },
                 )
             }
 
@@ -784,10 +787,10 @@ private fun HeroCarousel(
     /** The detail page's key, which a tap hands on before [onClick] makes this the opened copy. */
     detailKey: MediaSharedElementKey,
     serverName: String,
+    current: Boolean,
     settled: Boolean,
     pageOffset: () -> Float,
-    artworkAspectRatio: Float,
-    artworkFadeFraction: Float,
+    artwork: LivingPosterArtwork,
     onPageColor: (Color) -> Unit,
     framed: Boolean,
     modifier: Modifier = Modifier,
@@ -799,16 +802,8 @@ private fun HeroCarousel(
     val artworkShape = if (framed) AppShapes.sheet else androidx.compose.ui.graphics.RectangleShape
     val openDetail = sharedMediaOnClick(detailKey, sourceShape = artworkShape, onClick = onClick)
     val captionProgress = rememberCarouselCaptionProgress(settled)
-    var resolvedArtworkUrl by remember(item.id) { mutableStateOf<String?>(null) }
-    val artworkPageColor =
-        rememberArtworkPageColor(
-            url = resolvedArtworkUrl.takeIf { settled },
-            targetAspectRatio = artworkAspectRatio,
-            fadeFraction = artworkFadeFraction,
-        )
-    LaunchedEffect(settled, artworkPageColor) {
-        if (settled) artworkPageColor?.let(onPageColor)
-    }
+    var resolvedArtworkUrl by remember(item.id, urls) { mutableStateOf<String?>(null) }
+    PublishLivingPosterPageColor(resolvedArtworkUrl, artwork, current, onPageColor)
     Box(
         modifier
             .fillMaxSize()
@@ -819,7 +814,6 @@ private fun HeroCarousel(
             FallbackImage(
                 urls = urls,
                 contentDescription = item.title,
-                alphaOnly = false,
                 onResolvedUrl = { resolvedArtworkUrl = it },
                 // The hash belongs to whichever picture leads the list.
                 blurHash = if (urls.firstOrNull() != null) item.backdropBlurHash else item.posterBlurHash,

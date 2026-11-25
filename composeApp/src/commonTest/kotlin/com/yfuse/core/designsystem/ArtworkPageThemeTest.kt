@@ -1,6 +1,7 @@
 package com.yfuse.core.designsystem
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -33,6 +34,23 @@ class ArtworkPageThemeTest {
         val palette = resolveArtworkPagePalette(background)
         assertEquals(background, palette.background)
         assertMinimumReadable(palette, background)
+    }
+
+    @Test
+    fun carouselKeepsTextReadableBetweenDarkAndLightArtwork() {
+        val dark = Color(0xFF201135)
+        val light = Color(0xFFF9D9A1)
+        val lightPalette = resolveArtworkPagePalette(light)
+        assertTrue(carouselArtworkPagePalette(lightPalette, dark).isDark)
+
+        listOf(dark to light, light to dark).forEach { (start, end) ->
+            val target = resolveArtworkPagePalette(end)
+            for (step in 0..100) {
+                val background = lerp(start, end, step / 100f)
+                assertMinimumReadable(carouselArtworkPagePalette(target, background), background)
+            }
+            assertEquals(target, carouselArtworkPagePalette(target, end))
+        }
     }
 
     private fun assertMinimumReadable(

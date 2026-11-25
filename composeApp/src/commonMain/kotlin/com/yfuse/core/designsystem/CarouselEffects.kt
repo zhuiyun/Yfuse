@@ -106,12 +106,7 @@ fun rememberCarouselPageColor(target: Color?): State<Color> {
         remember(targetColor, palette, reduceMotion, visible) {
             // This is a retarget-time read, not a subscription that recomposes the host each frame.
             val start = Snapshot.withoutReadObservation { previousOutput[0]?.value ?: targetColor }
-            val safe =
-                artworkPageTransitionIsSafe(
-                    start,
-                    targetColor,
-                    listOf(palette.text, palette.sub, palette.sub2, palette.body, palette.hint, palette.error),
-                )
+            val safe = artworkPageTransitionIsSafe(start, targetColor, palette.artworkPageForegrounds())
             PageColorTransition(start, targetColor, !reduceMotion && visible && start != targetColor && safe)
         }
     // Each retarget starts at the last displayed colour, even if its predecessor snapped before
