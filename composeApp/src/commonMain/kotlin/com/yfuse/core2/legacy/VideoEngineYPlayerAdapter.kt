@@ -23,7 +23,7 @@ import kotlinx.coroutines.flow.StateFlow
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * Adapts an independently selected VideoEngine (currently SenPlayer) to the shared [YPlayer]
+ * Adapts an independently selected VideoEngine to the shared [YPlayer]
  * controls. It does not instantiate, select or fall back to any playback engine.
  *
  * The adapter deliberately owns no coroutine scope. Its state is a live mapped view over the

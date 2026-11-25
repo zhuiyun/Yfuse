@@ -44,11 +44,11 @@ class HeroLiftInstrumentedTest {
     fun carousel_artwork_and_frame_dissolve_into_the_same_page_pixels() {
         val hero = AtomicReference(Rect.Zero)
         val framed = mutableStateOf(false)
-        val background = Color(0xFFB76232)
+        val background = mutableStateOf(Color(0xFFB76232))
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 activity.setContent {
-                    Box(Modifier.fillMaxSize().background(background).padding(top = 24.dp)) {
+                    Box(Modifier.fillMaxSize().background(background.value).padding(top = 24.dp)) {
                         Box(
                             Modifier
                                 .fillMaxWidth()
@@ -66,6 +66,13 @@ class HeroLiftInstrumentedTest {
                                     .height(180.dp)
                                     .livingPosterCaptionScrim(),
                             )
+                            Box(
+                                Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .fillMaxWidth()
+                                    .height(LivingPosterDefaults.CAPTION_BOTTOM)
+                                    .livingPosterPageBlend(background),
+                            )
                         }
                     }
                 }
@@ -74,7 +81,10 @@ class HeroLiftInstrumentedTest {
             val bounds = hero.get()
             val density = bounds.height / 280f
             for (hasFrame in listOf(false, true)) {
-                scenario.onActivity { framed.value = hasFrame }
+                scenario.onActivity {
+                    framed.value = hasFrame
+                    background.value = if (hasFrame) Color(0xFF284462) else Color(0xFFB76232)
+                }
                 SystemClock.sleep(180)
                 val shot =
                     capture(
@@ -93,6 +103,19 @@ class HeroLiftInstrumentedTest {
                             "Visible bottom edge (framed=$hasFrame, x=$x, channel change=$largestChange)",
                             largestChange <= 4,
                         )
+                        for (dp in 15..39 step 4) {
+                            val lowerPixel = shot.getPixel(x, (dp * density).roundToInt())
+                            val lowerChange =
+                                listOf(16, 8, 0).maxOf { shift ->
+                                    kotlin.math.abs(
+                                        ((lowerPixel ushr shift) and 255) - ((pagePixel ushr shift) and 255),
+                                    )
+                                }
+                            assertTrue(
+                                "Bottom transition has a colour band (framed=$hasFrame, x=$x, row=$dp, change=$lowerChange)",
+                                lowerChange <= 6,
+                            )
+                        }
                     }
                 } finally {
                     shot.recycle()

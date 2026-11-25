@@ -145,7 +145,6 @@ internal fun PlaybackOutputEvidence.nextSession(): PlaybackOutputEvidence =
 
 data class PlaybackDiagnostics(
     val engine: String = "",
-    val senPlayerPicture: SenPlayerPictureState? = null,
     val decoder: String = "等待视频轨道",
     val videoCodec: String = "未知",
     val playMethod: String = "直播放",
@@ -375,7 +374,7 @@ internal fun bufferedEndPositionMs(
 }
 
 /**
- * Playback backend contract. YCore and SenPlayer implement it so the
+ * Playback backend contract. YCore implements it so the
  * control layer — progress, play/pause, seek, speed, track pickers, episode
  * navigation — is written once and works with whichever engine is active.
  */

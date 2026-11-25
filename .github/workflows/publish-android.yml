@@ -53,7 +53,7 @@ env:
 # so each production secret is referenced only by the job that uses it, and the build tooling
 # never shares a runner with a signing or deployment key:
 #   request - UPDATE_MANIFEST_SIGNING_KEY, only to derive the public key the APK embeds
-#   build   - no production secrets; native artifacts and committed SCore assets only
+#   build   - no production secrets; native artifacts only
 #   sign    - the release keystore and its passwords
 #   deploy  - UPDATE_MANIFEST_SIGNING_KEY to sign the manifests, and the deployment SSH key
 # The gates and smoke jobs hold no secret.
@@ -485,7 +485,7 @@ jobs:
           python3 scripts/approved_ycore_artifact.py build/quality-approved/approved-native.json
           --commit "$SOURCE_COMMIT" --run-id "$QUALITY_RUN_ID" --attempt "$QUALITY_RUN_ATTEMPT"
 
-      - name: Prepare source-built YCore and original SenPlayer inputs
+      - name: Prepare source-built YCore inputs
         uses: ./.github/actions/prepare-source-playback
         with:
           artifact-id: ${{ steps.native.outputs.artifact_id }}
@@ -519,7 +519,7 @@ jobs:
           ./gradlew :composeApp:assembleRelease \
             -PyfuseBuildRevision="$SOURCE_COMMIT" \
             -PyfuseNativeOnlyRuntime=true \
-            -PyfuseIncludeMdk=false -PyfusePlaybackProfile=ycore-senplayer \
+            -PyfuseIncludeMdk=false -PyfusePlaybackProfile=ycore \
             -PyfusePackageOnly="$package_only" \
             -PallowDebugSigning=true \
             -Pkotlin.incremental=false \

@@ -10,19 +10,19 @@ import kotlin.test.assertTrue
 
 class PlaybackPlannerTest {
     @Test
-    fun only_the_two_real_engines_and_three_choices_exist() {
-        assertEquals(listOf("YCore", "SenPlayer"), PlayerEngine.entries.map { it.name })
-        assertEquals(listOf("Auto", "LockYCore", "LockSenPlayer"), PlaybackEngineSelection.entries.map { it.name })
+    fun only_ycore_is_an_available_engine() {
+        assertEquals(listOf("YCore"), PlayerEngine.entries.map { it.name })
+        assertEquals(listOf("Auto", "LockYCore"), PlaybackEngineSelection.entries.map { it.name })
     }
 
     @Test
-    fun automatic_modes_never_select_sen_even_if_preferences_and_history_suggest_it() {
+    fun automatic_modes_use_ycore() {
         PlaybackOptimizationMode.entries.forEach { optimization ->
             val plan =
                 planPlayback(
                     probe("mp4"),
                     capabilities(),
-                    PlayerEngine.SenPlayer,
+                    PlayerEngine.YCore,
                     DecoderMode.Auto,
                     optimizationMode = optimization,
                     excludedEngines = setOf(PlayerEngine.YCore),
@@ -36,47 +36,14 @@ class PlaybackPlannerTest {
     }
 
     @Test
-    fun sen_requires_an_explicit_bundled_choice_and_keeps_decoder_intent() {
-        val plan =
-            planPlayback(
-                probe("mkv"),
-                capabilities(),
-                PlayerEngine.YCore,
-                DecoderMode.Software,
-                engineSelection = PlaybackEngineSelection.LockSenPlayer,
-                excludedEngines = setOf(PlayerEngine.SenPlayer),
-                availableEngines = PlayerEngine.entries.toSet(),
-            )
-        assertEquals(listOf(PlayerEngine.SenPlayer), plan.engineOrder)
-        assertEquals(DecoderMode.Software, plan.decoderMode)
-        assertFalse(plan.requiresServerTranscode)
-        assertEquals(PlaybackEngineSelection.LockSenPlayer, PlaybackEngineSelection.locked(PlayerEngine.SenPlayer))
-    }
-
-    @Test
-    fun unbundled_sen_uses_ycore_without_claiming_sen_is_available() {
-        val plan =
-            planPlayback(
-                probe("mp4"),
-                capabilities(),
-                PlayerEngine.SenPlayer,
-                DecoderMode.Auto,
-                engineSelection = PlaybackEngineSelection.LockSenPlayer,
-                availableEngines = setOf(PlayerEngine.YCore),
-            )
-        assertEquals(listOf(PlayerEngine.YCore), plan.engineOrder)
-        assertTrue(plan.reason.orEmpty().contains("不适用"))
-    }
-
-    @Test
-    fun no_available_selected_engine_fails_instead_of_opting_into_sen() {
+    fun no_available_selected_engine_fails() {
         assertFailsWith<IllegalStateException> {
             planPlayback(
                 probe("mp4"),
                 capabilities(),
-                PlayerEngine.SenPlayer,
+                PlayerEngine.YCore,
                 DecoderMode.Auto,
-                availableEngines = setOf(PlayerEngine.SenPlayer),
+                availableEngines = emptySet(),
             )
         }
     }

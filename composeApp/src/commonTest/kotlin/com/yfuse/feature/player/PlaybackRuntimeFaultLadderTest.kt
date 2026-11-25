@@ -49,12 +49,6 @@ class PlaybackRuntimeFaultLadderTest {
     }
 
     @Test
-    fun sen_does_not_misrepresent_ycore_restart_support() {
-        assertEquals(PlaybackRuntimeFaultStep.Exhausted, step(engine = PlayerEngine.SenPlayer))
-        assertEquals(PlaybackRuntimeFaultStep.ServerTranscode, step(engine = PlayerEngine.SenPlayer, server = true))
-    }
-
-    @Test
     fun recovery_budget_requires_thirty_seconds_of_real_forward_progress_without_overflow() {
         assertFalse(PlaybackFallbackLadder.restoresRecoveryBudget(59_999L, 30_000L))
         assertTrue(PlaybackFallbackLadder.restoresRecoveryBudget(60_000L, 30_000L))

@@ -1,7 +1,7 @@
 param(
     [switch]$AllowDebugSigning,
-    [ValidateSet('ycore-senplayer')]
-    [string]$PlaybackProfile = 'ycore-senplayer',
+    [ValidateSet('ycore')]
+    [string]$PlaybackProfile = 'ycore',
     # A release built from an uncommitted working tree cannot be reproduced from git history
     # alone and must not silently claim to be the clean commit it was built on top of. Refused by
     # default; pass this only for a knowingly uncommitted verification/debugging package.
@@ -84,13 +84,13 @@ function Assert-DexVerifies([string]$Apk, [string]$Mapping) {
     }
 }
 
-# Verify the output, including original SenPlayer asset pins and unobfuscated class identities.
+# Verify the output, including pinned YCore libraries and unobfuscated class identities.
 # Build flags alone do not prove that a transitive legacy runtime stayed out of the APK.
 function Assert-PlaybackPackage([string]$Apk, [string]$Mapping) {
     $python = if ($env:PYTHON) { $env:PYTHON } else { 'python' }
     & $python (Join-Path $root 'scripts/verify-playback-package.py') $Apk --mapping $Mapping
     if ($LASTEXITCODE -ne 0) {
-        throw "The YCore + SenPlayer package boundary failed for $Apk; do not distribute this package"
+        throw "The YCore package boundary failed for $Apk; do not distribute this package"
     }
 }
 
@@ -106,7 +106,7 @@ $releaseArgs = @(
     "-PyfusePlaybackProfile=$PlaybackProfile"
 ) + $commonArgs
 & (Join-Path $root 'gradlew.bat') @releaseArgs
-if ($LASTEXITCODE -ne 0) { throw 'YCore + SenPlayer release build failed' }
+if ($LASTEXITCODE -ne 0) { throw 'YCore release build failed' }
 $signedApk = Join-Path $root 'composeApp/build/outputs/compact/release/composeApp-release.apk'
 $mapping = Join-Path $root 'composeApp/build/outputs/mapping/release/mapping.txt'
 Assert-PlaybackPackage $signedApk $mapping
@@ -126,7 +126,7 @@ $verification = [ordered]@{
     versionName  = $version.VERSION_NAME
     versionCode  = $version.VERSION_CODE
     playbackProfile = $PlaybackProfile
-    playbackEngines = @('YCore', 'SenPlayer')
+    playbackEngines = @('YCore')
     mdkIncluded = $false
     sourceCommit = $sourceCommit
     treeDirty    = $treeDirty

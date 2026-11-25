@@ -60,7 +60,7 @@ class SourcePlaybackWorkflowTest(unittest.TestCase):
         trigger = config.get("on", config.get(True))
         paths = trigger["push"]["paths"]
         for path in (".github/workflows/build-ycore-source.yml", ".github/actions/prepare-source-playback/**",
-                     "senplayerBridge/**", "scripts/ycore-source-receipt.py", "scripts/native-build-download.py"):
+                     "scripts/ycore-source-receipt.py", "scripts/native-build-download.py"):
             self.assertIn(path, paths)
 
     def test_tv_push_and_pr_paths_track_the_source_runtime_pipeline(self):
@@ -72,7 +72,7 @@ class SourcePlaybackWorkflowTest(unittest.TestCase):
             with self.subTest(event=event):
                 paths = trigger[event]["paths"]
                 for path in (".github/workflows/build-ycore-source.yml", ".github/actions/prepare-source-playback/**",
-                             "senplayerBridge/**", "scripts/prepare-playback-inputs.py",
+                             "scripts/prepare-playback-inputs.py",
                              "scripts/playback-runtime-inputs.json", "scripts/ycore-source-receipt.py",
                              "scripts/native-build-*.py", "scripts/build-ycore*.sh", "scripts/fetch-ycore-source.py",
                              "scripts/package-ycore-native-aar.py", "scripts/install-ycore-native.sh",

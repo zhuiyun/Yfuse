@@ -21,6 +21,7 @@ import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayActionRow
 import com.yfuse.core.designsystem.OverlayHeader
+import com.yfuse.core.designsystem.SwitchRow
 import com.yfuse.core.designsystem.YfChip
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.glassControlHighlight
@@ -66,6 +67,8 @@ internal fun LibraryGridOptionsButton(
 internal fun LibraryGridOptionsDialog(
     state: GridState,
     gridDensity: GridDensityState,
+    showPosterNames: Boolean,
+    onShowPosterNamesChange: (Boolean) -> Unit,
     onIntent: (GridIntent) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -147,6 +150,11 @@ internal fun LibraryGridOptionsDialog(
                     role = Role.Checkbox,
                 )
             }
+            SwitchRow(
+                title = "显示海报名",
+                checked = showPosterNames,
+                onChange = onShowPosterNamesChange,
+            )
             if (state.loadedCount > 0) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(

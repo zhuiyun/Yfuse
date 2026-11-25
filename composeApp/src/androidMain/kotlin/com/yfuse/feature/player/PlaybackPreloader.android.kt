@@ -12,7 +12,7 @@ import com.yfuse.core.network.currentPlaybackNetworkClass
 import com.yfuse.core2.android.currentItemNetworkClassAllowed
 import com.yfuse.core2.android.dataSaverEnabled
 
-/** Prepares only the source reader actually consumed by YCore; SenPlayer is never prestarted. */
+/** Prepares only the source reader actually consumed by YCore. */
 internal class AndroidPlaybackSourcePreloader(
     context: Context,
     private val playbackPreferences: PlaybackPreferences,

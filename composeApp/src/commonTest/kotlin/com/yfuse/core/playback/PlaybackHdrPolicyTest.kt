@@ -20,14 +20,6 @@ class PlaybackHdrPolicyTest {
     }
 
     @Test
-    fun sen_hdr_remains_an_unverified_explicit_request() {
-        val route = playbackHdrRoute(dolby(true), capabilities(true), PlayerEngine.SenPlayer, DecoderMode.Auto)
-        assertEquals(PlayerEngine.SenPlayer, route.engine)
-        assertEquals(PlaybackDolbyVisionPath.Unverified, route.dolbyVisionPath)
-        assertEquals(DecoderMode.Auto, route.decoderMode)
-    }
-
-    @Test
     fun sdr_preserves_decoder_intent_without_hdr_claims() {
         val route =
             playbackHdrRoute(

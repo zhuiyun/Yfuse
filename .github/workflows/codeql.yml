@@ -51,7 +51,7 @@ jobs:
           yes | "$manager" --licenses >/dev/null 2>&1 || true
           "$manager" 'platforms;android-37.0' 'ndk;29.0.14206865' 'cmake;3.22.1'
 
-      - name: Prepare source-built YCore and original SenPlayer inputs
+      - name: Prepare source-built YCore inputs
         uses: ./.github/actions/prepare-source-playback
         with:
           artifact-id: ${{ needs.native.outputs.artifact_id }}

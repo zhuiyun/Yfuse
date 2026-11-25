@@ -3,7 +3,6 @@ package com.yfuse.core.playback
 /** Native ownership used by crash accounting. Keep these separate even when libraries share FFmpeg. */
 enum class NativePlaybackComponent {
     Unknown,
-    SenPlayer,
     YCoreDemux,
     YCoreGpu,
 }
@@ -12,7 +11,6 @@ enum class NativePlaybackComponent {
 fun classifyNativePlaybackCrash(tombstone: String): NativePlaybackComponent {
     val text = tombstone.lowercase()
     return when {
-        "libffmpegkit.so" in text || "libmlibkit.so" in text -> NativePlaybackComponent.SenPlayer
         "libycore_gpu" in text || "ycore vulkan" in text ->
             NativePlaybackComponent.YCoreGpu
         "libycore_demux" in text || "libycore-demux" in text || "ycore demux" in text ->
@@ -122,7 +120,6 @@ private const val MAX_PARSED_FRAMES = 64
 
 private fun componentForLibrary(library: String): NativePlaybackComponent? =
     when (library.lowercase()) {
-        "libffmpegkit.so", "libmlibkit.so" -> NativePlaybackComponent.SenPlayer
         "libycore_gpu.so" -> NativePlaybackComponent.YCoreGpu
         "libycore_demux.so" -> NativePlaybackComponent.YCoreDemux
         else -> null

@@ -61,10 +61,9 @@ jobs:
               assert os.environ['PERFORMANCE_MODE'] == 'benchmark', 'Profiles do not contain performance measurements'
               assert math.isfinite(float(limit)) and float(limit) >= 0, 'Invalid regression limit'
           PY
-      - name: Prepare pinned YCore and SenPlayer inputs
+      - name: Prepare pinned YCore input
         env:
           YCORE_NATIVE_AAR_URL: ${{ secrets.YCORE_NATIVE_AAR_URL }}
-          SENPLAYER_SOURCE_APK_URL: ${{ secrets.SENPLAYER_SOURCE_APK_URL }}
         shell: bash
         run: |
           set -euo pipefail

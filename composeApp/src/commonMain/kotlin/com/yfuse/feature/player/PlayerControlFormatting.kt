@@ -1,8 +1,6 @@
 package com.yfuse.feature.player
 
 import com.yfuse.core.model.PlaybackMethod
-import com.yfuse.core.model.PlayerEngine
-import com.yfuse.core.model.SEN_PLAYER_DISPLAY_NAME
 
 /** Converts a scrubber fraction to a clamped media position. */
 internal fun scrubPositionMs(
@@ -62,7 +60,7 @@ internal fun Long.asClock(): String {
  *
  * The order matters: FEL/RPU are stronger output claims than a generic native-DV signal. A source
  * badge by itself never authorizes either claim. Only current rendered output evidence may
- * authorize the label; choosing YCore or SenPlayer supplies no such evidence.
+ * authorize the label; choosing YCore supplies no such evidence.
  */
 internal fun PlaybackState.dolbyVisionReadoutLabel(): String? {
     val evidence = diagnostics.outputEvidence
@@ -120,8 +118,6 @@ internal fun PlaybackState.readoutLine(sourceLabel: String?): String =
 private fun engineShortLabel(engine: String): String =
     when {
         engine.contains("ycore", ignoreCase = true) -> "YCORE"
-        engine.substringBefore('（').substringBefore(' ').equals(SEN_PLAYER_DISPLAY_NAME, ignoreCase = true) ||
-            engine.contains(PlayerEngine.SenPlayer.name, ignoreCase = true) -> SEN_PLAYER_DISPLAY_NAME
         else -> engine.substringBefore(' ').uppercase()
     }
 

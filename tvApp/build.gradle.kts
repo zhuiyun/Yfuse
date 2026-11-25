@@ -128,7 +128,7 @@ val allowDebugSigning = providers.strictBooleanProperty("allowDebugSigning")
 // Passed by the quality gate's lint step; see the lint block below.
 val lintSharedCode = providers.strictBooleanProperty("yfuseLintSharedCode")
 
-// Both Android applications ship the same pinned arm64 YCore + SenPlayer runtime.
+// Both Android applications ship the same pinned arm64 YCore runtime.
 val fullNativeRuntime = true
 val ycoreAar = rootProject.layout.projectDirectory.file("composeApp/libs/ycore-native.aar")
 
@@ -158,7 +158,7 @@ android {
         buildConfigField(
             "String",
             "YFUSE_PACKAGE_PROFILE",
-            "\"ycore-senplayer\"",
+            "\"ycore\"",
         )
 
         if (fullNativeRuntime) {
@@ -264,8 +264,8 @@ android {
 
 val verifyTvPlaybackRuntime by tasks.registering {
     group = "verification"
-    description = "Verifies the same standalone YCore and pinned SenPlayer inputs as the phone application."
-    dependsOn(":composeApp:verifyStandaloneYCoreArtifact", ":composeApp:verifySenPlayerArtifact")
+    description = "Verifies the same standalone YCore input as the phone application."
+    dependsOn(":composeApp:verifyStandaloneYCoreArtifact")
 }
 
 val verifyTvReleaseProfile by tasks.registering {

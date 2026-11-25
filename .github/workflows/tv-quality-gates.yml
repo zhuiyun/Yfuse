@@ -16,7 +16,6 @@ on:
       - composeApp/src/androidUnitTest/**
       - tvApp/**
       - tvShared/**
-      - senplayerBridge/**
       - gradle/**
       - settings.gradle.kts
       - gradle.properties
@@ -54,7 +53,6 @@ on:
       - composeApp/src/androidUnitTest/**
       - tvApp/**
       - tvShared/**
-      - senplayerBridge/**
       - gradle/**
       - settings.gradle.kts
       - gradle.properties
@@ -141,7 +139,7 @@ jobs:
           yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
           "$sdkmanager" "platforms;android-37.0" "build-tools;36.0.0"
 
-      - name: Prepare source-built YCore and original SenPlayer inputs
+      - name: Prepare source-built YCore inputs
         uses: ./.github/actions/prepare-source-playback
         with:
           artifact-id: ${{ needs.native.outputs.artifact_id }}

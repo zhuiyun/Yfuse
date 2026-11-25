@@ -1,5 +1,5 @@
-name: Prepare source-built YCore and original SenPlayer
-description: Consume one hash-bound YCore source artifact and the unchanged committed SCore runtime.
+name: Prepare source-built YCore
+description: Consume one hash-bound YCore source artifact.
 inputs:
   artifact-id:
     required: true
@@ -27,7 +27,7 @@ runs:
         github-token: ${{ github.token }}
         path: build/ycore-source
         merge-multiple: true
-    - name: Verify source identity and prepare original runtime inputs
+    - name: Verify source identity and prepare YCore
       shell: bash
       env:
         YCORE_NATIVE_AAR_PATH: ${{ github.workspace }}/build/ycore-source/ycore-native.aar

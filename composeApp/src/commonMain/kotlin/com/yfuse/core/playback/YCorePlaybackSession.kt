@@ -51,7 +51,7 @@ class YCorePlaybackSession(
     private val failureMemory: PlaybackFailureMemory,
     private val performanceMemory: PlaybackPerformanceMemory? = null,
     /**
-     * Observations are stored under the actual YCore or SenPlayer identity. Callers may still
+     * Observations are stored under the engine identity. Callers may still
      * disable learning for a diagnostic session; output verification remains independent.
      */
     private val recordEngineLearning: Boolean = true,

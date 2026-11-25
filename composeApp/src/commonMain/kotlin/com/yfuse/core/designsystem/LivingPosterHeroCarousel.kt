@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
@@ -14,6 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -144,6 +146,7 @@ fun LivingPosterHeroCarousel(
     /** The current artwork, blurred behind the inset poster when [showSidePreview]. */
     ambientUrls: List<String?>,
     artwork: LivingPosterArtwork,
+    pageColor: State<Color>,
     modifier: Modifier = Modifier,
     lit: Boolean = true,
     beyondViewportPageCount: Int = 1,
@@ -246,6 +249,15 @@ fun LivingPosterHeroCarousel(
             }
         }
 
+        if (pageCount > 0) {
+            Box(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(LivingPosterDefaults.CAPTION_BOTTOM)
+                    .livingPosterPageBlend(pageColor),
+            )
+        }
         overlay()
 
         if (pageCount > 1) {

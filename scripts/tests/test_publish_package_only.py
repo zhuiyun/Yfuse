@@ -128,7 +128,7 @@ class PublishPackageOnlyTest(unittest.TestCase):
                 self.assertIn("-PyfuseNativeOnlyRuntime=true", result.stdout.splitlines())
                 self.assertIn("-PyfuseBuildRevision=" + "a" * 40, result.stdout.splitlines())
                 self.assertIn("-PyfuseIncludeMdk=false", result.stdout.splitlines())
-                self.assertIn("-PyfusePlaybackProfile=ycore-senplayer", result.stdout.splitlines())
+                self.assertIn("-PyfusePlaybackProfile=ycore", result.stdout.splitlines())
                 # The build job never holds the release keystore; the sign job replaces this
                 # throwaway signature with the production one.
                 self.assertIn("-PallowDebugSigning=true", result.stdout.splitlines())

@@ -31,7 +31,7 @@ PUBLISHED_SIGNATURES = {
     SIGNATURE_FIXTURES / "20260923-performance-1.0.81" / "signature-full.txt": "Signer #2",
     SIGNATURE_FIXTURES / "20261003-merge-all-1.0.99" / "signature-full.txt": "V3 Signer:",
 }
-RUNTIME_PAYLOAD = ("lib/arm64-v8a/libycore_demux.so", "assets/senplayer/native/libFFmpegKit.so")
+RUNTIME_PAYLOAD = ("lib/arm64-v8a/libycore_demux.so", "lib/arm64-v8a/libycore_gpu.so")
 KEYSTORE = {"ANDROID_KEYSTORE_BASE64", "ANDROID_KEYSTORE_PASSWORD", "ANDROID_KEY_ALIAS", "ANDROID_KEY_PASSWORD"}
 SECRETS_BY_JOB = {
     "request": {"UPDATE_MANIFEST_SIGNING_KEY"},

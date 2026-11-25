@@ -3,19 +3,8 @@ package com.yfuse.feature.player
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertTrue
 
 class PlayerControlFormattingTest {
-    @Test
-    fun scoreReadoutUsesTheSameNameForCurrentAndLegacyDiagnostics() {
-        for (reported in listOf("SCore（实验）", "SCore", "SenPlayer（实验）", "SenPlayer")) {
-            val state = PlaybackState(diagnostics = PlaybackDiagnostics(engine = reported))
-            val labels = state.readoutLine(sourceLabel = null).split(" · ")
-            assertTrue("SCore" in labels, reported)
-            assertFalse(labels.any { it.contains("SenPlayer") }, reported)
-        }
-    }
-
     @Test
     fun compactHeaderKeepsPlaybackContextAndOmitsStreamDiagnostics() {
         val state =

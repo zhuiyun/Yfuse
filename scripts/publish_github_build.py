@@ -43,7 +43,7 @@ def prepare(apk, request_dir, output, environment=os.environ):
     shutil.copyfile(apk, output / filename)
     for name in request["files"]:
         shutil.copyfile(request_dir / name, output / name)
-    info = {"applicationId": "com.yfuse", "profile": "ycore-senplayer", "sourceBranch": "master",
+    info = {"applicationId": "com.yfuse", "profile": "ycore", "sourceBranch": "master",
             "sourceCommit": request["sourceCommit"], "versionCode": request["versionCode"],
             "versionName": request["versionName"], "apk": filename, "sha256": digest(apk),
             "size": apk.stat().st_size, "signingCertificateSha256": CERTIFICATE,
@@ -132,8 +132,8 @@ def publish(info, files, output, request_dir):
             notes.write_text(
                 request["releaseNotes"] + "\n\n"
                 f"versionCode {info['versionCode']} · versionName {info['versionName']} · commit {info['sourceCommit']}\n\n"
-                "正式签名的 YCore + SenPlayer 自动构建。已通过质量门禁、DEX/运行库验证和 Android 35/36/37 安装启动检查。\n"
-                "附件含本次有效版本配置、更新说明及 SHA-256。原始 SenPlayer APK 不作为附件发布。\n"
+                "正式签名的 YCore 自动构建。已通过质量门禁、DEX/运行库验证和 Android 35/36/37 安装启动检查。\n"
+                "附件含本次有效版本配置、更新说明及 SHA-256。\n"
                 "此发布不更新线上更新服务器，不更改 Latest，历史版本附件不会被覆盖。\n",
                 encoding="utf-8")
             gh("release", "create", tag, "--repo", REPOSITORY, "--target", info["sourceCommit"],

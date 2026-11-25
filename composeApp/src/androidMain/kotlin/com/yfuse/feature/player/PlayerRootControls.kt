@@ -29,7 +29,6 @@ import com.yfuse.core.data.SeriesPlaybackPreference
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.model.ShortDramaMode
-import com.yfuse.core.playback.PlaybackEngineSelection
 import com.yfuse.core.playback.PlaybackFailureMemory
 import com.yfuse.core.playback.PlaybackPerformanceMemory
 import com.yfuse.core.sync.WatchTogetherClient
@@ -122,7 +121,6 @@ internal fun PlayerRootControls(
     rememberSeriesPlayback: ((SeriesPlaybackPreference) -> SeriesPlaybackPreference) -> Unit,
     applySubtitlePair: (EngineTrack, EngineTrack) -> Unit,
     switchEngine: (PlayerEngine) -> Unit,
-    selectEngineStrategy: (PlaybackEngineSelection) -> Unit,
     selectServer: (String) -> Unit,
     selectVersion: (String) -> Unit,
     onDismissNextUp: () -> Unit,
@@ -356,8 +354,7 @@ internal fun PlayerRootControls(
                     choices.subtitleControls.copy(
                         secondaryTrackId = choices.secondarySubtitleTrackId,
                         independentScaleAvailable =
-                            engine is YPlayerVideoEngineAdapter || engine is SenPlayerVideoEngine,
-                        dualLayoutNote = if (engine is SenPlayerVideoEngine) "此内核保留字幕原排版。" else null,
+                            engine is YPlayerVideoEngineAdapter,
                         secondarySupported = backendExtensions.supportsSecondarySubtitleTrack,
                         secondaryOffsetAvailable = backendExtensions.supportsSecondarySubtitleOffset,
                         secondaryUnavailableReason =
@@ -733,13 +730,6 @@ internal fun PlayerRootControls(
                             ).joinToString(" · ")
                     },
                 selectedVersionId = currentItem?.versionId,
-                engineOptions =
-                    packagedEngineStrategies().map { selection ->
-                        val label =
-                            selection.lockedEngine?.let { "本视频使用 ${it.label}" }
-                                ?: "本视频跟随 YCore 智能策略"
-                        label to (selection == choices.sessionEngineSelection)
-                    },
                 // Manual escape hatch when the picture is black but audio plays. Offered on
                 // every engine when a server transcode is available.
                 transcodeLabel =
@@ -762,13 +752,6 @@ internal fun PlayerRootControls(
                 onSelectVersion = { versionId ->
                     gestures.invalidate()
                     selectVersion(versionId)
-                },
-                onSelectEngine = { index ->
-                    packagedEngineStrategies().getOrNull(index)?.let { selection ->
-                        gestures.invalidate()
-                        selectEngineStrategy(selection)
-                        PlayerNotices.show("仅覆盖当前视频；全局播放策略未更改")
-                    }
                 },
                 onTranscode = {
                     if (!core2NativeOnlyActive && !state.transcoding) {
@@ -995,6 +978,3 @@ internal fun PlayerRootControls(
                 .danmakuPressWatch(danmakuPicker),
     )
 }
-
-/** The two packaged backends remain selectable regardless of the old native-only flag. */
-private fun packagedEngineStrategies(): List<PlaybackEngineSelection> = PlaybackEngineSelection.selectable

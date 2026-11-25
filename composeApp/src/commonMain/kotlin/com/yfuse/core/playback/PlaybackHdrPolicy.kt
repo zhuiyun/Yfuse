@@ -2,7 +2,6 @@ package com.yfuse.core.playback
 
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
-import com.yfuse.core.model.SEN_PLAYER_DISPLAY_NAME
 
 data class PlaybackSourceRequirements(
     val dolbyVision: Boolean,
@@ -76,20 +75,6 @@ fun playbackHdrRoute(
         PlaybackDolbyVisionRuntimeCapabilities.conservative(),
     requiresNativeDemuxer: Boolean = false,
 ): PlaybackHdrRoute {
-    if (preferredEngine == PlayerEngine.SenPlayer) {
-        return PlaybackHdrRoute(
-            engine = preferredEngine,
-            decoderMode = preferredDecoderMode,
-            requiresServerTranscode = false,
-            reason = "$SEN_PLAYER_DISPLAY_NAME 的 HDR 输出需由实际播放验证".takeIf { source.hdrFormat != null },
-            dolbyVisionPath =
-                if (source.dolbyVision) {
-                    PlaybackDolbyVisionPath.Unverified
-                } else {
-                    PlaybackDolbyVisionPath.None
-                },
-        )
-    }
     if (source.dolbyVision) {
         val dolbyRoute =
             playbackDolbyVisionRoute(

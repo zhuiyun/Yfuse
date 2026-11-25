@@ -36,7 +36,6 @@ internal fun anonymousPlaybackQoeReport(
         engine =
             when (engine) {
                 PlayerEngine.YCore -> QoeEngine.YCore
-                PlayerEngine.SenPlayer -> QoeEngine.SenPlayer
             },
         platformApi = platformApiLevel.qoeApiBucket(),
         deviceFamily = qoeDeviceFamily(socManufacturer, hardware),
@@ -192,5 +191,5 @@ private fun PlaybackHdrFormat?.qoeDynamicRange(): QoeDynamicRange =
 /** Only wire engine identities confirmed against the deployed backend may enter its outbox. */
 internal fun publishedQoeEngineSupported(engine: PlayerEngine): Boolean =
     when (engine) {
-        PlayerEngine.YCore, PlayerEngine.SenPlayer -> false
+        PlayerEngine.YCore -> false
     }

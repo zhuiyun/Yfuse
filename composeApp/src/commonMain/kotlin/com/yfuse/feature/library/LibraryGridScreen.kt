@@ -175,7 +175,13 @@ fun LibraryGridScreen(
         remember(gridState, component.densityKey) {
             GridDensityState(gridState, scope, columnStore?.columns(component.densityKey))
         }
+    var showPosterNames by remember(columnStore, component.densityKey) {
+        mutableStateOf(columnStore?.showPosterNames(component.densityKey) ?: true)
+    }
+    val hasCaptionSpace = gridDensity.columns?.let(::gridShowsTitles) ?: true
+    val titles = showPosterNames && hasCaptionSpace
     SideEffect {
+        gridDensity.showPosterNames = showPosterNames
         gridDensity.still = still
         with(pixels) {
             gridDensity.spacingPx = GridSpacing.toPx()
@@ -187,7 +193,6 @@ fun LibraryGridScreen(
             if (pinched) tips?.markUsed(Tips.PINCH_GRID)
         }
     }
-    val titles = gridDensity.columns?.let(::gridShowsTitles) ?: true
 
     // 快速滚动索引: one stop per letter, year, month or score, labelled off the main thread —
     // the pinyin lookup is a collator walk per title.
@@ -314,7 +319,7 @@ fun LibraryGridScreen(
             SkeletonHandoff(
                 loading = state.loading && state.loadedCount == 0,
                 modifier = Modifier.fillMaxSize(),
-                skeleton = { SkeletonGrid(bottomContentInset = bottomContentInset, columns = gridDensity.columns) },
+                skeleton = { SkeletonGrid(bottomContentInset, gridDensity.columns, titles) },
             ) {
                 when {
                     state.error != null && state.loadedCount == 0 ->
@@ -391,6 +396,7 @@ fun LibraryGridScreen(
                                             title = container.title,
                                             caption = container.itemCount?.let { "$it 项" },
                                             titles = titles,
+                                            showRating = hasCaptionSpace,
                                             onClick = { component.onOpenContainer(container) },
                                             modifier =
                                                 Modifier.gridReflowItem(
@@ -434,6 +440,7 @@ fun LibraryGridScreen(
                                                 title = item.title,
                                                 caption = item.year?.toString(),
                                                 titles = titles,
+                                                showRating = hasCaptionSpace,
                                                 rating = item.communityRating,
                                                 onClick = { component.onOpenItem(item.id) },
                                                 liftMenu = lift,
@@ -536,7 +543,17 @@ fun LibraryGridScreen(
         )
 
         if (optionsOpen) {
-            LibraryGridOptionsDialog(state, gridDensity, component.store::accept) { optionsOpen = false }
+            LibraryGridOptionsDialog(
+                state = state,
+                gridDensity = gridDensity,
+                showPosterNames = showPosterNames,
+                onShowPosterNamesChange = { show ->
+                    showPosterNames = show
+                    columnStore?.setShowPosterNames(component.densityKey, show)
+                },
+                onIntent = component.store::accept,
+                onDismiss = { optionsOpen = false },
+            )
         }
 
         // The store closes this one, the moment the removal starts; it still leaves the way it came.
@@ -586,8 +603,8 @@ fun LibraryGridScreen(
 private fun SkeletonGrid(
     bottomContentInset: androidx.compose.ui.unit.Dp,
     columns: Int?,
+    titles: Boolean,
 ) {
-    val titles = columns?.let(::gridShowsTitles) ?: true
     // Only needs to be plausible for the adaptive layout; a remembered density is the real count.
     val waveColumns = columns ?: SKELETON_GRID_COLUMNS
     LazyVerticalGrid(
@@ -748,6 +765,7 @@ private fun GridTile(
     caption: String?,
     titles: Boolean,
     onClick: () -> Unit,
+    showRating: Boolean,
     modifier: Modifier = Modifier,
     rating: Double? = null,
     liftMenu: (() -> LiftMenu)? = null,
@@ -767,7 +785,7 @@ private fun GridTile(
         Poster(
             url = url,
             // Under a 60 dp poster the score badge would cover what little of it there is.
-            rating = rating.takeIf { titles },
+            rating = rating.takeIf { showRating },
             contentDescription = title,
             sharedTransitionKey = sharedTransitionKey,
             modifier =

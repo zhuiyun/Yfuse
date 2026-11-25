@@ -1,45 +1,17 @@
 package com.yfuse.feature.player
 
 import android.content.Context
-import android.os.Build
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 import com.yfuse.core.data.PlaybackFrameRateMatch
-import com.yfuse.core.data.SenPlayerPictureSettings
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
-import com.yfuse.core.model.SEN_PLAYER_DISPLAY_NAME
 import com.yfuse.core.playback.NativePlaybackComponent
 import com.yfuse.core.playback.PlaybackAudioCodec
 import com.yfuse.core.playback.PlaybackDeviceCapabilities
 import com.yfuse.core.playback.PlaybackOptimizationMode
 import com.yfuse.core2.android.AndroidCore2TrialFactory
 import com.yfuse.core2.android.core2NativeBaselineBlockReason
-import com.yfuse.feature.filesource.isFileSourcePlayback
-import com.yfuse.senplayer.SenPlayerSession
-import kotlinx.coroutines.flow.StateFlow
-
-/** A selected SenPlayer session must not silently become a different engine for unsupported media/ABIs. */
-internal fun playbackEngineUnsupportedReason(
-    kind: PlayerEngine,
-    items: List<PlayerMediaItem>,
-    senPlayerProcessSupported: Boolean =
-        if (Build.VERSION.SDK_INT == 0 && Build.SUPPORTED_ABIS.isNullOrEmpty()) {
-            true
-        } else {
-            SenPlayerSession.supportsProcess()
-        },
-): String? =
-    when {
-        kind != PlayerEngine.SenPlayer -> null
-        !senPlayerProcessSupported ->
-            "$SEN_PLAYER_DISPLAY_NAME 仅支持 64 位 arm64-v8a 设备（Android 9+），请手动选择 YCore"
-        items.any { it.drmConfiguration != null || it.activeVersion?.drmConfiguration != null } ->
-            "$SEN_PLAYER_DISPLAY_NAME 暂不支持受保护的 DRM 加密片源，请手动选择 YCore"
-        items.any { it.requiresYCoreFileTransport() } ->
-            "$SEN_PLAYER_DISPLAY_NAME 不支持此队列所需的文件源凭据或传输协议，请手动选择 YCore"
-        else -> null
-    }
 
 /** Android engine construction boundary; callers depend only on [VideoEngine]. */
 @OptIn(UnstableApi::class)
@@ -56,7 +28,6 @@ internal fun createVideoEngine(
     autoNext: Boolean,
     customUserAgent: String,
     videoCacheBytes: Long,
-    senPlayerPictureSettings: StateFlow<SenPlayerPictureSettings>? = null,
     yCoreBufferTargetUs: Long? = null,
     allowAudioPassthrough: Boolean = false,
     frameRateMatch: PlaybackFrameRateMatch = PlaybackFrameRateMatch.Disabled,
@@ -75,43 +46,16 @@ internal fun createVideoEngine(
             itemCount = items.size,
             startPositionMs = startPositionMs,
         )
-    playbackEngineUnsupportedReason(kind, items)?.let { return unavailable(it) }
     val resolvedDecoderMode =
         AndroidNativeCrashMonitor.safeDecoderMode(kind, decoderMode, capabilitySignature)
     AndroidNativeCrashMonitor.arm(
         owner = crashOwner,
-        component =
-            if (kind ==
-                PlayerEngine.YCore
-            ) {
-                NativePlaybackComponent.YCoreDemux
-            } else {
-                NativePlaybackComponent.SenPlayer
-            },
+        component = NativePlaybackComponent.YCoreDemux,
         engine = kind,
         decoderMode = resolvedDecoderMode,
         capabilitySignature = capabilitySignature,
         media = items.getOrNull(startIndex),
     )
-    // SenPlayer is an explicit choice. The no-legacy-fallback packaging flag must never mask it.
-    if (kind == PlayerEngine.SenPlayer) {
-        return SenPlayerVideoEngine(
-            context = context,
-            items = items,
-            startIndex = startIndex,
-            startPositionMs = startPositionMs,
-            startPlaybackRequested = startPlaybackRequested,
-            startSpeed = startSpeed,
-            decoderMode = resolvedDecoderMode,
-            autoNext = autoNext,
-            customUserAgent = customUserAgent,
-            videoCacheBytes = videoCacheBytes,
-            frameRateMatch = frameRateMatch,
-            initialTrackSelections = initialTrackSelections,
-            pictureSettings = senPlayerPictureSettings,
-        )
-    }
-
     if (PlaybackRemotePolicyRegistry.isDisabled(PlaybackRemotePath.YCoreAll) ||
         PlaybackRemotePolicyRegistry.isDisabled(PlaybackRemotePath.YCoreDemux)
     ) {
@@ -146,11 +90,3 @@ internal fun createVideoEngine(
         initialTrackSelections = initialTrackSelections,
     ) ?: unavailable("YCore 当前无法建立播放路径")
 }
-
-internal fun PlayerMediaItem.requiresYCoreFileTransport(): Boolean =
-    isFileSourcePlayback &&
-        (
-            transportCredentials != null ||
-                activeVersion?.discSource == true ||
-                !(url.startsWith("http://", ignoreCase = true) || url.startsWith("https://", ignoreCase = true))
-        )

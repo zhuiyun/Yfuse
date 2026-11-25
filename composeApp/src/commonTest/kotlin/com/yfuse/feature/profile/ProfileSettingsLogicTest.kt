@@ -1,5 +1,7 @@
 package com.yfuse.feature.profile
 
+import com.russhwolf.settings.MapSettings
+import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.data.VideoCacheSize
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
@@ -14,23 +16,18 @@ import kotlin.test.assertTrue
 
 class ProfileSettingsLogicTest {
     @Test
-    fun savedSenPlayerChoiceShowsSCoreAndIsSearchableByBothNames() {
-        val stored = PlaybackEngineSelection.valueOf("LockSenPlayer")
-        val copy = stored.playbackOptionCopy()
-        assertEquals(PlayerEngine.valueOf("SenPlayer"), stored.lockedEngine)
-        assertEquals("SCore（实验）", stored.lockedEngine?.label)
-        assertEquals("SCore（实验，需联网许可）", copy.label)
-        assertEquals("SCore 实验内核", copy.summary)
-        val keywords = settingsControlDestinations().single { it.title == "播放内核" }.keywords.split(' ')
-        assertTrue("SCore" in keywords)
-        assertTrue("SenPlayer" in keywords)
-    }
+    fun old_score_selection_migrates_to_ycore_and_old_picture_settings_are_removed() {
+        val settings = MapSettings()
+        settings.putString("player.ycore.engineSelection", "LockSenPlayer")
+        settings.putString("playback.senplayer.upscaling", "High")
+        settings.putString("playback.senplayer.sdr_to_hdr", "Medium")
 
-    @Test
-    fun advanced_engine_choices_recommend_only_automatic_selection() {
-        val recommended = PlaybackEngineSelection.selectable.filter { "推荐" in it.playbackOptionCopy().label }
-        assertEquals(listOf(PlaybackEngineSelection.Auto), recommended)
-        assertEquals("YCore", PlaybackEngineSelection.LockYCore.playbackOptionCopy().label)
+        val preferences = PlaybackPreferences(settings)
+
+        assertEquals(PlaybackEngineSelection.LockYCore, preferences.engineSelection.value)
+        assertEquals("LockYCore", settings.getStringOrNull("player.ycore.engineSelection"))
+        assertFalse(settings.hasKey("playback.senplayer.upscaling"))
+        assertFalse(settings.hasKey("playback.senplayer.sdr_to_hdr"))
     }
 
     @Test
@@ -57,22 +54,15 @@ class ProfileSettingsLogicTest {
     }
 
     @Test
-    fun every_real_engine_and_decoder_has_clear_non_empty_copy() {
+    fun every_decoder_and_optimization_mode_has_clear_non_empty_copy() {
         (
-            PlayerEngine.selectable.map { it.playbackOptionCopy() } +
-                DecoderMode.entries.map { it.playbackOptionCopy() } +
+            DecoderMode.entries.map { it.playbackOptionCopy() } +
                 PlaybackOptimizationMode.entries.map { it.playbackOptionCopy() }
         ).forEach { copy ->
             assertTrue(copy.label.isNotBlank())
             assertTrue(copy.summary.isNotBlank())
             assertTrue(copy.description.isNotBlank())
         }
-        assertTrue(
-            PlayerEngine.YCore
-                .playbackOptionCopy()
-                .description
-                .contains("自研"),
-        )
         assertTrue(
             DecoderMode.Software
                 .playbackOptionCopy()

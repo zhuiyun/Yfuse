@@ -9,19 +9,6 @@ import kotlin.test.assertTrue
 
 class PlaybackPreloaderPolicyTest {
     @Test
-    fun senplayer_never_starts_the_ycore_source_preparation_worker() {
-        assertFalse(
-            shouldPrepareYCoreSource(
-                PlayerEngine.SenPlayer,
-                PlaybackNetworkClass.Unmetered,
-                SourcePreheatMode.WifiAndMobile,
-                dataSaver = false,
-                powerSaveMode = false,
-            ),
-        )
-    }
-
-    @Test
     fun ycore_preparation_respects_network_opt_out_and_power_policy() {
         assertTrue(
             shouldPrepareYCoreSource(

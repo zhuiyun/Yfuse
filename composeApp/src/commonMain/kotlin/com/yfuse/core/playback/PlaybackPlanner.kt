@@ -2,7 +2,6 @@ package com.yfuse.core.playback
 
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
-import com.yfuse.core.model.SEN_PLAYER_DISPLAY_NAME
 
 /** User intent resolved by YCore before a concrete backend is constructed. */
 enum class PlaybackOptimizationMode {
@@ -12,11 +11,10 @@ enum class PlaybackOptimizationMode {
     Compatibility,
 }
 
-/** Automatic playback uses YCore; SenPlayer requires an explicit user selection. */
+/** Legacy engine selection for saved playback preferences. */
 enum class PlaybackEngineSelection {
     Auto,
     LockYCore,
-    LockSenPlayer,
     ;
 
     val lockedEngine: PlayerEngine?
@@ -24,7 +22,6 @@ enum class PlaybackEngineSelection {
             when (this) {
                 Auto -> null
                 LockYCore -> PlayerEngine.YCore
-                LockSenPlayer -> PlayerEngine.SenPlayer
             }
 
     companion object {
@@ -34,7 +31,6 @@ enum class PlaybackEngineSelection {
         fun locked(engine: PlayerEngine): PlaybackEngineSelection =
             when (engine) {
                 PlayerEngine.YCore -> LockYCore
-                PlayerEngine.SenPlayer -> LockSenPlayer
             }
     }
 }
@@ -147,7 +143,7 @@ data class PlaybackPlan(
 )
 
 /**
- * Plans source handling for the two installed engines. Auto never opts into SenPlayer licensing.
+ * Plans how YCore handles the requested source.
  * This is a request, not output proof: the runtime still verifies codecs, HDR, DRM and surfaces.
  */
 @Suppress("UNUSED_PARAMETER")
@@ -196,14 +192,12 @@ fun planPlayback(
         when {
             probe.drmProtected -> "当前内核尚未支持受保护内容的完整 DRM 播放流程"
             requested != primary -> "所选内核不适用于当前平台，使用 YCore"
-            primary == PlayerEngine.SenPlayer -> "已选择 $SEN_PLAYER_DISPLAY_NAME，播放时按原内核规则验证许可"
             localSoftware && softwareFirst -> "ProRes 交由 YCore FFmpeg 软件解码，实际格式支持由运行时验证"
             localSoftware -> hdrRoute.reason ?: "硬件解码器不支持当前参数，改用 YCore 本地软件解码"
             hdrRoute.reason != null -> hdrRoute.reason
             discDecision.reason != null -> discDecision.reason
             probe.requiresNativeDemuxer -> "${probe.normalizedContainer} 使用 YCore 原生解封装"
             probe.styledSubtitles -> "使用 YCore 字幕管线，样式支持以实际输出为准"
-            primary in excludedEngines -> "当前只有 YCore 自动内核可用；失败后不会自动启用 $SEN_PLAYER_DISPLAY_NAME"
             else -> "使用 YCore 自研播放管线"
         }
     return PlaybackPlan(
@@ -211,7 +205,6 @@ fun planPlayback(
         decoderMode =
             when {
                 probe.drmProtected -> preferredDecoderMode
-                primary == PlayerEngine.SenPlayer -> preferredDecoderMode
                 probe.usingServerTranscode -> DecoderMode.Hardware
                 localSoftware -> DecoderMode.Software
                 probe.source.dolbyVision -> hdrRoute.decoderMode

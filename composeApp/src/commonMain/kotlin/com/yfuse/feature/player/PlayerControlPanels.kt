@@ -95,7 +95,6 @@ internal fun BoxScope.PlayerSettingsLayers(
                 state = state,
                 playback = playback,
                 containerLabel = source.containerLabel,
-                engineOptions = source.engineOptions,
                 transcodeLabel = source.transcodeLabel,
                 transcodeActive = source.transcodeActive,
                 castDevices = cast.devices,
@@ -159,10 +158,6 @@ internal fun BoxScope.PlayerSettingsLayers(
                 },
                 sleepTimer = panels.sleepTimer,
                 sleepTimerActions = panelActions.sleepTimer,
-                onSelectEngine = {
-                    sourceActions.onSelectEngine(it)
-                    chrome.settingsPanelKind = null
-                },
                 onTranscode = {
                     sourceActions.onTranscode()
                     chrome.settingsPanelKind = null

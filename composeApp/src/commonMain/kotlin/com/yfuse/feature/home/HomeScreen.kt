@@ -469,6 +469,7 @@ internal fun HomeContentBody(
                                     onFavorite = { onIntent(HomeIntent.Favorite(it)) },
                                     onAccent = onHeroAccent,
                                     onPageColor = onHeroPageColor,
+                                    pageColor = heroPageColor,
                                     canResolvePlayback = state.server != null,
                                     onBack = onBack,
                                 )
@@ -922,6 +923,7 @@ private fun HomeHeroCarousel(
     onFavorite: (TmdbItem) -> Unit,
     onAccent: (Color) -> Unit,
     onPageColor: (Color) -> Unit,
+    pageColor: State<Color>,
     canResolvePlayback: Boolean,
     onBack: (() -> Unit)? = null,
 ) {
@@ -943,6 +945,7 @@ private fun HomeHeroCarousel(
             held = held || !visible,
             ambientUrls = ambientUrls,
             artwork = artwork,
+            pageColor = pageColor,
             modifier = Modifier.fillMaxSize(),
             lit = visible,
             empty = {

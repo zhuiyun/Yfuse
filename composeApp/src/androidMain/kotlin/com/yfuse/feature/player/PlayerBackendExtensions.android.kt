@@ -7,7 +7,7 @@ import com.yfuse.core2.api.YPlayer
 /**
  * Temporary compatibility boundary for controls that are not part of the stable [YPlayer] API.
  *
- * Product UI uses this facade for YCore and SenPlayer. Unsupported operations report false
+ * Product UI uses this facade for YCore. Unsupported operations report false
  * so controls can be disabled without switching engines behind the viewer.
  */
 internal class PlayerBackendExtensions(
@@ -51,8 +51,6 @@ internal class PlayerBackendExtensions(
 
     fun setSubtitleScale(scale: Float): Boolean = engine.setSubtitleScale(scale)
 
-    fun setSecondarySubtitleScale(scale: Float) = (engine as? SenPlayerVideoEngine)?.setSecondarySubtitleScale(scale)
-
     fun setSubtitleBrightness(brightness: Float): Boolean = engine.setSubtitleBrightness(brightness)
 
     fun setSubtitlePosition(position: Float): Boolean = engine.setSubtitlePosition(position)
@@ -85,7 +83,7 @@ internal class PlayerBackendExtensions(
         currentIndex: Int,
     ): Boolean = engine.updateQueue(items, currentIndex)
 
-    /** YCore's Compose surface applies the requested scale; SenPlayer currently exposes Fit only. */
+    /** YCore's Compose surface applies the requested scale. */
     fun setVideoScaleMode(mode: VideoScaleMode): Boolean =
         engine is com.yfuse.core2.legacy.YPlayerVideoEngineAdapter || mode == VideoScaleMode.Fit
 

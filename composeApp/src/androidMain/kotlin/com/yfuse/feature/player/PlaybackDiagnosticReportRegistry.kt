@@ -433,7 +433,7 @@ internal fun playbackSubtitleDiagnosticSelection(state: PlaybackState): String {
  * The engine that actually owns the session, for every line a reader compares against the logs.
  *
  * Reported session identity wins over the retained legacy build preference. That preference must
- * never relabel an explicitly selected SenPlayer session as YCore.
+ * preserve the reported playback identity.
  */
 internal fun engineBindingLabel(
     diagnostics: PlaybackDiagnostics,

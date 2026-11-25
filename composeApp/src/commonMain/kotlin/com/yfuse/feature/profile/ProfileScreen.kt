@@ -135,7 +135,6 @@ import com.yfuse.core.model.StartupTab
 import com.yfuse.core.offline.OfflineIndexStatus
 import com.yfuse.core.offline.OfflineMedia
 import com.yfuse.core.offline.offlinePlaybackUri
-import com.yfuse.core.playback.PlaybackEngineSelection
 import com.yfuse.feature.player.PlayerLauncher
 import com.yfuse.feature.player.PlayerMediaItem
 import com.yfuse.feature.player.externalPlaybackItem
@@ -157,7 +156,6 @@ private enum class Sheet {
     Background,
     PlaybackMode,
     MediaVersionPreference,
-    Engine,
     Decoder,
     YCoreBufferDuration,
     DanmakuSource,
@@ -332,7 +330,6 @@ fun ProfileScreen(component: ProfileComponent) {
     val yCoreBufferDuration by component.playbackPreferences.yCoreBufferDuration.collectAsState()
     val optimizationMode by component.playbackPreferences.optimizationMode.collectAsState()
     val mediaVersionPreference by component.playbackPreferences.mediaVersionPreference.collectAsState()
-    val engineSelection by component.playbackPreferences.engineSelection.collectAsState()
     val smartCrossServerSource by component.playbackPreferences.smartCrossServerSource.collectAsState()
     val detailThemeSong by component.playbackPreferences.detailThemeSong.collectAsState()
     val backgroundAudio by component.playbackPreferences.backgroundAudio.collectAsState()
@@ -697,10 +694,8 @@ fun ProfileScreen(component: ProfileComponent) {
                             AdvancedPlaybackSettingsScreen(
                                 outputPreferences = component.playbackPreferences,
                                 onBack = component::closePage,
-                                engineSelection = engineSelection,
                                 decoder = decoder,
                                 yCoreBufferDuration = yCoreBufferDuration,
-                                onEngine = { sheet = Sheet.Engine },
                                 onDecoder = { sheet = Sheet.Decoder },
                                 onYCoreBufferDuration = { sheet = Sheet.YCoreBufferDuration },
                             )
@@ -1039,24 +1034,6 @@ fun ProfileScreen(component: ProfileComponent) {
                         component.playbackPreferences.setMediaVersionPreference(
                             MediaVersionPreference.entries[index],
                         )
-                        sheet = null
-                    },
-                    onDismiss = { sheet = null },
-                )
-
-            Sheet.Engine ->
-                OptionSheet(
-                    title = "高级内核选择",
-                    subtitle = "遇到播放兼容问题时，可固定使用一个内核。",
-                    options =
-                        PlaybackEngineSelection.selectable.map {
-                            it.playbackOptionCopy().label to (it == engineSelection)
-                        },
-                    descriptions = PlaybackEngineSelection.selectable.map { it.playbackOptionCopy().description },
-                    onSelect = { index ->
-                        val selection = PlaybackEngineSelection.selectable[index]
-                        component.playbackPreferences.setEngineSelection(selection)
-                        selection.lockedEngine?.let(prefs::setEngine)
                         sheet = null
                     },
                     onDismiss = { sheet = null },

@@ -17,10 +17,9 @@ plugins {
     alias(libs.plugins.serialization)
 }
 
-// Standard Android delivery has exactly two backends: standalone YCore and the pinned SenPlayer runtime.
-// The historical flag now means no legacy fallback; it does not exclude SenPlayer.
+// Standard Android delivery uses the standalone YCore runtime.
 val nativeOnlyRuntime = true
-val releasePackageProfile = "ycore-senplayer"
+val releasePackageProfile = "ycore"
 require(
     providers
         .gradleProperty("yfuseNativeOnlyRuntime")
@@ -41,7 +40,7 @@ require(
 }
 val requestedPlaybackProfile = providers.gradleProperty("yfusePlaybackProfile").orNull
 require(requestedPlaybackProfile == null || requestedPlaybackProfile == releasePackageProfile) {
-    "Only yfusePlaybackProfile=ycore-senplayer is supported."
+    "Only yfusePlaybackProfile=ycore is supported."
 }
 val packagedYCoreGpu = true
 
@@ -190,7 +189,7 @@ val verifyDesignSystemUsage by tasks.registering {
 
 val verifyStandaloneYCoreArtifact by tasks.registering {
     group = "verification"
-    description = "Verifies the dependency-closed YCore AAR used by YCore + SenPlayer packages."
+    description = "Verifies the dependency-closed YCore AAR used by YCore packages."
     val aar = layout.projectDirectory.file("libs/ycore-native.aar")
     val checksum = layout.projectDirectory.file("libs/ycore-native.aar.sha256")
     val sources = layout.projectDirectory.file("libs/ycore-native.sources.txt")
@@ -304,59 +303,6 @@ val verifyStandaloneYCoreArtifact by tasks.registering {
                 "Standalone YCore embedded provenance differs from its sidecar"
             }
         }
-    }
-}
-
-val verifySenPlayerArtifact by tasks.registering {
-    group = "verification"
-    description = "Verifies the five pinned original SenPlayer assets without executing or contacting the runtime."
-    val assets = rootProject.layout.projectDirectory.dir("senplayerBridge/src/main/assets/senplayer")
-    inputs.dir(assets)
-    doLast {
-        val directory = assets.asFile
-        val manifestFile = directory.resolve("runtime.json")
-        require(manifestFile.isFile) { "Missing SenPlayer runtime manifest; import the reviewed source APK first" }
-        val manifest = JsonSlurper().parse(manifestFile) as Map<*, *>
-        require(manifest["abi"] == "arm64-v8a") { "SenPlayer runtime must target arm64-v8a" }
-        val records = manifest["files"] as? List<*> ?: error("SenPlayer manifest has no pinned files")
-        val expectedAssets =
-            setOf(
-                "classes.dex",
-                "license.json",
-                "native/libFFmpegKit.so",
-                "native/libMLibKit.so",
-                "native/libc++_shared.so",
-            )
-        require(
-            records.size == expectedAssets.size &&
-                records.map { (it as Map<*, *>)["asset"] }.toSet() == expectedAssets,
-        ) { "SenPlayer manifest must pin exactly the five reviewed assets" }
-        records.forEach { record ->
-            val entry = record as Map<*, *>
-            val relative = entry["asset"] as String
-            val file = directory.resolve(relative)
-            require(file.isFile && file.length() == (entry["bytes"] as Number).toLong()) {
-                "Missing or truncated SenPlayer asset: $relative"
-            }
-            val digest = MessageDigest.getInstance("SHA-256")
-            file.inputStream().use { input ->
-                val buffer = ByteArray(128 * 1024)
-                while (true) {
-                    val count = input.read(buffer)
-                    if (count < 0) break
-                    digest.update(buffer, 0, count)
-                }
-            }
-            val actual = digest.digest().joinToString("") { "%02x".format(it) }
-            require(actual == entry["sha256"]) { "SenPlayer asset checksum mismatch: $relative" }
-        }
-        val actualAssets =
-            directory
-                .walkTopDown()
-                .filter { it.isFile }
-                .map { it.relativeTo(directory).invariantSeparatorsPath }
-                .toSet()
-        require(actualAssets == expectedAssets + "runtime.json") { "Unexpected files in SenPlayer asset directory" }
     }
 }
 
@@ -1310,7 +1256,7 @@ tasks.register<BumpVersionTask>("bumpVersion") {
 
 tasks.configureEach {
     if (name == "preBuild") {
-        dependsOn(verifyStandaloneYCoreArtifact, verifySenPlayerArtifact)
+        dependsOn(verifyStandaloneYCoreArtifact)
         dependsOn(verifyMediaTestManifest)
     }
     val releasePackagingTask =
@@ -1327,7 +1273,6 @@ tasks.configureEach {
 // --rerun-tasks still forces every check; failure never writes a success marker.
 listOf(
     verifyStandaloneYCoreArtifact,
-    verifySenPlayerArtifact,
     verifyMediaTestManifest,
     verifyBehavioralTestBoundaries,
 ).forEach { verification ->

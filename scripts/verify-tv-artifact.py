@@ -107,7 +107,7 @@ def verify_native_code(apk: pathlib.Path, readelf: str) -> None:
             if re.fullmatch(r"lib/[^/]+/[^/]+\.so", name)
         )
         if not libraries:
-            fail("YCore + SenPlayer TV APK must include its arm64 native runtime")
+            fail("YCore TV APK must include its arm64 native runtime")
         forbidden = {
             pathlib.PurePosixPath(name).name
             for name in libraries

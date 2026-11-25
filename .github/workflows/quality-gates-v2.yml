@@ -111,7 +111,7 @@ jobs:
           test -x "$sdkmanager"
           yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
           "$sdkmanager" "platforms;android-37.0" "ndk;29.0.14206865" "cmake;3.22.1"
-      - name: Prepare source-built YCore and original SenPlayer inputs
+      - name: Prepare source-built YCore inputs
         uses: ./.github/actions/prepare-source-playback
         with:
           artifact-id: ${{ needs.native.outputs.artifact_id }}
@@ -225,7 +225,7 @@ jobs:
       - name: Build R8 release package
         run: >-
           ./gradlew :composeApp:assembleRelease
-          -PyfuseIncludeMdk=false -PyfusePlaybackProfile=ycore-senplayer -PyfuseNativeOnlyRuntime=true
+          -PyfuseIncludeMdk=false -PyfusePlaybackProfile=ycore -PyfuseNativeOnlyRuntime=true
           -PallowDebugSigning=true "-Dorg.gradle.jvmargs=-Xmx6g -Dfile.encoding=UTF-8" --no-daemon
       # R8 can emit a method ART refuses to load; its class then throws VerifyError the first time
       # it is used, which nothing above runs. 1.0.97 (259) shipped a player that crashed that way.
@@ -235,7 +235,7 @@ jobs:
           scripts/verify-release-dex.sh
           --mapping composeApp/build/outputs/mapping/release/mapping.txt
           composeApp/build/outputs/apk/release/composeApp-release.apk
-      - name: Verify YCore + SenPlayer release package
+      - name: Verify YCore release package
         shell: bash
         run: |
           set -euo pipefail
@@ -390,7 +390,7 @@ jobs:
           test -x "$sdkmanager"
           yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
           "$sdkmanager" "platforms;android-37.0" "ndk;29.0.14206865" "cmake;3.22.1"
-      - name: Prepare source-built YCore and original SenPlayer inputs
+      - name: Prepare source-built YCore inputs
         uses: ./.github/actions/prepare-source-playback
         with:
           artifact-id: ${{ needs.native.outputs.artifact_id }}

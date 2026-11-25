@@ -84,7 +84,7 @@ internal fun anchoredRowTop(
     height: Float,
 ): Float = focusY - fraction.coerceIn(0f, 1f) * height
 
-/** Remembers each library's column count, so a grid opens as dense as it was left. */
+/** Remembers each library's poster layout. */
 class LibraryGridColumnsPreferences(
     private val settings: Settings,
 ) {
@@ -97,6 +97,18 @@ class LibraryGridColumnsPreferences(
     ) {
         settings.putInt(key(libraryKey), columns.coerceIn(GRID_MIN_COLUMNS, MAX_REMEMBERED_COLUMNS))
     }
+
+    fun showPosterNames(libraryKey: String): Boolean = settings.getBoolean(posterNamesKey(libraryKey), true)
+
+    fun setShowPosterNames(
+        libraryKey: String,
+        show: Boolean,
+    ) {
+        settings.putBoolean(posterNamesKey(libraryKey), show)
+    }
+
+    private fun posterNamesKey(libraryKey: String): String =
+        "library.showPosterNames.v1.${libraryKey.take(MAX_KEY_ID_CHARS)}"
 
     private fun key(libraryKey: String): String = "library.gridColumns.v1.${libraryKey.take(MAX_KEY_ID_CHARS)}"
 

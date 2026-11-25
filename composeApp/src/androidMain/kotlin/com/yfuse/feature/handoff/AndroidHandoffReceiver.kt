@@ -223,7 +223,7 @@ class AndroidHandoffReceiver(
 /** Resolving the title on this device's servers, before the source is asked to pause. */
 private const val PREPARE_TIMEOUT_MS = 25_000L
 
-/** Use the same explicit engine selection as PlayerRoot; YCore's gate cannot veto SenPlayer. */
+/** Check the playback requirements before taking over an active session. */
 internal fun handoffPlaybackBlockReason(
     selection: PlaybackEngineSelection,
     items: List<PlayerMediaItem>,

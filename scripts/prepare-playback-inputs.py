@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare verified YCore/SenPlayer inputs without legacy engine fallbacks."""
+"""Prepare the verified YCore runtime input."""
 import hashlib
 import importlib.util
 import io
@@ -65,8 +65,7 @@ def verify_ycore(data, pin):
 
 def input_path(root, environment, prefix, destination, fetch):
     configured = environment.get(prefix + "_PATH")
-    # A source artifact carries sibling provenance. Always validate that explicit bundle,
-    # including when an earlier attempt installed the AAR before a SenPlayer input failure.
+    # A source artifact carries sibling provenance. Always validate the explicit bundle.
     if prefix == "YCORE_NATIVE_AAR" and environment.get("YCORE_SOURCE_RECEIPT") and configured:
         source = Path(configured)
         require(source.is_file(), "Configured source-built YCore AAR does not name a file")
@@ -143,23 +142,8 @@ def prepare(root=ROOT, environment=None, fetch=download):
     finally:
         if source.parent == root / "build/playback-input-downloads":
             source.unlink(missing_ok=True)
-    directory = root / "senplayerBridge/src/main/assets/senplayer"
-    manifest = json.loads((directory / "runtime.json").read_text(encoding="utf-8"))
-    missing = any(not (directory / record["asset"]).is_file() for record in manifest["files"])
-    if missing:
-        source = input_path(root, environment, "SENPLAYER_SOURCE_APK", root / ".playback-inputs/SenPlayer.apk", fetch)
-        try:
-            require(sha256(source.read_bytes()) == pins["senPlayerSourceApkSha256"], "SenPlayer APK differs from the reviewed source")
-            spec = importlib.util.spec_from_file_location("senplayer_import", root / "scripts/import-senplayer-runtime.py")
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-            module.import_runtime(source, directory)
-        finally:
-            if source.parent == root / "build/playback-input-downloads":
-                source.unlink(missing_ok=True)
-    verify_sen_assets(directory, pins["senPlayerSourceApkSha256"])
     return {"profile": pins["profile"], "ycoreSha256": expected_ycore["sha256"],
-            "ycoreInputKind": input_kind, "senPlayerOriginalAssets": 5}
+            "ycoreInputKind": input_kind}
 
 
 def main():

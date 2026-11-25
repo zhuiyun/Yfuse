@@ -145,7 +145,6 @@ internal data class PlayerSourceState(
     val versions: List<Pair<String, String>> = emptyList(),
     val selectedVersionId: String? = null,
     // Engine picker rows: label to selected.
-    val engineOptions: List<Pair<String, Boolean>> = emptyList(),
     // Null when the active engine has no transcode fallback.
     val transcodeLabel: String? = null,
     val transcodeActive: Boolean = false,
@@ -157,7 +156,6 @@ internal data class PlayerSourceState(
 internal data class PlayerSourceActions(
     val onSelectSource: (String) -> Unit = {},
     val onSelectVersion: (String) -> Unit = {},
-    val onSelectEngine: (Int) -> Unit = {},
     val onTranscode: () -> Unit = {},
     val onResetAdaptiveLearning: () -> Unit = {},
     val onNextDiscTitle: () -> Unit = {},

@@ -131,7 +131,7 @@ class BufferedScrubDecodeInstrumentedTest {
 
     @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     @Test
-    fun latePreviewReadsOnlyCommittedSenPlayerCacheSpans() {
+    fun latePreviewReadsOnlyCommittedCacheSpans() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val limit = 8L * 1024 * 1024
         val url = "http://127.0.0.1:1/${java.util.UUID.randomUUID()}/movie.mp4"

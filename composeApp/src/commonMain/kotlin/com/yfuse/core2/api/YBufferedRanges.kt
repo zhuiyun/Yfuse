@@ -8,7 +8,6 @@ data class YBufferedRange(
 
 enum class YBufferRangeSource {
     Unknown,
-    SenPlayerNative,
     YCoreQueue,
 }
 

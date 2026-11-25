@@ -52,21 +52,6 @@ class PlaybackOutputCapabilitiesTest {
     }
 
     @Test
-    fun senplayer_does_not_advertise_unverified_output_controls_on_newer_android() {
-        listOf(28, 30, 31, 37).forEach { apiLevel ->
-            val capabilities = PlaybackOutputCapabilities.forEngine(PlayerEngine.SenPlayer, apiLevel)
-            assertEquals(
-                PlaybackOutputUnsupportedReason.BackendApiNotVerified,
-                assertIs<PlaybackFeatureCapability.Unsupported>(capabilities.frameRateMatching).reason,
-            )
-            assertEquals(
-                PlaybackOutputUnsupportedReason.BackendApiNotVerified,
-                assertIs<PlaybackFeatureCapability.Unsupported>(capabilities.audioPassthrough).reason,
-            )
-        }
-    }
-
-    @Test
     fun surface_plan_rejects_old_platforms_bad_rates_and_android_11_always_mode() {
         assertIs<SurfaceFrameRatePlan.Unsupported>(
             surfaceFrameRatePlan(FrameRateMatchMode.SeamlessOnly, 24f, androidApiLevel = 29),

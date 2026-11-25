@@ -88,7 +88,7 @@ internal fun yCoreDecoderFailureMessage(failure: YPlaybackException): String {
             .filterIsInstance<YVideoDecoderConfigurationException>()
             .any { it.mime == "video/dolby-vision" && it.failures.isEmpty() }
     return if (unavailable) {
-        "设备未提供杜比视界解码器，可在播放方式中选择 SCore"
+        "设备未提供杜比视界解码器，可尝试服务器转码或切换片源"
     } else {
         "YCore 2.0 无法启动当前视频解码器"
     }

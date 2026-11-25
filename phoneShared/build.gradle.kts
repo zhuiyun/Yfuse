@@ -36,7 +36,6 @@ kotlin {
             kotlin.srcDirs("../composeApp/src/androidMain/kotlin")
             dependencies {
                 api(project.dependencies.platform(libs.okhttp.bom))
-                implementation(project(":senplayerBridge"))
                 implementation(libs.widget.quickjs)
                 implementation(libs.widget.jsoup)
                 compileOnly(libs.bundles.shared.android)

@@ -1,5 +1,4 @@
 import importlib.util
-import json
 import struct
 import tempfile
 import unittest
@@ -50,7 +49,6 @@ class PlaybackPackageTest(unittest.TestCase):
         root = Path(self.directory.name)
         self.apk = root / "application.apk"
         self.ycore = root / "ycore-native.aar"
-        self.manifest = root / "runtime.json"
         self.mapping = root / "mapping.txt"
         self.native = elf_fixture()
         with zipfile.ZipFile(self.ycore, "w") as archive:
@@ -59,26 +57,16 @@ class PlaybackPackageTest(unittest.TestCase):
         self.ycore.with_suffix(".aar.sha256").write_text(checker.sha256(self.ycore.read_bytes()) + "  ycore-native.aar")
         self.entries = {f"lib/arm64-v8a/{name}": self.native for name in checker.YCORE_LIBRARIES}
         self.entries["classes.dex"] = dex_fixture()
-        records = []
-        for asset in sorted(checker.SEN_ASSETS):
-            content = self.native if asset.endswith(".so") else b"original SenPlayer fixture"
-            self.entries["assets/senplayer/" + asset] = content
-            records.append({"asset": asset, "bytes": len(content), "sha256": checker.sha256(content)})
-        manifest = json.dumps({"abi": "arm64-v8a", "files": records})
-        self.manifest.write_text(manifest)
-        self.entries["assets/senplayer/runtime.json"] = manifest.encode()
-
     def verify(self, mapping=None):
         with zipfile.ZipFile(self.apk, "w") as archive:
             for name, content in self.entries.items():
                 archive.writestr(name, content)
-        return checker.verify(self.apk, self.ycore, self.manifest, mapping)
+        return checker.verify(self.apk, self.ycore, mapping)
 
-    def test_exact_two_engine_fixture_passes(self):
+    def test_ycore_only_fixture_passes(self):
         result = self.verify()
-        self.assertEqual(5, result["senPlayerOriginalAssets"])
         self.assertEqual(1, result["applicationClassesChecked"])
-        self.assertEqual("ycore-senplayer", result["profile"])
+        self.assertEqual("ycore", result["profile"])
 
     def test_mdk_mpv_and_vlc_native_libraries_are_rejected(self):
         for name in ["libmdk.so", "libyfuse-mdk-jni.so", "libmpv.so", "libplayer.so", "libvlc.so"]:
@@ -91,7 +79,8 @@ class PlaybackPackageTest(unittest.TestCase):
 
     def test_removed_application_runtime_is_rejected(self):
         for name in ["com.google.android.exoplayer2.ExoPlayer", "androidx.media3.exoplayer.ExoPlayer",
-                     "dev.jdtech.mpv.MPVLib", "com.mediadevkit.sdk.MDKPlayer"]:
+                     "dev.jdtech.mpv.MPVLib", "com.mediadevkit.sdk.MDKPlayer",
+                     "com.yfuse.senplayer.SenPlayerSession", "com.yfuse.feature.player.SenPlayerVideoEngine"]:
             with self.subTest(name=name):
                 self.entries["classes.dex"] = dex_fixture(name)
                 with self.assertRaisesRegex(ValueError, "removed playback runtime"):
@@ -122,14 +111,9 @@ class PlaybackPackageTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "differs from verified input"):
             self.verify()
 
-    def test_changed_original_sen_asset_is_rejected(self):
-        self.entries["assets/senplayer/classes.dex"] += b"changed"
-        with self.assertRaisesRegex(ValueError, "Original SenPlayer asset changed"):
-            self.verify()
-
-    def test_missing_original_sen_asset_is_rejected(self):
-        del self.entries["assets/senplayer/license.json"]
-        with self.assertRaisesRegex(ValueError, "missing or unexpected SenPlayer"):
+    def test_removed_score_asset_is_rejected(self):
+        self.entries["assets/senplayer/classes.dex"] = b"removed runtime"
+        with self.assertRaisesRegex(ValueError, "APK contains removed SCore assets"):
             self.verify()
 
     def test_misaligned_support_native_is_rejected(self):

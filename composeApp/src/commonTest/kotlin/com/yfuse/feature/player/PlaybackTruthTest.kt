@@ -302,7 +302,7 @@ class PlaybackTruthTest {
         assertEquals(
             PlaybackMethod.DirectPlay.label,
             initialPlaybackDiagnostics(
-                engine = "SenPlayer",
+                engine = "YCore",
                 decoder = "自动",
                 item = item,
             ).playMethod,

@@ -13,7 +13,6 @@ import com.yfuse.core.data.VideoCacheSize
 import com.yfuse.core.data.YCoreBufferDuration
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.model.DecoderMode
-import com.yfuse.core.playback.PlaybackEngineSelection
 import com.yfuse.core.playback.PlaybackOptimizationMode
 import com.yfuse.feature.profile.ProfileComponent
 import com.yfuse.feature.profile.playbackOptionCopy
@@ -165,7 +164,6 @@ internal fun TvAdvancedPlaybackSettingsPage(
 ) {
     val focusScope = "settings:advanced-playback"
     val optimizationMode by component.playbackPreferences.optimizationMode.collectAsState()
-    val engineSelection by component.playbackPreferences.engineSelection.collectAsState()
     val decoder by component.themePreferences.decoder.collectAsState()
     val bufferDuration by component.playbackPreferences.yCoreBufferDuration.collectAsState()
     val videoCacheSize by component.playbackPreferences.videoCacheSize.collectAsState()
@@ -192,19 +190,6 @@ internal fun TvAdvancedPlaybackSettingsPage(
             )
         }
         item(key = "advanced-engine") {
-            TvChoiceRow(
-                title = "高级内核选择",
-                options = PlaybackEngineSelection.selectable,
-                selected = engineSelection,
-                label = { it.playbackOptionCopy().label },
-                stableId = "advanced:engine",
-                focusMemory = focusMemory,
-                onSelect = component.playbackPreferences::setEngineSelection,
-                icon = AppIcons.Movie,
-                focusScope = focusScope,
-                subtitle = engineSelection.playbackOptionCopy().description,
-                navigationRequester = navigationRequester,
-            )
         }
         item(key = "advanced-decoder") {
             TvChoiceRow(

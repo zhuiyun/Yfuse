@@ -325,8 +325,7 @@ class WorkflowContractTest(unittest.TestCase):
         self.assertCountEqual(holders, [
             ("Check Firebase configuration", "FIREBASE_TEST_LAB_SERVICE_ACCOUNT"),
             *[("Sign in to Firebase", "FIREBASE_TEST_LAB_SERVICE_ACCOUNT")] * 3,
-            ("Prepare pinned YCore and SenPlayer inputs", "YCORE_NATIVE_AAR_URL"),
-            ("Prepare pinned YCore and SenPlayer inputs", "SENPLAYER_SOURCE_APK_URL"),
+            ("Prepare pinned YCore input", "YCORE_NATIVE_AAR_URL"),
         ])
 
     def test_permissions_stay_read_only(self):

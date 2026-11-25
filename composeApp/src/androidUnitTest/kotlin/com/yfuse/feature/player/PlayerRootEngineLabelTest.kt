@@ -28,14 +28,4 @@ class PlayerRootEngineLabelTest {
             engineBindingLabel(engine.state.value.diagnostics, PlayerEngine.YCore, nativeOnly = true),
         )
     }
-
-    @Test
-    fun any_other_attached_engine_is_labelled_by_the_selected_kind() {
-        // A concrete, non-YPlayerVideoEngineAdapter engine: only its *type* matters here (it
-        // must not be PreparingVideoEngine), so a thin delegate stands in for a whole real
-        // backend such as SenPlayer.
-        val attached = object : VideoEngine by PreparingVideoEngine(input()) {}
-
-        assertEquals(PlayerEngine.SenPlayer.name, engineAttachedLabel(attached, PlayerEngine.SenPlayer))
-    }
 }

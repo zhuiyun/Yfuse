@@ -7,9 +7,11 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -32,6 +34,12 @@ object LivingPosterDefaults {
 }
 
 private val CaptionFeather = 44.dp
+
+/** Draw the detail sheet's surface blend over the reel's foot, below all caption controls. */
+internal fun Modifier.livingPosterPageBlend(pageColor: State<Color>): Modifier =
+    drawBehind {
+        drawRect(heroPanelBrush(pageColor.value, this, height = size.height.toDp()))
+    }
 
 /** Leave the last part of the dissolve free of caption shading. */
 internal fun Modifier.livingPosterCaptionScrim(): Modifier =

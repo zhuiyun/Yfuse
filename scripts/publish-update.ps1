@@ -53,12 +53,12 @@ $versionCode = [int]((Get-Content $versionFile | Select-String "VERSION_CODE=(\d
 $versionName = (Get-Content $versionFile |
     Select-String "VERSION_NAME=([0-9]+\.[0-9]+\.[0-9]+)").Matches[0].Groups[1].Value
 $distribution = Join-Path $projectRoot "composeApp/build/outputs/distribution"
-$fileName = "Yfuse-$versionName-ycore-senplayer-arm64.apk"
+$fileName = "Yfuse-$versionName-ycore-arm64.apk"
 $apk = Join-Path $distribution $fileName
 $receipt = Get-Content -LiteralPath (Join-Path $distribution 'verification.json') -Raw | ConvertFrom-Json
 $record = @($receipt.artifacts | Where-Object { $_.name -ceq $fileName })
 if ($receipt.versionName -cne $versionName -or [long]$receipt.versionCode -ne $versionCode -or
-    $receipt.playbackProfile -cne 'ycore-senplayer' -or $record.Count -ne 1) {
+    $receipt.playbackProfile -cne 'ycore' -or $record.Count -ne 1) {
     throw 'Build the current signed distribution with scripts/build-release-packages.ps1 before publishing.'
 }
 $sha = (Get-FileHash $apk -Algorithm SHA256).Hash.ToLowerInvariant()

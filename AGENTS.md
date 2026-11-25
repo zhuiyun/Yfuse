@@ -14,12 +14,11 @@
 
 ## 播放内核打包要求
 
-用户要求（2026-11-06）：只保留自研 YCore 和 SenPlayer，移除其他内核；本要求替代 2026-10-09 必须包含 MDK 的旧要求。
+用户要求（2026-11-25）：只保留自研 YCore 播放内核。
 
-- 标准交付使用 `ycore-senplayer` 配置，显式 `yfuseIncludeMdk=false`、`yfuseNativeOnlyRuntime=true`。后者表示禁止旧兼容内核回退，不得屏蔽用户明确选择的 SenPlayer。
-- 独立 ExoPlayer、MPV、MDK 实现、模块和运行库不得进入 APK。YCore 使用独立固定校验和原生输入；共用的 Media3 数据源等非播放器基础组件可以保留。
-- SenPlayer 保留原始许可校验和固定原始资产，不修改许可实现，也不因普通构建重复联网验证。
-- 交付前检查 APK 内实际的 YCore 库、SenPlayer 五项原始资产及其 SHA-256，检查没有独立旧内核；继续验证版本、正式签名、DEX 与原生库 16 KiB 对齐。
+- 标准交付使用 `ycore` 配置，显式 `yfuseIncludeMdk=false`、`yfuseNativeOnlyRuntime=true`。YCore 使用独立固定校验和原生输入。
+- SCore（SenPlayer）、独立 ExoPlayer、MPV、MDK 实现、模块和运行库不得进入 APK。共用的 Media3 数据源等非播放器基础组件可以保留。
+- 交付前检查 APK 内实际的 YCore 库及其 SHA-256，确认无已移除的内核。继续验证版本、正式签名、DEX 与原生库 16 KiB 对齐。
 
 ## 安装包大小
 

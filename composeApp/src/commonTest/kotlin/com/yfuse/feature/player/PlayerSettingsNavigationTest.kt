@@ -10,7 +10,6 @@ class PlayerSettingsNavigationTest {
             assertEquals(AdvancedPage.Playback, page.parentPage)
             assertEquals(AdvancedPage.Root, page.parentPage.parentPage)
         }
-        assertEquals(AdvancedPage.Root, AdvancedPage.Engine.parentPage)
         assertEquals(AdvancedPage.Root, AdvancedPage.Media.parentPage)
     }
 }

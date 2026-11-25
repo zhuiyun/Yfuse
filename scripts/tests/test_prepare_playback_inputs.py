@@ -28,36 +28,21 @@ class PreparePlaybackInputsTest(unittest.TestCase):
             archive.writestr("META-INF/ycore-native-sources.txt", provenance)
             archive.writestr("META-INF/NOTICE", b"fixture notices")
         self.pins = {
-            "profile": "ycore-senplayer",
+            "profile": "ycore",
             "ycore": {"sha256": prepare.sha256(self.ycore.read_bytes()),
                       "bytes": self.ycore.stat().st_size,
                       "provenanceSha256": prepare.sha256(provenance)},
-            "senPlayerSourceApkSha256": "a" * 64,
         }
         (self.root / "scripts/playback-runtime-inputs.json").write_text(json.dumps(self.pins))
-        self.sen = self.root / "senplayerBridge/src/main/assets/senplayer"
-        (self.sen / "native").mkdir(parents=True)
-        records = []
-        for asset in ["classes.dex", "license.json", "native/libFFmpegKit.so", "native/libMLibKit.so", "native/libc++_shared.so"]:
-            data = b"reviewed original fixture"
-            (self.sen / asset).write_bytes(data)
-            records.append({"asset": asset, "bytes": len(data), "sha256": prepare.sha256(data)})
-        (self.sen / "runtime.json").write_text(json.dumps({"abi": "arm64-v8a", "sourceApkSha256": "a" * 64, "files": records}))
-
     def test_existing_pinned_inputs_require_no_network(self):
         fetch = mock.Mock(side_effect=AssertionError("unexpected network"))
-        self.assertEqual(5, prepare.prepare(self.root, {}, fetch)["senPlayerOriginalAssets"])
+        self.assertEqual("ycore", prepare.prepare(self.root, {}, fetch)["profile"])
         fetch.assert_not_called()
         self.assertEqual(b"audited fixture provenance\n", (self.ycore.parent / "ycore-native.sources.txt").read_bytes())
 
     def test_cold_ci_without_explicit_ycore_input_fails(self):
         self.ycore.unlink()
         with self.assertRaisesRegex(ValueError, "Missing pinned YCORE_NATIVE_AAR"):
-            prepare.prepare(self.root, {}, mock.Mock())
-
-    def test_missing_sen_original_does_not_produce_a_ycore_only_success(self):
-        (self.sen / "classes.dex").unlink()
-        with self.assertRaisesRegex(ValueError, "Missing pinned SENPLAYER_SOURCE_APK"):
             prepare.prepare(self.root, {}, mock.Mock())
 
     def test_changed_existing_ycore_is_rejected_without_refetch(self):
@@ -82,11 +67,6 @@ class PreparePlaybackInputsTest(unittest.TestCase):
         result = prepare.prepare(self.root, {"YCORE_NATIVE_AAR_PATH": str(source)}, mock.Mock())
         self.assertEqual(self.pins["ycore"]["sha256"], result["ycoreSha256"])
         self.assertEqual(source.read_bytes(), self.ycore.read_bytes())
-
-    def test_corrupt_sen_asset_is_rejected(self):
-        (self.sen / "classes.dex").write_bytes(b"changed")
-        with self.assertRaisesRegex(ValueError, "checksum mismatch"):
-            prepare.prepare(self.root, {}, mock.Mock())
 
     def test_source_build_has_separate_verified_identity_without_rewriting_old_pin(self):
         original_pins = (self.root / "scripts/playback-runtime-inputs.json").read_bytes()

@@ -431,6 +431,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                             held = !carouselVisible || serverMenuOpen,
                                             ambientUrls = slideUrls,
                                             artwork = artwork,
+                                            pageColor = pageColor,
                                             modifier =
                                                 Modifier
                                                     .fillMaxWidth()

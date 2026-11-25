@@ -24,9 +24,6 @@ import com.yfuse.core.designsystem.SettingsDivider
 import com.yfuse.core.designsystem.SwitchRow
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.model.DecoderMode
-import com.yfuse.core.model.PlayerEngine
-import com.yfuse.core.model.SEN_PLAYER_DISPLAY_NAME
-import com.yfuse.core.playback.PlaybackEngineSelection
 import com.yfuse.core.playback.PlaybackOptimizationMode
 import com.yfuse.feature.player.speedLabel
 
@@ -38,36 +35,6 @@ internal data class PlaybackOptionCopy(
     val summary: String,
     val description: String,
 )
-
-internal fun PlayerEngine.playbackOptionCopy(): PlaybackOptionCopy =
-    when (this) {
-        PlayerEngine.YCore ->
-            PlaybackOptionCopy(
-                label = "YCore",
-                summary = "YCore 自研内核",
-                description = "固定使用 Yfuse 自研内核解封装、解码和渲染。",
-            )
-        PlayerEngine.SenPlayer ->
-            PlaybackOptionCopy(
-                label = "$SEN_PLAYER_DISPLAY_NAME（实验，需联网许可）",
-                summary = "$SEN_PLAYER_DISPLAY_NAME 实验内核",
-                description =
-                    "仅 Android 9+ ARM64。选用后按原许可规则决定是否向 www.senmuse.com/api/license 校验，" +
-                        "发送当前应用版本、原内核构建及临时公钥；许可失败会明确停止。",
-            )
-    }
-
-internal fun PlaybackEngineSelection.playbackOptionCopy(): PlaybackOptionCopy =
-    when (this) {
-        PlaybackEngineSelection.Auto ->
-            PlaybackOptionCopy(
-                label = "自动选择（推荐）",
-                summary = "智能自动",
-                description = "由 YCore 按片源选择解码方式。$SEN_PLAYER_DISPLAY_NAME 需手动选择。",
-            )
-        PlaybackEngineSelection.LockYCore -> PlayerEngine.YCore.playbackOptionCopy()
-        PlaybackEngineSelection.LockSenPlayer -> PlayerEngine.SenPlayer.playbackOptionCopy()
-    }
 
 internal fun DecoderMode.playbackOptionCopy(): PlaybackOptionCopy =
     when (this) {
@@ -364,10 +331,8 @@ internal fun PlaybackSettingsScreen(
 internal fun AdvancedPlaybackSettingsScreen(
     outputPreferences: PlaybackPreferences,
     onBack: () -> Unit,
-    engineSelection: PlaybackEngineSelection,
     decoder: DecoderMode,
     yCoreBufferDuration: YCoreBufferDuration,
-    onEngine: () -> Unit,
     onDecoder: () -> Unit,
     onYCoreBufferDuration: () -> Unit,
 ) {
@@ -384,15 +349,6 @@ internal fun AdvancedPlaybackSettingsScreen(
         motionItem(key = "advanced-engine") {
             Section(title = "内核与解码") {
                 SettingsCard {
-                    SettingRow(
-                        "播放内核",
-                        engineSelection.playbackOptionCopy().label,
-                        true,
-                        onEngine,
-                        icon = AppIcons.Menu,
-                        iconTint = SettingTint.advanced,
-                    )
-                    SettingsDivider()
                     SettingRow(
                         "解码方式",
                         decoder.playbackOptionCopy().label,
@@ -435,47 +391,25 @@ internal fun AdvancedPlaybackSettingsScreen(
                         iconTint = SettingTint.playback,
                     )
                     SettingsDivider()
-                    if (engineSelection == PlaybackEngineSelection.LockSenPlayer) {
-                        SettingRow(
-                            "刷新率匹配",
-                            "$SEN_PLAYER_DISPLAY_NAME 未验证",
-                            true,
-                            null,
-                            icon = AppIcons.Refresh,
-                            iconTint = SettingTint.advanced,
-                        )
-                    } else {
-                        SettingSegmentRow(
-                            title = "刷新率匹配",
-                            options = listOf("关闭", "仅无缝", "始终"),
-                            selectedIndex = PlaybackFrameRateMatch.entries.indexOf(frameRateMatch),
-                            onSelect = { outputPreferences.setFrameRateMatch(PlaybackFrameRateMatch.entries[it]) },
-                            icon = AppIcons.Refresh,
-                            iconTint = SettingTint.advanced,
-                        )
-                    }
+                    SettingSegmentRow(
+                        title = "刷新率匹配",
+                        options = listOf("关闭", "仅无缝", "始终"),
+                        selectedIndex = PlaybackFrameRateMatch.entries.indexOf(frameRateMatch),
+                        onSelect = { outputPreferences.setFrameRateMatch(PlaybackFrameRateMatch.entries[it]) },
+                        icon = AppIcons.Refresh,
+                        iconTint = SettingTint.advanced,
+                    )
                     SettingsDivider()
-                    if (engineSelection == PlaybackEngineSelection.LockSenPlayer) {
-                        SettingRow(
-                            "音频直通",
-                            "$SEN_PLAYER_DISPLAY_NAME 未验证",
-                            true,
-                            null,
-                            icon = AppIcons.Volume,
-                            iconTint = SettingTint.audio,
-                        )
-                    } else {
-                        SettingSegmentRow(
-                            title = "音频直通",
-                            options = listOf("关闭", "兼容"),
-                            selectedIndex = PlaybackAudioPassthrough.entries.indexOf(audioPassthrough),
-                            onSelect = {
-                                outputPreferences.setAudioPassthrough(PlaybackAudioPassthrough.entries[it])
-                            },
-                            icon = AppIcons.Volume,
-                            iconTint = SettingTint.audio,
-                        )
-                    }
+                    SettingSegmentRow(
+                        title = "音频直通",
+                        options = listOf("关闭", "兼容"),
+                        selectedIndex = PlaybackAudioPassthrough.entries.indexOf(audioPassthrough),
+                        onSelect = {
+                            outputPreferences.setAudioPassthrough(PlaybackAudioPassthrough.entries[it])
+                        },
+                        icon = AppIcons.Volume,
+                        iconTint = SettingTint.audio,
+                    )
                 }
             }
         }

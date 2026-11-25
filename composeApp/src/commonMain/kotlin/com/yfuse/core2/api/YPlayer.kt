@@ -406,7 +406,7 @@ enum class YPlaybackFailureCategory {
 }
 
 enum class YPlaybackRoute {
-    /** No YCore execution route has been confirmed, including an independently selected SenPlayer. */
+    /** No YCore execution route has been confirmed. */
     Unknown,
 
     /** Platform demux + hardware codec + tunneled/sideband presentation. */

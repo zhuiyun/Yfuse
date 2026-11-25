@@ -12,7 +12,6 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -35,18 +34,13 @@ import androidx.compose.ui.unit.dp
 import com.yfuse.core.data.Anime4KMode
 import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.designsystem.AppIcons
-import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.SegmentedRow
-import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.overlayAction
-import com.yfuse.core.designsystem.rememberAccentColorsForSurface
 import com.yfuse.core.handoff.HandoffController
-import com.yfuse.core.model.SEN_PLAYER_DISPLAY_NAME
 import com.yfuse.core.model.ShortDramaMode
 import org.koin.core.context.GlobalContext
-import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
 /** 更多's levels: the list of destinations, and the page behind each of them. */
@@ -58,7 +52,6 @@ internal enum class AdvancedPage(
     Picture("画面设置"),
     Gestures("手势设置"),
     SleepTimer("睡眠定时"),
-    Engine("播放内核"),
     Media("媒体信息"),
     Bookmarks("时间书签"),
     Handoff("设备接力"),
@@ -88,10 +81,8 @@ internal fun MorePanel(
     /** Bumped by the native disc session; 播放设置 reads it so its disc rows follow that session. */
     discNavigationRevision: State<Long>,
     containerLabel: String?,
-    engineOptions: List<Pair<String, Boolean>>,
     transcodeLabel: String?,
     transcodeActive: Boolean,
-    onSelectEngine: (Int) -> Unit,
     onTranscode: () -> Unit,
     onResetAdaptiveLearning: () -> Unit,
     /** 播放问题说明与诊断导出; the dialog belongs to the shell, which outlives this page. */
@@ -137,7 +128,6 @@ internal fun MorePanel(
             } else {
                 PopupBackLabel(
                     title = page.title,
-                    trailing = "仅当前视频 · 切换后重新加载".takeIf { page == AdvancedPage.Engine },
                 ) { onAdvancedPage(page.parentPage) }
             }
         },
@@ -164,13 +154,16 @@ internal fun MorePanel(
                     onClick = { onAdvancedPage(AdvancedPage.Bookmarks) },
                 )
                 PopupDivider()
-                PopupMenuRow(
-                    icon = AppIcons.PlaybackSource,
-                    title = "播放内核",
-                    subtitle = "当前：${diagnostics.engine.ifBlank { "等待内核" }}",
-                    onClick = { onAdvancedPage(AdvancedPage.Engine) },
-                )
-                PopupDivider()
+                if (transcodeLabel != null) {
+                    PopupMenuRow(
+                        icon = AppIcons.Play,
+                        title = transcodeLabel,
+                        subtitle = "服务器兼容播放模式",
+                        selected = transcodeActive,
+                        onClick = onTranscode,
+                    )
+                    PopupDivider()
+                }
                 PopupMenuRow(
                     icon = AppIcons.Info,
                     title = "媒体信息",
@@ -388,7 +381,7 @@ internal fun MorePanel(
                 val animePreferences = remember { GlobalContext.get().get<PlaybackPreferences>() }
                 val animeMode by animePreferences.anime4KMode.collectAsState()
                 val showFrameRate by animePreferences.showFrameRate.collectAsState()
-                if (diagnostics.senPlayerPicture == null && !diagnostics.remoteCast) {
+                if (!diagnostics.remoteCast) {
                     GroupLabel("Anime4K · YCore SDR 动漫")
                     Anime4KMode.entries.forEach { mode ->
                         OptionRow(
@@ -403,10 +396,6 @@ internal fun MorePanel(
                         color = Color.White.copy(alpha = 0.6f),
                     )
                 }
-                PlayerSenPlayerPictureControls(
-                    preferences = animePreferences.senPlayerPicture,
-                    applied = diagnostics.senPlayerPicture,
-                )
                 GroupLabel("画面")
                 PopupToggleHeader(
                     label = "显示帧率",
@@ -435,28 +424,6 @@ internal fun MorePanel(
                         option.label,
                         sleepTimer.selected == option,
                         onClick = { sleepTimerActions.onSelect(option) },
-                    )
-                }
-            }
-
-            AdvancedPage.Engine -> {
-                engineOptions.forEachIndexed { index, (label, selected) ->
-                    EngineChoiceRow(
-                        label = label,
-                        selected = selected,
-                        onClick = { onSelectEngine(index) },
-                    )
-                    if (index != engineOptions.lastIndex || transcodeLabel != null) {
-                        PopupDivider()
-                    }
-                }
-                if (transcodeLabel != null) {
-                    PopupMenuRow(
-                        icon = AppIcons.Play,
-                        title = transcodeLabel,
-                        subtitle = "服务器兼容播放模式",
-                        selected = transcodeActive,
-                        onClick = onTranscode,
                     )
                 }
             }
@@ -701,76 +668,6 @@ private fun PopupBackLabel(
                 style = AppTypography.caption.medium,
                 color = Color.White.copy(alpha = 0.48f),
             )
-        }
-    }
-}
-
-private fun engineDescription(label: String): String =
-    when {
-        label.contains(SEN_PLAYER_DISPLAY_NAME, ignoreCase = true) -> "实验内核 · 按原许可规则验证"
-        label.contains("YCore", ignoreCase = true) -> "Yfuse 自研播放管线"
-        else -> "YCore 自动规划解码路径"
-    }
-
-@Composable
-private fun EngineChoiceRow(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
-    val accent = rememberAccentColorsForSurface(dark = true)
-    val badge = label.substringBefore(' ').take(3).uppercase()
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .noRippleClickable(onClick)
-            .padding(horizontal = 5.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.spacedBy(13.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            Modifier
-                .size(38.dp)
-                .glass(
-                    shape = AppShapes.thumb,
-                    fill = if (selected) accent.container else Color.Transparent,
-                    border = if (selected) accent.border else Color.White.copy(alpha = 0.16f),
-                ),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                badge,
-                style = AppTypography.caption.strong,
-                color = if (selected) accent.accent else Color.White.copy(alpha = 0.70f),
-            )
-        }
-        Column(Modifier.weight(1f)) {
-            Text(label, style = AppTypography.body.strong, color = Color.White.copy(alpha = 0.92f))
-            Text(
-                engineDescription(label),
-                style = AppTypography.caption.medium,
-                color = Color.White.copy(alpha = 0.52f),
-                modifier = Modifier.padding(top = 2.dp),
-            )
-        }
-        Box(
-            Modifier
-                .size(24.dp)
-                .glass(
-                    shape = AppShapes.pill,
-                    fill = if (selected) accent.container else Color.Transparent,
-                    border = if (selected) accent.border else Color.White.copy(alpha = 0.22f),
-                ),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (selected) {
-                Icon(
-                    AppIcons.Check,
-                    contentDescription = null,
-                    tint = accent.accent,
-                    modifier = Modifier.size(14.dp),
-                )
-            }
         }
     }
 }

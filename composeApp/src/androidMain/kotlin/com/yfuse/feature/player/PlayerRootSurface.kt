@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.State
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -28,7 +27,6 @@ import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntRect
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.util.UnstableApi
 import com.yfuse.core.data.PlaybackPreferences
@@ -96,7 +94,6 @@ internal fun PlayerRootSurface(
     // Each host places this above its surface and below its subtitle overlays: bars an engine
     // paints inside its own surface are lit, and captions placed in the letterbox stay legible.
     // The picture rectangle is clipped out, so it never draws over the frame.
-    val nativeCaptions = engine is SenPlayerVideoEngine
     val ambientLayer: @Composable () -> Unit = {
         AmbientLightLayer(
             light = ambient.light,
@@ -104,11 +101,6 @@ internal fun PlayerRootSurface(
             videoSize = ambient.videoSize,
             scaleMode = choices.scaleMode,
             modifier = Modifier.fillMaxSize(),
-            protectNativeSubtitles =
-                nativeCaptions &&
-                    (state.subtitleTracks.any { it.selected } || presentationSubtitleControls.secondaryTrackId != null),
-            // A primary ASS track may contain top titles too; native glyph bounds are unavailable.
-            protectSecondarySubtitles = nativeCaptions,
         )
     }
     // The continuity artwork and the two status strings are built here, outside the timeline
@@ -208,21 +200,6 @@ internal fun PlayerRootSurface(
                     ambientSampler = ambient.sampler,
                     ambientLayer = ambientLayer,
                 )
-            is SenPlayerVideoEngine -> {
-                val settings by playbackPreferences.senPlayerPicture.state.collectAsState()
-                SenPlayerSurface(
-                    engine,
-                    presentationSubtitleControls,
-                    IntSize(
-                        state.diagnostics.videoWidth.takeIf { it > 0 } ?: currentItem?.activeVersion?.sourceWidth ?: 0,
-                        state.videoHeight.takeIf { it > 0 } ?: currentItem?.activeVersion?.sourceHeight ?: 0,
-                    ),
-                    item = currentItem,
-                    scaleMode = choices.scaleMode,
-                    settings = settings,
-                    modifier = pictureModifier,
-                )
-            }
         }
 
         // Placed outside the timeline scope so the chip's anchor is not rebuilt per tick.
@@ -236,12 +213,6 @@ internal fun PlayerRootSurface(
                 state.diagnostics.effectiveAudioReadiness == PlaybackOutputReadiness.Rendering &&
                     state.videoHeight <= 0 &&
                     currentItem?.activeVersion?.sourceVideoCodec.isNullOrBlank()
-            val revealUnconfirmedPicture =
-                rememberSenPlayerPictureCoverExpired(
-                    engine,
-                    state,
-                    waitingForPicture = !pictureReady && !audioOnly && state.error == null && !state.ended,
-                )
             PlaybackContinuityOverlay(
                 artworkUrls = continuityArtwork,
                 title = currentItem?.title.orEmpty(),
@@ -254,8 +225,7 @@ internal fun PlayerRootSurface(
                         state.error == null &&
                         !state.ended &&
                         !audioOnly &&
-                        !pictureReady &&
-                        !revealUnconfirmedPicture,
+                        !pictureReady,
                 message = continuityMessage,
                 modifier = Modifier.fillMaxSize(),
             )
@@ -267,8 +237,7 @@ internal fun PlayerRootSurface(
                         !pictureReady &&
                         !audioOnly &&
                         state.error == null &&
-                        !state.ended &&
-                        !revealUnconfirmedPicture,
+                        !state.ended,
                 suppressed = inPictureInPicture || ambientPowerLimited,
                 modifier =
                     Modifier
@@ -277,19 +246,14 @@ internal fun PlayerRootSurface(
             )
             PlayerTransitionLayer(
                 state = transition,
-                ready = state.error != null || pictureReady || audioOnly || revealUnconfirmedPicture,
+                ready = state.error != null || pictureReady || audioOnly,
                 inPictureInPicture = inPictureInPicture,
                 aspectRatio = transitionAspectRatio(choices.scaleMode, state, currentItem),
                 layer = PlayerTransitionLayerKind.Entrance,
             )
             PlaybackStatusChip(
-                visible = revealUnconfirmedPicture || (pictureReady && (state.buffering || networkRecovery.pending)),
-                message =
-                    if (revealUnconfirmedPicture) {
-                        { PlaybackStatusLine("尚未确认视频画面", state.diagnostics.videoOutput) }
-                    } else {
-                        statusChipMessage
-                    },
+                visible = pictureReady && (state.buffering || networkRecovery.pending),
+                message = statusChipMessage,
                 modifier = statusChipModifier,
             )
 

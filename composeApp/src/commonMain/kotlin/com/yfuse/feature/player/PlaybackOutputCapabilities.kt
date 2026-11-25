@@ -68,19 +68,11 @@ data class PlaybackOutputCapabilities(
          * 12 added the explicit non-seamless strategy used by [FrameRateMatchMode.Always]. YCore
          * applies these requests itself; actual activation still requires runtime evidence.
          */
+        @Suppress("UNUSED_PARAMETER")
         fun forEngine(
             engine: PlayerEngine,
             androidApiLevel: Int,
         ): PlaybackOutputCapabilities {
-            if (engine == PlayerEngine.SenPlayer) {
-                // The adapter exposes neither Surface frame-rate requests nor verified encoded audio output.
-                val unsupported =
-                    PlaybackFeatureCapability.Unsupported(
-                        PlaybackOutputUnsupportedReason.BackendApiNotVerified,
-                    )
-                return PlaybackOutputCapabilities(frameRateMatching = unsupported, audioPassthrough = unsupported)
-            }
-
             val frameRateMatching =
                 when {
                     androidApiLevel < ANDROID_FRAME_RATE_API ->

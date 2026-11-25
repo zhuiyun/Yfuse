@@ -39,7 +39,6 @@ import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackMethod
 import com.yfuse.core.model.PlayerEngine
-import com.yfuse.core.model.SEN_PLAYER_DISPLAY_NAME
 import com.yfuse.core.model.ShortDramaMode
 import com.yfuse.core.network.currentPlaybackNetworkClass
 import com.yfuse.core.network.playbackNetworkClasses
@@ -405,7 +404,6 @@ internal fun PlayerRoot(
                     autoNext = true,
                     customUserAgent = customUserAgent,
                     videoCacheBytes = videoCacheBytes,
-                    senPlayerPictureSettings = playbackPreferences.senPlayerPicture.state,
                     yCoreBufferTargetUs = yCoreBufferTargetUs,
                     allowAudioPassthrough = allowAudioPassthrough,
                     frameRateMatch = frameRateMatch,
@@ -800,12 +798,7 @@ internal fun PlayerRoot(
                             playbackHealth =
                                 assessment.runtimeFault?.reason
                                     ?: assessment.health.diagnosticLabel,
-                            powerProfile =
-                                if (base.diagnostics.engine == PlayerEngine.SenPlayer.label) {
-                                    "未评估 · 当前内核未提供功耗依据"
-                                } else {
-                                    assessment.power.diagnosticLabel
-                                },
+                            powerProfile = assessment.power.diagnosticLabel,
                             resourcePressure = runtimeEnvironment.diagnosticLabel,
                             mediaProbe = activeProbeResult.diagnosticLabel,
                             performanceBaseline =
@@ -1259,12 +1252,6 @@ internal fun PlayerRoot(
             onPlaybackProgress,
         )
 
-        // 本集改用兼容内核: the switch a setting the engine cannot honour asked for, and its undoing
-        // once the queue moves to another entry.
-        val engineSwitchPrompt = remember { EngineSwitchPrompt() }
-        val latestPromptItemId by rememberUpdatedState(currentItem?.id)
-        var itemEngineOverride by remember { mutableStateOf<ItemEngineOverride?>(null) }
-        DisposableEffect(engineSwitchPrompt, currentItem?.id) { onDispose { engineSwitchPrompt.dismiss() } }
         val switching =
             rememberPlayerSourceSwitching(
                 stateSource = runtimeState,
@@ -1340,35 +1327,11 @@ internal fun PlayerRoot(
             onSecondarySubtitleTrackChanged = { choices.secondarySubtitleTrackId = it },
             onPendingSubtitleLanguageApplied = { choices.pendingSubtitleLanguage = null },
             onUnsupportedSetting = { setting ->
-                val itemId = currentItem?.id
-                engineSwitchPrompt.ask(
-                    currentEngine = build.kind,
-                    context = context,
-                    itemId = itemId,
-                    setting = setting,
-                    onSwitch = {
-                        if (itemId != null && itemId == latestPromptItemId && itemEngineOverride == null) {
-                            itemEngineOverride =
-                                switchToYCoreForItem(
-                                    itemId = itemId,
-                                    build = build,
-                                    choices = choices,
-                                    capturePlaybackHandover = ::capturePlaybackHandover,
-                                )
-                        }
-                    },
-                    onKeep = { if (itemId == latestPromptItemId) setting.reset(choices) },
-                )
+                setting.reset(choices)
+                PlayerNotices.show("当前 YCore 管线不支持「${setting.label}」，已恢复此设置")
             },
             subtitlePeekActive = choices.subtitlePeek != null,
         )
-
-        LaunchedEffect(currentItem?.id) {
-            val replaced = itemEngineOverride ?: return@LaunchedEffect
-            if (currentItem == null || currentItem.id == replaced.itemId) return@LaunchedEffect
-            itemEngineOverride = null
-            restoreItemEngine(replaced, build, choices, ::capturePlaybackHandover)
-        }
 
         PlayerHandoverValidation(
             engine = engine,
@@ -1590,7 +1553,6 @@ internal fun PlayerRoot(
                 rememberSeriesPlayback = ::rememberSeriesPlayback,
                 applySubtitlePair = ::applySubtitlePair,
                 switchEngine = switching.switchEngine,
-                selectEngineStrategy = switching.selectEngineStrategy,
                 selectServer = switching.selectServer,
                 selectVersion = { versionId -> switching.selectVersion(versionId) },
                 onDismissNextUp = { nextUpDismissedItemId = activeItems.getOrNull(state.currentIndex)?.id },
@@ -1647,5 +1609,5 @@ internal fun core2NativeOnlyFailureToast(kind: PlaybackFailureKind?): String =
     when (kind) {
         PlaybackFailureKind.Network -> "片源连接失败，请检查服务器或网络后重试"
         PlaybackFailureKind.Authorization -> "片源授权已失效，请刷新播放地址后重试"
-        else -> "YCore 播放失败，请重试或在内核设置中选择 $SEN_PLAYER_DISPLAY_NAME"
+        else -> "YCore 播放失败，请重试或调整解码方式"
     }

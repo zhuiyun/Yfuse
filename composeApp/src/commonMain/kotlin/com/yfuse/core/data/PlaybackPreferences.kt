@@ -186,7 +186,6 @@ class PlaybackPreferences(
     }
 
     val bookmarks by lazy { PlaybackBookmarks(settings) }
-    val senPlayerPicture by lazy { SenPlayerPicturePreferences(settings) }
     private val seriesLock = Any()
     private val json = Json { ignoreUnknownKeys = true }
     private val _videoCacheSize =
@@ -315,9 +314,11 @@ class PlaybackPreferences(
     private val _engineSelection =
         MutableStateFlow(
             settings.getStringOrNull(KEY_ENGINE_SELECTION).let { stored ->
+                settings.remove("playback.senplayer.upscaling")
+                settings.remove("playback.senplayer.sdr_to_hdr")
                 val migrated =
                     when (stored) {
-                        "LockExo", "LockMpv", "LockMdk" -> PlaybackEngineSelection.LockYCore
+                        "LockExo", "LockMpv", "LockMdk", "LockSenPlayer" -> PlaybackEngineSelection.LockYCore
                         else -> PlaybackEngineSelection.entries.firstOrNull { it.name == stored }
                     } ?: PlaybackEngineSelection.Auto
                 val available =

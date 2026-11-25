@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check the YCore + SenPlayer package boundary without running native or DEX code."""
+"""Check the YCore package boundary without running native or DEX code."""
 import argparse
 import hashlib
 import json
@@ -23,14 +23,11 @@ SYSTEM_LIBRARIES = {
     "libGLESv3.so", "libjnigraphics.so", "liblog.so", "libm.so", "libmediandk.so",
     "libOpenSLES.so", "libvulkan.so", "libz.so", "libnativewindow.so", "libaaudio.so",
 }
-SEN_ASSETS = {
-    "classes.dex", "license.json", "native/libFFmpegKit.so",
-    "native/libMLibKit.so", "native/libc++_shared.so",
-}
 FORBIDDEN_PACKAGES = (
     "com.google.android.exoplayer2.", "androidx.media3.exoplayer.",
     "dev.jdtech.mpv.", "dev.yfuse.mpv.",
     "com.mediadevkit.sdk.", "org.videolan.libvlc.",
+    "com.yfuse.senplayer.", "com.yfuse.feature.player.SenPlayer",
 )
 
 
@@ -135,18 +132,15 @@ def verify_classes(data, mapping):
     return count
 
 
-def verify(apk, ycore, manifest_path, mapping_path=None):
+def verify(apk, ycore, mapping_path=None):
     mapping = read_mapping(mapping_path)
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    records = manifest["files"]
-    require(manifest["abi"] == "arm64-v8a", "SenPlayer ABI must be arm64-v8a")
-    require(len(records) == 5 and {entry["asset"] for entry in records} == SEN_ASSETS,
-            "SenPlayer manifest must pin exactly five original assets")
     expected_ycore_hash = ycore.with_suffix(".aar.sha256").read_text(encoding="utf-8").split()[0]
     require(sha256(ycore.read_bytes()) == expected_ycore_hash, "YCore input SHA-256 mismatch")
     with zipfile.ZipFile(ycore) as carrier, zipfile.ZipFile(apk) as archive:
         entries = archive.namelist()
         require(len(entries) == len(set(entries)), "APK contains duplicate ZIP entries")
+        require(not any(name.casefold().startswith("assets/senplayer/") for name in entries),
+                "APK contains removed SCore assets")
         packaged_native = {name for name in entries if name.startswith("lib/") and name.endswith(".so")}
         require(packaged_native, "APK contains no native runtime")
         for name in packaged_native:
@@ -163,24 +157,12 @@ def verify(apk, ycore, manifest_path, mapping_path=None):
         for entry in sorted(packaged_native):
             needed = set(elf_metadata(archive.read(entry), entry))
             require(needed <= host_names | SYSTEM_LIBRARIES, f"Unresolved host native dependencies in {entry}: {sorted(needed - host_names - SYSTEM_LIBRARIES)}")
-        sen_prefix = "assets/senplayer/"
-        require({name[len(sen_prefix):] for name in entries if name.startswith(sen_prefix) and not name.endswith("/")} == SEN_ASSETS | {"runtime.json"},
-                "APK has missing or unexpected SenPlayer assets")
-        require(json.loads(archive.read(sen_prefix + "runtime.json")) == manifest, "Packaged SenPlayer manifest differs from reviewed input")
-        sen_native_names = {Path(name).name for name in SEN_ASSETS if name.endswith(".so")}
-        for record in records:
-            entry = sen_prefix + record["asset"]
-            data = archive.read(entry)
-            require(len(data) == record["bytes"] and sha256(data) == record["sha256"], f"Original SenPlayer asset changed: {record['asset']}")
-            if entry.endswith(".so"):
-                needed = set(elf_metadata(data, entry))
-                require(needed <= sen_native_names | SYSTEM_LIBRARIES, f"Unresolved isolated SenPlayer dependencies in {entry}")
         dex_entries = [name for name in entries if re.fullmatch(r"classes(?:[2-9]|[1-9][0-9]+)?\.dex", name)]
         require(dex_entries and "classes.dex" in dex_entries, "APK has no application classes.dex")
         class_count = sum(verify_classes(archive.read(name), mapping) for name in dex_entries)
         require(class_count > 0, "APK defines no application classes")
-    return {"profile": "ycore-senplayer", "hostNativeLibraries": sorted(host_names),
-            "senPlayerOriginalAssets": 5, "applicationClassesChecked": class_count,
+    return {"profile": "ycore", "hostNativeLibraries": sorted(host_names),
+            "applicationClassesChecked": class_count,
             "mappingUsed": mapping_path is not None, "apkSha256": sha256(apk.read_bytes())}
 
 
@@ -189,10 +171,9 @@ def main():
     parser.add_argument("apk", type=Path)
     parser.add_argument("--mapping", type=Path)
     parser.add_argument("--ycore", type=Path, default=ROOT / "composeApp/libs/ycore-native.aar")
-    parser.add_argument("--sen-manifest", type=Path, default=ROOT / "senplayerBridge/src/main/assets/senplayer/runtime.json")
     args = parser.parse_args()
     try:
-        result = verify(args.apk, args.ycore, args.sen_manifest, args.mapping)
+        result = verify(args.apk, args.ycore, args.mapping)
     except (ValueError, KeyError, OSError, struct.error, zipfile.BadZipFile) as error:
         print(f"Playback package rejected: {error}", file=sys.stderr)
         return 1

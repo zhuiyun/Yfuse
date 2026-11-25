@@ -46,7 +46,14 @@ class AndroidPlaybackRuntimeInstrumentedTest {
                     .forEach { packaged += it.name.substringAfterLast('/') }
             }
         }
-        for (removed in listOf("libmpv.so", "libplayer.so", "libmdk.so", "libyfuse-mdk-jni.so")) {
+        for (removed in listOf(
+            "libmpv.so",
+            "libplayer.so",
+            "libmdk.so",
+            "libyfuse-mdk-jni.so",
+            "libFFmpegKit.so",
+            "libMLibKit.so",
+        )) {
             assertFalse("Removed runtime remains packaged: $removed", removed in packaged)
         }
         assertTrue("YCore demux is absent", "libycore_demux.so" in packaged)
@@ -54,12 +61,11 @@ class AndroidPlaybackRuntimeInstrumentedTest {
         assertClassUnavailable("androidx.media3.exoplayer.ExoPlayer")
         assertClassUnavailable("dev.jdtech.mpv.MPVLib")
         assertClassUnavailable("com.mediadevkit.sdk.MDKPlayer")
-        // Read original assets only; this does not load the original DEX or initialize its license manager.
-        for (asset in listOf("runtime.json", "classes.dex", "native/libFFmpegKit.so", "native/libMLibKit.so")) {
-            context.assets
-                .open(
-                    "senplayer/$asset",
-                ).use { assertTrue("SenPlayer asset is empty: $asset", it.read() >= 0) }
+        assertClassUnavailable("com.yfuse.senplayer.SenPlayerSession")
+        apkPaths.forEach { path ->
+            ZipFile(path).use { zip ->
+                assertFalse(zip.entries().asSequence().any { it.name.startsWith("assets/senplayer/") })
+            }
         }
     }
 
@@ -116,7 +122,7 @@ class AndroidPlaybackRuntimeInstrumentedTest {
 
         fun assertClassUnavailable(className: String) {
             val result = runCatching { Class.forName(className, false, javaClass.classLoader) }
-            assertTrue("$className unexpectedly entered the YCore/SenPlayer APK", result.isFailure)
+            assertTrue("$className unexpectedly entered the YCore APK", result.isFailure)
             assertTrue(result.exceptionOrNull() is ClassNotFoundException)
         }
     }

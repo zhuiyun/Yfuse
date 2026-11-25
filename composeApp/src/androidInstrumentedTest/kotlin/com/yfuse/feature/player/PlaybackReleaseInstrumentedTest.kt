@@ -26,7 +26,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
 
-/** Uses generated media or a held loopback response; never starts SenPlayer or requests a license. */
+/** Uses generated media or a held loopback response. */
 @RunWith(AndroidJUnit4::class)
 class PlaybackReleaseInstrumentedTest {
     @Test
