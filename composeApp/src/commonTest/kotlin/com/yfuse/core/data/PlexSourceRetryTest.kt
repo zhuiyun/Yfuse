@@ -5,6 +5,7 @@ import com.yfuse.core.model.SavedServer
 import com.yfuse.feature.json
 import com.yfuse.feature.testRepo
 import io.ktor.http.HttpMethod
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlinx.io.IOException
 import kotlin.test.Test
@@ -13,6 +14,25 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class PlexSourceRetryTest {
+    @Test
+    fun titleLookupShowsOnlyMatchingSeriesWithoutReadingPlaybackMetadata() =
+        runTest {
+            val server = SavedServer("plex", "https://plex", "Plex", "u", "User", "token", kind = MediaServerKind.Plex)
+            val paths = mutableListOf<String>()
+            val repo =
+                testRepo(dispatcher = UnconfinedTestDispatcher(testScheduler)) { request ->
+                    paths += request.url.encodedPath
+                    json("""{"MediaContainer":{"Metadata":[{"type":"show","ratingKey":"42","title":"Show"}]}}""")
+                }
+            val match = repo.compareSources(listOf(server), null, "Show", mediaType = "tv", titleOnly = true).single()
+            val miss = repo.compareSources(listOf(server), null, "Sequel", mediaType = "tv", titleOnly = true).single()
+            assertEquals("42", match.itemId)
+            assertEquals("已收录", match.source?.quality)
+            assertTrue(miss.reachable)
+            assertEquals(null, miss.itemId)
+            assertFalse(paths.any { it.startsWith("/library/metadata/") })
+        }
+
     @Test
     fun explicitSourceRetryReachesPlexThroughBothCooldownsWithoutExemptingOrdinaryRequests() =
         runTest {

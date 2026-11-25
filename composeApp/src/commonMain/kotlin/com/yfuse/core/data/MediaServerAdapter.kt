@@ -81,6 +81,7 @@ internal interface MediaServerAdapter {
         seasonNumber: Int?,
         episodeNumber: Int?,
         forceRefresh: Boolean = false,
+        titleOnly: Boolean = false,
     ): List<ServerSource>
 
     suspend fun refreshLibrary(
@@ -430,6 +431,7 @@ internal class EmbyAdapter(
         seasonNumber: Int?,
         episodeNumber: Int?,
         forceRefresh: Boolean,
+        titleOnly: Boolean,
     ): List<ServerSource> =
         sourceService.compareSources(
             servers = servers,
@@ -441,6 +443,7 @@ internal class EmbyAdapter(
             seasonNumber = seasonNumber,
             episodeNumber = episodeNumber,
             forceRefresh = forceRefresh,
+            titleOnly = titleOnly,
         )
 
     override suspend fun scheduledTasks(server: SavedServer): Result<List<ServerScheduledTask>> =
@@ -884,6 +887,7 @@ internal class PlexAdapter(
         seasonNumber: Int?,
         episodeNumber: Int?,
         forceRefresh: Boolean,
+        titleOnly: Boolean,
     ): List<ServerSource> =
         servers.map { server ->
             plex.compareSource(
@@ -896,6 +900,7 @@ internal class PlexAdapter(
                 seasonNumber = seasonNumber,
                 episodeNumber = episodeNumber,
                 forceRefresh = forceRefresh,
+                titleOnly = titleOnly,
             )
         }
 

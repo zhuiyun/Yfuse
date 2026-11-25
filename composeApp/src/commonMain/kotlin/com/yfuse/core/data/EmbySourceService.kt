@@ -115,6 +115,7 @@ internal class EmbySourceService(
         seasonNumber: Int? = null,
         episodeNumber: Int? = null,
         forceRefresh: Boolean = false,
+        titleOnly: Boolean = false,
     ): List<ServerSource> =
         coroutineScope {
             servers
@@ -188,6 +189,16 @@ internal class EmbySourceService(
                                 )
                             }
                             val item = lookup.getOrNull()
+                            if (titleOnly && item != null) {
+                                return@withTimeoutOrNull ServerSource(
+                                    server.id,
+                                    server.serverName,
+                                    server.id == currentServerId,
+                                    SourceInfo("已收录", null, null),
+                                    reachable = true,
+                                    itemId = item.Id,
+                                )
+                            }
                             val comparable =
                                 item?.let {
                                     discoverSourceWithRetry {

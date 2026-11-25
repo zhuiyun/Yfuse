@@ -958,6 +958,7 @@ class EmbyRepository(
         seasonNumber: Int? = null,
         episodeNumber: Int? = null,
         forceRefresh: Boolean = false,
+        titleOnly: Boolean = false,
         onSource: (ServerSource) -> Unit = {},
     ): List<ServerSource> =
         coroutineScope {
@@ -993,6 +994,7 @@ class EmbyRepository(
                                                 seasonNumber,
                                                 episodeNumber,
                                                 forceRefresh = forceRefresh,
+                                                titleOnly = titleOnly,
                                             ).single()
                                     } ?: unavailable
                                 } else {
@@ -1007,6 +1009,7 @@ class EmbyRepository(
                                             seasonNumber,
                                             episodeNumber,
                                             forceRefresh = forceRefresh,
+                                            titleOnly = titleOnly,
                                         ).single()
                                 }
                             // A skipped lookup must not perpetually extend its own cooldown.

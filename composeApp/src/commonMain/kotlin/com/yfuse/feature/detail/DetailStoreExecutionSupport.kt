@@ -34,8 +34,6 @@ internal data class ResolvedPlaybackSelection(
     val seasons: List<Season>? = null,
     val selectedSeasonId: String? = null,
     val episodes: List<Episode>? = null,
-    /** Complete lightweight directory captured while resolving NextUp; not committed before filtering. */
-    val catalogEpisodes: List<Episode>? = null,
 )
 
 internal data class EpisodeCoordinate(
@@ -91,7 +89,7 @@ internal sealed interface DetailMsg {
     ) : DetailMsg
 
     data class EpisodeSelected(
-        val itemId: String,
+        val itemId: String?,
     ) : DetailMsg
 
     data class SeasonsLoaded(
@@ -102,6 +100,10 @@ internal sealed interface DetailMsg {
     data object EpisodesLoading : DetailMsg
 
     data object EpisodesLoadingFinished : DetailMsg
+
+    data class EpisodesFailed(
+        val message: String,
+    ) : DetailMsg
 
     data class EpisodesLoaded(
         val episodes: List<Episode>,

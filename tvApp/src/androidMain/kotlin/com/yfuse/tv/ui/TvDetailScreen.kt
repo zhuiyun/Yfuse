@@ -299,7 +299,19 @@ internal fun TvDetailScreen(
                     item(key = "detail-episodes-loading") {
                         Box(Modifier.fillMaxWidth().height(150.dp)) { TvLoadingState("正在读取剧集") }
                     }
-                } else if (state.episodes.isNotEmpty()) {
+                }
+                state.episodesError?.let { message ->
+                    item(key = "detail-episodes-retry") {
+                        TvActionButton(
+                            label = "$message · 重试",
+                            stableId = "detail:episodes:retry",
+                            focusScope = "detail:${detail.id}:episodes",
+                            focusMemory = focusMemory,
+                            onClick = { store.accept(DetailIntent.RetryEpisodes) },
+                        )
+                    }
+                }
+                if (state.episodes.isNotEmpty()) {
                     item(key = "detail-episodes:${state.selectedSeasonId}") {
                         TvEpisodeRow(
                             detail = detail,
@@ -371,7 +383,35 @@ internal fun TvDetailScreen(
                     }
                 }
 
-                if (comparableSources.isNotEmpty()) {
+                val availableSources =
+                    comparableSources.filter {
+                        it.reachable && it.itemId != null && it.source != null
+                    }
+                if (state.sourcesLoading) {
+                    item(key = "detail-sources-loading") {
+                        Box(Modifier.fillMaxWidth().height(100.dp)) { TvLoadingState("正在查找各服务器的可用版本") }
+                    }
+                } else if (availableSources.isEmpty() && state.sourcesError == null) {
+                    item(key = "detail-sources-empty") {
+                        Text(
+                            "暂未找到可比较的版本",
+                            modifier = Modifier.padding(horizontal = TvSafeHorizontal),
+                            color = TvOnSurface,
+                        )
+                    }
+                }
+                state.sourcesError?.let { message ->
+                    item(key = "detail-sources-retry") {
+                        TvActionButton(
+                            label = message,
+                            stableId = "detail:sources:retry",
+                            focusScope = "detail:${detail.id}:sources",
+                            focusMemory = focusMemory,
+                            onClick = { store.accept(DetailIntent.RetrySources) },
+                        )
+                    }
+                }
+                if (availableSources.isNotEmpty()) {
                     item(key = "detail-sources:${detail.id}") {
                         Column(
                             Modifier.padding(horizontal = TvSafeHorizontal),
@@ -384,7 +424,7 @@ internal fun TvDetailScreen(
                                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                             ) {
                                 itemsIndexed(
-                                    comparableSources.filter { it.reachable && it.itemId != null },
+                                    availableSources,
                                     key = { _, source -> "source:${source.serverId}:${source.itemId}" },
                                 ) { _, source ->
                                     TvActionButton(

@@ -66,6 +66,7 @@ data class DetailState(
     val listedSeasonId: String? = null,
     val episodes: List<Episode> = emptyList(),
     val episodesLoading: Boolean = false,
+    val episodesError: String? = null,
     val progressManagerOpen: Boolean = false,
     val progressSelection: Set<String> = emptySet(),
     val progressSaving: Boolean = false,
@@ -109,6 +110,8 @@ sealed interface DetailIntent {
     ) : DetailIntent
 
     data object Retry : DetailIntent
+
+    data object RetryEpisodes : DetailIntent
 
     data object RetrySources : DetailIntent
 

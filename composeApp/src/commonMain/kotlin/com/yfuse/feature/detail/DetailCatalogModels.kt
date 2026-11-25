@@ -77,6 +77,7 @@ internal fun DetailState.withCatalogSnapshot(snapshot: DetailState): DetailState
         listedSeasonId = snapshot.listedSeasonId,
         episodes = snapshot.episodes,
         episodesLoading = snapshot.episodesLoading,
+        episodesError = snapshot.episodesError,
         selectedEpisodeId = snapshot.selectedEpisodeId,
         selectedSourceServerId = null,
         selectedSourceItemId = null,

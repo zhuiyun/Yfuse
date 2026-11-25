@@ -542,6 +542,8 @@ internal fun EpisodeSection(
     onOpenCalendar: (() -> Unit)? = null,
     /** The 浮起菜单's actions and each episode's download; null leaves the cards with their tap alone. */
     rowActions: EpisodeRowActions? = null,
+    error: String? = null,
+    onRetry: () -> Unit = {},
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val routeVisible = LocalRouteVisible.current
@@ -591,20 +593,23 @@ internal fun EpisodeSection(
             onToggleGrid = if (gridFits) ({ showGrid = !showGrid }) else null,
             modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
         )
+        if (error != null || episodes.isEmpty()) {
+            Text(
+                when {
+                    seasonLoading -> "正在读取剧集…"
+                    error != null -> "$error，点击重试"
+                    else -> "本季暂无已入库剧集"
+                },
+                style = AppTypography.body.regular,
+                color = LocalPalette.current.sub,
+                modifier =
+                    Modifier
+                        .padding(horizontal = Dimens.pageHorizontal)
+                        .pressable(enabled = error != null, onClick = onRetry)
+                        .liveStatus(),
+            )
+        }
         if (episodes.isEmpty()) {
-            // The header stays for a season with nothing in the library: its season picker is the
-            // only way back to one that has episodes. Said once it is known, not while it loads.
-            if (!seasonLoading) {
-                Text(
-                    "本季暂无已入库剧集",
-                    style = AppTypography.body.regular,
-                    color = LocalPalette.current.sub,
-                    modifier =
-                        Modifier
-                            .padding(horizontal = Dimens.pageHorizontal)
-                            .liveStatus(),
-                )
-            }
             return@Column
         }
         if (showGrid) {
