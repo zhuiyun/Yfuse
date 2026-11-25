@@ -585,7 +585,6 @@ val verifySourceSize by tasks.registering {
                 "src/commonMain/kotlin/com/yfuse/feature/search/SearchScreen.kt" to 1_785,
                 "src/commonMain/kotlin/com/yfuse/feature/player/PlayerChromeRefined.kt" to 1_745,
                 "src/androidMain/kotlin/com/yfuse/feature/player/PlayerRoot.kt" to 1_655,
-                "src/commonMain/kotlin/com/yfuse/core/data/ServerRegistry.kt" to 1_634,
                 "src/commonMain/kotlin/com/yfuse/feature/detail/DetailExecutor.kt" to 1_624,
                 "src/commonMain/kotlin/com/yfuse/feature/servers/ServersStore.kt" to 1_621,
             )

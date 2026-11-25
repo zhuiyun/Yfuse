@@ -338,6 +338,7 @@ class AppModuleGraphTest {
                 "Singleton com.yfuse.core.data.OfficialAiringScheduleCatalog",
                 "Singleton com.yfuse.core.data.AiringCalendarRepository",
                 "Singleton io.ktor.client.HttpClient named(danmaku-http) onClose",
+                "Singleton com.yfuse.core.data.ServerIconCatalog",
                 "Singleton com.yfuse.core.data.DanmakuRepository",
                 "Singleton com.yfuse.core.sync.ServerSyncManager",
                 "Singleton com.yfuse.core.account.AccountAccessTokenSource",
