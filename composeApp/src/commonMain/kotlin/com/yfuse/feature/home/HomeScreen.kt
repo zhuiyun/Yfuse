@@ -90,6 +90,7 @@ import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.OrbProgressDefaults
 import com.yfuse.core.designsystem.OverlayPage
 import com.yfuse.core.designsystem.Poster
+import com.yfuse.core.designsystem.PosterCaption
 import com.yfuse.core.designsystem.PrimaryGradient
 import com.yfuse.core.designsystem.PublishLivingPosterPageColor
 import com.yfuse.core.designsystem.RatingBadges
@@ -994,6 +995,7 @@ private fun HomeHeroCarousel(
                 pageOffset = page.offset,
                 onAccent = onAccent,
                 onPageColor = onPageColor,
+                pageColor = pageColor,
                 artwork = artwork,
                 framed = showSidePreview,
                 modifier = page.modifier,
@@ -1027,6 +1029,7 @@ private fun HeroSlide(
     pageOffset: () -> Float = { 0f },
     onAccent: (Color) -> Unit = {},
     onPageColor: (Color) -> Unit = {},
+    pageColor: State<Color>? = null,
     artwork: LivingPosterArtwork,
     framed: Boolean = false,
     modifier: Modifier = Modifier,
@@ -1065,7 +1068,7 @@ private fun HeroSlide(
                 },
             ),
     ) {
-        LivingPosterArtworkPlane(artwork, framed) {
+        LivingPosterArtworkPlane(artwork, framed, pageColor) {
             if (item != null) {
                 FallbackImage(
                     urls = artworkUrls,
@@ -1456,26 +1459,28 @@ private fun ContinueWatchingCard(
                 }
             }
         }
-        Spacer(Modifier.height(7.dp))
-        Text(
-            text = item.title,
-            style = AppTypography.body.strong,
-            color = palette.text,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-            text =
-                listOfNotNull(
-                    item.subtitle,
-                    compactLastPlayedDate(item.lastPlayedDate),
-                    entry.server.serverName.takeIf(String::isNotBlank),
-                ).joinToString(" · ").ifBlank { "Emby" },
-            style = AppTypography.caption.regular,
-            color = palette.sub2,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        PosterCaption {
+            Spacer(Modifier.height(7.dp))
+            Text(
+                text = item.title,
+                style = AppTypography.body.strong,
+                color = palette.text,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text =
+                    listOfNotNull(
+                        item.subtitle,
+                        compactLastPlayedDate(item.lastPlayedDate),
+                        entry.server.serverName.takeIf(String::isNotBlank),
+                    ).joinToString(" · ").ifBlank { "Emby" },
+                style = AppTypography.caption.regular,
+                color = palette.sub2,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 

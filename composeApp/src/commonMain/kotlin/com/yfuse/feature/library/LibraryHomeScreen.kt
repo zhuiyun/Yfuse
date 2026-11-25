@@ -88,6 +88,7 @@ import com.yfuse.core.designsystem.OverlayActionRow
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.PageHint
 import com.yfuse.core.designsystem.Poster
+import com.yfuse.core.designsystem.PosterCaption
 import com.yfuse.core.designsystem.PublishLivingPosterPageColor
 import com.yfuse.core.designsystem.RefreshIndicator
 import com.yfuse.core.designsystem.RefreshThresholdHaptics
@@ -269,6 +270,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                 )
             }.orEmpty()
     val slideUrl = slideUrls.firstOrNull { it != null }
+    var resolvedSlideUrl by remember(slide?.id) { mutableStateOf<String?>(null) }
     val retainedPageColor =
         rememberRetainedArtworkPageColor("library:${state.currentServer?.id.orEmpty()}")
     val artworkVisible = libraryCarousel && slide != null
@@ -277,7 +279,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
             .hasPinnedSmartPlaylists()
     val accent =
         rememberArtworkAccentTarget(
-            url = slideUrl,
+            url = resolvedSlideUrl ?: slideUrl,
             fallback = Brand.Primary, // design-system: brand-identity
             darkTheme = LocalPalette.current.isDark,
             identity = slide?.id,
@@ -482,7 +484,9 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                                 settled = page.settled,
                                                 pageOffset = page.offset,
                                                 artwork = artwork,
+                                                pageColor = pageColor,
                                                 onPageColor = retainedPageColor::update,
+                                                onResolvedUrl = { url -> if (page.current) resolvedSlideUrl = url },
                                                 framed = showSidePreview,
                                                 // The first stop TalkBack makes on this page, so 下拉刷新 lives
                                                 // here for someone who cannot pull.
@@ -785,7 +789,9 @@ private fun HeroCarousel(
     settled: Boolean,
     pageOffset: () -> Float,
     artwork: LivingPosterArtwork,
+    pageColor: androidx.compose.runtime.State<Color>,
     onPageColor: (Color) -> Unit,
+    onResolvedUrl: (String) -> Unit,
     framed: Boolean,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
@@ -803,11 +809,14 @@ private fun HeroCarousel(
             .fillMaxSize()
             .pressable(onClick = openDetail),
     ) {
-        LivingPosterArtworkPlane(artwork, framed) {
+        LivingPosterArtworkPlane(artwork, framed, pageColor) {
             FallbackImage(
                 urls = urls,
                 contentDescription = item.title,
-                onResolvedUrl = { resolvedArtworkUrl = it },
+                onResolvedUrl = {
+                    resolvedArtworkUrl = it
+                    onResolvedUrl(it)
+                },
                 // The hash belongs to whichever picture leads the list.
                 blurHash = if (urls.firstOrNull() != null) item.backdropBlurHash else item.posterBlurHash,
                 modifier =
@@ -1014,11 +1023,11 @@ private fun ServerSheet(
                     Box(
                         Modifier
                             .size(34.dp)
-                            .clip(AppShapes.thumb)
+                            .clip(CircleShape)
                             .background(serverBadgeColor(server.id)),
                         contentAlignment = Alignment.Center,
                     ) {
-                        ServerBadgeArtwork(server.iconUrl) {
+                        ServerBadgeArtwork(server) {
                             Text(
                                 server.serverName.take(1).uppercase(),
                                 style = AppTypography.caption.strong,
@@ -1397,29 +1406,31 @@ private fun PlaybackHistoryCard(
                     .height(MediaSizing.landscapeCardHeight)
                     .liftAnchor(artwork),
         )
-        Spacer(Modifier.height(7.dp))
-        Text(
-            text = item.title,
-            style = AppTypography.body.strong,
-            color = palette.text,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Spacer(Modifier.height(2.dp))
-        val year = item.year?.toString()
-        if (year != null) {
+        PosterCaption {
+            Spacer(Modifier.height(7.dp))
             Text(
-                text = year,
-                style = AppTypography.caption.regular,
-                color = palette.sub2,
+                text = item.title,
+                style = AppTypography.body.strong,
+                color = palette.text,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.fillMaxWidth(),
             )
-        } else {
-            // The year's own line box, so the cards line up with or without one; see [CaptionedPoster].
-            Spacer(Modifier.height(15.dp))
+            Spacer(Modifier.height(2.dp))
+            val year = item.year?.toString()
+            if (year != null) {
+                Text(
+                    text = year,
+                    style = AppTypography.caption.regular,
+                    color = palette.sub2,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            } else {
+                // The year's own line box, so the cards line up with or without one; see [CaptionedPoster].
+                Spacer(Modifier.height(15.dp))
+            }
         }
     }
 }

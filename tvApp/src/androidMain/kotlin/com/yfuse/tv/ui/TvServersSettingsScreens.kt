@@ -14,7 +14,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.OutlinedTextField
@@ -284,14 +284,14 @@ private fun TvServerCard(
                     Modifier
                         .width(48.dp)
                         .height(48.dp)
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(CircleShape)
                         .background(
                             if (focused) Color.Black.copy(alpha = 0.12f) else TvAccent.copy(alpha = 0.15f),
-                            RoundedCornerShape(12.dp),
+                            CircleShape,
                         ),
                     contentAlignment = Alignment.Center,
                 ) {
-                    ServerBadgeArtwork(server.iconUrl) {
+                    ServerBadgeArtwork(server) {
                         Text(server.iconEmoji ?: server.serverName.take(1), fontSize = TvType.section)
                     }
                 }

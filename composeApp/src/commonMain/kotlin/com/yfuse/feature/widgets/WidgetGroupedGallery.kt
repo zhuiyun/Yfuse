@@ -35,6 +35,7 @@ import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.LocalPosterCaptionsVisible
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.pressable
@@ -56,7 +57,7 @@ internal fun WidgetGroupedGallery(
     var collection by remember(style, items) { mutableStateOf<List<WidgetMedia>?>(null) }
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val width = widgetRailItemWidth(if (compact) 270.dp else 320.dp, maxWidth)
-        val copy = galleryCopyHeight(metadata)
+        val copy = if (LocalPosterCaptionsVisible.current) galleryCopyHeight(metadata) else 8.dp
         val columnWidth = (width - 12.dp) / 2
         val image = columnWidth / .667f
         val buttonHeight =
@@ -196,7 +197,7 @@ private fun GalleryPoster(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Artwork(item, Modifier.fillMaxWidth().height(image).clip(AppShapes.thumb), poster = true)
-        MediaCopy(item, metadata = metadata, dense = true)
+        if (LocalPosterCaptionsVisible.current) MediaCopy(item, metadata = metadata, dense = true)
     }
 }
 

@@ -1,6 +1,7 @@
 package com.yfuse.feature.history
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,6 +11,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -24,6 +27,11 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.app.floatingNavigationContentInset
@@ -33,19 +41,20 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Dimens
+import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.MediaSharedElementKey
 import com.yfuse.core.designsystem.PageHint
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
-import com.yfuse.core.designsystem.SegmentedRow
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.sharedMediaArtwork
 import com.yfuse.core.designsystem.sharedMediaOnClick
+import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.TmdbImages
@@ -133,18 +142,11 @@ fun PlaybackHistoryScreen(
             if (contentEntries != null) item(key = "watching-entries") { contentEntries() }
             if (rows.isNotEmpty()) {
                 item(key = "history-view-toggle") {
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = Dimens.pageHorizontal),
-                        horizontalArrangement = Arrangement.End,
-                    ) {
-                        SegmentedRow(
-                            options = listOf("沉浸列表", "宫格视图"),
-                            selectedIndex = if (gridView) 1 else 0,
-                            onSelect = { gridView = it == 1 },
-                        )
-                    }
+                    HistoryViewModeSwitch(
+                        gridView = gridView,
+                        onSelectGrid = { gridView = it },
+                        modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
+                    )
                 }
             }
             if (rows.isEmpty()) {
@@ -156,15 +158,33 @@ fun PlaybackHistoryScreen(
             }
             grouped.forEach { (bucket, bucketRows) ->
                 item(key = "history-bucket-${bucket.name}") {
-                    Text(
-                        bucket.label,
-                        style = AppTypography.section.strong,
-                        color = LocalPalette.current.text,
-                        modifier =
-                            Modifier
-                                .padding(horizontal = Dimens.pageHorizontal)
-                                .padding(top = 6.dp),
-                    )
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = Dimens.pageHorizontal)
+                            .padding(top = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            bucket.label,
+                            style = AppTypography.section.strong,
+                            color = LocalPalette.current.text,
+                        )
+                        Text(
+                            "${bucketRows.size}",
+                            style = AppTypography.caption.medium,
+                            color = LocalPalette.current.sub,
+                            modifier =
+                                Modifier
+                                    .clip(CircleShape)
+                                    .background(
+                                        LocalPalette.current.text.copy(
+                                            alpha = if (LocalPalette.current.isDark) 0.10f else 0.06f,
+                                        ),
+                                    ).padding(horizontal = 8.dp, vertical = 2.dp),
+                        )
+                    }
                 }
                 if (gridView) {
                     val pairs = bucketRows.chunked(2)
@@ -248,6 +268,67 @@ fun PlaybackHistoryScreen(
             }
         }
         ActionToast(message = notice, onDismiss = { notice = null })
+    }
+}
+
+/** Theme-adaptive segmented switcher for list/grid history modes, legible in both light and dark themes. */
+@Composable
+private fun HistoryViewModeSwitch(
+    gridView: Boolean,
+    onSelectGrid: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
+    val trackFill = palette.text.copy(alpha = if (palette.isDark) 0.10f else 0.06f)
+    val trackBorder = palette.text.copy(alpha = if (palette.isDark) 0.14f else 0.08f)
+    val selectedFill = palette.card3.compositeOver(palette.background)
+    val selectedBorder = palette.text.copy(alpha = if (palette.isDark) 0.18f else 0.10f)
+    val options = listOf("沉浸列表" to false, "宫格视图" to true)
+
+    Row(
+        modifier
+            .fillMaxWidth()
+            .selectableGroup()
+            .clip(AppShapes.pill)
+            .background(trackFill)
+            .border(0.75.dp, trackBorder, AppShapes.pill)
+            .padding(3.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        options.forEach { (label, isGridOption) ->
+            val active = gridView == isGridOption
+            Box(
+                Modifier
+                    .weight(1f)
+                    .clip(AppShapes.pill)
+                    .then(
+                        if (active) {
+                            Modifier
+                                .background(selectedFill)
+                                .border(0.75.dp, selectedBorder, AppShapes.pill)
+                        } else {
+                            Modifier
+                        },
+                    ).pressable(
+                        haptic = HapticSignal.Select,
+                        role = Role.RadioButton,
+                        focusShape = AppShapes.pill,
+                        onClick = { onSelectGrid(isGridOption) },
+                    ).semantics { selected = active }
+                    .touchTarget()
+                    .padding(vertical = 8.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    label,
+                    style = if (active) AppTypography.caption.strong else AppTypography.caption.medium,
+                    color = if (active) accent.accent else palette.sub,
+                    maxLines = 1,
+                    textAlign = TextAlign.Center,
+                )
+            }
+        }
     }
 }
 

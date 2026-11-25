@@ -28,7 +28,8 @@ import kotlinx.io.IOException
 
 private const val SOURCE_DISCOVERY_MAX_ATTEMPTS = 3
 private const val SOURCE_DISCOVERY_RETRY_DELAY_MS = 250L
-private const val SOURCE_COMPARISON_PER_SERVER_TIMEOUT_MS = 8_000L
+private const val SOURCE_COMPARISON_PER_SERVER_TIMEOUT_MS = 10_000L
+private const val SOURCE_METADATA_PER_SERVER_TIMEOUT_MS = 8_000L
 
 /** Every server can list several files; resource comparison represents its best one. */
 private fun List<MediaSourceDto>?.bestSourceInfo(): SourceInfo? =
@@ -128,122 +129,70 @@ internal class EmbySourceService(
                         // and a comparison can be in flight while one is happening. A server
                         // slower than this has nothing useful to say about availability; it
                         // degrades to unreachable like any other per-server failure.
-                        withTimeoutOrNull(SOURCE_COMPARISON_PER_SERVER_TIMEOUT_MS) {
-                            val lookup =
-                                discoverSourceWithRetry {
-                                    suspend fun query(providerMatch: Boolean): ItemsResponseDto =
-                                        client
-                                            .get("${server.baseUrl}/Users/${embyPath(server.userId)}/Items") {
-                                                // A user retry must reach the server even while the HTTP
-                                                // client's transport/session cooldown is still active.
-                                                if (forceRefresh) exemptFromServerCooldown()
-                                                header("X-Emby-Token", server.accessToken)
-                                                parameter("Recursive", true)
-                                                parameter(
-                                                    "IncludeItemTypes",
-                                                    when (mediaType) {
-                                                        "tv" -> "Series"
-                                                        "movie" -> "Movie"
-                                                        else -> "Movie,Series"
-                                                    },
-                                                )
-                                                if (providerMatch && tmdbId != null) {
-                                                    parameter("AnyProviderIdEquals", "tmdb.$tmdbId")
-                                                } else {
-                                                    parameter("SearchTerm", title)
-                                                }
-                                                parameter("Fields", "MediaSources,ProductionYear,ProviderIds")
-                                                parameter("Limit", 5)
-                                            }.body()
-                                    val providerItems =
-                                        if (tmdbId != null) {
-                                            query(providerMatch = true).Items
-                                        } else {
-                                            emptyList()
-                                        }
-                                    val candidates =
-                                        providerItems.ifEmpty {
-                                            query(providerMatch = false).Items
-                                        }
-                                    // Provider matches can use translated titles; fuzzy title searches
-                                    // must not turn an unrelated sequel or adaptation into a source.
-                                    candidates.firstOrNull { candidate ->
-                                        val titleMatches = sameSourceTitle(candidate.Name, title)
-                                        val yearMatches = year == null || candidate.ProductionYear == year
-                                        val typeMatches =
-                                            when (mediaType) {
-                                                "tv" -> candidate.Type == "Series"
-                                                "movie" -> candidate.Type == "Movie"
-                                                else -> true
-                                            }
-                                        titleMatches && yearMatches && typeMatches
-                                    } ?: providerItems.firstOrNull()
-                                }
-                            lookup.onFailure {
-                                AppLog.warning(
-                                    category = "emby",
-                                    event = "source_lookup_failed",
-                                    message = "Cross-server source lookup failed",
-                                    throwable = it,
-                                    attributes = mapOf("serverId" to server.id),
-                                )
-                            }
-                            val item = lookup.getOrNull()
-                            if (titleOnly && item != null) {
-                                return@withTimeoutOrNull ServerSource(
-                                    server.id,
-                                    server.serverName,
-                                    server.id == currentServerId,
-                                    SourceInfo("已收录", null, null),
-                                    reachable = true,
-                                    itemId = item.Id,
-                                )
-                            }
-                            val comparable =
-                                item?.let {
+                        val lookupOutcome =
+                            withTimeoutOrNull(SOURCE_COMPARISON_PER_SERVER_TIMEOUT_MS) {
+                                val lookup =
                                     discoverSourceWithRetry {
-                                        fetchComparableSource(
-                                            server = server,
-                                            item = it,
-                                            seasonNumber = seasonNumber,
-                                            episodeNumber = episodeNumber,
-                                        )
-                                    }.onFailure { error ->
-                                        AppLog.warning(
-                                            category = "emby",
-                                            event = "source_metadata_degraded",
-                                            message = "Cross-server source metadata lookup failed",
-                                            throwable = error,
-                                            attributes = mapOf("serverId" to server.id),
-                                        )
+                                        suspend fun query(providerMatch: Boolean): ItemsResponseDto =
+                                            client
+                                                .get("${server.baseUrl}/Users/${embyPath(server.userId)}/Items") {
+                                                    // A user retry must reach the server even while the HTTP
+                                                    // client's transport/session cooldown is still active.
+                                                    if (forceRefresh) exemptFromServerCooldown()
+                                                    header("X-Emby-Token", server.accessToken)
+                                                    parameter("Recursive", true)
+                                                    parameter(
+                                                        "IncludeItemTypes",
+                                                        when (mediaType) {
+                                                            "tv" -> "Series"
+                                                            "movie" -> "Movie"
+                                                            else -> "Movie,Series"
+                                                        },
+                                                    )
+                                                    if (providerMatch && tmdbId != null) {
+                                                        parameter("AnyProviderIdEquals", "tmdb.$tmdbId")
+                                                    } else {
+                                                        parameter("SearchTerm", title)
+                                                    }
+                                                    parameter("Fields", "MediaSources,ProductionYear,ProviderIds")
+                                                    parameter("Limit", 5)
+                                                }.body()
+                                        val providerItems =
+                                            if (tmdbId != null) {
+                                                query(providerMatch = true).Items
+                                            } else {
+                                                emptyList()
+                                            }
+                                        val candidates =
+                                            providerItems.ifEmpty {
+                                                query(providerMatch = false).Items
+                                            }
+                                        // Provider matches can use translated titles; fuzzy title searches
+                                        // must not turn an unrelated sequel or adaptation into a source.
+                                        candidates.firstOrNull { candidate ->
+                                            val titleMatches = sameSourceTitle(candidate.Name, title)
+                                            val yearMatches = year == null || candidate.ProductionYear == year
+                                            val typeMatches =
+                                                when (mediaType) {
+                                                    "tv" -> candidate.Type == "Series"
+                                                    "movie" -> candidate.Type == "Movie"
+                                                    else -> true
+                                                }
+                                            titleMatches && yearMatches && typeMatches
+                                        } ?: providerItems.firstOrNull()
                                     }
+                                lookup.onFailure {
+                                    AppLog.warning(
+                                        category = "emby",
+                                        event = "source_lookup_failed",
+                                        message = "Cross-server source lookup failed",
+                                        throwable = it,
+                                        attributes = mapOf("serverId" to server.id),
+                                    )
                                 }
-                            val source =
-                                when (val result = comparable?.getOrNull()) {
-                                    ComparableSourceResult.MissingEpisode -> null
-                                    is ComparableSourceResult.Found ->
-                                        result.source
-                                            // A matching item is still a resource when this server withholds
-                                            // only its stream metadata.
-                                            ?: SourceInfo("已有资源", null, null)
-                                    null ->
-                                        if (item != null) {
-                                            // A failed metadata request says nothing about availability. Keep
-                                            // the item selectable so a later user-initiated resolve can retry.
-                                            SourceInfo("已有资源", null, null)
-                                        } else {
-                                            null
-                                        }
-                                }
-                            ServerSource(
-                                serverId = server.id,
-                                serverName = server.serverName,
-                                isCurrent = server.id == currentServerId,
-                                itemId = item?.Id,
-                                source = source,
-                                reachable = lookup.isSuccess,
-                            )
-                        } ?: run {
+                                lookup
+                            }
+                        if (lookupOutcome == null) {
                             AppLog.warning(
                                 category = "emby",
                                 event = "source_lookup_timed_out",
@@ -254,7 +203,7 @@ internal class EmbySourceService(
                                         "budgetMs" to SOURCE_COMPARISON_PER_SERVER_TIMEOUT_MS.toString(),
                                     ),
                             )
-                            ServerSource(
+                            return@async ServerSource(
                                 serverId = server.id,
                                 serverName = server.serverName,
                                 isCurrent = server.id == currentServerId,
@@ -263,6 +212,80 @@ internal class EmbySourceService(
                                 reachable = false,
                             )
                         }
+                        val item = lookupOutcome.getOrNull()
+                        if (titleOnly && item != null) {
+                            return@async ServerSource(
+                                server.id,
+                                server.serverName,
+                                server.id == currentServerId,
+                                SourceInfo("已收录", null, null),
+                                reachable = true,
+                                itemId = item.Id,
+                            )
+                        }
+                        // Metadata enrichment gets its own timeout budget so a slow episode/stream
+                        // lookup degrades to "已有资源" instead of marking a reachable server down
+                        // and putting it into cooldown.
+                        val comparable =
+                            item?.let { found ->
+                                withTimeoutOrNull(SOURCE_METADATA_PER_SERVER_TIMEOUT_MS) {
+                                    discoverSourceWithRetry {
+                                        fetchComparableSource(
+                                            server = server,
+                                            item = found,
+                                            seasonNumber = seasonNumber,
+                                            episodeNumber = episodeNumber,
+                                            forceRefresh = forceRefresh,
+                                        )
+                                    }.onFailure { error ->
+                                        AppLog.warning(
+                                            category = "emby",
+                                            event = "source_metadata_degraded",
+                                            message = "Cross-server source metadata lookup failed",
+                                            throwable = error,
+                                            attributes = mapOf("serverId" to server.id),
+                                        )
+                                    }
+                                } ?: run {
+                                    AppLog.warning(
+                                        category = "emby",
+                                        event = "source_metadata_timed_out",
+                                        message = "Cross-server source metadata lookup exceeded its budget",
+                                        attributes =
+                                            mapOf(
+                                                "serverId" to server.id,
+                                                "budgetMs" to SOURCE_METADATA_PER_SERVER_TIMEOUT_MS.toString(),
+                                            ),
+                                    )
+                                    null
+                                }
+                            }
+                        val source =
+                            when (val result = comparable?.getOrNull()) {
+                                ComparableSourceResult.MissingEpisode -> null
+                                is ComparableSourceResult.Found ->
+                                    result.source
+                                        // A matching item is still a resource when this server withholds
+                                        // only its stream metadata.
+                                        ?: SourceInfo("已有资源", null, null)
+                                null ->
+                                    if (item != null) {
+                                        // A failed or timed-out metadata request says nothing about
+                                        // availability. Keep the item selectable so a later
+                                        // user-initiated resolve can retry.
+                                        SourceInfo("已有资源", null, null)
+                                    } else {
+                                        null
+                                    }
+                            }
+                        ServerSource(
+                            serverId = server.id,
+                            serverName = server.serverName,
+                            isCurrent = server.id == currentServerId,
+                            itemId = item?.Id,
+                            source = source,
+                            reachable = lookupOutcome.isSuccess,
+                        )
                     }
                 }.awaitAll()
         }
@@ -277,6 +300,7 @@ internal class EmbySourceService(
         item: BaseItemDto,
         seasonNumber: Int?,
         episodeNumber: Int?,
+        forceRefresh: Boolean = false,
     ): ComparableSourceResult {
         if (item.Type != "Series") {
             item.MediaSources.bestSourceInfo()?.let {
@@ -287,7 +311,7 @@ internal class EmbySourceService(
         val playable =
             if (item.Type == "Series") {
                 if (seasonNumber != null && episodeNumber != null) {
-                    fetchEpisodeAtCoordinate(server, item.Id, seasonNumber, episodeNumber)
+                    fetchEpisodeAtCoordinate(server, item.Id, seasonNumber, episodeNumber, forceRefresh)
                         ?: return ComparableSourceResult.MissingEpisode
                 } else {
                     detailService.fetchNextUp(server, item.Id) ?: detailService.fetchFirstEpisode(server, item.Id)
@@ -303,6 +327,7 @@ internal class EmbySourceService(
         val full: BaseItemDto =
             client
                 .get("${server.baseUrl}/Users/${embyPath(server.userId)}/Items/${embyPath(playable.Id)}") {
+                    if (forceRefresh) exemptFromServerCooldown()
                     header("X-Emby-Token", server.accessToken)
                     parameter("Fields", "MediaSources")
                 }.body()
@@ -315,10 +340,12 @@ internal class EmbySourceService(
         seriesId: String,
         seasonNumber: Int,
         episodeNumber: Int,
+        forceRefresh: Boolean = false,
     ): BaseItemDto? {
         val dto: ItemsResponseDto =
             client
                 .get("${server.baseUrl}/Shows/${embyPath(seriesId)}/Episodes") {
+                    if (forceRefresh) exemptFromServerCooldown()
                     header("X-Emby-Token", server.accessToken)
                     parameter("UserId", server.userId)
                     parameter("Season", seasonNumber)

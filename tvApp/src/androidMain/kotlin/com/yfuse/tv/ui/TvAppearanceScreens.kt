@@ -28,6 +28,7 @@ internal fun TvAppearanceSettingsPage(
     val loadingAnimation by prefs.loadingAnimation.collectAsState()
     val reduceTransparency by prefs.reduceTransparency.collectAsState()
     val largeText by prefs.largeText.collectAsState()
+    val posterNames by prefs.posterNames.collectAsState()
     val reduceMotion by prefs.reduceMotion.collectAsState()
     val startupTab by prefs.startupTab.collectAsState()
     val backgroundImage by prefs.backgroundImage.collectAsState()
@@ -143,6 +144,19 @@ internal fun TvAppearanceSettingsPage(
         }
 
         item(key = "appearance-section-a11y") { TvSettingsSectionTitle("辅助功能") }
+        item(key = "appearance-poster-names") {
+            TvToggleRow(
+                title = "显示海报名",
+                checked = posterNames,
+                stableId = "appearance:poster-names",
+                focusMemory = focusMemory,
+                onToggle = prefs::setPosterNames,
+                icon = AppIcons.Info,
+                focusScope = focusScope,
+                subtitle = "显示各页面海报下方的片名和附属文字",
+                navigationRequester = navigationRequester,
+            )
+        }
         item(key = "appearance-large-text") {
             TvToggleRow(
                 title = "大号文字",

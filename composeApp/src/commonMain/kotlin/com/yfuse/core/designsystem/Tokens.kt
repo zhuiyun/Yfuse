@@ -144,22 +144,22 @@ fun serverTintColor(
  * a row is found by its colour before its label is read.
  */
 object SettingTint {
-    val appearance = Color(0xFF7951CE)
-    val language = Color(0xFF167899)
-    val general = Color(0xFF586AC1)
-    val library = Color(0xFFA66417)
-    val components = Color(0xFF9D4FBB)
-    val subtitle = Color(0xFF24769F)
-    val audio = Color(0xFFC35140)
-    val playback = Color(0xFFBF5026)
-    val danmaku = Color(0xFF23816A)
-    val watchTogether = Color(0xFFBC477D)
-    val account = Color(0xFF3271C4)
-    val servers = Color(0xFF147F8C)
-    val downloads = Color(0xFF277D54)
-    val sync = Color(0xFF5267B9)
-    val advanced = Color(0xFF706680)
-    val cache = Color(0xFF976B22)
+    val appearance = Color(0xFF7B5CFA)
+    val language = Color(0xFF0EA5C6)
+    val general = Color(0xFF4F6DF5)
+    val library = Color(0xFFE07A2F)
+    val components = Color(0xFFA855F7)
+    val subtitle = Color(0xFF0284C7)
+    val audio = Color(0xFFE14D64)
+    val playback = Color(0xFFEF5A3C)
+    val danmaku = Color(0xFF10B981)
+    val watchTogether = Color(0xFFEC4899)
+    val account = Color(0xFF3B82F6)
+    val servers = Color(0xFF06B6D4)
+    val downloads = Color(0xFF16A34A)
+    val sync = Color(0xFF6366F1)
+    val advanced = Color(0xFF64748B)
+    val cache = Color(0xFFD97706)
 }
 
 /**

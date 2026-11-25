@@ -512,7 +512,17 @@ internal class DetailExecutor(
         dispatch(DetailMsg.EpisodesLoading)
         initialCatalog.launch(request) {
             val result =
-                cancellableResult { playbackResolver.loadSeriesCatalog(server, seriesId, target, allEpisodes = null) }
+                retryTransientDetailRequest(
+                    event = "initial_series_catalog_retry",
+                    attributes =
+                        mapOf(
+                            "serverId" to server.id,
+                            "seriesId" to seriesId,
+                        ),
+                    stillCurrent = { request.isCurrent && isVisibleSource(server.id, detail.id) },
+                ) {
+                    cancellableResult { playbackResolver.loadSeriesCatalog(server, seriesId, target, allEpisodes = null) }
+                }
             if (!request.isCurrent || !isVisibleSource(server.id, detail.id)) return@launch
             initialCatalog.finish(request)
             result
@@ -576,6 +586,13 @@ internal class DetailExecutor(
             try {
                 val completed = linkedMapOf<String, ServerSource>()
                 val current = state()
+                if (!forceRefresh && !titleOnly && current.server?.id == server.id && current.detail?.id == detail.id) {
+                    // Preserve already-discovered reachable sources from the initial title-only pass
+                    // while concrete episode specs are being enriched, so cards do not vanish mid-load.
+                    current.sources
+                        .filter { it.reachable && it.itemId != null && it.serverId != server.id }
+                        .forEach { completed[it.serverId] = it.copy(isCurrent = false) }
+                }
                 val target = current.playTarget?.takeIf { current.playServer?.id == server.id }
                 val version =
                     target?.versions?.firstOrNull { it.id == current.selectedVersionId }

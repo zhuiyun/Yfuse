@@ -28,6 +28,7 @@ import com.yfuse.core.designsystem.LiftMenu
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MediaSharedElementKey
 import com.yfuse.core.designsystem.Poster
+import com.yfuse.core.designsystem.PosterCaption
 import com.yfuse.core.designsystem.SectionHeader
 import com.yfuse.core.designsystem.liftAnchor
 import com.yfuse.core.designsystem.liftable
@@ -89,26 +90,29 @@ internal fun RelatedSection(
                 ) {
                     Poster(
                         url = posterUrl,
+                        contentDescription = item.title,
                         shape = AppShapes.card,
                         rating = item.communityRating,
                         sharedTransitionKey = sharedKey,
                         modifier = Modifier.liftAnchor(artwork).fillMaxWidth().height(140.dp),
                     )
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        item.title,
-                        style = AppTypography.body.strong,
-                        color = palette.text,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Spacer(Modifier.height(3.dp))
-                    Text(
-                        item.year?.toString().orEmpty(),
-                        style = AppTypography.caption.strong,
-                        color = accent,
-                        maxLines = 1,
-                    )
+                    PosterCaption {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            item.title,
+                            style = AppTypography.body.strong,
+                            color = palette.text,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Spacer(Modifier.height(3.dp))
+                        Text(
+                            item.year?.toString().orEmpty(),
+                            style = AppTypography.caption.strong,
+                            color = accent,
+                            maxLines = 1,
+                        )
+                    }
                 }
             }
         }

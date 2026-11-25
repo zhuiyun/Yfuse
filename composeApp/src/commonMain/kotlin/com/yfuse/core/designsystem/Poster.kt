@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
@@ -611,6 +612,14 @@ fun Poster(
     }
 }
 
+internal val LocalPosterCaptionsVisible = compositionLocalOf { true }
+
+/** Keep some space below bare artwork when its caption is hidden. */
+@Composable
+internal fun PosterCaption(content: @Composable () -> Unit) {
+    if (LocalPosterCaptionsVisible.current) content() else Spacer(Modifier.height(8.dp))
+}
+
 /**
  * A poster with its identity outside the artwork. Keeping the copy below the
  * image makes titles readable without covering poster art and gives list/grid
@@ -682,31 +691,33 @@ fun CaptionedPoster(
             // A 9:16 短剧 poster keeps the title and 全80集 printed at its top and foot.
             fitNarrow = true,
         )
-        Spacer(Modifier.height(7.dp))
-        Text(
-            text = title,
-            style = AppTypography.body.strong,
-            color = palette.text,
-            minLines = 2,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Spacer(Modifier.height(2.dp))
-        if (year != null) {
+        PosterCaption {
+            Spacer(Modifier.height(7.dp))
             Text(
-                text = year,
-                style = AppTypography.caption.regular,
-                color = palette.sub2,
-                maxLines = 1,
+                text = title,
+                style = AppTypography.body.strong,
+                color = palette.text,
+                minLines = 2,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.fillMaxWidth(),
             )
-        } else {
-            // Reserve the metadata line so cards align even when a year is absent. Matches
-            // the year's own line box — `mr(10f)` resolves to the 11sp type floor, whose
-            // default line height is 11 × 1.35.
-            Spacer(Modifier.height(15.dp))
+            Spacer(Modifier.height(2.dp))
+            if (year != null) {
+                Text(
+                    text = year,
+                    style = AppTypography.caption.regular,
+                    color = palette.sub2,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            } else {
+                // Reserve the metadata line so cards align even when a year is absent. Matches
+                // the year's own line box — `mr(10f)` resolves to the 11sp type floor, whose
+                // default line height is 11 × 1.35.
+                Spacer(Modifier.height(15.dp))
+            }
         }
     }
 }

@@ -93,6 +93,222 @@ object AppIcons {
             roundRect(2.9f, 13.8f, 18.2f, 6.8f, 2.2f)
         }.andDots(7.1f to 6.8f, 7.1f to 17.2f).build()
 
+    // ------------------------------------------------------------ settings (modern minimalist)
+
+    /** 账号与同步 — sleek circular avatar inside a clean soft frame. */
+    val SettingsAccount =
+        strokeVector("settings-account") {
+            circle(12f, 8.6f, 3.3f)
+            moveTo(5.6f, 19.6f)
+            curveTo(6.6f, 16.0f, 9.0f, 14.3f, 12f, 14.3f)
+            curveTo(15.0f, 14.3f, 17.4f, 16.0f, 18.4f, 19.6f)
+        }.andDots(18.6f to 6.2f).build()
+
+    /** 服务器 — minimalist dual-capsule node rack with crisp status indicators. */
+    val SettingsServer =
+        strokeVector("settings-server") {
+            roundRect(3.8f, 4.4f, 16.4f, 6.2f, 2.4f)
+            roundRect(3.8f, 13.4f, 16.4f, 6.2f, 2.4f)
+            moveTo(13.6f, 7.5f)
+            horizontalLineTo(17.0f)
+            moveTo(13.6f, 16.5f)
+            horizontalLineTo(17.0f)
+        }.andDots(7.6f to 7.5f, 7.6f to 16.5f).build()
+
+    /** Stremio 插件 — modern isometric modular cube. */
+    val SettingsPlugin =
+        strokeVector("settings-plugin") {
+            moveTo(12f, 3.8f)
+            lineTo(19.2f, 7.9f)
+            verticalLineTo(16.1f)
+            lineTo(12f, 20.2f)
+            lineTo(4.8f, 16.1f)
+            verticalLineTo(7.9f)
+            close()
+            moveTo(12f, 12f)
+            lineTo(19.2f, 7.9f)
+            moveTo(12f, 12f)
+            lineTo(4.8f, 7.9f)
+            moveTo(12f, 12f)
+            verticalLineTo(20.2f)
+        }.build()
+
+    /** 我的片单 — sleek layered bookmark card. */
+    val SettingsCollections =
+        strokeVector("settings-collections") {
+            moveTo(7.2f, 4.4f)
+            horizontalLineTo(16.8f)
+            arcToRelative(1.8f, 1.8f, 0f, isMoreThanHalf = false, isPositiveArc = true, 1.8f, 1.8f)
+            verticalLineTo(19.6f)
+            lineTo(12f, 15.8f)
+            lineTo(5.4f, 19.6f)
+            verticalLineTo(6.2f)
+            arcToRelative(1.8f, 1.8f, 0f, isMoreThanHalf = false, isPositiveArc = true, 1.8f, -1.8f)
+            close()
+            moveTo(9.4f, 8.8f)
+            horizontalLineTo(14.6f)
+        }.build()
+
+    /** 观影统计 — minimalist ascending rounded bar chart. */
+    val SettingsStats =
+        strokeVector("settings-stats") {
+            roundRect(4.4f, 12.6f, 3.6f, 6.8f, 1.4f)
+            roundRect(10.2f, 8.6f, 3.6f, 10.8f, 1.4f)
+            roundRect(16.0f, 4.6f, 3.6f, 14.8f, 1.4f)
+        }.build()
+
+    /** 家庭资料 — clean dual-profile silhouettes. */
+    val SettingsFamily =
+        strokeVector("settings-family") {
+            circle(9.2f, 8.4f, 2.9f)
+            moveTo(3.8f, 19.2f)
+            curveTo(4.6f, 16.0f, 6.6f, 14.5f, 9.2f, 14.5f)
+            curveTo(11.8f, 14.5f, 13.8f, 16.0f, 14.6f, 19.2f)
+            circle(16.2f, 9.4f, 2.3f)
+            moveTo(15.8f, 14.8f)
+            curveTo(17.8f, 15.0f, 19.4f, 16.4f, 20.2f, 19.2f)
+        }.build()
+
+    /** 设备接力 — modern overlapping screen + phone transfer. */
+    val SettingsHandoff =
+        strokeVector("settings-handoff") {
+            moveTo(10.2f, 16.8f)
+            horizontalLineTo(5.6f)
+            arcToRelative(1.8f, 1.8f, 0f, isMoreThanHalf = false, isPositiveArc = true, -1.8f, -1.8f)
+            verticalLineTo(6.4f)
+            arcToRelative(1.8f, 1.8f, 0f, isMoreThanHalf = false, isPositiveArc = true, 1.8f, -1.8f)
+            horizontalLineTo(16.8f)
+            arcToRelative(1.8f, 1.8f, 0f, isMoreThanHalf = false, isPositiveArc = true, 1.8f, 1.8f)
+            verticalLineTo(8.2f)
+            roundRect(13.2f, 10.6f, 7.0f, 9.2f, 1.8f)
+        }.andDots(16.7f to 17.4f).build()
+
+    /** Trakt — minimalist circular badge with crisp check mark. */
+    val SettingsTrakt =
+        strokeVector("settings-trakt") {
+            circle(12f, 12f, 8.2f)
+            moveTo(8.4f, 12.2f)
+            lineTo(10.9f, 14.7f)
+            lineTo(15.8f, 9.6f)
+        }.build()
+
+    /** 播放设置 — sleek rounded squircle play badge. */
+    val SettingsPlayback =
+        strokeVector("settings-playback") {
+            roundRect(3.8f, 4.8f, 16.4f, 14.4f, 4.0f)
+        }.andSolidPath {
+            moveTo(10.0f, 8.9f)
+            lineTo(15.6f, 12.0f)
+            lineTo(10.0f, 15.1f)
+            close()
+        }.build()
+
+    /** 一起看 — modern paired cinema bubbles. */
+    val SettingsWatchTogether =
+        strokeVector("settings-watch-together") {
+            roundRect(3.6f, 5.2f, 12.4f, 9.6f, 3.2f)
+            moveTo(16.0f, 10.6f)
+            horizontalLineTo(18.0f)
+            arcToRelative(2.4f, 2.4f, 0f, isMoreThanHalf = false, isPositiveArc = true, 2.4f, 2.4f)
+            verticalLineTo(16.6f)
+            arcToRelative(2.4f, 2.4f, 0f, isMoreThanHalf = false, isPositiveArc = true, -2.4f, 2.4f)
+            horizontalLineTo(10.6f)
+            arcToRelative(2.4f, 2.4f, 0f, isMoreThanHalf = false, isPositiveArc = true, -2.4f, -2.4f)
+            verticalLineTo(14.8f)
+        }.andDots(8.0f to 10.0f, 11.6f to 10.0f).build()
+
+    /** 打开链接 — crisp diagonal interlocking link capsules. */
+    val SettingsLink =
+        strokeVector("settings-link") {
+            moveTo(10.4f, 13.6f)
+            lineTo(13.6f, 10.4f)
+            moveTo(13.2f, 15.8f)
+            lineTo(11.1f, 17.9f)
+            arcToRelative(3.6f, 3.6f, 0f, isMoreThanHalf = false, isPositiveArc = true, -5.1f, -5.1f)
+            lineTo(8.1f, 10.7f)
+            moveTo(10.8f, 8.2f)
+            lineTo(12.9f, 6.1f)
+            arcToRelative(3.6f, 3.6f, 0f, isMoreThanHalf = false, isPositiveArc = true, 5.1f, 5.1f)
+            lineTo(15.9f, 13.3f)
+        }.build()
+
+    /** 弹幕设置 — sleek rounded screen with flowing danmaku stream bars. */
+    val SettingsDanmaku =
+        strokeVector("settings-danmaku") {
+            roundRect(3.6f, 5.0f, 16.8f, 14.0f, 3.4f)
+            moveTo(7.2f, 9.4f)
+            horizontalLineTo(13.8f)
+            moveTo(10.2f, 13.0f)
+            horizontalLineTo(16.8f)
+            moveTo(7.2f, 15.8f)
+            horizontalLineTo(11.4f)
+        }.build()
+
+    /** 下载与离线库 — minimalist down-arrow settling into a soft tray. */
+    val SettingsDownload =
+        strokeVector("settings-download") {
+            moveTo(12f, 4.6f)
+            verticalLineTo(14.2f)
+            moveTo(8.2f, 10.8f)
+            lineTo(12f, 14.6f)
+            lineTo(15.8f, 10.8f)
+            moveTo(4.8f, 15.8f)
+            verticalLineTo(17.4f)
+            arcToRelative(2.0f, 2.0f, 0f, isMoreThanHalf = false, isPositiveArc = false, 2.0f, 2.0f)
+            horizontalLineTo(17.2f)
+            arcToRelative(2.0f, 2.0f, 0f, isMoreThanHalf = false, isPositiveArc = false, 2.0f, -2.0f)
+            verticalLineTo(15.8f)
+        }.build()
+
+    /** 同步状态与恢复 — clean dual-orbit sync arrows. */
+    val SettingsSync =
+        strokeVector("settings-sync") {
+            moveTo(19.2f, 10.2f)
+            arcToRelative(7.4f, 7.4f, 0f, isMoreThanHalf = false, isPositiveArc = false, -13.2f, -2.4f)
+            moveTo(19.4f, 6.2f)
+            verticalLineTo(10.2f)
+            horizontalLineTo(15.4f)
+            moveTo(4.8f, 13.8f)
+            arcToRelative(7.4f, 7.4f, 0f, isMoreThanHalf = false, isPositiveArc = false, 13.2f, 2.4f)
+            moveTo(4.6f, 17.8f)
+            verticalLineTo(13.8f)
+            horizontalLineTo(8.6f)
+        }.build()
+
+    /** 数据与诊断 — sleek minimalist pulse waveform inside a soft rounded frame. */
+    val SettingsDiagnostics =
+        strokeVector("settings-diagnostics") {
+            roundRect(3.8f, 4.6f, 16.4f, 14.8f, 3.8f)
+            moveTo(6.6f, 12.2f)
+            horizontalLineTo(9.0f)
+            lineTo(10.8f, 8.6f)
+            lineTo(13.2f, 15.4f)
+            lineTo(15.0f, 12.2f)
+            horizontalLineTo(17.4f)
+        }.build()
+
+    /** 外观与交互 — modern 4-point sparkle + orbiting micro-star. */
+    val SettingsAppearance =
+        strokeVector("settings-appearance") {
+            moveTo(11.0f, 4.2f)
+            curveTo(11.3f, 8.4f, 12.6f, 9.7f, 16.8f, 10.0f)
+            curveTo(12.6f, 10.3f, 11.3f, 11.6f, 11.0f, 15.8f)
+            curveTo(10.7f, 11.6f, 9.4f, 10.3f, 5.2f, 10.0f)
+            curveTo(9.4f, 9.7f, 10.7f, 8.4f, 11.0f, 4.2f)
+            close()
+            moveTo(17.6f, 14.6f)
+            verticalLineTo(19.2f)
+            moveTo(15.3f, 16.9f)
+            horizontalLineTo(19.9f)
+        }.build()
+
+    /** 玻璃材质 — overlapping translucent rounded planes. */
+    val SettingsGlass =
+        strokeVector("settings-glass") {
+            roundRect(4.2f, 4.4f, 11.4f, 11.4f, 3.0f)
+            roundRect(8.4f, 8.2f, 11.4f, 11.4f, 3.0f)
+        }.build()
+
     // ------------------------------------------------------------ transport
 
     val Play =

@@ -304,7 +304,7 @@ internal fun CurrentServerHero(
             Box(
                 Modifier
                     .size(56.dp)
-                    .clip(AppShapes.thumb)
+                    .clip(CircleShape)
                     .background(
                         Brush.linearGradient(
                             listOf(lerp(badgeColor, Color.White, 0.16f), badgeColor),
@@ -312,7 +312,7 @@ internal fun CurrentServerHero(
                     ),
                 contentAlignment = Alignment.Center,
             ) {
-                ServerBadgeArtwork(server.iconUrl) {
+                ServerBadgeArtwork(server) {
                     Text(
                         server.iconEmoji ?: server.serverName.take(1).uppercase(),
                         style = AppTypography.section.strong,
@@ -618,7 +618,7 @@ internal fun ServerCard(
                 Box(
                     Modifier
                         .size(30.dp)
-                        .clip(AppShapes.thumb)
+                        .clip(CircleShape)
                         .background(
                             Brush.linearGradient(
                                 listOf(badgeColor, badgeColor),
@@ -626,7 +626,7 @@ internal fun ServerCard(
                         ),
                     contentAlignment = Alignment.Center,
                 ) {
-                    ServerBadgeArtwork(server.iconUrl) {
+                    ServerBadgeArtwork(server) {
                         Text(
                             server.iconEmoji ?: server.serverName.take(1).uppercase(),
                             style = AppTypography.body.strong,

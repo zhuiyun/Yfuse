@@ -5,9 +5,12 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
@@ -41,11 +44,9 @@ internal fun Modifier.livingPosterPageBlend(pageColor: State<Color>): Modifier =
         drawRect(heroPanelBrush(pageColor.value, this, height = size.height.toDp()))
     }
 
-/** Leave the last part of the dissolve free of caption shading. */
+/** Keep caption clearance above the lower dissolve without painting a dark horizontal stripe. */
 internal fun Modifier.livingPosterCaptionScrim(): Modifier =
-    padding(bottom = LivingPosterDefaults.CAPTION_BOTTOM - CaptionFeather)
-        .heroCaptionScrim()
-        .padding(bottom = CaptionFeather)
+    padding(bottom = LivingPosterDefaults.CAPTION_BOTTOM)
 
 /** Compact carousel metadata shared by TMDB and Emby-backed titles. */
 fun heroDurationLabel(minutes: Int?): String? =
@@ -134,11 +135,15 @@ fun LivingPosterAmbient(
     }
 }
 
-/** Apply the dissolve after compositing the poster, its top scrim and any inset frame. */
+/**
+ * Apply the dissolve and frame-synchronized smootherstep color bridge inside the artwork plane,
+ * behind the hero caption and controls (matching DetailHero's seamless transition).
+ */
 @Composable
 internal fun LivingPosterArtworkPlane(
     artwork: LivingPosterArtwork,
     framed: Boolean,
+    pageColor: State<Color>? = null,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val frame =
@@ -147,8 +152,21 @@ internal fun LivingPosterArtworkPlane(
         } else {
             Modifier.clipToBounds()
         }
-    Box(Modifier.fillMaxSize().fadeIntoPage(artwork.fadeHeight).then(frame)) {
-        content()
-        Box(Modifier.matchParentSize().background(heroTopScrim()))
+    Box(Modifier.fillMaxSize().then(frame)) {
+        Box(Modifier.matchParentSize().fadeIntoPage(artwork.fadeHeight)) {
+            content()
+            Box(Modifier.matchParentSize().background(heroTopScrim()))
+        }
+        if (pageColor != null) {
+            Box(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(artwork.fadeHeight)
+                    .drawBehind {
+                        drawRect(heroPanelBrush(pageColor.value, this, height = artwork.fadeHeight))
+                    },
+            )
+        }
     }
 }

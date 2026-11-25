@@ -87,6 +87,40 @@ class SettingsRoundTripTest {
     }
 
     @Test
+    fun posterNamesAreHiddenByDefaultAndRestoreBothChoices() {
+        val settings = MapSettings()
+        val prefs = ThemePreferences(settings)
+        assertEquals(false, prefs.posterNames.value)
+        for (enabled in listOf(true, false)) {
+            prefs.setPosterNames(enabled)
+            assertEquals(enabled, prefs.posterNames.value)
+            assertEquals(enabled, ThemePreferences(settings).posterNames.value)
+        }
+    }
+
+    @Test
+    fun posterNamesMigrateLibraryAndHomeChoicesOnce() {
+        val settings = MapSettings()
+        settings.putBoolean("library.showPosterNames.v1.films", true)
+        assertTrue(ThemePreferences(settings).posterNames.value)
+        settings.putBoolean("library.showPosterNames.v1.series", false)
+        assertTrue(ThemePreferences(settings).posterNames.value)
+
+        val conflicting = MapSettings()
+        conflicting.putBoolean("library.showPosterNames.v1.films", true)
+        conflicting.putBoolean("library.showPosterNames.v1.series", false)
+        assertEquals(false, ThemePreferences(conflicting).posterNames.value)
+
+        val home = MapSettings()
+        home.putBoolean("appearance.homePosterNames", false)
+        home.putBoolean("library.showPosterNames.v1.films", true)
+        home.putInt("library.gridColumns.v1.films", 4)
+        assertEquals(false, ThemePreferences(home).posterNames.value)
+        assertEquals(4, home.getInt("library.gridColumns.v1.films", 0))
+        assertTrue("library.showPosterNames.v1.films" !in home.keys)
+    }
+
+    @Test
     fun ThemePreferences_customHomeVisible_saves_every_selection_and_restores_it() {
         val settings = MapSettings()
         val prefs = ThemePreferences(settings)

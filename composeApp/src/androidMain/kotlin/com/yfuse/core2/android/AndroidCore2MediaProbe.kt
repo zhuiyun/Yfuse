@@ -302,13 +302,22 @@ internal class AndroidCore2MediaProbe(
             val dolbyVisionConfig =
                 videoFormat.dolbyVisionConfigOrNull(videoMime)
                     ?: demux.matroskaDolbyVisionConfigOrNull(container, videoMime)
+            val resolvedContainer =
+                if (container == YContainer.Unknown && dolbyVisionConfig != null) {
+                    YContainer.Matroska
+                } else {
+                    container
+                }
+            val dolbySampleProbeCount =
+                dolbyVisionSampleProbeCount(
+                    dolbyVisionConfig = dolbyVisionConfig,
+                    videoMime = videoMime,
+                    container = resolvedContainer,
+                    sourceHintDolbyVision = item.sourceHints?.dolbyVision == true,
+                )
             val observedDolbyVisionNals =
-                if (
-                    dolbyVisionConfig == null &&
-                    videoMime == MIME_HEVC &&
-                    item.sourceHints?.dolbyVision == true
-                ) {
-                    demux.probeDolbyVisionNals(videoIndex, videoFormat)
+                if (dolbySampleProbeCount > 0) {
+                    demux.probeDolbyVisionNals(videoIndex, videoFormat, dolbySampleProbeCount)
                 } else {
                     EMPTY_DOLBY_NAL_EVIDENCE
                 }
@@ -341,7 +350,7 @@ internal class AndroidCore2MediaProbe(
             val audioFormat = audioIndex?.let(demux::trackFormat)
             val audioMime = audioFormat?.getString(MediaFormat.KEY_MIME)?.lowercase()
             if (audioIndex == null && (item.sourceHints?.audioTrackCount ?: 0) > 0) {
-                demux.reportHiddenPlatformAudio(item, container)
+                demux.reportHiddenPlatformAudio(item, resolvedContainer)
             }
 
             val video =
@@ -373,7 +382,7 @@ internal class AndroidCore2MediaProbe(
                 .Success(
                     playbackRequest =
                         YPlaybackRequest(
-                            container = container,
+                            container = resolvedContainer,
                             video = video,
                             audio = audio,
                             platformDemuxSupported = true,
@@ -395,7 +404,7 @@ internal class AndroidCore2MediaProbe(
                     unconfiguredDolbyVisionSignal = unconfiguredDolbyVisionSignal,
                     pixelAspectRatio = videoFormat.statedPixelAspectRatio(),
                     chapters =
-                        if (container == YContainer.Matroska || container == YContainer.WebM) {
+                        if (resolvedContainer == YContainer.Matroska || resolvedContainer == YContainer.WebM) {
                             demux.matroskaChapters()
                         } else {
                             emptyList()
@@ -459,9 +468,32 @@ private val AUDIO_ONLY_VIDEO_PLACEHOLDER =
         surfaceOutputRequired = false,
     )
 
+internal fun shouldProbeMatroskaDolbyVision(
+    container: YContainer,
+    videoMime: String,
+): Boolean =
+    (container == YContainer.Matroska || container == YContainer.Unknown) &&
+        videoMime in MATROSKA_DOLBY_BASE_MIME_TYPES
+
+internal fun dolbyVisionSampleProbeCount(
+    dolbyVisionConfig: YDolbyVisionConfig?,
+    videoMime: String,
+    container: YContainer,
+    sourceHintDolbyVision: Boolean,
+): Int {
+    if (dolbyVisionConfig != null || videoMime != MIME_HEVC) return 0
+    if (sourceHintDolbyVision) return DOLBY_SAMPLE_PROBE_COUNT
+    return if (container == YContainer.Unknown || container == YContainer.Matroska) {
+        DOLBY_FALLBACK_SAMPLE_PROBE_COUNT
+    } else {
+        0
+    }
+}
+
 private fun AndroidMediaExtractorDemuxNode.probeDolbyVisionNals(
     videoTrackIndex: Int,
     videoFormat: MediaFormat,
+    sampleLimit: Int = DOLBY_SAMPLE_PROBE_COUNT,
 ): YDolbyVisionNalEvidence {
     selectTrack(videoTrackIndex)
     val buffer =
@@ -472,7 +504,7 @@ private fun AndroidMediaExtractorDemuxNode.probeDolbyVisionNals(
         )
     var rpuCount = 0
     var enhancementLayerCount = 0
-    for (ignored in 0 until DOLBY_SAMPLE_PROBE_COUNT) {
+    for (ignored in 0 until sampleLimit) {
         val sample = readSample(buffer) ?: break
         val bytes = ByteArray(sample.data.remaining())
         sample.data.duplicate().get(bytes)
@@ -493,7 +525,7 @@ private fun AndroidMediaExtractorDemuxNode.matroskaDolbyVisionConfigOrNull(
     container: YContainer,
     videoMime: String,
 ): YDolbyVisionConfig? {
-    if (container != YContainer.Matroska || videoMime !in MATROSKA_DOLBY_BASE_MIME_TYPES) return null
+    if (!shouldProbeMatroskaDolbyVision(container, videoMime)) return null
     for (maximumBytes in MATROSKA_METADATA_PROBE_BYTES) {
         val bytes = readSourcePrefix(maximumBytes) ?: return null
         when (val result = YMatroskaDolbyVisionMetadataParser.parse(bytes)) {
@@ -1313,6 +1345,7 @@ private val MATROSKA_METADATA_PROBE_BYTES = intArrayOf(512 * 1024, 4 * 1024 * 10
 /** Within the first block the cache fetched for MediaExtractor's own header read. */
 private val MATROSKA_CHAPTER_PROBE_BYTES = intArrayOf(256 * 1024, 1024 * 1024)
 private const val DOLBY_SAMPLE_PROBE_COUNT = 24
+private const val DOLBY_FALLBACK_SAMPLE_PROBE_COUNT = 4
 private const val DOLBY_SAMPLE_PROBE_MIN_BYTES = 256 * 1024
 private const val DOLBY_SAMPLE_PROBE_DEFAULT_BYTES = 2 * 1024 * 1024
 private const val DOLBY_SAMPLE_PROBE_MAX_BYTES = 32 * 1024 * 1024

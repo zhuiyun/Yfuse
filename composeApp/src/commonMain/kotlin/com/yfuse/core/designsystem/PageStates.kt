@@ -315,10 +315,12 @@ fun SkeletonPosterTile(
             shape = AppShapes.card,
             phaseMs = phaseMs,
         )
-        Spacer(Modifier.height(7.dp))
-        SkeletonBlock(Modifier.fillMaxWidth().height(12.dp), shape = AppShapes.micro, phaseMs = phaseMs)
-        Spacer(Modifier.height(5.dp))
-        SkeletonBlock(Modifier.width(42.dp).height(9.dp), shape = AppShapes.micro, phaseMs = phaseMs)
+        PosterCaption {
+            Spacer(Modifier.height(7.dp))
+            SkeletonBlock(Modifier.fillMaxWidth().height(12.dp), shape = AppShapes.micro, phaseMs = phaseMs)
+            Spacer(Modifier.height(5.dp))
+            SkeletonBlock(Modifier.width(42.dp).height(9.dp), shape = AppShapes.micro, phaseMs = phaseMs)
+        }
     }
 }
 

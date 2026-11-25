@@ -331,8 +331,8 @@ private fun ServerActionsHeader(
         verticalAlignment = Alignment.Top,
     ) {
         val serverTint = serverTintColor(server.id, server.iconTint)
-        Box(Modifier.size(44.dp).clip(AppShapes.thumb), contentAlignment = Alignment.Center) {
-            ServerBadgeArtwork(server.iconUrl) {
+        Box(Modifier.size(44.dp).clip(CircleShape), contentAlignment = Alignment.Center) {
+            ServerBadgeArtwork(server) {
                 if (server.iconEmoji == null) {
                     SettingIconTile(AppIcons.Server, serverTint, size = 44.dp)
                 } else {

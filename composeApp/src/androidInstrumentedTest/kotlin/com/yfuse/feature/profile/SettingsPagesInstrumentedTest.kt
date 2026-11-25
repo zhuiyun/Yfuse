@@ -7,33 +7,32 @@ import android.view.accessibility.AccessibilityNodeInfo
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.russhwolf.settings.SharedPreferencesSettings
 import com.yfuse.MainActivity
+import com.yfuse.app.AppTheme
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.designsystem.AccessibilityOptions
+import com.yfuse.core.designsystem.CaptionedPoster
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalSettingsLocator
 import com.yfuse.core.designsystem.MotionTheme
 import com.yfuse.core.designsystem.SettingsLocatorRequest
 import com.yfuse.core.designsystem.YfuseTheme
-import com.yfuse.feature.library.GridDensityState
-import com.yfuse.feature.library.GridState
-import com.yfuse.feature.library.LibraryGridColumnsPreferences
-import com.yfuse.feature.library.LibraryGridOptionsDialog
+import com.yfuse.feature.library.GridTile
 import com.yfuse.launchMainActivityForInput
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -41,6 +40,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
+import java.util.concurrent.atomic.AtomicInteger
 
 /** Real Compose rows and accessibility clicks; isolated storage, no user account or external service. */
 @RunWith(AndroidJUnit4::class)
@@ -132,48 +132,63 @@ class SettingsPagesInstrumentedTest {
     }
 
     @Test(timeout = 60_000L)
-    fun poster_name_switch_saves_the_chosen_value_when_options_reopen() {
-        val settings = storage()
-        settings.clear()
-        val optionsInstance = mutableIntStateOf(0)
-        val library = "test-library"
-        try {
-            launchMainActivityForInput().use { scenario ->
-                scenario.onActivity { activity ->
-                    activity.setContent {
-                        YfuseTheme(dark = true, accessibility = AccessibilityOptions(reduceMotion = true)) {
-                            key(optionsInstance.intValue) {
-                                val preferences = remember { LibraryGridColumnsPreferences(settings) }
-                                var shown by remember { mutableStateOf(preferences.showPosterNames(library) ?: true) }
-                                val gridState = rememberLazyGridState()
-                                val scope = rememberCoroutineScope()
-                                val density = remember { GridDensityState(gridState, scope, initialColumns = 3) }
-                                LibraryGridOptionsDialog(
-                                    state = GridState(sortable = false, resolutionFilterable = false),
-                                    gridDensity = density,
-                                    showPosterNames = shown,
-                                    onShowPosterNamesChange = { show ->
-                                        shown = show
-                                        preferences.setShowPosterNames(library, show)
-                                    },
-                                    onIntent = {},
-                                    onDismiss = {},
-                                )
-                            }
+    fun globalPosterSwitchUpdatesShelfAndLibraryGridTogether() {
+        withSettings { scenario, prefs, page, locator ->
+            scenario.onActivity {
+                page.value = ProfilePage.Appearance
+                locator.value = SettingsLocatorRequest("外观与交互", 3, "显示海报名")
+            }
+            await("Global captions default to hidden") { clickableNode("显示海报名")?.isChecked == false }
+            click("显示海报名")
+            await("Global caption preference saved") { ThemePreferences(storage()).posterNames.value }
+
+            val tileHeight = AtomicInteger()
+            val artworkHeight = AtomicInteger()
+            val gap = AtomicInteger()
+            scenario.onActivity { activity ->
+                activity.setContent {
+                    AppTheme(prefs) {
+                        gap.set(with(LocalDensity.current) { 8.dp.roundToPx() })
+                        Column(Modifier.fillMaxSize()) {
+                            CaptionedPoster(
+                                url = null,
+                                title = "首页海报",
+                                year = "2026",
+                                modifier = Modifier.width(112.dp).onSizeChanged { tileHeight.set(it.height) },
+                                posterModifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .height(
+                                            150.dp,
+                                        ).onSizeChanged { artworkHeight.set(it.height) },
+                            )
+                            GridTile(
+                                url = null,
+                                title = "媒体库海报",
+                                caption = "2025",
+                                onClick = {},
+                                showRating = true,
+                                modifier = Modifier.width(112.dp),
+                            )
                         }
                     }
                 }
-                await("Poster names initially enabled") { clickableNode("显示海报名")?.isChecked == true }
-                click("显示海报名")
-                await("Poster names disabled") { clickableNode("显示海报名")?.isChecked == false }
-                assertEquals(false, LibraryGridColumnsPreferences(settings).showPosterNames(library))
-                scenario.onActivity { optionsInstance.intValue++ }
-                await("Reopened options show the saved value") { clickableNode("显示海报名")?.isChecked == false }
-                click("显示海报名")
-                assertEquals(true, LibraryGridColumnsPreferences(settings).showPosterNames(library))
             }
-        } finally {
-            settings.clear()
+            await("Caption includes the year") { visibleNode("2026") != null && visibleNode("2025") != null }
+            val expanded = tileHeight.get()
+            scenario.onActivity { prefs.setPosterNames(false) }
+            await("Hidden caption keeps its bottom margin") {
+                artworkHeight.get() > 0 &&
+                    tileHeight.get() == artworkHeight.get() + gap.get() &&
+                    tileHeight.get() < expanded &&
+                    visibleNode("2026") == null &&
+                    visibleNode("2025") == null
+            }
+            scenario.onActivity { prefs.setPosterNames(true) }
+            await("Caption restored at the original height") {
+                tileHeight.get() == expanded &&
+                    visibleNode("2026") != null
+            }
         }
     }
 

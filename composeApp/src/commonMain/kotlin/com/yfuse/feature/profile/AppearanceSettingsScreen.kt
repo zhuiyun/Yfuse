@@ -62,6 +62,7 @@ private fun AppearanceOverview(
     onOpenPage: (ProfilePage) -> Unit,
     onAction: (AppearanceAction) -> Unit,
 ) {
+    val posterNames by prefs.posterNames.collectAsState()
     val mode by prefs.mode.collectAsState()
     val glass by prefs.glassStyle.collectAsState()
     val background by prefs.backgroundImage.collectAsState()
@@ -126,6 +127,16 @@ private fun AppearanceOverview(
         motionItem(key = "appearance-pages") {
             Section("布局与交互") {
                 SettingsCard {
+                    SwitchRow(
+                        "显示海报名",
+                        posterNames,
+                        true,
+                        icon = AppIcons.Subtitle,
+                        iconTint = SettingTint.appearance,
+                        description = "显示各页面海报下方的片名和附属文字",
+                        onChange = prefs::setPosterNames,
+                    )
+                    SettingsDivider()
                     SettingRow(
                         "首页与导航",
                         "启动页、组件与导航栏",

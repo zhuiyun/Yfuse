@@ -41,6 +41,7 @@ import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.LocalPosterCaptionsVisible
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.widget.WidgetEpisodeResult
@@ -185,15 +186,17 @@ private fun WidgetNextDirect(
                 maxLines = 1,
             )
         }
-        EpisodeTitle(item.title, Modifier.fillMaxWidth().pressable(role = Role.Button) { onOpen(item) })
-        if (metadata && next != null) {
-            Text(
-                listOf(episodeCoordinate(next), next.title).filter(String::isNotBlank).joinToString(" · "),
-                color = LocalPalette.current.sub,
-                style = AppTypography.caption.regular,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+        if (LocalPosterCaptionsVisible.current) {
+            EpisodeTitle(item.title, Modifier.fillMaxWidth().pressable(role = Role.Button) { onOpen(item) })
+            if (metadata && next != null) {
+                Text(
+                    listOf(episodeCoordinate(next), next.title).filter(String::isNotBlank).joinToString(" · "),
+                    color = LocalPalette.current.sub,
+                    style = AppTypography.caption.regular,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             val label = if (next == null) "查看剧集" else "查看第 ${next.episode} 集"
@@ -264,13 +267,15 @@ private fun WidgetSeasonShowcase(
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         Artwork(episode, Modifier.fillMaxWidth().weight(1f).clip(AppShapes.thumb))
-                        Text(
-                            episodeCoordinate(episode),
-                            color = LocalPalette.current.text,
-                            style = AppTypography.caption.medium,
-                            maxLines = 1,
-                        )
-                        if (metadata) EpisodeState(episode)
+                        if (LocalPosterCaptionsVisible.current) {
+                            Text(
+                                episodeCoordinate(episode),
+                                color = LocalPalette.current.text,
+                                style = AppTypography.caption.medium,
+                                maxLines = 1,
+                            )
+                            if (metadata) EpisodeState(episode)
+                        }
                     }
                 }
             }
@@ -322,18 +327,20 @@ private fun WidgetEpisodePreview(
                                 maxLines = 1,
                             )
                         }
-                        EpisodeTitle(episode.title)
-                        if (metadata) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                episode.durationMinutes?.let { duration ->
-                                    Text(
-                                        "$duration 分钟",
-                                        color = LocalPalette.current.sub2,
-                                        style = AppTypography.caption.regular,
-                                        maxLines = 1,
-                                    )
+                        if (LocalPosterCaptionsVisible.current) {
+                            EpisodeTitle(episode.title)
+                            if (metadata) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    episode.durationMinutes?.let { duration ->
+                                        Text(
+                                            "$duration 分钟",
+                                            color = LocalPalette.current.sub2,
+                                            style = AppTypography.caption.regular,
+                                            maxLines = 1,
+                                        )
+                                    }
+                                    EpisodeState(episode)
                                 }
-                                EpisodeState(episode)
                             }
                         }
                         if (episode.progress != null) EpisodeProgress(episode, Modifier.fillMaxWidth())
@@ -653,14 +660,16 @@ private fun WidgetDecadeShelf(
                                             Modifier.fillMaxWidth().weight(1f).clip(AppShapes.thumb),
                                             poster = true,
                                         )
-                                        EpisodeTitle(item.title)
-                                        if (metadata) {
-                                            Text(
-                                                item.year.take(4),
-                                                color = LocalPalette.current.sub2,
-                                                style = AppTypography.caption.regular,
-                                                maxLines = 1,
-                                            )
+                                        if (LocalPosterCaptionsVisible.current) {
+                                            EpisodeTitle(item.title)
+                                            if (metadata) {
+                                                Text(
+                                                    item.year.take(4),
+                                                    color = LocalPalette.current.sub2,
+                                                    style = AppTypography.caption.regular,
+                                                    maxLines = 1,
+                                                )
+                                            }
                                         }
                                     }
                                 }

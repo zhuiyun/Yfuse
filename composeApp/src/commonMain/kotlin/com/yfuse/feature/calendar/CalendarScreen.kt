@@ -1,5 +1,6 @@
 package com.yfuse.feature.calendar
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
@@ -29,6 +31,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -43,6 +47,7 @@ import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.DisclosureContent
 import com.yfuse.core.designsystem.ErrorState
+import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.InlineLoadingContent
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
@@ -50,15 +55,9 @@ import com.yfuse.core.designsystem.PageHint
 import com.yfuse.core.designsystem.SkeletonHandoff
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.YfChip
-import com.yfuse.core.designsystem.contentHandoff
-import com.yfuse.core.designsystem.contentPhase
-import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.pressableTarget
 import com.yfuse.core.designsystem.rememberDisclosureProgress
-import com.yfuse.core.designsystem.rememberGlassSelectionStyle
-import com.yfuse.core.designsystem.rememberSegmentIndicator
-import com.yfuse.core.designsystem.selectionColor
 import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.CalendarDay
@@ -68,7 +67,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
-import com.yfuse.core.designsystem.flatGlass as glass
 
 /**
  * 追剧日历 — broadcasts by day, each marked with what this library has.
@@ -82,8 +80,9 @@ fun CalendarScreen(component: CalendarComponent) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     val days = state.visibleDays
+    val dayDates = remember(days) { days.map(CalendarDay::date) }
     var selectedDate by remember(state.today) { mutableStateOf(state.today) }
-    LaunchedEffect(state.filter, state.platform, state.contentFilter, days.map(CalendarDay::date)) {
+    LaunchedEffect(state.filter, state.platform, state.contentFilter, dayDates) {
         selectedDate = calendarDateAfterFiltering(days, state.today, selectedDate, state.filter)
     }
     val bottomContentInset = systemNavigationContentInset()
@@ -133,9 +132,9 @@ fun CalendarScreen(component: CalendarComponent) {
                 Modifier
                     .fillMaxWidth()
                     .padding(horizontal = Dimens.pageHorizontal)
-                    .padding(top = 2.dp, bottom = 4.dp),
+                    .padding(top = 2.dp, bottom = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Icon(
                     AppIcons.ChevronLeft,
@@ -144,20 +143,50 @@ fun CalendarScreen(component: CalendarComponent) {
                     modifier =
                         Modifier
                             .pressableTarget(CircleShape, onClickLabel = "返回", onClick = component.onBack)
-                            .size(36.dp)
+                            .size(34.dp)
                             .solidGlass(CircleShape, palette.card2, palette.border)
-                            .padding(10.dp),
+                            .padding(9.dp),
                 )
                 Text(
                     "追剧日历",
                     style = AppTypography.section.strong,
                     color = palette.text,
                     modifier = Modifier.weight(1f),
-                    textAlign = TextAlign.Center,
+                    textAlign = TextAlign.Start,
                 )
-                // The schedule is cached for the day, so nothing else re-reads it; a new
-                // download landing is exactly when someone wants 未入库 → 可播放 checked
-                // again, and only they know it happened.
+                if (state.section == CalendarSection.Schedule) {
+                    Row(
+                        Modifier
+                            .clip(AppShapes.pill)
+                            .background(
+                                if (filtersExpanded || state.filter != CalendarFilter.All) {
+                                    accent.accent.copy(alpha = if (palette.isDark) 0.22f else 0.12f)
+                                } else {
+                                    palette.text.copy(alpha = if (palette.isDark) 0.09f else 0.06f)
+                                },
+                            ).pressable(
+                                role = Role.Button,
+                                onClickLabel = if (filtersExpanded) "收起日历筛选" else "展开日历筛选",
+                                focusShape = AppShapes.pill,
+                                onClick = { filtersExpanded = !filtersExpanded },
+                            ).heightIn(min = 34.dp)
+                            .padding(horizontal = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp),
+                    ) {
+                        Text(
+                            state.filter.label,
+                            style = AppTypography.caption.strong,
+                            color = if (filtersExpanded || state.filter != CalendarFilter.All) accent.accent else palette.text,
+                        )
+                        Icon(
+                            AppIcons.ChevronDown,
+                            contentDescription = null,
+                            tint = if (filtersExpanded || state.filter != CalendarFilter.All) accent.accent else palette.sub,
+                            modifier = Modifier.size(13.dp),
+                        )
+                    }
+                }
                 Box(
                     Modifier
                         .pressableTarget(
@@ -165,7 +194,7 @@ fun CalendarScreen(component: CalendarComponent) {
                             enabled = !state.loading,
                             onClickLabel = "刷新追剧日历",
                         ) { component.store.accept(CalendarIntent.Refresh) }
-                        .size(36.dp)
+                        .size(34.dp)
                         .solidGlass(CircleShape, palette.card2, palette.border),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -184,26 +213,53 @@ fun CalendarScreen(component: CalendarComponent) {
                 selected = state.section,
                 onSelect = { component.store.accept(CalendarIntent.SelectSection(it)) },
             )
-            Spacer(Modifier.height(if (state.section == CalendarSection.Schedule) 4.dp else 12.dp))
+            Spacer(Modifier.height(6.dp))
 
-            // Only what the section shows hands over, keyed by the section. The back key, 刷新 and
-            // the section bar used to fade in with it: the handoff covered the whole page.
-            Column(Modifier.fillMaxSize().contentHandoff(state.section)) {
+            Column(Modifier.fillMaxSize()) {
                 if (state.section == CalendarSection.Schedule) {
-                    CalendarWeekHeader(
-                        days = state.days,
-                        today = state.today,
-                        displayDate = selectedDate,
-                        filter = state.filter,
-                        filtersExpanded = filtersExpanded,
-                        error = state.error,
-                        hasConfirmedData = state.confirmedDays.isNotEmpty(),
-                        changesCount = scheduleChanges.size,
-                        changesExpanded = changesExpanded,
-                        onToggleChanges = { changesExpanded = !changesExpanded },
-                        onToggleFilters = { filtersExpanded = !filtersExpanded },
-                        onRetry = { component.store.accept(CalendarIntent.Refresh) },
-                    )
+                    if (state.error != null && days.isNotEmpty()) {
+                        Text(
+                            if (state.confirmedDays.isNotEmpty()) {
+                                "状态更新失败，正在显示上次结果 · 点击重试"
+                            } else {
+                                "媒体库状态待确认 · 点击重试"
+                            },
+                            style = AppTypography.caption.medium,
+                            color = palette.error,
+                            modifier =
+                                Modifier
+                                    .padding(horizontal = Dimens.pageHorizontal, vertical = 4.dp)
+                                    .pressable(onClickLabel = "重新加载追剧日历", onClick = {
+                                        component.store.accept(CalendarIntent.Refresh)
+                                    }).touchTarget(),
+                        )
+                    }
+                    if (scheduleChanges.isNotEmpty()) {
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = Dimens.pageHorizontal, vertical = 2.dp)
+                                .pressable(
+                                    role = Role.Button,
+                                    onClickLabel = if (changesExpanded) "收起排期调整" else "查看 ${scheduleChanges.size} 条排期调整",
+                                    onClick = { changesExpanded = !changesExpanded },
+                                ),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Text(
+                                "${scheduleChanges.size} 条排期调整",
+                                style = AppTypography.caption.medium,
+                                color = accent.accent,
+                            )
+                            Icon(
+                                if (changesExpanded) AppIcons.ChevronDown else AppIcons.ChevronRight,
+                                contentDescription = null,
+                                tint = accent.accent,
+                                modifier = Modifier.size(12.dp),
+                            )
+                        }
+                    }
                     DisclosureContent(
                         expanded = changesExpanded && scheduleChanges.isNotEmpty(),
                         progress = rememberDisclosureProgress(changesExpanded && scheduleChanges.isNotEmpty()),
@@ -248,7 +304,7 @@ fun CalendarScreen(component: CalendarComponent) {
                             contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            motionItems(CalendarFilter.entries) { filter ->
+                            items(CalendarFilter.entries, key = { it.name }) { filter ->
                                 val active = filter == state.filter
                                 YfChip(
                                     label = filter.label,
@@ -260,17 +316,12 @@ fun CalendarScreen(component: CalendarComponent) {
                                 )
                             }
                         }
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(6.dp))
                     }
 
                     SkeletonHandoff(
                         loading = state.loading && days.isEmpty(),
-                        // Within the schedule only the results hand over as it loads, empties or
-                        // fails; the week header and its filters stay where they are.
-                        modifier =
-                            Modifier
-                                .fillMaxSize()
-                                .contentHandoff(contentPhase(state.loading, days.isNotEmpty(), state.error != null)),
+                        modifier = Modifier.fillMaxSize(),
                         skeleton = { CalendarLoadingContent() },
                     ) {
                         when {
@@ -406,39 +457,48 @@ private fun CalendarSectionBar(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
-    val selection = rememberGlassSelectionStyle()
-    val indicator =
-        rememberSegmentIndicator(
-            CalendarSection.entries.indexOf(selected),
-            accent.container,
-            AppShapes.pill,
-            selectionStyle = selection,
-        )
+    val trackFill = palette.text.copy(alpha = if (palette.isDark) 0.10f else 0.06f)
+    val trackBorder = palette.text.copy(alpha = if (palette.isDark) 0.14f else 0.08f)
+    val activeFill = palette.card3.compositeOver(palette.background)
+    val activeBorder = palette.text.copy(alpha = if (palette.isDark) 0.16f else 0.10f)
     Row(
         Modifier
             .fillMaxWidth()
             .padding(horizontal = Dimens.pageHorizontal)
-            .glass(AppShapes.pill, palette.card2, palette.border)
-            .padding(4.dp)
-            .selectableGroup()
-            .then(indicator.container),
+            .clip(AppShapes.pill)
+            .background(trackFill)
+            .border(0.75.dp, trackBorder, AppShapes.pill)
+            .padding(3.dp)
+            .selectableGroup(),
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
     ) {
         CalendarSection.entries.forEach { section ->
             val active = selected == section
             Box(
                 Modifier
                     .weight(1f)
-                    .heightIn(min = 44.dp)
-                    .then(indicator.item(CalendarSection.entries.indexOf(section)))
-                    .pressable(role = Role.RadioButton, focusShape = AppShapes.pill) { onSelect(section) }
-                    .semantics { this.selected = active }
-                    .touchTarget(),
+                    .heightIn(min = 34.dp)
+                    .clip(AppShapes.pill)
+                    .then(
+                        if (active) {
+                            Modifier
+                                .background(activeFill)
+                                .border(0.75.dp, activeBorder, AppShapes.pill)
+                        } else {
+                            Modifier
+                        },
+                    ).pressable(
+                        haptic = HapticSignal.Select,
+                        role = Role.RadioButton,
+                        focusShape = AppShapes.pill,
+                        onClick = { onSelect(section) },
+                    ).semantics { this.selected = active },
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     section.label,
-                    style = if (active) AppTypography.body.strong else AppTypography.body.medium,
-                    color = selectionColor(if (active) selection.contentColor else palette.sub),
+                    style = if (active) AppTypography.caption.strong else AppTypography.caption.medium,
+                    color = if (active) accent.accent else palette.sub,
                     maxLines = 1,
                 )
             }

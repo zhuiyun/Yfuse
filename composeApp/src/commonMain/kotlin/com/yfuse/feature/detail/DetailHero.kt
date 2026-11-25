@@ -35,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.RoundRect
@@ -72,6 +73,7 @@ import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.DolbyBadge
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.HeroInk
+import com.yfuse.core.designsystem.HeroPageFade
 import com.yfuse.core.designsystem.HeroTextShadow
 import com.yfuse.core.designsystem.InlineLoadingContent
 import com.yfuse.core.designsystem.LiftMenu
@@ -86,6 +88,7 @@ import com.yfuse.core.designsystem.backdropBlur
 import com.yfuse.core.designsystem.calmMotion
 import com.yfuse.core.designsystem.cssLinearGradient
 import com.yfuse.core.designsystem.fadeIntoPage
+import com.yfuse.core.designsystem.heroPanelBrush
 import com.yfuse.core.designsystem.heroTopScrim
 import com.yfuse.core.designsystem.isSharedMediaArtworkActive
 import com.yfuse.core.designsystem.liftExpansionTarget
@@ -231,7 +234,7 @@ internal fun Hero(
     urls: List<String?>,
     title: String,
     height: Dp,
-    surfaceColor: Color,
+    surfaceColor: State<Color>,
     animationKey: String,
     sharedKey: MediaSharedElementKey?,
     scroll: State<Float>,
@@ -239,18 +242,8 @@ internal fun Hero(
     standInUrls: List<String> = emptyList(),
     continuous: Boolean = false,
 ) {
-    // 详情页顶图 1.08 → 1, §3.1. The parallax below has always been here; the entrance
-    // it belongs to was not, so the artwork simply appeared at rest.
-    //
-    // Under 减少动画 and under 静息, where nothing scales, the artwork starts at rest: the page's
-    // own transition brings it in, and the image still fades in as it loads. Starting entered
-    // means not even the first frame is drawn at 1.08. Saveable, so it plays once per arrival:
-    // coming back from a pushed page, and showing as the underlay of a pull-down, compose the
-    // hero again, and it used to grow in again each time.
     val still = LocalAccessibilityOptions.current.reduceMotion || calmMotion()
     val sharedEntrance = isSharedMediaArtworkActive(sharedKey)
-    // 一镜到底: a lifted card is growing into this hero (LiftExpansion.kt). The hero stays out of
-    // sight under it until it hands over, and then is simply there at rest, the card's own size.
     val expansion = rememberLiftExpansion(sharedKey)
     var entered by rememberSaveable(animationKey) {
         mutableStateOf(
@@ -272,36 +265,21 @@ internal fun Hero(
         Modifier
             .fillMaxWidth()
             .height(height)
-            // FallbackImage is transparent until its first drawable is ready. Paint the same
-            // surface used by the page and the hero scrim from frame one, so image loading
-            // cannot expose a separate band between the artwork and the content below.
-            .background(surfaceColor)
+            // Paint the frame-synchronized animated page surface behind the artwork dissolve so
+            // hero and page never diverge during a 500ms dynamic color transition.
+            .drawBehind { drawRect(surfaceColor.value) }
             .graphicsLayer {
-                // Upward, a restrained parallax: the artwork lags the page so the two read
-                // as separate planes.
-                //
-                // Downward, the artwork stretches to meet the finger. [scroll] goes negative
-                // on over-drag, and the hero used to ignore that entirely — the page rubber-
-                // banded away and left a gap of backdrop above a picture that stayed exactly
-                // where it was. Growing it from the top edge instead is the oldest gesture on
-                // the platform and the reason a large-artwork page feels attached to the
-                // hand: pull, and the thing you are pulling gives.
                 val over = (-scroll.value).coerceAtLeast(0f)
                 if (over > 0f) {
                     val grow = 1f + over / size.height
                     scaleX = grow
                     scaleY = grow
-                    // Anchored to the top edge so the stretch fills the gap the over-drag
-                    // opened rather than pushing the artwork further down it.
                     transformOrigin = TransformOrigin(0.5f, 0f)
                 } else {
                     translationY = scroll.value * 0.35f
                 }
             },
     ) {
-        // Clip only the artwork plane. The outer hero may still grow for pull-down overscroll,
-        // while its 1.08 entrance can no longer bleed below the physical hero edge without
-        // the scrim and flash through the sheet's transparent gradient start.
         Box(Modifier.fillMaxSize().clipToBounds().liftExpansionTarget(expansion)) {
             val imageModifier =
                 Modifier
@@ -323,12 +301,8 @@ internal fun Hero(
                 FallbackImage(
                     urls = urls,
                     contentDescription = title,
-                    // The hero already owns the scale entrance. Resolve readiness with alpha only
-                    // so a network/disk result does not arrive as a hard cut or add a second scale.
                     progressive = true,
                     alphaOnly = true,
-                    // Under a card that is about to hand over, a picture arrives whole: fading in, it
-                    // would still be half there when the card lifts off it.
                     revealDurationMillis = if (heldByCard) 0 else Motion.POSTER_FADE,
                     onResolvedUrl = { url ->
                         expansion?.heroReady = true
@@ -341,6 +315,16 @@ internal fun Hero(
                 Modifier
                     .fillMaxSize()
                     .background(heroTopScrim()),
+            )
+            // Frame-synchronized smootherstep color bridge matching the animated page ground.
+            Box(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(HeroPageFade)
+                    .drawBehind {
+                        drawRect(heroPanelBrush(surfaceColor.value, this, height = HeroPageFade))
+                    },
             )
         }
     }
@@ -789,8 +773,8 @@ internal fun runtimeLabel(minutes: Int): String {
  */
 internal fun actionKeyBrush(accent: Color): Brush {
     val body = primaryActionColor(accent)
-    val ink = primaryActionContentColor(accent)
-    return cssLinearGradient(135f, 0f to lerp(body, ink, 0.10f), 1f to body)
+    val highlight = lerp(body, Color.White, if (body.luminance() > 0.45f) 0.16f else 0.10f)
+    return cssLinearGradient(135f, 0f to highlight, 1f to body)
 }
 
 internal fun primaryActionColor(accent: Color): Color = accent.copy(alpha = 1f)
