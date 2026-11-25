@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """Export the current source tree with provenance; never publish or mutate Git.
 
-Run after the editing/build freeze. An output directory must be new. The original
-comparison baseline remains untouched. Locally generated SenPlayer inputs are the
-only ignored binary assets admitted, and each must match its pinned manifest.
+Run after the editing/build freeze. An output directory must be new.
 """
 
 from __future__ import annotations
@@ -72,7 +70,6 @@ def main() -> None:
             raise SystemExit("Submodule needs explicit source export: " + raw_path.decode())
         tracked[raw_path.decode()] = {"headBlob": blob, "gitMode": mode}
     source_roots = {p.split("/")[0] for p in tracked if exclusion(p) is None}
-    source_roots.add("senplayerBridge")
     candidates = set(tracked)
     ignored_untracked = []
     for raw in git("ls-files", "--others", "--exclude-standard", "-z").split(b"\0"):
@@ -83,21 +80,6 @@ def main() -> None:
             else:
                 ignored_untracked.append(path)
 
-    runtime_root = "senplayerBridge/src/main/assets/senplayer/"
-    runtime_manifest = json.loads((ROOT / runtime_root / "runtime.json").read_text(encoding="utf-8"))
-    if runtime_manifest["sourceApkSha256"] != "45a9deb5018cb705432604b564189cf067473e0f52706544706457655ec5fe4c":
-        raise SystemExit("Unreviewed SenPlayer runtime")
-    runtime_entries = {}
-    allowed = {"classes.dex", "license.json", "native/libFFmpegKit.so", "native/libMLibKit.so", "native/libc++_shared.so"}
-    if {entry["asset"] for entry in runtime_manifest["files"]} != allowed:
-        raise SystemExit("Unexpected SenPlayer runtime entries")
-    for entry in runtime_manifest["files"]:
-        path = runtime_root + entry["asset"]
-        data = (ROOT / path).read_bytes()
-        if digest(data) != entry["sha256"] or len(data) != entry["bytes"]:
-            raise SystemExit("Runtime asset checksum mismatch: " + path)
-        runtime_entries[path] = entry
-        candidates.add(path)
     # Reviewed source commits/build capabilities/checksums, never the downloaded AARs.
     for path in ENGINE_PROVENANCE:
         if (ROOT / path).is_file():
@@ -127,11 +109,8 @@ def main() -> None:
             "baseCommit": head if path in tracked else "",
             "headBlob": tracked.get(path, {}).get("headBlob", ""),
             "gitMode": tracked.get(path, {}).get("gitMode", "100644"),
-            "apkEntry": "",
         }
-        if path in runtime_entries:
-            entry.update(source="unchanged_user_supplied_apk_entry", apkEntry=runtime_entries[path]["apkEntry"])
-        elif path in ENGINE_PROVENANCE:
+        if path in ENGINE_PROVENANCE:
             entry.update(source="reviewed_native_build_provenance")
         entries.append(entry)
     planned = {
@@ -171,9 +150,8 @@ def main() -> None:
         **planned, "archive": archive.name, "archiveBytes": archive.stat().st_size,
         "archiveSha256": digest(archive.read_bytes()), "allZipFileHashesVerified": True,
         "baseComparisonPreserved": "audit/senplayer-comparison-20261105/yfuse-merged-source.zip",
-        "runtimeSourceApkSha256": runtime_manifest["sourceApkSha256"],
         "scope": "Current formal worktree plus task additions; legacy experiments remain separately archived.",
-        "limitations": "Build caches, downloaded engines other than supplied SenPlayer runtime, local environment and signing material are excluded. No APK/HAP delivery or publication.",
+        "limitations": "Build caches, downloaded engines, local environment and signing material are excluded. No APK/HAP delivery or publication.",
     }
     (destination / "snapshot-manifest.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     (destination / "source-exclusions.json").write_text(json.dumps({"excluded": excluded, "untrackedOutsideSourceRoots": ignored_untracked}, indent=2) + "\n", encoding="utf-8")

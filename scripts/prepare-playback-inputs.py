@@ -91,21 +91,6 @@ def input_path(root, environment, prefix, destination, fetch):
     return path
 
 
-def verify_sen_assets(directory, expected_source):
-    manifest = json.loads((directory / "runtime.json").read_text(encoding="utf-8"))
-    require(manifest["sourceApkSha256"] == expected_source, "SenPlayer manifest names an unreviewed source APK")
-    expected_assets = {"classes.dex", "license.json", "native/libFFmpegKit.so", "native/libMLibKit.so", "native/libc++_shared.so"}
-    records = manifest["files"]
-    require(manifest["abi"] == "arm64-v8a" and len(records) == 5 and {entry["asset"] for entry in records} == expected_assets,
-            "SenPlayer manifest must contain the five reviewed arm64 assets")
-    for record in records:
-        path = directory / record["asset"]
-        require(path.is_file(), "Missing original SenPlayer asset; provide the reviewed source APK")
-        data = path.read_bytes()
-        require(len(data) == record["bytes"] and sha256(data) == record["sha256"], "SenPlayer original asset checksum mismatch")
-    return manifest
-
-
 def ycore_pin(root, source, pins, environment):
     keys = ("YCORE_SOURCE_RECEIPT", "YCORE_SOURCE_AAR_SHA256",
             "YCORE_SOURCE_PROVENANCE_SHA256", "YCORE_SOURCE_COMMIT")
