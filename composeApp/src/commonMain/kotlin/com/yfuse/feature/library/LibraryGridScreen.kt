@@ -176,10 +176,10 @@ fun LibraryGridScreen(
             GridDensityState(gridState, scope, columnStore?.columns(component.densityKey))
         }
     var showPosterNames by remember(columnStore, component.densityKey) {
-        mutableStateOf(columnStore?.showPosterNames(component.densityKey) ?: true)
+        mutableStateOf(columnStore?.showPosterNames(component.densityKey))
     }
     val hasCaptionSpace = gridDensity.columns?.let(::gridShowsTitles) ?: true
-    val titles = showPosterNames && hasCaptionSpace
+    val titles = showPosterNames ?: hasCaptionSpace
     SideEffect {
         gridDensity.showPosterNames = showPosterNames
         gridDensity.still = still
@@ -546,7 +546,7 @@ fun LibraryGridScreen(
             LibraryGridOptionsDialog(
                 state = state,
                 gridDensity = gridDensity,
-                showPosterNames = showPosterNames,
+                showPosterNames = titles,
                 onShowPosterNamesChange = { show ->
                     showPosterNames = show
                     columnStore?.setShowPosterNames(component.densityKey, show)

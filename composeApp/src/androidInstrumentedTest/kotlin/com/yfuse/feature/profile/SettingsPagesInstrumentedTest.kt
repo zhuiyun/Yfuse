@@ -8,8 +8,15 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -23,6 +30,10 @@ import com.yfuse.core.designsystem.LocalSettingsLocator
 import com.yfuse.core.designsystem.MotionTheme
 import com.yfuse.core.designsystem.SettingsLocatorRequest
 import com.yfuse.core.designsystem.YfuseTheme
+import com.yfuse.feature.library.GridDensityState
+import com.yfuse.feature.library.GridState
+import com.yfuse.feature.library.LibraryGridColumnsPreferences
+import com.yfuse.feature.library.LibraryGridOptionsDialog
 import com.yfuse.launchMainActivityForInput
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -117,6 +128,52 @@ class SettingsPagesInstrumentedTest {
             await("Calm override explanation") { visibleNode("跟随静息主题") != null }
             assertFalse(clickableNode("搜索与导航动效")?.isEnabled == true)
             assertEquals(pulseBefore, prefs.pulseSweep.value)
+        }
+    }
+
+    @Test(timeout = 60_000L)
+    fun poster_name_switch_saves_the_chosen_value_when_options_reopen() {
+        val settings = storage()
+        settings.clear()
+        val optionsInstance = mutableIntStateOf(0)
+        val library = "test-library"
+        try {
+            launchMainActivityForInput().use { scenario ->
+                scenario.onActivity { activity ->
+                    activity.setContent {
+                        YfuseTheme(dark = true, accessibility = AccessibilityOptions(reduceMotion = true)) {
+                            key(optionsInstance.intValue) {
+                                val preferences = remember { LibraryGridColumnsPreferences(settings) }
+                                var shown by remember { mutableStateOf(preferences.showPosterNames(library) ?: true) }
+                                val gridState = rememberLazyGridState()
+                                val scope = rememberCoroutineScope()
+                                val density = remember { GridDensityState(gridState, scope, initialColumns = 3) }
+                                LibraryGridOptionsDialog(
+                                    state = GridState(sortable = false, resolutionFilterable = false),
+                                    gridDensity = density,
+                                    showPosterNames = shown,
+                                    onShowPosterNamesChange = { show ->
+                                        shown = show
+                                        preferences.setShowPosterNames(library, show)
+                                    },
+                                    onIntent = {},
+                                    onDismiss = {},
+                                )
+                            }
+                        }
+                    }
+                }
+                await("Poster names initially enabled") { clickableNode("显示海报名")?.isChecked == true }
+                click("显示海报名")
+                await("Poster names disabled") { clickableNode("显示海报名")?.isChecked == false }
+                assertEquals(false, LibraryGridColumnsPreferences(settings).showPosterNames(library))
+                scenario.onActivity { optionsInstance.intValue++ }
+                await("Reopened options show the saved value") { clickableNode("显示海报名")?.isChecked == false }
+                click("显示海报名")
+                assertEquals(true, LibraryGridColumnsPreferences(settings).showPosterNames(library))
+            }
+        } finally {
+            settings.clear()
         }
     }
 

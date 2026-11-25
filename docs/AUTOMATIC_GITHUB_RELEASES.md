@@ -8,7 +8,7 @@ displace an older one. There is no release runner waiting through the native/And
 Other branches and pull requests do not receive production signing or publish packages.
 
 The automatic path builds YCore from the exact source commit in the Android quality
-workflow, then tests the `ycore-senplayer` profile using that immutable native artifact.
+workflow, then tests the `ycore` profile using that immutable native artifact.
 Only after the quality workflow succeeds does the release build consume the same AAR,
 sign with the existing production certificate, and install/start the signed APK on
 Android 35, 36 and 37. Only then may it publish a GitHub Release.
@@ -64,20 +64,13 @@ the repository: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID
 and `ANDROID_KEY_PASSWORD`. Their certificate must match the existing pinned SHA-256;
 neither a new key nor a debug signature is an acceptable delivery substitute.
 
-The reviewed SCore runtime (display name for SenPlayer) is committed under
-`senplayerBridge/src/main/assets/senplayer`: one DEX, the original license configuration,
-and exactly three ARM64 libraries. A clean checkout packages those existing files directly;
-it does not compile SCore or download the original APK. Quality and release builds no longer
-reference `SENPLAYER_SOURCE_APK_URL`. The original APK is not in the repository or release.
-The preparation and final-APK checks retain the fixed original source identity and each
-asset's exact size/SHA-256. Corrupt existing assets fail instead of being silently replaced.
-The importer remains available to reproduce the same files from the reviewed local APK.
-There is no fallback to obsolete engines, fabricated assets or a YCore-only package.
-Fork pull requests can read the public runtime files but receive no production credentials.
+The application packages YCore as its only playback engine. Package verification rejects
+SCore assets and code, along with other removed backends. Fork pull requests receive no
+production credentials.
 
 YCore no longer needs a download URL in the automatic quality/release path. The reusable
 `build-ycore-source.yml` job builds the current Android JNI/Vulkan sources and pinned
-native dependency chain without signing secrets or SenPlayer inputs. It verifies the
+native dependency chain without signing secrets. It verifies the
 standalone AAR, records the source commit/file hashes and the new AAR/provenance hashes,
 and uploads only the explicit native artifact files. This is a new source build, not a
 claim to reproduce the historical `10873c...` AAR byte for byte. The old pin remains intact
@@ -98,10 +91,7 @@ uses the existing dependency/carrier build tooling internally, but MPV/MDK libra
 carrier artifacts are not shipped as YCore. FFmpeg's configured GPL/version3 license and
 all native notices remain applicable; rebuilding does not remove distribution obligations.
 
-The initial automation runs failed because playback inputs were unavailable. The automatic
-path now builds YCore from source and obtains SCore from the checkout. Those input changes
-are not evidence of a successful signed APK delivery: the full quality, signing, device
-startup and publication gates must still pass for the exact source commit.
+The full quality, signing, device startup and publication gates apply to each source commit.
 
 ## Manual server deployment remains explicit
 

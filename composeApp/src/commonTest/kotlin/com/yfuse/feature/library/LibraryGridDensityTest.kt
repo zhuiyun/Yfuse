@@ -96,13 +96,13 @@ class LibraryGridDensityTest {
     fun eachLibraryRemembersWhetherToShowPosterNames() {
         val settings = MapSettings()
         val preferences = LibraryGridColumnsPreferences(settings)
-        assertTrue(preferences.showPosterNames("movies"))
+        assertNull(preferences.showPosterNames("movies"))
         preferences.setColumns("movies", 4)
         preferences.setShowPosterNames("movies", false)
 
         val reopened = LibraryGridColumnsPreferences(settings)
-        assertFalse(reopened.showPosterNames("movies"))
-        assertTrue(reopened.showPosterNames("shows"))
+        assertEquals(false, reopened.showPosterNames("movies"))
+        assertNull(reopened.showPosterNames("shows"))
         assertEquals(4, reopened.columns("movies"))
     }
 }

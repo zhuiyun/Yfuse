@@ -25,8 +25,7 @@ are tracked in [the Android 17 migration and device validation checklist](docs/A
 dependencies. `:phoneShared` and `:tvShared` compile their existing KMP source trees
 using the Android KMP library plugin. See [the migration notes](docs/AGP9_MIGRATION_20260916.md).
 
-The Android app uses YCore and SenPlayer. Prepare the pinned YCore AAR and the five original
-SenPlayer assets before building:
+The Android app uses YCore. Prepare the verified YCore AAR before building:
 
 ```bash
 python3 scripts/prepare-playback-inputs.py

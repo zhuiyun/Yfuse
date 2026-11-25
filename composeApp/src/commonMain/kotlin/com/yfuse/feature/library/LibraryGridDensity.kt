@@ -98,7 +98,7 @@ class LibraryGridColumnsPreferences(
         settings.putInt(key(libraryKey), columns.coerceIn(GRID_MIN_COLUMNS, MAX_REMEMBERED_COLUMNS))
     }
 
-    fun showPosterNames(libraryKey: String): Boolean = settings.getBoolean(posterNamesKey(libraryKey), true)
+    fun showPosterNames(libraryKey: String): Boolean? = settings.getBooleanOrNull(posterNamesKey(libraryKey))
 
     fun setShowPosterNames(
         libraryKey: String,

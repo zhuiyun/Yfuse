@@ -115,7 +115,7 @@ internal class GridDensityState(
     var spacingPx = 0f
     var minTilePx = 0f
     var captionPx = 0f
-    var showPosterNames = true
+    var showPosterNames: Boolean? = null
     var still = false
 
     /** A settled density, from a pinch ([pinched]) or the buttons: remember it, retire the tip. */
@@ -223,7 +223,7 @@ internal class GridDensityState(
         if (!still) reflow.run(scope)
         if (held == null) return
         val width = gridTileWidth(availableWidth, next, spacingPx)
-        val height = width * GRID_POSTER_ASPECT + if (showPosterNames && gridShowsTitles(next)) captionPx else 0f
+        val height = width * GRID_POSTER_ASPECT + if (showPosterNames ?: gridShowsTitles(next)) captionPx else 0f
         val top = anchoredRowTop(held.focusY, held.fraction, height)
         gridState.requestScrollToItem(held.index, -top.roundToInt())
     }
@@ -241,7 +241,7 @@ internal class GridDensityState(
         val height = item.size.height.toFloat()
         if (height <= 0f) return null
         val tile = item.size.width.toFloat()
-        if (showPosterNames && gridShowsTitles(shownColumns)) captionPx = max(0f, height - tile * GRID_POSTER_ASPECT)
+        if (showPosterNames ?: gridShowsTitles(shownColumns)) captionPx = max(0f, height - tile * GRID_POSTER_ASPECT)
         return GridAnchor(
             item.index,
             focusY = point.y,

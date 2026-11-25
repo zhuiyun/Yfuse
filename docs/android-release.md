@@ -9,11 +9,10 @@ paths run in the `production` environment.
 
 ## Package contents and size
 
-Standard deliveries use `ycore-senplayer`, `yfuseIncludeMdk=false` and
-`yfuseNativeOnlyRuntime=true`. The playback gate checks the eight fixed YCore libraries,
-the five original SenPlayer assets and their SHA-256, and the absence of standalone ExoPlayer,
-MPV and MDK. The app displays the SenPlayer runtime as SCore. Shared Media3
-data-source components are supported.
+Standard deliveries use `ycore`, `yfuseIncludeMdk=false` and
+`yfuseNativeOnlyRuntime=true`. The playback gate verifies the eight pinned YCore libraries
+against their SHA-256 hashes and rejects SCore, standalone ExoPlayer, MPV and MDK.
+Shared Media3 data-source components are supported.
 
 Both local and cloud releases recompress eligible DEX and native entries before 16 KiB
 ZIP alignment and production signing. The final signed APK supplies the byte count and
@@ -370,7 +369,7 @@ wrapper checksum, dependency-review gate, and pinned native checksums remain the
 enforced controls until metadata is generated and reviewed across all CI variants.
 
 `scripts/fetch-engines.sh` calls `scripts/prepare-playback-inputs.py`. Preparation verifies
-the pinned standalone YCore AAR and the original SenPlayer assets. A valid cached input
+the pinned standalone YCore AAR. A valid cached input
 can be used offline.
 
 Quality CI rejects new ktlint violations using committed per-module baselines, runs
@@ -392,11 +391,11 @@ Set `PYTHON` to the Python executable if it is outside PATH.
 .\scripts\build-release-packages.ps1
 ```
 
-The script runs `:composeApp:compactReleaseApk` with the YCore and SenPlayer build flags and
+The script runs `:composeApp:compactReleaseApk` with the YCore build flags and
 incremental Kotlin compilation disabled. Gradle builds the release, recompresses the large
 DEFLATE entries, runs `zipalign -P 16`, signs with the configured key and verifies the
 result. The script checks playback contents and DEX on that signed file before copying
-`Yfuse-<version>-ycore-senplayer-arm64.apk` to `composeApp/build/outputs/distribution`.
+`Yfuse-<version>-ycore-arm64.apk` to `composeApp/build/outputs/distribution`.
 The adjacent `verification.json` records the final file size and SHA-256. The local
 `publish-update.ps1` uploader reads this versioned APK, checks it against the record and
 verifies its production certificate before contacting the update server.
