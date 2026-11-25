@@ -73,6 +73,7 @@ import com.yfuse.core.designsystem.LiftScrub
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.LocalPosterCaptionsVisible
 import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.PlatformBackHandler
@@ -741,6 +742,9 @@ private fun EpisodeCard(
     download: OfflineMedia? = null,
     liftMenu: (() -> LiftMenu)? = null,
 ) {
+    val showName = LocalPosterCaptionsVisible.current
+    val fullTitle = episodeTitle(episode.indexNumber, episode.name)
+    val caption = if (showName) fullTitle else episodeTitle(episode.indexNumber, null)
     val palette = LocalPalette.current
     val stateColors = detailStateColors(accent, palette.background, palette.isDark)
     val selectedHighlight = detailSelectionHighlight(accent)
@@ -786,6 +790,7 @@ private fun EpisodeCard(
         Box(Modifier.fillMaxWidth().height(108.dp).liftAnchor(still)) {
             Poster(
                 url = episodeStillUrl(baseUrl, accessToken, episode),
+                contentDescription = fullTitle.takeUnless { showName },
                 fallbackUrls = listOfNotNull(seriesPosterUrl),
                 shape = AppShapes.thumb,
                 progress = episode.playedPercentage?.let { (it / 100.0).toFloat() },
@@ -802,14 +807,16 @@ private fun EpisodeCard(
             }
         }
         Column {
-            Text(
-                episodeTitle(episode.indexNumber, episode.name),
-                style = AppTypography.body.strong,
-                color = palette.text,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (!episode.overview.isNullOrBlank()) {
+            if (caption.isNotBlank()) {
+                Text(
+                    caption,
+                    style = AppTypography.body.strong,
+                    color = palette.text,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (showName && !episode.overview.isNullOrBlank()) {
                 Spacer(Modifier.height(3.dp))
                 Text(
                     episode.overview,

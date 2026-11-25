@@ -614,7 +614,7 @@ fun Poster(
 
 internal val LocalPosterCaptionsVisible = compositionLocalOf { true }
 
-/** Keep some space below bare artwork when a home shelf hides its caption. */
+/** Keep some space below bare artwork when its caption is hidden. */
 @Composable
 internal fun PosterCaption(content: @Composable () -> Unit) {
     if (LocalPosterCaptionsVisible.current) content() else Spacer(Modifier.height(8.dp))

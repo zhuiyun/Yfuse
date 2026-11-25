@@ -50,6 +50,7 @@ import com.yfuse.core.designsystem.MediaSharedElementKey
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.PageHint
 import com.yfuse.core.designsystem.Poster
+import com.yfuse.core.designsystem.PosterCaption
 import com.yfuse.core.designsystem.SectionHeader
 import com.yfuse.core.designsystem.SkeletonPosterTile
 import com.yfuse.core.designsystem.StatusBarIconStyle
@@ -336,21 +337,23 @@ private fun LibraryWorkTile(
             modifier = Modifier.fillMaxWidth().aspectRatio(POSTER_RATIO),
             overlay = { PlayableBadge(Modifier.align(Alignment.BottomStart).padding(6.dp)) },
         )
-        Spacer(Modifier.height(7.dp))
-        Text(
-            item.title,
-            style = AppTypography.body.strong,
-            color = palette.text,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Spacer(Modifier.height(2.dp))
-        Text(
-            item.year?.toString().orEmpty(),
-            style = AppTypography.caption.regular,
-            color = palette.sub2,
-            maxLines = 1,
-        )
+        PosterCaption {
+            Spacer(Modifier.height(7.dp))
+            Text(
+                item.title,
+                style = AppTypography.body.strong,
+                color = palette.text,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                item.year?.toString().orEmpty(),
+                style = AppTypography.caption.regular,
+                color = palette.sub2,
+                maxLines = 1,
+            )
+        }
     }
 }
 

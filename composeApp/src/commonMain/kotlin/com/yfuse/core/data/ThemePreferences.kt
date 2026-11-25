@@ -44,7 +44,7 @@ class ThemePreferences(
         const val KEY_REDUCE_MOTION = "accessibility.reduceMotion"
         const val KEY_PARTICLE_LIGHT = "appearance.particleLight"
         const val KEY_PULSE_SWEEP = "appearance.pulseSweep"
-        const val KEY_HOME_POSTER_NAMES = "appearance.homePosterNames"
+        const val KEY_POSTER_NAMES = "appearance.posterNames"
         const val KEY_LIBRARY_CAROUSEL = "appearance.libraryCarousel"
         const val KEY_NAV_COLLAPSE_ON_SCROLL = "appearance.navCollapseOnScroll"
         const val KEY_SPLASH_ANIMATION = "appearance.splashAnimation"
@@ -139,12 +139,24 @@ class ThemePreferences(
         settings.putBoolean(KEY_PULSE_SWEEP, enabled)
     }
 
-    private val _homePosterNames = MutableStateFlow(settings.getBoolean(KEY_HOME_POSTER_NAMES, false))
-    val homePosterNames: StateFlow<Boolean> = _homePosterNames.asStateFlow()
+    private fun readPosterNames(): Boolean {
+        settings.getBooleanOrNull(KEY_POSTER_NAMES)?.let { return it }
+        val libraryKeys = settings.keys.filter { it.startsWith("library.showPosterNames.v1.") }
+        val show =
+            settings.getBooleanOrNull("appearance.homePosterNames")
+                ?: (libraryKeys.isNotEmpty() && libraryKeys.all { settings.getBoolean(it, false) })
+        settings.putBoolean(KEY_POSTER_NAMES, show)
+        settings.remove("appearance.homePosterNames")
+        libraryKeys.forEach(settings::remove)
+        return show
+    }
 
-    fun setHomePosterNames(enabled: Boolean) {
-        settings.putBoolean(KEY_HOME_POSTER_NAMES, enabled)
-        _homePosterNames.value = enabled
+    private val _posterNames = MutableStateFlow(readPosterNames())
+    val posterNames: StateFlow<Boolean> = _posterNames.asStateFlow()
+
+    fun setPosterNames(enabled: Boolean) {
+        settings.putBoolean(KEY_POSTER_NAMES, enabled)
+        _posterNames.value = enabled
     }
 
     private val _libraryCarousel = MutableStateFlow(settings.getBoolean(KEY_LIBRARY_CAROUSEL, true))

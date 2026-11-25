@@ -110,6 +110,7 @@ import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalLiftMenu
 import com.yfuse.core.designsystem.LocalOverlayVisibility
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.LocalPosterCaptionsVisible
 import com.yfuse.core.designsystem.LocalPulseSweepEnabled
 import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.LocalTabIdentity
@@ -442,11 +443,7 @@ fun App(root: RootComponent) {
                                                     Tab.Home ->
                                                         com.yfuse.feature.personal.PersonalDiscoveryGuard(
                                                             onOpenLibrary = root::returnFromDiscovery,
-                                                        ) {
-                                                            val showNames by root.themePreferences.homePosterNames
-                                                                .collectAsState()
-                                                            HomeTabScreen(root.home, showNames)
-                                                        }
+                                                        ) { HomeTabScreen(root.home) }
                                                     Tab.CustomHome ->
                                                         HomeTabScreen(root.widgetHome) {
                                                             com.yfuse.feature.widgets
@@ -718,6 +715,7 @@ internal fun AppTheme(
         return
     }
     val mode by preferences.mode.collectAsState()
+    val posterNames by preferences.posterNames.collectAsState()
     // 「移除动画」 on the device is the same request as our own 减弱动态效果, so the two are one
     // effective value from here down; the user's own switch still travels separately, for the
     // few places where motion is a gesture rather than a duration — see
@@ -741,7 +739,11 @@ internal fun AppTheme(
         particleLight = particleLight,
         motionTheme = motionTheme,
     ) {
-        CompositionLocalProvider(LocalInAppTheme provides true, content = content)
+        CompositionLocalProvider(
+            LocalInAppTheme provides true,
+            LocalPosterCaptionsVisible provides posterNames,
+            content = content,
+        )
     }
 }
 

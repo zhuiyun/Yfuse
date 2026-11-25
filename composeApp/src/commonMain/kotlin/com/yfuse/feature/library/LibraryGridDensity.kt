@@ -10,7 +10,7 @@ import kotlin.math.roundToInt
 /** The fewest posters a row may have. */
 internal const val GRID_MIN_COLUMNS = 2
 
-/** The densest a phone's grid goes; from here the titles make way for the posters. */
+/** The densest a phone's grid goes; from here small posters omit the rating badge. */
 internal const val GRID_DENSE_COLUMNS = 5
 
 /** A 2:3 poster is half as tall again as it is wide. */
@@ -27,8 +27,8 @@ internal fun adaptiveGridColumns(
     spacing: Float,
 ): Int = if (minTile <= 0f) 1 else ((available + spacing) / (minTile + spacing)).toInt().coerceAtLeast(1)
 
-/** Titles go at five across: under a 60 dp poster a caption is two characters wide. */
-internal fun gridShowsTitles(columns: Int): Boolean = columns < GRID_DENSE_COLUMNS
+/** At five across the rating badge would cover too much of the artwork. */
+internal fun gridShowsRating(columns: Int): Boolean = columns < GRID_DENSE_COLUMNS
 
 /**
  * The columns a pinch has reached: [start] columns divided by how far the fingers have spread
@@ -97,18 +97,6 @@ class LibraryGridColumnsPreferences(
     ) {
         settings.putInt(key(libraryKey), columns.coerceIn(GRID_MIN_COLUMNS, MAX_REMEMBERED_COLUMNS))
     }
-
-    fun showPosterNames(libraryKey: String): Boolean? = settings.getBooleanOrNull(posterNamesKey(libraryKey))
-
-    fun setShowPosterNames(
-        libraryKey: String,
-        show: Boolean,
-    ) {
-        settings.putBoolean(posterNamesKey(libraryKey), show)
-    }
-
-    private fun posterNamesKey(libraryKey: String): String =
-        "library.showPosterNames.v1.${libraryKey.take(MAX_KEY_ID_CHARS)}"
 
     private fun key(libraryKey: String): String = "library.gridColumns.v1.${libraryKey.take(MAX_KEY_ID_CHARS)}"
 

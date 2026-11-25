@@ -29,9 +29,9 @@ class LibraryGridDensityTest {
     }
 
     @Test
-    fun titlesMakeWayAtFiveAcross() {
-        assertTrue(gridShowsTitles(4))
-        assertFalse(gridShowsTitles(5))
+    fun ratingBadgeMakesWayAtFiveAcross() {
+        assertTrue(gridShowsRating(4))
+        assertFalse(gridShowsRating(5))
     }
 
     @Test
@@ -90,19 +90,5 @@ class LibraryGridDensityTest {
         assertEquals(2, preferences.columns("shows"))
         preferences.setColumns("movies", 40)
         assertEquals(12, preferences.columns("movies"))
-    }
-
-    @Test
-    fun eachLibraryRemembersWhetherToShowPosterNames() {
-        val settings = MapSettings()
-        val preferences = LibraryGridColumnsPreferences(settings)
-        assertNull(preferences.showPosterNames("movies"))
-        preferences.setColumns("movies", 4)
-        preferences.setShowPosterNames("movies", false)
-
-        val reopened = LibraryGridColumnsPreferences(settings)
-        assertEquals(false, reopened.showPosterNames("movies"))
-        assertNull(reopened.showPosterNames("shows"))
-        assertEquals(4, reopened.columns("movies"))
     }
 }

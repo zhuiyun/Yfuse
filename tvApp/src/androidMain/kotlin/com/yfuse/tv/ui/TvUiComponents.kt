@@ -76,6 +76,7 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.role
@@ -98,6 +99,7 @@ import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.LiftMenu
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.Motion
+import com.yfuse.core.designsystem.PosterCaption
 import com.yfuse.core.designsystem.calmMotion
 import com.yfuse.core.designsystem.cinemaActivationPulse
 import com.yfuse.core.designsystem.cinemaConfirmation
@@ -770,8 +772,8 @@ internal fun TvMediaCard(
                 // than the card — a 短剧 still or poster — is shown whole rather than cut to a band.
                 FallbackImage(
                     urls = listOf(model.imageUrl) + model.imageFallbackUrls,
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
+                    contentDescription = model.title,
+                    modifier = Modifier.fillMaxSize().clearAndSetSemantics { },
                     fitNarrow = true,
                 )
                 Box(
@@ -819,23 +821,25 @@ internal fun TvMediaCard(
                     }
                 }
             }
-            Column(Modifier.padding(horizontal = 10.dp, vertical = 9.dp)) {
-                Text(
-                    text = model.title,
-                    color = TvOnSurface,
-                    fontSize = TvType.caption,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                model.subtitle?.takeIf(String::isNotBlank)?.let { subtitle ->
+            PosterCaption {
+                Column(Modifier.padding(horizontal = 10.dp, vertical = 9.dp)) {
                     Text(
-                        text = subtitle,
-                        color = TvOnSurfaceMuted,
+                        text = model.title,
+                        color = TvOnSurface,
                         fontSize = TvType.caption,
+                        fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    model.subtitle?.takeIf(String::isNotBlank)?.let { subtitle ->
+                        Text(
+                            text = subtitle,
+                            color = TvOnSurfaceMuted,
+                            fontSize = TvType.caption,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
         }

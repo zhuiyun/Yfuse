@@ -33,7 +33,7 @@ internal fun settingsControlDestinations(): List<SettingsSearchDestination> =
                         "Anime4K · YCore SDR 动漫（下次播放生效）" -> AppIcons.Star to SettingTint.playback
                         "刷新率匹配" -> AppIcons.Refresh to SettingTint.advanced
                         "YCore 2.0", "纯原生模式（实验）" -> AppIcons.Play to SettingTint.playback
-                        "显示首页海报名" -> AppIcons.Subtitle to SettingTint.appearance
+                        "显示海报名" -> AppIcons.Subtitle to SettingTint.appearance
                         "库页轮播图" -> AppIcons.Grid to SettingTint.library
                         "自定义首页 Tab" -> AppIcons.Home to SettingTint.components
                         "首页与组件管理" -> AppIcons.Grid to SettingTint.components
@@ -73,7 +73,7 @@ internal fun settingsControlDestinations(): List<SettingsSearchDestination> =
                                 "Anime4K · YCore SDR 动漫（下次播放生效）" -> "anime4k 动漫 SDR 超分 画质"
                                 "刷新率匹配" -> "帧率 屏幕刷新率 无缝"
                                 "自定义首页 Tab" -> "首页 导航 Tab 组件 widget"
-                                "显示首页海报名" -> "海报 片名 年份 文字 隐藏"
+                                "显示海报名" -> "海报 片名 年份 文字 隐藏"
                                 "首页与组件管理" -> "首页 组件 widget 布局 备份"
                                 "大号文字" -> "字体 字号 字体大小"
                                 "屏蔽词" -> "屏蔽关键词 弹幕过滤"
@@ -116,8 +116,8 @@ internal fun settingsControlDestinations(): List<SettingsSearchDestination> =
         controls(ProfilePage.Danmaku, "弹幕", 1, "弹幕来源", "屏蔽词")
         controls(ProfilePage.Appearance, "外观与交互", 1, "主题", "视觉效果")
         controls(ProfilePage.Appearance, "外观与交互", 2, "背景图", "玻璃材质", "Logo 与开屏动画")
-        controls(ProfilePage.Appearance, "外观与交互", 3, "首页与导航", "动画与动效", "辅助功能")
-        controls(ProfilePage.AppearanceLayout, "首页与导航", 1, "启动进入", "显示首页海报名", "自定义首页 Tab", "首页与组件管理")
+        controls(ProfilePage.Appearance, "外观与交互", 3, "显示海报名", "首页与导航", "动画与动效", "辅助功能")
+        controls(ProfilePage.AppearanceLayout, "首页与导航", 1, "启动进入", "自定义首页 Tab", "首页与组件管理")
         controls(ProfilePage.AppearanceLayout, "首页与导航", 2, "库页轮播图", "滚动时收起导航栏")
         controls(ProfilePage.AppearanceMotion, "动画与动效", 1, "动效主题")
         controls(

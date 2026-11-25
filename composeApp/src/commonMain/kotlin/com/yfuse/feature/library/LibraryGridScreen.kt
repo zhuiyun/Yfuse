@@ -59,6 +59,7 @@ import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalLiftMenu
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.LocalPosterCaptionsVisible
 import com.yfuse.core.designsystem.LocalTips
 import com.yfuse.core.designsystem.MediaSharedElementKey
 import com.yfuse.core.designsystem.Motion
@@ -177,13 +178,10 @@ fun LibraryGridScreen(
         remember(gridState, component.densityKey) {
             GridDensityState(gridState, scope, columnStore?.columns(component.densityKey))
         }
-    var showPosterNames by remember(columnStore, component.densityKey) {
-        mutableStateOf(columnStore?.showPosterNames(component.densityKey))
-    }
-    val hasCaptionSpace = gridDensity.columns?.let(::gridShowsTitles) ?: true
-    val titles = showPosterNames ?: hasCaptionSpace
+    val titles = LocalPosterCaptionsVisible.current
+    val showRating = gridDensity.columns?.let(::gridShowsRating) ?: true
     SideEffect {
-        gridDensity.showPosterNames = showPosterNames
+        gridDensity.showPosterNames = titles
         gridDensity.still = still
         with(pixels) {
             gridDensity.spacingPx = GridSpacing.toPx()
@@ -397,8 +395,7 @@ fun LibraryGridScreen(
                                             url = url,
                                             title = container.title,
                                             caption = container.itemCount?.let { "$it 项" },
-                                            titles = titles,
-                                            showRating = hasCaptionSpace,
+                                            showRating = showRating,
                                             onClick = { component.onOpenContainer(container) },
                                             modifier =
                                                 Modifier.gridReflowItem(
@@ -441,8 +438,7 @@ fun LibraryGridScreen(
                                                 url = EmbyImages.poster(baseUrl, item, accessToken = accessToken),
                                                 title = item.title,
                                                 caption = item.year?.toString(),
-                                                titles = titles,
-                                                showRating = hasCaptionSpace,
+                                                showRating = showRating,
                                                 rating = item.communityRating,
                                                 onClick = { component.onOpenItem(item.id) },
                                                 liftMenu = lift,
@@ -548,11 +544,6 @@ fun LibraryGridScreen(
             LibraryGridOptionsDialog(
                 state = state,
                 gridDensity = gridDensity,
-                showPosterNames = titles,
-                onShowPosterNamesChange = { show ->
-                    showPosterNames = show
-                    columnStore?.setShowPosterNames(component.densityKey, show)
-                },
                 onIntent = component.store::accept,
                 onDismiss = { optionsOpen = false },
             )
@@ -754,18 +745,17 @@ private fun EmptyGridHint(
 }
 
 /**
- * One grid tile at every density: the poster and, while a row has room for words, the title and
+ * One grid tile at every density: the poster and, when captions are enabled, the title and
  * [caption] under it. It is the same composable at five across as at two — swapping to a bare
  * [Poster] there rebuilt every visible tile in the frame a pinch crossed four and a half, and each
  * blinked while its picture came back. As on [com.yfuse.core.designsystem.CaptionedPoster], the
  * whole tile takes the press, caption and all, and it is the artwork that lifts.
  */
 @Composable
-private fun GridTile(
+internal fun GridTile(
     url: String?,
     title: String,
     caption: String?,
-    titles: Boolean,
     onClick: () -> Unit,
     showRating: Boolean,
     modifier: Modifier = Modifier,
@@ -773,6 +763,7 @@ private fun GridTile(
     liftMenu: (() -> LiftMenu)? = null,
     sharedTransitionKey: MediaSharedElementKey? = null,
 ) {
+    val titles = LocalPosterCaptionsVisible.current
     val palette = LocalPalette.current
     val open = sharedMediaOnClick(sharedTransitionKey, onClick = onClick)
     val lift = liftMenu?.let { build -> { build().withArtwork(listOfNotNull(url)) } }
@@ -781,7 +772,7 @@ private fun GridTile(
         modifier
             .fillMaxWidth()
             .liftable(menu = lift, anchor = artwork, onOpen = open)
-            // Five across the poster alone takes the press, and leans with it as a poster does.
+            // With captions hidden, the artwork alone takes the press.
             .pressable(tilt = !titles, onClick = open),
     ) {
         Poster(
