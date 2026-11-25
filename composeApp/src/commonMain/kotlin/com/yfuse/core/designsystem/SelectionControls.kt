@@ -500,30 +500,51 @@ private fun sliderStepIndex(
     steps: Int,
 ): Int = if (steps <= 0) 0 else (fraction * (steps + 1)).roundToInt()
 
-/** Stable category colours keep settings recognisable across themes and artwork accents. */
+/**
+ * Modern squircle icon tile with a subtle diagonal dual-tone tint and top-lit rim.
+ * Stable category colours keep settings recognisable across themes and artwork accents.
+ */
 @Composable
 internal fun SettingIconTile(
     icon: ImageVector,
     tint: Color,
     modifier: Modifier = Modifier,
-    size: Dp = 32.dp,
+    size: Dp = 34.dp,
 ) {
     val palette = LocalPalette.current
     val base = if (tint.isSpecified) tint.copy(alpha = 1f) else SettingTint.general
     val surface = palette.card2.compositeOver(palette.background)
-    val fill = base.copy(alpha = if (palette.isDark) 0.18f else 0.10f)
-    val resolvedFill = fill.compositeOver(surface)
-    val ink = readableSurfaceInk(base, resolvedFill)
-    val background = if (LocalAccessibilityOptions.current.reduceTransparency) resolvedFill else fill
-    val shape = RoundedCornerShape(size * 0.31f)
+    val topAlpha = if (palette.isDark) 0.30f else 0.17f
+    val bottomAlpha = if (palette.isDark) 0.13f else 0.07f
+    val midFill = base.copy(alpha = (topAlpha + bottomAlpha) / 2f).compositeOver(surface)
+    val ink = readableSurfaceInk(base, midFill)
+    val shape = RoundedCornerShape(size * 0.32f)
+    val reduceTransparency = LocalAccessibilityOptions.current.reduceTransparency
+    val fillModifier =
+        if (reduceTransparency) {
+            Modifier.background(midFill, shape)
+        } else {
+            Modifier.background(
+                Brush.linearGradient(
+                    0f to base.copy(alpha = topAlpha),
+                    1f to base.copy(alpha = bottomAlpha),
+                ),
+                shape,
+            )
+        }
+    val borderBrush =
+        Brush.linearGradient(
+            0f to if (palette.isDark) Color.White.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.82f),
+            1f to ink.copy(alpha = if (palette.isDark) 0.22f else 0.16f),
+        )
     Box(
         modifier
             .size(size)
             .clip(shape)
-            .background(background)
-            .border(0.75.dp, ink.copy(alpha = 0.14f), shape),
+            .then(fillModifier)
+            .border(0.75.dp, borderBrush, shape),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, contentDescription = null, tint = ink, modifier = Modifier.size(size * 0.58f))
+        Icon(icon, contentDescription = null, tint = ink, modifier = Modifier.size(size * 0.56f))
     }
 }

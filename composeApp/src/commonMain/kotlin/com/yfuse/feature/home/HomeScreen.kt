@@ -995,6 +995,7 @@ private fun HomeHeroCarousel(
                 pageOffset = page.offset,
                 onAccent = onAccent,
                 onPageColor = onPageColor,
+                pageColor = pageColor,
                 artwork = artwork,
                 framed = showSidePreview,
                 modifier = page.modifier,
@@ -1028,6 +1029,7 @@ private fun HeroSlide(
     pageOffset: () -> Float = { 0f },
     onAccent: (Color) -> Unit = {},
     onPageColor: (Color) -> Unit = {},
+    pageColor: State<Color>? = null,
     artwork: LivingPosterArtwork,
     framed: Boolean = false,
     modifier: Modifier = Modifier,
@@ -1066,7 +1068,7 @@ private fun HeroSlide(
                 },
             ),
     ) {
-        LivingPosterArtworkPlane(artwork, framed) {
+        LivingPosterArtworkPlane(artwork, framed, pageColor) {
             if (item != null) {
                 FallbackImage(
                     urls = artworkUrls,

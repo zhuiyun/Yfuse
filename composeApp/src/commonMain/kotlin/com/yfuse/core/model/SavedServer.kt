@@ -47,7 +47,7 @@ data class SavedServer(
      */
     @Transient
     val localCleartextConfirmed: Boolean = false,
-    /** HTTPS artwork selected for this server. Older records use the emoji or initial. */
+    /** Explicit artwork takes priority over the catalog match and the local badge fallback. */
     val iconUrl: String? = null,
 ) {
     /**

@@ -188,7 +188,7 @@ private val SettingsSearchDestinations =
             "安装、浏览目录与播放",
             "stremio 插件 addon 目录",
             ProfilePage.Stremio,
-            icon = AppIcons.Grid,
+            icon = AppIcons.SettingsPlugin,
             tint = SettingTint.servers,
         ),
         SettingsSearchDestination(
@@ -196,7 +196,7 @@ private val SettingsSearchDestinations =
             "登录、会话与加密同步",
             "账号 登录 会话 同步",
             ProfilePage.Account,
-            icon = AppIcons.User,
+            icon = AppIcons.SettingsAccount,
             tint = SettingTint.account,
         ),
         SettingsSearchDestination(
@@ -204,7 +204,7 @@ private val SettingsSearchDestinations =
             "想看、收藏与观看历史",
             "个人清单 最近观看 历史 收藏 想看",
             ProfilePage.Personal,
-            icon = AppIcons.Bookmark,
+            icon = AppIcons.SettingsCollections,
             tint = SettingTint.library,
         ),
         SettingsSearchDestination(
@@ -212,7 +212,7 @@ private val SettingsSearchDestinations =
             "本地观看时长、日历与回顾",
             "观影 统计 时长 天数 电影 剧集 日历 趋势 回顾",
             ProfilePage.ViewingStatistics,
-            icon = AppIcons.WatchCalendar,
+            icon = AppIcons.SettingsStats,
             tint = SettingTint.general,
         ),
         SettingsSearchDestination(
@@ -220,7 +220,7 @@ private val SettingsSearchDestinations =
             "新建、切换与家长控制",
             "个人资料 家庭 儿童 PIN",
             ProfilePage.Family,
-            icon = AppIcons.User,
+            icon = AppIcons.SettingsFamily,
             tint = SettingTint.account,
         ),
         SettingsSearchDestination(
@@ -228,7 +228,7 @@ private val SettingsSearchDestinations =
             "个人内容与播放进度同步",
             "同步 状态 恢复",
             ProfilePage.Sync,
-            icon = AppIcons.Refresh,
+            icon = AppIcons.SettingsSync,
             tint = SettingTint.sync,
         ),
         SettingsSearchDestination(
@@ -236,7 +236,7 @@ private val SettingsSearchDestinations =
             "在另一台设备继续观看",
             "设备 接力",
             ProfilePage.Handoff,
-            icon = AppIcons.Cast,
+            icon = AppIcons.SettingsHandoff,
             tint = SettingTint.playback,
         ),
         SettingsSearchDestination(
@@ -244,7 +244,7 @@ private val SettingsSearchDestinations =
             "播放记录、收藏与待看一键同步",
             "trakt 导入 上报 同步 收藏 待看 历史",
             ProfilePage.Trakt,
-            icon = AppIcons.Refresh,
+            icon = AppIcons.SettingsTrakt,
             tint = SettingTint.sync,
         ),
         SettingsSearchDestination(
@@ -252,7 +252,7 @@ private val SettingsSearchDestinations =
             "连接与切换媒体服务器",
             "服务器 emby jellyfin plex",
             opensServers = true,
-            icon = AppIcons.Server,
+            icon = AppIcons.SettingsServer,
             tint = SettingTint.servers,
         ),
         SettingsSearchDestination(
@@ -260,7 +260,7 @@ private val SettingsSearchDestinations =
             "主题、首页、动效与辅助功能",
             "外观 主题 背景 库页 轮播图 海报 玻璃 字体 粒子 光效 动效 弹窗 动画 浮起 展开 回弹 透视 全息 扫描 空间 折叠 能量 边框 分层 悬浮 光圈 数字 重构 科幻 首页 Tab 组件 widget 布局",
             ProfilePage.Appearance,
-            icon = AppIcons.Star,
+            icon = AppIcons.SettingsAppearance,
             tint = SettingTint.appearance,
         ),
         SettingsSearchDestination(
@@ -268,7 +268,7 @@ private val SettingsSearchDestinations =
             "底色、透明度与背景遮罩",
             "玻璃 材质 底色 透明度 遮罩 预览",
             ProfilePage.GlassMaterial,
-            icon = AppIcons.AspectFill,
+            icon = AppIcons.SettingsGlass,
             tint = SettingTint.components,
         ),
         SettingsSearchDestination(
@@ -276,7 +276,7 @@ private val SettingsSearchDestinations =
             "版本偏好、画质、引擎、进度同步与跳过片头",
             "播放 版本 HDR 杜比 画质 解码 引擎 续播 进度 同步",
             ProfilePage.Playback,
-            icon = AppIcons.Play,
+            icon = AppIcons.SettingsPlayback,
             tint = SettingTint.playback,
         ),
         SettingsSearchDestination(
@@ -284,7 +284,7 @@ private val SettingsSearchDestinations =
             "来源与屏蔽词",
             "弹幕 api 来源 屏蔽 过滤",
             ProfilePage.Danmaku,
-            icon = AppIcons.Danmaku,
+            icon = AppIcons.SettingsDanmaku,
             tint = SettingTint.danmaku,
         ),
         SettingsSearchDestination(
@@ -292,7 +292,7 @@ private val SettingsSearchDestinations =
             "下载任务与离线媒体库",
             "下载 离线 缓存",
             ProfilePage.Downloads,
-            icon = AppIcons.Download,
+            icon = AppIcons.SettingsDownload,
             tint = SettingTint.downloads,
         ),
         SettingsSearchDestination(
@@ -300,7 +300,7 @@ private val SettingsSearchDestinations =
             "网络兼容、备份、缓存与诊断",
             "高级 网络 备份 缓存 诊断",
             ProfilePage.DataAndDiagnostics,
-            icon = AppIcons.Menu,
+            icon = AppIcons.SettingsDiagnostics,
             tint = SettingTint.advanced,
         ),
     )
@@ -478,7 +478,7 @@ fun ProfileScreen(component: ProfileComponent) {
                             SettingsCard {
                                 if (BackendAccess.Default.enabled) {
                                     SettingRow(
-                                        icon = AppIcons.User,
+                                        icon = AppIcons.SettingsAccount,
                                         iconTint = SettingTint.account,
                                         title = "账号与同步",
                                         value =
@@ -494,7 +494,7 @@ fun ProfileScreen(component: ProfileComponent) {
                                     SettingsDivider()
                                 }
                                 SettingRow(
-                                    icon = AppIcons.Server,
+                                    icon = AppIcons.SettingsServer,
                                     iconTint = SettingTint.servers,
                                     title = "服务器",
                                     value =
@@ -531,7 +531,7 @@ fun ProfileScreen(component: ProfileComponent) {
                                     "${playbackSettingsSummary(optimizationMode, decoder)}",
                                     embedded = true,
                                     onClick = { selectCategory(ProfilePage.Playback) },
-                                    icon = AppIcons.Play,
+                                    icon = AppIcons.SettingsPlayback,
                                     iconTint = SettingTint.playback,
                                 )
                                 if (BackendAccess.Default.enabled) {
@@ -554,7 +554,7 @@ fun ProfileScreen(component: ProfileComponent) {
                                                 },
                                             )
                                         },
-                                        icon = AppIcons.Chat,
+                                        icon = AppIcons.SettingsWatchTogether,
                                         iconTint = SettingTint.watchTogether,
                                     )
                                 }
@@ -564,8 +564,8 @@ fun ProfileScreen(component: ProfileComponent) {
                                     if (personalPolicy.child) "儿童资料不可用" else "",
                                     embedded = true,
                                     onClick = { openLinkDialog = true },
-                                    icon = AppIcons.PlaybackSource,
-                                    iconTint = SettingTint.playback,
+                                    icon = AppIcons.SettingsLink,
+                                    iconTint = SettingTint.subtitle,
                                     enabled = !personalPolicy.child,
                                 )
                                 SettingsDivider()
@@ -577,7 +577,7 @@ fun ProfileScreen(component: ProfileComponent) {
                                     },
                                     embedded = true,
                                     onClick = { selectCategory(ProfilePage.Danmaku) },
-                                    icon = AppIcons.Danmaku,
+                                    icon = AppIcons.SettingsDanmaku,
                                     iconTint = SettingTint.danmaku,
                                 )
                                 SettingsDivider()
@@ -600,13 +600,13 @@ fun ProfileScreen(component: ProfileComponent) {
                             SettingsCard {
                                 SettingRow("同步状态与恢复", embedded = true, onClick = {
                                     selectCategory(ProfilePage.Sync)
-                                }, icon = AppIcons.Refresh, iconTint = SettingTint.sync)
+                                }, icon = AppIcons.SettingsSync, iconTint = SettingTint.sync)
                                 SettingsDivider()
                                 SettingRow(
                                     "数据与诊断",
                                     embedded = true,
                                     onClick = { selectCategory(ProfilePage.DataAndDiagnostics) },
-                                    icon = AppIcons.Menu,
+                                    icon = AppIcons.SettingsDiagnostics,
                                     iconTint = SettingTint.advanced,
                                 )
                             }
@@ -1483,7 +1483,7 @@ private fun DownloadRow(
         value = value,
         embedded = embedded,
         onClick = onClick,
-        icon = AppIcons.Download,
+        icon = AppIcons.SettingsDownload,
         iconTint = SettingTint.downloads,
     )
 }

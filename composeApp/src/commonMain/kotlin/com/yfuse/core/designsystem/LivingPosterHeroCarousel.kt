@@ -110,7 +110,13 @@ fun livingPosterArtwork(
     return LivingPosterArtwork(artworkWidth.value / reelHeight.value, fadeHeight, fadeHeight.value / reelHeight.value)
 }
 
-/** Sample only decoded artwork. A composed neighbour may get ready, but only the current page can publish. */
+/**
+ * Sample only decoded artwork. A composed neighbour may get ready, but only the current page can publish.
+ *
+ * Publishes the raw sampled colour so [RetainedArtworkPageColor] applies [artworkPageSurface]
+ * once against the user's true app light/dark theme (not the previous poster's derived palette).
+ * Sampling is focused on the lower contact band that directly meets the page ground.
+ */
 @Composable
 internal fun PublishLivingPosterPageColor(
     resolvedUrl: String?,
@@ -118,11 +124,12 @@ internal fun PublishLivingPosterPageColor(
     current: Boolean,
     onPageColor: (Color) -> Unit,
 ) {
-    val color = rememberArtworkPageColor(resolvedUrl, artwork.aspectRatio, artwork.fadeFraction)
+    val sampleFraction = (artwork.fadeFraction * 0.65f).coerceIn(0.14f, 0.30f)
+    val rawColor = rememberArtworkPageColor(resolvedUrl, artwork.aspectRatio, sampleFraction)
     val publish by rememberUpdatedState(onPageColor)
     val routeVisible = LocalRouteVisible.current
-    LaunchedEffect(current, routeVisible, color) {
-        if (current && routeVisible) color?.let(publish)
+    LaunchedEffect(current, routeVisible, rawColor) {
+        if (current && routeVisible) rawColor?.let(publish)
     }
 }
 
@@ -249,15 +256,9 @@ fun LivingPosterHeroCarousel(
             }
         }
 
-        if (pageCount > 0) {
-            Box(
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .height(LivingPosterDefaults.CAPTION_BOTTOM)
-                    .livingPosterPageBlend(pageColor),
-            )
-        }
+        // LivingPosterArtworkPlane already dissolves the artwork directly into the page ground
+        // via a 17-stop smootherstep DstOut mask; do not paint a second opaque veil over the pager
+        // (which contains HeroCaption), or it would fog the title/buttons and create a double-step seam.
         overlay()
 
         if (pageCount > 1) {

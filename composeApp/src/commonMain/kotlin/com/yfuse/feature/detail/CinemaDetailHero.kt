@@ -55,7 +55,7 @@ internal fun CinemaDetailHero(
     urls: List<String?>,
     title: String,
     height: Dp,
-    surface: Color,
+    surface: State<Color>,
     scroll: State<Float>,
     onResolvedUrl: (String) -> Unit,
 ) {

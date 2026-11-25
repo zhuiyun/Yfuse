@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -52,6 +53,7 @@ import com.yfuse.core.designsystem.YfFormField
 import com.yfuse.core.designsystem.contentColorForSurface
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.rememberMatchedServerIcon
 import com.yfuse.core.designsystem.serverTintColor
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.SavedServer
@@ -73,9 +75,10 @@ internal fun ServerIconDialog(
     val url = remember(address) { normalizeServerIconUrl(address) }
     var previewUrl by remember(server.id) { mutableStateOf(server.iconUrl) }
     var previewFailed by remember(previewUrl) { mutableStateOf(false) }
-    LaunchedEffect(url) {
+    val matchedUrl = if (address.isBlank()) rememberMatchedServerIcon(server, catalog) else null
+    LaunchedEffect(url, matchedUrl) {
         if (url != null && previewUrl != url) delay(350)
-        previewUrl = url
+        previewUrl = url ?: matchedUrl
     }
 
     if (browsing) {
@@ -105,7 +108,7 @@ internal fun ServerIconDialog(
             Box(
                 Modifier
                     .size(52.dp)
-                    .clip(AppShapes.thumb)
+                    .clip(CircleShape)
                     .background(
                         Brush.linearGradient(
                             listOf(preview, preview),
@@ -128,6 +131,7 @@ internal fun ServerIconDialog(
                     when {
                         previewUrl != null && previewFailed -> "图片加载失败，显示备用图标"
                         url != null -> "在线图标"
+                        matchedUrl != null -> "已自动匹配图标"
                         emoji.isBlank() -> "服务器名称首字"
                         else -> "自定义表情"
                     },
@@ -142,7 +146,7 @@ internal fun ServerIconDialog(
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OverlayButton("从图标库选择", { browsing = true }, Modifier.weight(1f))
             if (address.isNotBlank()) {
-                OverlayButton("移除图片", { address = "" }, Modifier.weight(1f))
+                OverlayButton("恢复自动匹配", { address = "" }, Modifier.weight(1f))
             }
         }
         Spacer(Modifier.height(8.dp))
@@ -150,7 +154,7 @@ internal fun ServerIconDialog(
             value = address,
             onValueChange = { address = it },
             label = "在线图片地址",
-            placeholder = "https://…",
+            placeholder = "留空时自动匹配图标库",
         )
         if (address.isNotBlank() && url == null) {
             Text("请输入有效的 HTTPS 图片地址", style = AppTypography.caption.regular, color = palette.error)

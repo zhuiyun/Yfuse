@@ -1,6 +1,7 @@
 package com.yfuse.core.designsystem
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.heightIn
@@ -93,6 +94,14 @@ fun HeroActionDock(
     favoriteActionLabel: String = if (favorite == true) "取消收藏" else "加入收藏",
     primaryIcon: androidx.compose.ui.graphics.vector.ImageVector = AppIcons.Play,
 ) {
+    val artworkAccent = LocalArtworkAccent.current
+    val playFill =
+        artworkAccent?.let { lerp(HeroPlayFill, it, 0.14f) }
+            ?: HeroPlayFill
+    val playInk =
+        artworkAccent?.let { lerp(HeroInk, it, 0.22f).darkenedTo(0.06f, HeroInk) }
+            ?: HeroInk
+    val playEdge = Color.White.copy(alpha = 0.65f)
     Row(
         modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -108,7 +117,8 @@ fun HeroActionDock(
                     onClickLabel = playActionLabel,
                     onClick = onPlay,
                 ).clip(AppShapes.pill)
-                .background(HeroPlayFill)
+                .background(playFill)
+                .border(0.75.dp, playEdge, AppShapes.pill)
                 .padding(horizontal = 18.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -116,16 +126,17 @@ fun HeroActionDock(
             Icon(
                 primaryIcon,
                 contentDescription = null,
-                tint = HeroInk,
+                tint = playInk,
                 modifier = Modifier.size(17.dp),
             )
-            Text(playActionLabel, style = AppTypography.body.strong, color = HeroInk)
+            Text(playActionLabel, style = AppTypography.body.strong, color = playInk)
         }
         HeroFavoriteButton(
             icon = if (favorite == true) AppIcons.HeartFilled else AppIcons.Heart,
             description = favoriteActionLabel,
             onClick = onFavorite,
             active = favorite,
+            artworkAccent = artworkAccent,
         )
     }
 }
@@ -136,8 +147,18 @@ private fun HeroFavoriteButton(
     description: String,
     onClick: () -> Unit,
     active: Boolean? = null,
+    artworkAccent: Color? = null,
 ) {
     val shape = AppShapes.pill
+    val restingFill =
+        artworkAccent?.let { lerp(HeroInk, it, 0.26f).copy(alpha = 0.50f) }
+            ?: HeroDockFill
+    val selectedFill =
+        artworkAccent?.let { lerp(HeroInk, it, 0.42f).copy(alpha = 0.80f) }
+            ?: HeroToolSelectedFill
+    val borderColor =
+        artworkAccent?.let { lerp(Color.White, it, 0.28f).copy(alpha = if (active == true) 0.42f else 0.26f) }
+            ?: Color.White.copy(alpha = 0.22f)
     Row(
         Modifier
             .heightIn(min = 48.dp)
@@ -154,19 +175,20 @@ private fun HeroFavoriteButton(
                     Modifier.semantics { toggleableState = ToggleableState(active) }
                 },
             ).clip(shape)
-            .background(if (active == true) HeroToolSelectedFill else HeroDockFill)
+            .background(if (active == true) selectedFill else restingFill)
+            .border(0.75.dp, borderColor, shape)
             .padding(horizontal = 14.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (active == null) {
-            Icon(icon, null, tint = Color.White.copy(alpha = 0.88f), modifier = Modifier.size(17.dp))
+            Icon(icon, null, tint = Color.White.copy(alpha = 0.90f), modifier = Modifier.size(17.dp))
         } else {
             BurstIcon(
                 icon = icon,
                 active = active,
                 contentDescription = null,
-                tint = Color.White.copy(alpha = 0.88f),
+                tint = Color.White.copy(alpha = 0.92f),
                 burstColor = Color.White,
                 iconSize = 17.dp,
             )
@@ -174,7 +196,7 @@ private fun HeroFavoriteButton(
         Text(
             text = if (active == true) "已收藏" else "收藏",
             style = AppTypography.body.medium,
-            color = Color.White.copy(alpha = 0.92f),
+            color = Color.White.copy(alpha = 0.94f),
             maxLines = 1,
         )
     }
@@ -183,18 +205,18 @@ private fun HeroFavoriteButton(
 /**
  * Scrim for a hero whose lower edge dissolves into the page — dark at the top, where the
  * status bar and the floating header need it, and nothing at all below the midpoint.
- *
- * [topInk] is how heavy the top gets; the rest of the shape is fixed, because it is what
- * keeps the darkness clear of the dissolve.
  */
 fun heroTopScrim(
-    topInk: Float = 0.66f,
-    midInk: Float = 0.28f,
+    topInk: Float = 0.62f,
+    midInk: Float = 0.24f,
 ): Brush =
     scrim(
         0f to Color.Transparent,
-        0.46f to Color.Transparent,
-        0.80f to HeroInk.copy(alpha = midInk),
+        0.48f to Color.Transparent,
+        0.60f to HeroInk.copy(alpha = midInk * 0.18f),
+        0.72f to HeroInk.copy(alpha = midInk * 0.56f),
+        0.82f to HeroInk.copy(alpha = midInk),
+        0.92f to HeroInk.copy(alpha = (midInk + topInk) * 0.52f),
         1f to HeroInk.copy(alpha = topInk),
     )
 
@@ -343,18 +365,21 @@ fun heroReelScrim(): Brush =
 fun Modifier.heroCaptionScrim(): Modifier =
     drawWithCache {
         if (size.height == 0f) return@drawWithCache onDrawBehind {}
-        val lead = minOf(72.dp.toPx(), size.height / 2f)
+        val lead = minOf(88.dp.toPx(), size.height * 0.65f)
         val height = size.height + lead
-        val solidStart = (lead + size.height * 0.06f) / height
-        val solidEnd = (lead + size.height * 0.80f) / height
-        val ink = Color.Black.copy(alpha = 0.62f)
+        val solidStart = (lead + size.height * 0.10f) / height
+        val solidEnd = (lead + size.height * 0.72f) / height
+        val peakAlpha = 0.50f
         val brush =
             Brush.verticalGradient(
                 0f to Color.Transparent,
-                solidStart * 0.25f to Color.Black.copy(alpha = 0.06f),
-                solidStart * 0.72f to Color.Black.copy(alpha = 0.48f),
-                solidStart to ink,
-                solidEnd to ink,
+                solidStart * 0.22f to Color.Black.copy(alpha = peakAlpha * 0.05f),
+                solidStart * 0.48f to Color.Black.copy(alpha = peakAlpha * 0.24f),
+                solidStart * 0.74f to Color.Black.copy(alpha = peakAlpha * 0.64f),
+                solidStart to Color.Black.copy(alpha = peakAlpha),
+                solidEnd to Color.Black.copy(alpha = peakAlpha * 0.88f),
+                solidEnd + (1f - solidEnd) * 0.42f to Color.Black.copy(alpha = peakAlpha * 0.44f),
+                solidEnd + (1f - solidEnd) * 0.76f to Color.Black.copy(alpha = peakAlpha * 0.12f),
                 1f to Color.Transparent,
                 startY = -lead,
                 endY = size.height,
@@ -365,48 +390,40 @@ fun Modifier.heroCaptionScrim(): Modifier =
     }
 
 /**
- * Blend band drawn behind the lifted sheet, over a fixed [height] of page.
+ * Smooth multi-stop blend band drawn behind the lifted sheet or over the lower hero dissolve.
  *
- * [start] holds the band off for that much first, leaving the sheet's top transparent. A
- * sheet lifted far enough that its own copy sits on the artwork needs that: the band ramps
- * towards the page colour, so text over the ramp has to be page ink, and text over the
- * artwork has to be artwork ink. Text that spans the ramp cannot be either. Starting the
- * band where the artwork ends keeps each piece of copy on one side of that line.
+ * Uses a smootherstep curve (zero derivative at both ends) across 13 stops so there is never
+ * a Mach-band crease where the artwork meets the sampled page color.
  */
 fun heroPanelBrush(
     surface: Color,
     density: Density,
     height: Dp = 170.dp,
     start: Dp = 0.dp,
-): Brush =
-    Brush.verticalGradient(
-        colorStops =
-            arrayOf(
-                0f to Color.Transparent,
-                0.30f to surface.copy(alpha = 0.42f),
-                0.66f to surface.copy(alpha = 0.90f),
-                1f to surface,
-            ),
+): Brush {
+    val stops =
+        Array(13) { index ->
+            val t = index / 12f
+            val alpha = smootherStep(t)
+            t to surface.copy(alpha = alpha)
+        }
+    return Brush.verticalGradient(
+        colorStops = stops,
         startY = with(density) { start.toPx() },
         endY = with(density) { (start + height).toPx() },
     )
+}
 
 /**
- * How much of a carousel's lower edge is spent dissolving into the page.
+ * How much of a hero's lower edge is spent dissolving into the page.
  *
- * Shared by 首页 and 库 so the two reels end the same way, and so each screen can hold its
- * caption and its dots clear of the same band.
- *
- * It was 76dp while the artwork still had a dark scrim under it, where a long dissolve
- * would only have meant a longer grey band. With the scrim gone the constraint is the
- * opposite one: a short melt on a 390dp hero reads as a smudge along the bottom edge
- * rather than as the picture settling into the page, so the band is now most of the space
- * below the caption.
+ * A generous 156dp smootherstep band prevents any visible cutoff between bright or dark
+ * artwork and the sampled page surface.
  */
-val HeroPageFade: Dp = 120.dp
+val HeroPageFade: Dp = 156.dp
 
 /** Copy stays out of the part of the hero that has mostly dissolved into the page. */
-val HeroCaptionClearance: Dp = HeroPageFade - 20.dp
+val HeroCaptionClearance: Dp = 104.dp
 
 fun Modifier.fadeIntoPage(height: Dp = HeroPageFade): Modifier =
     this
@@ -430,15 +447,17 @@ fun Modifier.fadeIntoPage(height: Dp = HeroPageFade): Modifier =
         }
 
 internal fun heroPageFadeMaskStops(): Array<Pair<Float, Color>> =
-    arrayOf(
-        0f to Color.Transparent,
-        0.24f to Color.Black.copy(alpha = 0.04f),
-        0.50f to Color.Black.copy(alpha = 0.28f),
-        0.72f to Color.Black.copy(alpha = 0.62f),
-        0.88f to Color.Black.copy(alpha = 0.86f),
-        0.97f to Color.Black.copy(alpha = 0.97f),
-        1f to Color.Black,
-    )
+    Array(17) { index ->
+        val t = index / 16f
+        val alpha = smootherStep(t)
+        t to if (index == 0) Color.Transparent else Color.Black.copy(alpha = alpha)
+    }
+
+/** Quintic Hermite smootherstep: C2-continuous with zero slope at 0 and 1 (eliminates Mach bands). */
+private fun smootherStep(t: Float): Float {
+    val x = t.coerceIn(0f, 1f)
+    return x * x * x * (x * (x * 6f - 15f) + 10f)
+}
 
 /**
  * Pulls content up over the lower edge of the hero by [lift].

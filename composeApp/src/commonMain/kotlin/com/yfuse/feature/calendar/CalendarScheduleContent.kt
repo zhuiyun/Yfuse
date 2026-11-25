@@ -1,10 +1,11 @@
 package com.yfuse.feature.calendar
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,13 +16,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -31,15 +31,14 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Dimens
+import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LiftMenu
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.SkeletonBlock
 import com.yfuse.core.designsystem.flatGlass
-import com.yfuse.core.designsystem.glassSelection
 import com.yfuse.core.designsystem.pressable
-import com.yfuse.core.designsystem.rememberGlassSelectionStyle
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.CalendarEntry
@@ -246,7 +245,7 @@ internal fun AdaptiveCalendarResults(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+/** Single-row lightweight 7-day strip: zero subcomposition, never wraps into 2 rows, shows dot indicators. */
 @Composable
 internal fun CalendarWeekNavigator(
     days: List<CalendarDay>,
@@ -255,67 +254,78 @@ internal fun CalendarWeekNavigator(
     onSelect: (CalendarDay) -> Unit,
 ) {
     val palette = LocalPalette.current
-    val selection = rememberGlassSelectionStyle()
-    val density = LocalDensity.current
-    val fontScale = density.fontScale
-    BoxWithConstraints(
-        Modifier.fillMaxWidth().padding(horizontal = Dimens.pageHorizontal, vertical = 4.dp),
+    val accent = LocalAccentColors.current
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Dimens.pageHorizontal, vertical = 4.dp)
+            .selectableGroup(),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        // Keep the start of the week visible. Narrow widths and large text wrap whole dates.
-        val gap = 4.dp
-        val minimumDayWidth = maxOf(40.dp, (26f * fontScale + 8f).dp)
-        val gapPx = with(density) { gap.roundToPx() }
-        val minimumDayWidthPx = with(density) { minimumDayWidth.roundToPx() }
-        val capacity = ((constraints.maxWidth + gapPx) / (minimumDayWidthPx + gapPx)).coerceAtLeast(1)
-        val columns =
-            when {
-                days.size <= capacity -> days.size.coerceAtLeast(1)
-                capacity >= 4 -> 4
-                else -> capacity
+        days.forEach { day ->
+            val active = day.date == selectedDate
+            val isToday = day.date == today
+            val hasEntries = day.entries.isNotEmpty()
+            val weekday = remember(day.date, isToday) {
+                if (isToday) "今" else isoWeekdayLabel(day.date).removePrefix("周")
             }
-        val availableCellPx = (constraints.maxWidth - gapPx * (columns - 1)) / columns
-        val dayWidth = minOf(76.dp * maxOf(1f, fontScale), with(density) { availableCellPx.toDp() })
-        FlowRow(
-            modifier = Modifier.fillMaxWidth().selectableGroup(),
-            maxItemsInEachRow = columns,
-            horizontalArrangement = Arrangement.spacedBy(gap, Alignment.CenterHorizontally),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            days.forEach { day ->
-                val active = day.date == selectedDate
-                Column(
-                    Modifier
-                        .width(dayWidth)
-                        .heightIn(min = 64.dp)
-                        .pressable(
-                            focusShape = AppShapes.thumb,
-                            role = Role.Tab,
-                            onClickLabel = "查看${day.date}排期",
-                        ) { onSelect(day) }
-                        .semantics { selected = active }
-                        .then(
-                            if (active) {
-                                Modifier.glassSelection(AppShapes.thumb, selection)
-                            } else {
+            val dayNumber = remember(day.date) { day.date.takeLast(2).trimStart('0') }
+            Column(
+                Modifier
+                    .weight(1f)
+                    .height(52.dp)
+                    .clip(AppShapes.thumb)
+                    .then(
+                        when {
+                            active ->
                                 Modifier
+                                    .background(accent.accent)
+                            isToday ->
+                                Modifier
+                                    .background(accent.accent.copy(alpha = if (palette.isDark) 0.16f else 0.10f))
+                                    .border(0.75.dp, accent.accent.copy(alpha = 0.35f), AppShapes.thumb)
+                            else ->
+                                Modifier.background(
+                                    palette.text.copy(alpha = if (palette.isDark) 0.05f else 0.035f),
+                                )
+                        },
+                    ).pressable(
+                        haptic = HapticSignal.Select,
+                        focusShape = AppShapes.thumb,
+                        role = Role.Tab,
+                        onClickLabel = "查看${day.date}排期",
+                    ) { onSelect(day) }
+                    .semantics { selected = active }
+                    .padding(vertical = 5.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    weekday,
+                    style = AppTypography.caption.medium,
+                    color = if (active) accent.onAccent.copy(alpha = 0.86f) else if (isToday) accent.accent else palette.sub2,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                )
+                Text(
+                    dayNumber,
+                    style = if (active) AppTypography.body.strong else AppTypography.body.medium,
+                    color = if (active) accent.onAccent else palette.text,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                )
+                Box(
+                    Modifier
+                        .size(4.dp)
+                        .clip(CircleShape)
+                        .background(
+                            when {
+                                !hasEntries -> androidx.compose.ui.graphics.Color.Transparent
+                                active -> accent.onAccent.copy(alpha = 0.90f)
+                                else -> accent.accent.copy(alpha = 0.72f)
                             },
-                        ).padding(horizontal = 4.dp, vertical = 7.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    Text(
-                        if (day.date == today) "今天" else isoWeekdayLabel(day.date),
-                        style = if (active) AppTypography.caption.strong else AppTypography.caption.medium,
-                        color = if (active) selection.contentColor else palette.sub2,
-                        textAlign = TextAlign.Center,
-                    )
-                    Text(
-                        day.date.takeLast(2).trimStart('0'),
-                        style = if (active) AppTypography.section.strong else AppTypography.section.medium,
-                        color = if (active) selection.contentColor else palette.text,
-                        textAlign = TextAlign.Center,
-                    )
-                }
+                        ),
+                )
             }
         }
     }

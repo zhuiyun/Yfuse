@@ -32,7 +32,7 @@ internal fun PersonalSettingsSection(
                     "Stremio 插件",
                     embedded = true,
                     onClick = onOpenStremio,
-                    icon = AppIcons.Grid,
+                    icon = AppIcons.SettingsPlugin,
                     iconTint = SettingTint.servers,
                 )
                 SettingsDivider()
@@ -41,7 +41,7 @@ internal fun PersonalSettingsSection(
                 "我的片单",
                 embedded = true,
                 onClick = onOpenContent,
-                icon = AppIcons.Bookmark,
+                icon = AppIcons.SettingsCollections,
                 iconTint = SettingTint.library,
             )
             SettingsDivider()
@@ -49,7 +49,7 @@ internal fun PersonalSettingsSection(
                 "观影统计",
                 embedded = true,
                 onClick = onOpenStatistics,
-                icon = AppIcons.WatchCalendar,
+                icon = AppIcons.SettingsStats,
                 iconTint = SettingTint.general,
             )
             SettingsDivider()
@@ -58,7 +58,7 @@ internal fun PersonalSettingsSection(
                 "${state.activeProfile.name} · ${state.profiles.size} 份资料",
                 embedded = true,
                 onClick = onOpenFamily,
-                icon = AppIcons.User,
+                icon = AppIcons.SettingsFamily,
                 iconTint = SettingTint.account,
             )
             if (BackendAccess.Default.enabled) {
@@ -68,7 +68,7 @@ internal fun PersonalSettingsSection(
                     "跨设备继续观看",
                     embedded = true,
                     onClick = onOpenHandoff,
-                    icon = AppIcons.Cast,
+                    icon = AppIcons.SettingsHandoff,
                     iconTint = SettingTint.playback,
                 )
             }
@@ -79,7 +79,7 @@ internal fun PersonalSettingsSection(
                     "观影记录同步",
                     embedded = true,
                     onClick = onOpenTrakt,
-                    icon = AppIcons.Refresh,
+                    icon = AppIcons.SettingsTrakt,
                     iconTint = SettingTint.sync,
                 )
             }

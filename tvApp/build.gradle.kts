@@ -314,6 +314,7 @@ dependencies {
     implementation(project(":tvShared"))
 
     implementation(libs.ktor.okhttp)
+    implementation(libs.coil.gif)
     implementation(libs.okhttp)
     implementation(libs.jcifs.ng)
     implementation(libs.play.services.cronet)

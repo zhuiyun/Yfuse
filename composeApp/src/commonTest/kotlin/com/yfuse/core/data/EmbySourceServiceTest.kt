@@ -215,6 +215,39 @@ class EmbySourceServiceTest {
             }
         }
 
+    @Test
+    fun metadata_timeout_keeps_discovered_source_reachable_and_selectable() =
+        runTest {
+            val client =
+                client { request ->
+                    when {
+                        request.url.encodedPath.endsWith("/Episodes") -> {
+                            kotlinx.coroutines.awaitCancellation()
+                        }
+                        else -> json("""{"Items":[{"Id":"s1","Name":"Show","Type":"Series"}]}""")
+                    }
+                }
+            try {
+                val source =
+                    service(client)
+                        .compareSources(
+                            servers = listOf(server),
+                            currentServerId = null,
+                            title = "Show",
+                            tmdbId = 1399,
+                            mediaType = "tv",
+                            seasonNumber = 1,
+                            episodeNumber = 1,
+                        ).single()
+
+                assertTrue(source.reachable)
+                assertEquals("s1", source.itemId)
+                assertEquals("已有资源", source.source?.quality)
+            } finally {
+                client.close()
+            }
+        }
+
     private fun service(client: HttpClient) = EmbySourceService(client, EmbyDetailService(client))
 
     private fun client(handler: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData): HttpClient =

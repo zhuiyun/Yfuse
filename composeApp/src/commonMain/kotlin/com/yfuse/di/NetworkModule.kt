@@ -38,7 +38,7 @@ internal fun networkModule(appVersion: String): Module =
             )
         } onClose { it?.close() }
         single(named("danmaku-http")) { createDanmakuClient() } onClose { it?.close() }
-        single { ServerIconCatalog(get(named("danmaku-http"))) }
+        single { ServerIconCatalog(get(named("danmaku-http")), get()) } onClose { it?.close() }
         single(named("theotherdb-http")) { createTheOtherDbClient() } onClose { it?.close() }
         // Own client (different host + bearer auth); qualified so the unqualified HttpClient
         // binding stays the Emby one. A signed-in account reads TMDB through the account server's

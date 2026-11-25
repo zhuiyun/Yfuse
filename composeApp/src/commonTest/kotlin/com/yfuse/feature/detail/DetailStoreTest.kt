@@ -164,6 +164,63 @@ class DetailStoreTest {
         }
 
     @Test
+    fun initial_series_catalog_retries_transient_failure_before_failing() =
+        runTest {
+            val seasonAttempts = AtomicInteger()
+            val store =
+                seriesStore(
+                    beforeFirstSeasons = {
+                        if (seasonAttempts.incrementAndGet() == 1) {
+                            throw IOException("transient reset")
+                        }
+                    },
+                    mainContext = UnconfinedTestDispatcher(testScheduler),
+                )
+            try {
+                advanceUntilIdle()
+                assertEquals(2, seasonAttempts.get())
+                assertEquals(listOf("e1", "e2"), store.state.episodes.map { it.id })
+                assertNull(store.state.episodesError)
+                assertEquals(false, store.state.episodesLoading)
+            } finally {
+                store.dispose()
+            }
+        }
+
+    @Test
+    fun series_source_enrichment_preserves_previously_discovered_servers_while_loading() =
+        runTest {
+            val releasePlayTarget = CompletableDeferred<Unit>()
+            val secondEnrichmentStarted = CompletableDeferred<Unit>()
+            val releaseSecondEnrichment = CompletableDeferred<Unit>()
+            val store =
+                seriesStore(
+                    includeSecondSource = true,
+                    beforeInitialEpisodes = { releasePlayTarget.await() },
+                    beforeSecondEpisodes = {
+                        secondEnrichmentStarted.complete(Unit)
+                        releaseSecondEnrichment.await()
+                    },
+                    mainContext = UnconfinedTestDispatcher(testScheduler),
+                )
+            try {
+                runCurrent()
+                assertEquals(setOf("one", "two"), store.state.sources.map { it.serverId }.toSet())
+                releasePlayTarget.complete(Unit)
+                secondEnrichmentStarted.await()
+                assertTrue(store.state.sources.any { it.serverId == "two" && it.reachable && it.itemId == "s2" })
+                releaseSecondEnrichment.complete(Unit)
+                advanceUntilIdle()
+                assertEquals(setOf("one", "two"), store.state.sources.map { it.serverId }.toSet())
+                assertEquals(false, store.state.sourcesLoading)
+            } finally {
+                releasePlayTarget.complete(Unit)
+                releaseSecondEnrichment.complete(Unit)
+                store.dispose()
+            }
+        }
+
+    @Test
     fun episode_content_and_play_button_do_not_wait_for_inherited_cast() =
         runTest {
             val castRequest = CompletableDeferred<Unit>()

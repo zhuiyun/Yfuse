@@ -41,4 +41,17 @@ class DetailStateColorsTest {
         assertTrue(detailContrastRatio(colors.onPage, background) >= 4.5f)
         assertTrue(detailContrastRatio(colors.mutedOnPage, background) >= 3.4f)
     }
+
+    @Test
+    fun harmonized_play_button_keeps_contrast_and_tempers_garish_saturation() {
+        val lightBg = Color(0xFFD8D0C5)
+        val neonAccent = Color(0xFFFF00AA)
+        val lightButton = harmonizeDetailPlayButtonColor(neonAccent, lightBg, darkTheme = false)
+        assertTrue(detailContrastRatio(lightButton, lightBg) >= 3.0f)
+
+        val darkBg = Color(0xFF141824)
+        val darkAccent = Color(0xFF1D2230)
+        val darkButton = harmonizeDetailPlayButtonColor(darkAccent, darkBg, darkTheme = true)
+        assertTrue(detailContrastRatio(darkButton, darkBg) >= 3.0f)
+    }
 }

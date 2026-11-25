@@ -1,20 +1,20 @@
 package com.yfuse.feature.calendar
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -26,6 +26,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -34,17 +36,17 @@ import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.FallbackImage
+import com.yfuse.core.designsystem.HeroInk
+import com.yfuse.core.designsystem.HeroTextShadow
 import com.yfuse.core.designsystem.LiftMenu
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
-import com.yfuse.core.designsystem.liftable
-import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.pressable
-import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.CalendarEntry
 import com.yfuse.core.model.LibraryStatus
 import com.yfuse.core.network.TmdbImages
+import com.yfuse.core.util.isoWeekdayLabel
 import com.yfuse.core.util.shiftIsoDate
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -84,56 +86,85 @@ internal fun CalendarPosterResults(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
+    val daysByDate = remember(days) { days.associateBy(CalendarDay::date) }
     val entries =
-        remember(days, selectedDate) {
-            coalesceCalendarEntries(days.firstOrNull { it.date == selectedDate }?.entries.orEmpty())
+        remember(daysByDate, selectedDate) {
+            coalesceCalendarEntries(daysByDate[selectedDate]?.entries.orEmpty())
         }
-    val featured = calendarFeaturedEntry(entries)
-    val rest = entries.filterNot { it === featured }
+    val featured = remember(entries) { calendarFeaturedEntry(entries) }
+    val rest = remember(entries, featured) { entries.filterNot { it === featured } }
     val week = remember(days, selectedDate) { calendarWeekDays(days, selectedDate) }
-    val firstWeek = currentWeekStart(minOf(days.minOfOrNull { it.date } ?: today, today))
-    val lastWeek = currentWeekStart(maxOf(days.maxOfOrNull { it.date } ?: today, today))
+    val firstWeek = remember(days, today) { currentWeekStart(minOf(days.minOfOrNull { it.date } ?: today, today)) }
+    val lastWeek = remember(days, today) { currentWeekStart(maxOf(days.maxOfOrNull { it.date } ?: today, today)) }
+    val dateSummary =
+        remember(selectedDate, today, entries.size) {
+            val month = selectedDate.substring(5, 7).toIntOrNull()?.toString().orEmpty()
+            val day = selectedDate.takeLast(2).toIntOrNull()?.toString().orEmpty()
+            "${month}月${day}日 · ${isoWeekdayLabel(selectedDate)} · ${dayLabel(selectedDate, today)} · ${entries.size}部"
+        }
+
     Column(Modifier.fillMaxSize()) {
+        // Compact single-line week control + date readout (replaces two stacked legacy bars).
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = Dimens.pageHorizontal),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = Dimens.pageHorizontal),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Icon(
-                AppIcons.ChevronLeft,
-                "上一周",
-                tint = palette.sub,
-                modifier =
-                    Modifier
-                        .pressable(enabled = week.first().date > firstWeek) {
-                            onSelectDate(shiftIsoDate(selectedDate, -7))
-                        }.touchTarget()
-                        .padding(10.dp)
-                        .size(16.dp),
-            )
+            Box(
+                Modifier
+                    .size(30.dp)
+                    .clip(CircleShape)
+                    .pressable(enabled = week.first().date > firstWeek, focusShape = CircleShape) {
+                        onSelectDate(shiftIsoDate(selectedDate, -7))
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    AppIcons.ChevronLeft,
+                    "上一周",
+                    tint = if (week.first().date > firstWeek) palette.sub else palette.hint.copy(alpha = 0.4f),
+                    modifier = Modifier.size(15.dp),
+                )
+            }
             Text(
-                "${selectedDate.take(4)}年${selectedDate.substring(5, 7).toIntOrNull() ?: ""}月",
-                style = AppTypography.caption.medium,
-                color = palette.sub,
-            )
-            Text(
-                "回到今天",
+                dateSummary,
                 style = AppTypography.caption.strong,
-                color = accent.accent,
-                modifier = Modifier.pressable { onSelectDate(today) }.touchTarget().padding(horizontal = 8.dp),
+                color = palette.text,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
             )
-            Icon(
-                AppIcons.ChevronRight,
-                "下一周",
-                tint = palette.sub,
-                modifier =
-                    Modifier
-                        .pressable(enabled = week.first().date < lastWeek) {
-                            onSelectDate(shiftIsoDate(selectedDate, 7))
-                        }.touchTarget()
-                        .padding(10.dp)
-                        .size(16.dp),
-            )
+            if (selectedDate != today) {
+                Text(
+                    "今天",
+                    style = AppTypography.caption.strong,
+                    color = accent.accent,
+                    modifier =
+                        Modifier
+                            .clip(AppShapes.pill)
+                            .background(accent.accent.copy(alpha = if (palette.isDark) 0.18f else 0.10f))
+                            .pressable(focusShape = AppShapes.pill) { onSelectDate(today) }
+                            .padding(horizontal = 9.dp, vertical = 4.dp),
+                )
+            }
+            Box(
+                Modifier
+                    .size(30.dp)
+                    .clip(CircleShape)
+                    .pressable(enabled = week.first().date < lastWeek, focusShape = CircleShape) {
+                        onSelectDate(shiftIsoDate(selectedDate, 7))
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    AppIcons.ChevronRight,
+                    "下一周",
+                    tint = if (week.first().date < lastWeek) palette.sub else palette.hint.copy(alpha = 0.4f),
+                    modifier = Modifier.size(15.dp),
+                )
+            }
         }
         CalendarWeekNavigator(week, today, selectedDate) { onSelectDate(it.date) }
         LazyColumn(
@@ -142,19 +173,22 @@ internal fun CalendarPosterResults(
                 PaddingValues(
                     start = Dimens.pageHorizontal,
                     end = Dimens.pageHorizontal,
-                    bottom =
-                        bottomContentInset + 16.dp,
+                    top = 4.dp,
+                    bottom = bottomContentInset + 16.dp,
                 ),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (featured != null) {
-                motionItem(key = "featured:${featured.entry.episode.mediaKey}") {
-                    CalendarFeaturedPoster(featured, backdrop, {
-                        onOpen(featured.entry)
-                    }, { onPlay(featured.entry) }, { liftMenu(featured) })
+                item(key = "featured:${featured.entry.episode.mediaKey}", contentType = "calendar-featured") {
+                    CalendarFeaturedPoster(
+                        display = featured,
+                        resolveBackdrop = backdrop,
+                        onOpen = { onOpen(featured.entry) },
+                        onPlay = { onPlay(featured.entry) },
+                    )
                 }
             } else {
-                motionItem {
+                item(key = "calendar-empty", contentType = "calendar-empty") {
                     Text(
                         "这一天没有排期，试试其他日期。",
                         style = AppTypography.body.regular,
@@ -164,24 +198,26 @@ internal fun CalendarPosterResults(
                 }
             }
             if (rest.isNotEmpty()) {
-                motionItem(key = "remaining-heading") {
+                item(key = "remaining-heading", contentType = "calendar-heading") {
                     Row(
-                        Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 2.dp),
+                        Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 2.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text("更多更新", style = AppTypography.body.strong, color = palette.text)
-                        Text("${rest.size}部", style = AppTypography.caption.regular, color = palette.sub)
+                        Text("当日更多", style = AppTypography.body.strong, color = palette.text)
+                        Text("${rest.size} 部", style = AppTypography.caption.medium, color = palette.sub)
                     }
                 }
-                rest.forEach { display ->
-                    motionItem(key = display.entry.episode.mediaKey) {
-                        CalendarPosterRow(
-                            display,
-                            { onOpen(display.entry) },
-                            { onFollow(display.entry) },
-                            { liftMenu(display) },
-                        )
-                    }
+                items(
+                    items = rest,
+                    key = { it.entry.episode.mediaKey },
+                    contentType = { "calendar-row" },
+                ) { display ->
+                    CalendarPosterRow(
+                        display = display,
+                        onOpen = { onOpen(display.entry) },
+                        onFollow = { onFollow(display.entry) },
+                    )
                 }
             }
         }
@@ -194,89 +230,86 @@ private fun CalendarFeaturedPoster(
     resolveBackdrop: suspend (CalendarEntry) -> String?,
     onOpen: () -> Unit,
     onPlay: () -> Unit,
-    liftMenu: () -> LiftMenu,
 ) {
     val entry = display.entry
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     var backdropPath by remember(entry.episode.titleKey) { mutableStateOf<String?>(null) }
     LaunchedEffect(entry.episode.titleKey) { backdropPath = resolveBackdrop(entry) }
+    val urls =
+        remember(backdropPath, entry.episode.posterPath, entry.posterUrls) {
+            listOf(
+                TmdbImages.backdrop(backdropPath),
+                TmdbImages.media(backdropPath, "w780"),
+                TmdbImages.poster(entry.episode.posterPath),
+            ) + entry.posterUrls
+        }
+    val statusText = remember(entry) { calendarPosterStatus(entry) }
+    val cardBorder = palette.text.copy(alpha = if (palette.isDark) 0.14f else 0.08f)
+
     Box(
         Modifier
             .fillMaxWidth()
-            .heightIn(min = 210.dp)
+            .height(156.dp)
             .clip(AppShapes.card)
-            .background(palette.card)
-            .liftable(menu = liftMenu, onOpen = onOpen)
-            .pressable(onClickLabel = "查看${entry.episode.showTitle}排期", onClick = onOpen),
+            .background(palette.card3)
+            .border(0.75.dp, cardBorder, AppShapes.card)
+            .pressable(onClickLabel = "查看${entry.episode.showTitle}排期", focusShape = AppShapes.card, onClick = onOpen),
     ) {
         FallbackImage(
-            urls =
-                listOf(
-                    TmdbImages.backdrop(backdropPath),
-                    TmdbImages.media(backdropPath, "w780"),
-                    TmdbImages.poster(entry.episode.posterPath),
-                ) +
-                    entry.posterUrls,
+            urls = urls,
             contentDescription = null,
             fitNarrow = true,
             modifier = Modifier.matchParentSize(),
         )
-        // The gradient and all foreground colours follow the current theme, including light mode.
         Box(
             Modifier.matchParentSize().background(
                 Brush.verticalGradient(
-                    0f to palette.background.copy(alpha = 0f),
-                    0.55f to palette.background.copy(alpha = 0.9f),
-                    1f to palette.background,
+                    0f to Color.Transparent,
+                    0.26f to HeroInk.copy(alpha = 0.14f),
+                    0.56f to HeroInk.copy(alpha = 0.56f),
+                    0.82f to HeroInk.copy(alpha = 0.82f),
+                    1f to HeroInk.copy(alpha = 0.92f),
                 ),
             ),
         )
         Row(
             Modifier
                 .fillMaxWidth()
-                .align(
-                    Alignment.BottomStart,
-                ).padding(start = 16.dp, end = 12.dp, top = 120.dp, bottom = 16.dp),
+                .align(Alignment.BottomStart)
+                .padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.Bottom,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     entry.episode.showTitle,
-                    style = AppTypography.section.strong,
-                    color = palette.text,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    display.episodeLabel,
-                    style = AppTypography.caption.medium,
-                    color = palette.text,
+                    style = AppTypography.section.strong.copy(shadow = HeroTextShadow),
+                    color = Color.White,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    calendarPosterStatus(entry),
-                    style = AppTypography.caption.strong,
-                    color = if (entry.canOpenCalendarPlayback()) accent.accent else palette.sub,
+                    "${display.episodeLabel} · $statusText",
+                    style = AppTypography.caption.medium,
+                    color = Color.White.copy(alpha = 0.88f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
             if (entry.canOpenCalendarPlayback()) {
-                Icon(
-                    AppIcons.Play,
-                    "打开可播放内容",
-                    tint = accent.onAccent,
-                    modifier =
-                        Modifier
-                            .size(52.dp)
-                            .clip(CircleShape)
-                            .background(accent.accent)
-                            .pressable(focusShape = CircleShape, onClick = onPlay)
-                            .padding(15.dp),
-                )
+                Box(
+                    Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .background(accent.accent)
+                        .pressable(focusShape = CircleShape, onClickLabel = "打开可播放内容", onClick = onPlay),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(AppIcons.Play, null, tint = accent.onAccent, modifier = Modifier.size(16.dp))
+                }
             } else {
-                Icon(AppIcons.ChevronRight, "查看排期", tint = palette.text, modifier = Modifier.size(28.dp))
+                Icon(AppIcons.ChevronRight, "查看排期", tint = Color.White.copy(alpha = 0.86f), modifier = Modifier.size(20.dp))
             }
         }
     }
@@ -287,70 +320,87 @@ private fun CalendarPosterRow(
     display: CalendarDisplayEntry,
     onOpen: () -> Unit,
     onFollow: () -> Unit,
-    liftMenu: () -> LiftMenu,
 ) {
     val entry = display.entry
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
+    val cardSurface = palette.card.compositeOver(palette.background)
+    val cardBorder = palette.text.copy(alpha = if (palette.isDark) 0.11f else 0.07f)
     val posters =
-        listOf(
-            TmdbImages.poster(entry.episode.posterPath, "w185"),
-            TmdbImages.media(entry.episode.posterPath, "w185"),
-        ) +
-            entry.posterUrls
-    Column {
-        Row(
+        remember(entry.episode.posterPath, entry.posterUrls) {
+            listOf(
+                TmdbImages.poster(entry.episode.posterPath, "w185"),
+                TmdbImages.media(entry.episode.posterPath, "w185"),
+            ) + entry.posterUrls
+        }
+    val statusText = remember(entry) { calendarPosterStatus(entry) }
+    val playable = entry.canOpenCalendarPlayback()
+
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(AppShapes.card)
+            .background(cardSurface)
+            .border(0.75.dp, cardBorder, AppShapes.card)
+            .pressable(focusShape = AppShapes.card, onClickLabel = "查看${entry.episode.showTitle}排期", onClick = onOpen)
+            .padding(horizontal = 10.dp, vertical = 9.dp),
+        horizontalArrangement = Arrangement.spacedBy(11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        FallbackImage(
+            posters,
+            null,
             Modifier
-                .fillMaxWidth()
-                .liftable(
-                    menu = { liftMenu().withArtwork(posters.filterNotNull()) },
-                    onOpen = onOpen,
-                ).pressable(onClick = onOpen)
-                .padding(vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            FallbackImage(
-                posters,
-                null,
-                Modifier
-                    .width(58.dp)
-                    .height(80.dp)
-                    .clip(AppShapes.thumb)
-                    .background(palette.card),
+                .width(50.dp)
+                .height(72.dp)
+                .clip(AppShapes.thumb)
+                .background(palette.card3),
+        )
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                entry.episode.showTitle,
+                style = AppTypography.body.strong,
+                color = palette.text,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    entry.episode.showTitle,
-                    style = AppTypography.body.strong,
-                    color = palette.text,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    display.episodeLabel,
-                    style = AppTypography.caption.regular,
-                    color = palette.sub,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(calendarPosterStatus(entry), style = AppTypography.caption.regular, color = palette.sub)
-            }
-            if (entry.episode.canFollow) {
+            Text(
+                display.episodeLabel,
+                style = AppTypography.caption.medium,
+                color = if (playable) accent.accent else palette.sub,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                statusText,
+                style = AppTypography.caption.regular,
+                color = palette.sub2,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (entry.episode.canFollow) {
+            Box(
+                Modifier
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (entry.followed) {
+                            accent.accent.copy(alpha = if (palette.isDark) 0.22f else 0.12f)
+                        } else {
+                            palette.text.copy(alpha = if (palette.isDark) 0.08f else 0.05f)
+                        },
+                    ).pressable(focusShape = CircleShape, onClickLabel = if (entry.followed) "取消追剧" else "追剧", onClick = onFollow),
+                contentAlignment = Alignment.Center,
+            ) {
                 Icon(
                     if (entry.followed) AppIcons.Check else AppIcons.Bell,
-                    if (entry.followed) "取消追剧" else "追剧",
-                    tint = accent.accent,
-                    modifier =
-                        Modifier
-                            .pressable(onClick = onFollow)
-                            .touchTarget()
-                            .padding(12.dp)
-                            .size(20.dp),
+                    null,
+                    tint = if (entry.followed) accent.accent else palette.sub,
+                    modifier = Modifier.size(16.dp),
                 )
             }
         }
-        Spacer(Modifier.fillMaxWidth().height(1.dp).background(palette.border))
     }
 }
 

@@ -594,8 +594,8 @@ fun DetailScreen(component: DetailComponent) {
                 }
             val detailSurfaceState = rememberAnimatedColorState(detailSurface, Motion.ACCENT)
             val detailPlayColor =
-                remember(detailAccent, detailSurface) {
-                    readableStateAccent(detailAccent, detailSurface, minimumRatio = 3.0f)
+                remember(detailAccent, detailSurface, palette.isDark) {
+                    harmonizeDetailPlayButtonColor(detailAccent, detailSurface, palette.isDark)
                 }
 
             val detailPlayColorState = rememberAnimatedColorState(detailPlayColor)
@@ -656,7 +656,7 @@ fun DetailScreen(component: DetailComponent) {
                     ),
                 ) {
                     if (cinemaArtwork != null) {
-                        CinemaDetailHero(cinemaArtwork, heroUrls, displayTitle, heroHeight, detailSurface, heroScroll) {
+                        CinemaDetailHero(cinemaArtwork, heroUrls, displayTitle, heroHeight, detailSurfaceState, heroScroll) {
                             resolvedHeroUrl = it
                         }
                     }
@@ -690,7 +690,7 @@ fun DetailScreen(component: DetailComponent) {
                                                     urls = heroUrls,
                                                     title = displayTitle,
                                                     height = heroHeight,
-                                                    surfaceColor = detailSurface,
+                                                    surfaceColor = detailSurfaceState,
                                                     animationKey = "detail-hero-${detail.id}",
                                                     sharedKey = sharedHeroKey,
                                                     scroll = heroScroll,
