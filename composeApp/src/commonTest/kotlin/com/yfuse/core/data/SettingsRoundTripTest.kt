@@ -87,6 +87,18 @@ class SettingsRoundTripTest {
     }
 
     @Test
+    fun homePosterNamesAreHiddenByDefaultAndRestoreBothChoices() {
+        val settings = MapSettings()
+        val prefs = ThemePreferences(settings)
+        assertEquals(false, prefs.homePosterNames.value)
+        for (enabled in listOf(true, false)) {
+            prefs.setHomePosterNames(enabled)
+            assertEquals(enabled, prefs.homePosterNames.value)
+            assertEquals(enabled, ThemePreferences(settings).homePosterNames.value)
+        }
+    }
+
+    @Test
     fun ThemePreferences_customHomeVisible_saves_every_selection_and_restores_it() {
         val settings = MapSettings()
         val prefs = ThemePreferences(settings)

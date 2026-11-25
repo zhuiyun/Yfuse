@@ -8,8 +8,12 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
@@ -18,6 +22,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -25,7 +32,9 @@ import com.russhwolf.settings.SharedPreferencesSettings
 import com.yfuse.MainActivity
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.designsystem.AccessibilityOptions
+import com.yfuse.core.designsystem.CaptionedPoster
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.LocalPosterCaptionsVisible
 import com.yfuse.core.designsystem.LocalSettingsLocator
 import com.yfuse.core.designsystem.MotionTheme
 import com.yfuse.core.designsystem.SettingsLocatorRequest
@@ -41,6 +50,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
+import java.util.concurrent.atomic.AtomicInteger
 
 /** Real Compose rows and accessibility clicks; isolated storage, no user account or external service. */
 @RunWith(AndroidJUnit4::class)
@@ -128,6 +138,61 @@ class SettingsPagesInstrumentedTest {
             await("Calm override explanation") { visibleNode("跟随静息主题") != null }
             assertFalse(clickableNode("搜索与导航动效")?.isEnabled == true)
             assertEquals(pulseBefore, prefs.pulseSweep.value)
+        }
+    }
+
+    @Test(timeout = 60_000L)
+    fun homePosterSwitchRestoresCaptionsAndLeavesSpaceBelowHiddenTitles() {
+        withSettings { scenario, prefs, page, locator ->
+            scenario.onActivity {
+                page.value = ProfilePage.AppearanceLayout
+                locator.value = SettingsLocatorRequest("首页与导航", 1, "显示首页海报名")
+            }
+            await("Home captions default to hidden") { clickableNode("显示首页海报名")?.isChecked == false }
+            click("显示首页海报名")
+            await("Home caption preference saved") { ThemePreferences(storage()).homePosterNames.value }
+
+            val tileHeight = AtomicInteger()
+            val artworkHeight = AtomicInteger()
+            val gap = AtomicInteger()
+            scenario.onActivity { activity ->
+                activity.setContent {
+                    YfuseTheme(dark = true) {
+                        val shown by prefs.homePosterNames.collectAsState()
+                        gap.set(with(LocalDensity.current) { 8.dp.roundToPx() })
+                        CompositionLocalProvider(LocalPosterCaptionsVisible provides shown) {
+                            Box(Modifier.fillMaxSize()) {
+                                CaptionedPoster(
+                                    url = null,
+                                    title = "海报示例",
+                                    year = "2026",
+                                    modifier = Modifier.width(112.dp).onSizeChanged { tileHeight.set(it.height) },
+                                    posterModifier =
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .height(
+                                                150.dp,
+                                            ).onSizeChanged { artworkHeight.set(it.height) },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            await("Caption includes the year") { visibleNode("2026") != null }
+            val expanded = tileHeight.get()
+            scenario.onActivity { prefs.setHomePosterNames(false) }
+            await("Hidden caption keeps its bottom margin") {
+                artworkHeight.get() > 0 &&
+                    tileHeight.get() == artworkHeight.get() + gap.get() &&
+                    tileHeight.get() < expanded &&
+                    visibleNode("2026") == null
+            }
+            scenario.onActivity { prefs.setHomePosterNames(true) }
+            await("Caption restored at the original height") {
+                tileHeight.get() == expanded &&
+                    visibleNode("2026") != null
+            }
         }
     }
 

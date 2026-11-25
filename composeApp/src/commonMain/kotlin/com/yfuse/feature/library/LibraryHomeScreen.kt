@@ -88,6 +88,7 @@ import com.yfuse.core.designsystem.OverlayActionRow
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.PageHint
 import com.yfuse.core.designsystem.Poster
+import com.yfuse.core.designsystem.PosterCaption
 import com.yfuse.core.designsystem.PublishLivingPosterPageColor
 import com.yfuse.core.designsystem.RefreshIndicator
 import com.yfuse.core.designsystem.RefreshThresholdHaptics
@@ -1397,29 +1398,31 @@ private fun PlaybackHistoryCard(
                     .height(MediaSizing.landscapeCardHeight)
                     .liftAnchor(artwork),
         )
-        Spacer(Modifier.height(7.dp))
-        Text(
-            text = item.title,
-            style = AppTypography.body.strong,
-            color = palette.text,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Spacer(Modifier.height(2.dp))
-        val year = item.year?.toString()
-        if (year != null) {
+        PosterCaption {
+            Spacer(Modifier.height(7.dp))
             Text(
-                text = year,
-                style = AppTypography.caption.regular,
-                color = palette.sub2,
+                text = item.title,
+                style = AppTypography.body.strong,
+                color = palette.text,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.fillMaxWidth(),
             )
-        } else {
-            // The year's own line box, so the cards line up with or without one; see [CaptionedPoster].
-            Spacer(Modifier.height(15.dp))
+            Spacer(Modifier.height(2.dp))
+            val year = item.year?.toString()
+            if (year != null) {
+                Text(
+                    text = year,
+                    style = AppTypography.caption.regular,
+                    color = palette.sub2,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            } else {
+                // The year's own line box, so the cards line up with or without one; see [CaptionedPoster].
+                Spacer(Modifier.height(15.dp))
+            }
         }
     }
 }

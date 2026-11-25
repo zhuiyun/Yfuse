@@ -111,6 +111,8 @@ private val PosterMinWidth = 96.dp
 /** The gap between two columns. */
 private val GridSpacing = 10.dp
 
+private fun gridRowSpacing(titles: Boolean) = if (titles) 12.dp else 20.dp
+
 /** A caption's height before one has been measured: title, year and the space around them. */
 private val CaptionEstimate = 44.dp
 
@@ -363,7 +365,7 @@ fun LibraryGridScreen(
                                         bottom = bottomContentInset,
                                     ),
                                 horizontalArrangement = Arrangement.spacedBy(GridSpacing),
-                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(gridRowSpacing(titles)),
                                 modifier =
                                     Modifier
                                         .fillMaxSize()
@@ -616,7 +618,7 @@ private fun SkeletonGrid(
                 bottom = bottomContentInset,
             ),
         horizontalArrangement = Arrangement.spacedBy(GridSpacing),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(gridRowSpacing(titles)),
         userScrollEnabled = false,
         modifier = Modifier.fillMaxSize().skeletonSweep(),
     ) {

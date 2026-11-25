@@ -44,6 +44,7 @@ class ThemePreferences(
         const val KEY_REDUCE_MOTION = "accessibility.reduceMotion"
         const val KEY_PARTICLE_LIGHT = "appearance.particleLight"
         const val KEY_PULSE_SWEEP = "appearance.pulseSweep"
+        const val KEY_HOME_POSTER_NAMES = "appearance.homePosterNames"
         const val KEY_LIBRARY_CAROUSEL = "appearance.libraryCarousel"
         const val KEY_NAV_COLLAPSE_ON_SCROLL = "appearance.navCollapseOnScroll"
         const val KEY_SPLASH_ANIMATION = "appearance.splashAnimation"
@@ -136,6 +137,14 @@ class ThemePreferences(
     fun setPulseSweep(enabled: Boolean) {
         _pulseSweep.value = enabled
         settings.putBoolean(KEY_PULSE_SWEEP, enabled)
+    }
+
+    private val _homePosterNames = MutableStateFlow(settings.getBoolean(KEY_HOME_POSTER_NAMES, false))
+    val homePosterNames: StateFlow<Boolean> = _homePosterNames.asStateFlow()
+
+    fun setHomePosterNames(enabled: Boolean) {
+        settings.putBoolean(KEY_HOME_POSTER_NAMES, enabled)
+        _homePosterNames.value = enabled
     }
 
     private val _libraryCarousel = MutableStateFlow(settings.getBoolean(KEY_LIBRARY_CAROUSEL, true))

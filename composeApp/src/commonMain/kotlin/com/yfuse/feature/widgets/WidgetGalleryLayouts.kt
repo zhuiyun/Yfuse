@@ -37,6 +37,7 @@ import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.LocalPosterCaptionsVisible
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.widget.WidgetMedia
@@ -72,7 +73,14 @@ internal fun WidgetGalleryLayouts(
                 else -> if (compact) 244.dp else 294.dp
             }
         val width = widgetRailItemWidth(preferred, maxWidth)
-        val copy = galleryCopyHeight(metadata)
+        val copy =
+            if (LocalPosterCaptionsVisible.current ||
+                style == WidgetStyle.FloatingPoster
+            ) {
+                galleryCopyHeight(metadata)
+            } else {
+                8.dp
+            }
         val image =
             when (style) {
                 WidgetStyle.BigRank -> (width - 36.dp) / .667f
@@ -169,7 +177,14 @@ private fun GalleryBigRank(
                 softWrap = false,
             )
         }
-        MediaCopy(item, Modifier.padding(start = 4.dp), metadata = metadata, dense = true)
+        if (LocalPosterCaptionsVisible.current) {
+            MediaCopy(
+                item,
+                Modifier.padding(start = 4.dp),
+                metadata = metadata,
+                dense = true,
+            )
+        }
     }
 }
 
@@ -193,7 +208,14 @@ private fun GalleryBorderless(
                 ),
             )
         }
-        MediaCopy(item, Modifier.padding(horizontal = 12.dp, vertical = 4.dp), metadata = metadata, dense = true)
+        if (LocalPosterCaptionsVisible.current) {
+            MediaCopy(
+                item,
+                Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                metadata = metadata,
+                dense = true,
+            )
+        }
     }
 }
 
@@ -232,6 +254,7 @@ private fun GalleryMirror(
                 poster = true,
             )
         }
+        if (!LocalPosterCaptionsVisible.current) return@Column
         Spacer(Modifier.height(8.dp))
         MediaCopy(item, metadata = metadata, dense = true)
     }
@@ -246,6 +269,7 @@ private fun GalleryOverlap(
 ) {
     Box(Modifier.fillMaxSize()) {
         Artwork(item, Modifier.fillMaxWidth().height(image).clip(AppShapes.card))
+        if (!LocalPosterCaptionsVisible.current) return@Box
         Box(
             Modifier
                 .padding(horizontal = 12.dp)
@@ -303,7 +327,7 @@ private fun GalleryStaggered(
                 poster = true,
             )
         }
-        MediaCopy(item, metadata = metadata, dense = true)
+        if (LocalPosterCaptionsVisible.current) MediaCopy(item, metadata = metadata, dense = true)
     }
 }
 
@@ -328,6 +352,13 @@ private fun GalleryBanner(
                 poster = true,
             )
         }
-        MediaCopy(item, Modifier.padding(horizontal = 4.dp), metadata = metadata, dense = true)
+        if (LocalPosterCaptionsVisible.current) {
+            MediaCopy(
+                item,
+                Modifier.padding(horizontal = 4.dp),
+                metadata = metadata,
+                dense = true,
+            )
+        }
     }
 }

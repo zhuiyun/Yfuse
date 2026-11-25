@@ -10,6 +10,7 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.rememberScrollableState
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.gestures.scrollable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -63,6 +64,7 @@ import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.LocalPosterCaptionsVisible
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.widget.WidgetMedia
@@ -364,6 +366,13 @@ internal fun WidgetGalleryFooter(
     supportingText: String? = null,
 ) {
     val item = items.getOrNull(motion.currentIndex) ?: return
+    if (!LocalPosterCaptionsVisible.current) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            WidgetIconButton(AppIcons.Info, "查看 ${item.title} 详情") { onOpen(item) }
+            if (items.size > 1) WidgetGalleryPositionControls(motion)
+        }
+        return
+    }
     val fontScale = LocalDensity.current.fontScale
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val stacked = maxWidth < 300.dp * fontScale.coerceAtLeast(1f)

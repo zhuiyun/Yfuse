@@ -2,10 +2,13 @@ package com.yfuse.feature.library
 
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import com.arkivanov.decompose.extensions.compose.subscribeAsState
 import com.yfuse.app.LocalWideWindow
+import com.yfuse.core.designsystem.LocalPosterCaptionsVisible
 import com.yfuse.core.designsystem.OfficialNavDisplay
 import com.yfuse.feature.detail.DetailScreen
 import com.yfuse.feature.history.PlaybackHistoryScreen
@@ -35,8 +38,13 @@ fun LibraryScreen(component: LibraryComponent) {
                     onBack = component::navigateBack,
                     onOpenItem = { serverId, itemId -> component.selectUnifiedItem(serverId, itemId) },
                 )
-            is LibraryComponent.Child.Home ->
-                LibraryHomeScreen(instance.component)
+            is LibraryComponent.Child.Home -> {
+                val showNames by instance.component.themePreferences.homePosterNames
+                    .collectAsState()
+                CompositionLocalProvider(LocalPosterCaptionsVisible provides showNames) {
+                    LibraryHomeScreen(instance.component)
+                }
+            }
             is LibraryComponent.Child.History ->
                 PlaybackHistoryScreen(
                     instance.component,

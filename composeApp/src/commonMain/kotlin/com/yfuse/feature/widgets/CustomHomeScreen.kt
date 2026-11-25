@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -34,6 +35,7 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.LocalPosterCaptionsVisible
 import com.yfuse.core.designsystem.ThemeIcon
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.model.TmdbItem
@@ -176,14 +178,18 @@ fun CustomHomeScreen(
             } else {
                 Box(Modifier.weight(1f)) {
                     pageStates.SaveableStateProvider(page.id) {
-                        WidgetPageContent(
-                            page,
-                            repository,
-                            onEdit = { manager = true },
-                            onOpenTmdb = onOpenTmdb,
-                            active =
-                                !manager && !choosing,
-                        )
+                        CompositionLocalProvider(
+                            LocalPosterCaptionsVisible provides preferences.homePosterNames.collectAsState().value,
+                        ) {
+                            WidgetPageContent(
+                                page,
+                                repository,
+                                onEdit = { manager = true },
+                                onOpenTmdb = onOpenTmdb,
+                                active =
+                                    !manager && !choosing,
+                            )
+                        }
                     }
                 }
             }

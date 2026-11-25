@@ -442,7 +442,11 @@ fun App(root: RootComponent) {
                                                     Tab.Home ->
                                                         com.yfuse.feature.personal.PersonalDiscoveryGuard(
                                                             onOpenLibrary = root::returnFromDiscovery,
-                                                        ) { HomeTabScreen(root.home) }
+                                                        ) {
+                                                            val showNames by root.themePreferences.homePosterNames
+                                                                .collectAsState()
+                                                            HomeTabScreen(root.home, showNames)
+                                                        }
                                                     Tab.CustomHome ->
                                                         HomeTabScreen(root.widgetHome) {
                                                             com.yfuse.feature.widgets

@@ -166,6 +166,7 @@ private fun LayoutSettingsPage(
 ) {
     val startup by prefs.startupTab.collectAsState()
     val customHome by prefs.customHomeVisible.collectAsState()
+    val posterNames by prefs.homePosterNames.collectAsState()
     val carousel by prefs.libraryCarousel.collectAsState()
     val collapse by prefs.navCollapseOnScroll.collectAsState()
     var manageWidgets by remember { mutableStateOf(false) }
@@ -181,6 +182,16 @@ private fun LayoutSettingsPage(
                         { onAction(AppearanceAction.Startup) },
                         AppIcons.Home,
                         SettingTint.general,
+                    )
+                    SettingsDivider()
+                    SwitchRow(
+                        "显示首页海报名",
+                        posterNames,
+                        true,
+                        icon = AppIcons.Subtitle,
+                        iconTint = SettingTint.appearance,
+                        description = "显示首页海报下方的片名和附属文字",
+                        onChange = prefs::setHomePosterNames,
                     )
                     SettingsDivider()
                     SwitchRow(

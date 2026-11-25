@@ -26,6 +26,7 @@ import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.LocalPosterCaptionsVisible
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.widget.WidgetMedia
 import java.time.LocalDate
@@ -100,7 +101,14 @@ internal fun WidgetSplitCard(
         Artwork(item, Modifier.weight(.42f).fillMaxHeight().clip(AppShapes.thumb), poster = true)
         Column(Modifier.weight(.58f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Artwork(item, Modifier.fillMaxWidth().weight(1f).clip(AppShapes.thumb))
-            MediaCopy(item, Modifier.padding(bottom = 2.dp), metadata = metadata, dense = true)
+            if (LocalPosterCaptionsVisible.current) {
+                MediaCopy(
+                    item,
+                    Modifier.padding(bottom = 2.dp),
+                    metadata = metadata,
+                    dense = true,
+                )
+            }
         }
     }
 }
@@ -179,6 +187,7 @@ internal fun WidgetDateCard(
             }
         }
         Artwork(item, Modifier.fillMaxWidth().weight(1f).clip(AppShapes.thumb))
+        if (!LocalPosterCaptionsVisible.current) return@Column
         MediaCopy(
             if (metadata && dateLabel.isNotBlank()) item.copy(year = "") else item,
             metadata = metadata,

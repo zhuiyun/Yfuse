@@ -40,6 +40,7 @@ import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.LocalPosterCaptionsVisible
 import com.yfuse.core.designsystem.controlBorder
 import com.yfuse.core.designsystem.controlSurface
 import com.yfuse.core.designsystem.glass
@@ -228,6 +229,8 @@ private fun widgetRailMetrics(
         // Leave room for font rounding and custom system-font descenders at the rail edge.
         return title + details + description + 4.dp
     }
+    val showCaption = LocalPosterCaptionsVisible.current
+    val belowArtwork = if (showCaption) copy() else 8.dp
     val pagerWidth =
         widgetPagerCardWidth(available, compact, style == WidgetStyle.CenterPoster, LocalWidgetGalleryMaxHeight.current)
     val pageInset = (available - pagerWidth) / 2
@@ -294,29 +297,33 @@ private fun widgetRailMetrics(
             WidgetStyle.Episodes, WidgetStyle.RankList -> maxOf(84.dp, copy(2) + bodyLine + 8.dp) + 24.dp
             WidgetStyle.Expandable -> maxOf(120.dp, copy(2) + bodyLine + 8.dp) + 24.dp
             WidgetStyle.Timeline -> infoHeight + bodyLine + 18.dp
-            WidgetStyle.ImageTop, WidgetStyle.TextTop, WidgetStyle.FeatureList -> image + copy(2) + 32.dp
+            WidgetStyle.TextTop -> image + copy(2) + 32.dp
+            WidgetStyle.ImageTop, WidgetStyle.FeatureList -> image + (if (showCaption) copy(2) else 8.dp) + 32.dp
             WidgetStyle.Hero, WidgetStyle.PeekCarousel, WidgetStyle.FeatureThree, WidgetStyle.Magazine,
             WidgetStyle.RankFeature, WidgetStyle.NextEpisode,
             -> heroHeight
             WidgetStyle.Categories -> maxOf(width, sectionLine * 2 + copy(2) + 40.dp)
-            WidgetStyle.DoublePoster -> image + copy() + 28.dp
-            WidgetStyle.Podium -> image + copy() + bodyLine + 36.dp
-            WidgetStyle.GroupRanks, WidgetStyle.Calendar -> image + copy() + bodyLine + 40.dp
-            WidgetStyle.People -> image + copy(1) + 12.dp
+            WidgetStyle.DoublePoster -> image + belowArtwork + 28.dp
+            WidgetStyle.Podium -> image + belowArtwork + bodyLine + 36.dp
+            WidgetStyle.GroupRanks, WidgetStyle.Calendar -> image + belowArtwork + bodyLine + 40.dp
+            WidgetStyle.People -> image + (if (showCaption) copy(1) else 8.dp) + 12.dp
             WidgetStyle.Tags -> maxOf(48.dp, bodyLine * 2 + 20.dp)
             WidgetStyle.TextList -> copy(2) + 32.dp
-            WidgetStyle.ContinueLandscape, WidgetStyle.ContinuePoster -> image + copy() + bodyLine + 16.dp
+            WidgetStyle.ContinueLandscape, WidgetStyle.ContinuePoster ->
+                image +
+                    (if (showCaption) copy() + bodyLine else 8.dp) +
+                    16.dp
             WidgetStyle.Spotlight -> maxOf(if (compact) 218.dp else 256.dp, copy() + 160.dp)
             WidgetStyle.CinemaTicket -> maxOf(148.dp, copy() + sectionLine + 48.dp)
             WidgetStyle.SplitFocus -> maxOf(182.dp, copy() + 138.dp)
             WidgetStyle.CaptionPoster -> maxOf(image, copy() + 190.dp)
-            WidgetStyle.DateStamp -> image + copy() + sectionLine * 2 + 48.dp
+            WidgetStyle.DateStamp -> image + belowArtwork + sectionLine * 2 + 48.dp
             WidgetStyle.CompactRow -> maxOf(108.dp, copy() + 24.dp)
             WidgetStyle.Landscape, WidgetStyle.Cinema, WidgetStyle.Poster, WidgetStyle.GridTwo,
             WidgetStyle.GridThree, WidgetStyle.PosterStack, WidgetStyle.CenterPoster,
             WidgetStyle.RankRail, WidgetStyle.RankGrid, WidgetStyle.Collection,
-            -> image + copy() + 8.dp
-            else -> image + copy() + 8.dp
+            -> image + belowArtwork + 8.dp
+            else -> image + belowArtwork + 8.dp
         }
     return WidgetRailMetrics(width, image, height, pageInset)
 }
@@ -373,7 +380,11 @@ private fun WidgetRailCard(
                             Badge(if (index == 0) "主推" else "精选", Modifier.padding(8.dp))
                         }
                     }
-                    if (style != WidgetStyle.TextTop) MediaCopy(item, metadata = metadata, lines = 2)
+                    if (style != WidgetStyle.TextTop &&
+                        LocalPosterCaptionsVisible.current
+                    ) {
+                        MediaCopy(item, metadata = metadata, lines = 2)
+                    }
                 }
             }
             WidgetStyle.DoublePoster -> {
@@ -384,7 +395,7 @@ private fun WidgetRailCard(
             WidgetStyle.PosterStack -> {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     CoverStack(item, metrics.imageHeight, fan = true)
-                    MediaCopy(item, metadata = metadata)
+                    if (LocalPosterCaptionsVisible.current) MediaCopy(item, metadata = metadata)
                 }
             }
             WidgetStyle.Hero, WidgetStyle.PeekCarousel, WidgetStyle.FeatureThree,
@@ -467,7 +478,14 @@ private fun WidgetRailCard(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Artwork(item, Modifier.size(90.dp).clip(CircleShape), poster = true)
-                    MediaCopy(item, metadata = metadata, lines = 1, centered = true)
+                    if (LocalPosterCaptionsVisible.current) {
+                        MediaCopy(
+                            item,
+                            metadata = metadata,
+                            lines = 1,
+                            centered = true,
+                        )
+                    }
                 }
             }
             WidgetStyle.Tags -> {
@@ -488,7 +506,7 @@ private fun WidgetRailCard(
             WidgetStyle.Collection -> {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     CoverStack(item, metrics.imageHeight)
-                    MediaCopy(item, metadata = metadata)
+                    if (LocalPosterCaptionsVisible.current) MediaCopy(item, metadata = metadata)
                 }
             }
             WidgetStyle.Expandable ->
@@ -664,6 +682,7 @@ private fun MediaTile(
                 )
             }
         }
+        if (!LocalPosterCaptionsVisible.current) return@Column
         MediaCopy(item, metadata = metadata, dense = dense)
         if (progress) {
             Text(
