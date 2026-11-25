@@ -16,7 +16,7 @@ jobs:
           ref: 382077026e5747530f320c0188ba2eeebd529b7e
           persist-credentials: false
           fetch-depth: 0
-      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880
         with: {distribution: temurin, java-version: '17', cache: gradle}
       - name: Verify native inputs and build the release candidate
         env: {API_TOKEN: "${{ github.token }}"}

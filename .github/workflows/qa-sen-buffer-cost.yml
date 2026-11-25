@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with: {fetch-depth: 0, persist-credentials: false}
-      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880
         with: {distribution: temurin, java-version: '17', cache: gradle}
       - name: Select the verified source commit of the native artifact
         run: git checkout --detach 0f61f76626e370cd40c25c22fa0e211c12d7bd86
