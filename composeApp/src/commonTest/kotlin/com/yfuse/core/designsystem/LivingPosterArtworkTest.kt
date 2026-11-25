@@ -10,8 +10,9 @@ class LivingPosterArtworkTest {
         val artwork = livingPosterArtwork(width = 400.dp, height = 600.dp, showSidePreview = false)
 
         assertEquals(400f / 600f, artwork.aspectRatio, 1e-6f)
-        // The dissolve is the page fade's share of the reel's height.
-        assertEquals(HeroPageFade.value / 600f, artwork.fadeFraction, 1e-6f)
+        // The renderer and the sampler cover the same proportional band.
+        assertEquals(252f, artwork.fadeHeight.value, 1e-4f)
+        assertEquals(artwork.fadeHeight.value / 600f, artwork.fadeFraction, 1e-6f)
     }
 
     @Test
@@ -20,7 +21,8 @@ class LivingPosterArtworkTest {
         val posterWidth = 900f - LivingPosterDefaults.LEADING_INSET.value - LivingPosterDefaults.TRAILING_PEEK.value
 
         assertEquals(posterWidth / 700f, artwork.aspectRatio, 1e-6f)
-        assertEquals(HeroPageFade.value / 700f, artwork.fadeFraction, 1e-6f)
+        assertEquals(280.dp, artwork.fadeHeight)
+        assertEquals(artwork.fadeHeight.value / 700f, artwork.fadeFraction, 1e-6f)
     }
 
     @Test
@@ -31,7 +33,9 @@ class LivingPosterArtworkTest {
         val unmeasured = livingPosterArtwork(400.dp, 0.dp, showSidePreview = false)
         assertEquals(400f, unmeasured.aspectRatio, 1e-6f)
         assertEquals(1f, unmeasured.fadeFraction, 1e-6f)
-        // A very tall reel still keeps a sliver of dissolve.
-        assertEquals(0.02f, livingPosterArtwork(400.dp, 10_000.dp, showSidePreview = false).fadeFraction, 1e-6f)
+        // Even a landscape reel gets a longer feather, without fading past its bounds.
+        val short = livingPosterArtwork(400.dp, 240.dp, showSidePreview = true)
+        assertEquals(148.dp, short.fadeHeight)
+        assertEquals(148f / 240f, short.fadeFraction, 1e-6f)
     }
 }

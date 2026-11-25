@@ -41,7 +41,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
@@ -74,7 +73,7 @@ import com.yfuse.core.designsystem.LaunchWaveState
 import com.yfuse.core.designsystem.LiftAnchor
 import com.yfuse.core.designsystem.LiftMenu
 import com.yfuse.core.designsystem.LivingPosterArtwork
-import com.yfuse.core.designsystem.LivingPosterDefaults
+import com.yfuse.core.designsystem.LivingPosterArtworkPlane
 import com.yfuse.core.designsystem.LivingPosterHeroCarousel
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
@@ -106,11 +105,9 @@ import com.yfuse.core.designsystem.carouselArtworkMotion
 import com.yfuse.core.designsystem.carouselCaptionEntry
 import com.yfuse.core.designsystem.fadeIntoPage
 import com.yfuse.core.designsystem.glass
-import com.yfuse.core.designsystem.heroCaptionScrim
 import com.yfuse.core.designsystem.heroDurationLabel
 import com.yfuse.core.designsystem.heroMediaTypeLabel
 import com.yfuse.core.designsystem.heroScrollCollapse
-import com.yfuse.core.designsystem.heroTopScrim
 import com.yfuse.core.designsystem.launchWaveImage
 import com.yfuse.core.designsystem.launchWaveInterrupt
 import com.yfuse.core.designsystem.launchWaveItem
@@ -118,7 +115,7 @@ import com.yfuse.core.designsystem.liftAnchor
 import com.yfuse.core.designsystem.liftable
 import com.yfuse.core.designsystem.liftedCardOpen
 import com.yfuse.core.designsystem.livingPosterArtwork
-import com.yfuse.core.designsystem.livingPosterFrame
+import com.yfuse.core.designsystem.livingPosterCaptionScrim
 import com.yfuse.core.designsystem.livingPosterHeroHeight
 import com.yfuse.core.designsystem.mediaLazyItemKey
 import com.yfuse.core.designsystem.motionItem
@@ -154,12 +151,6 @@ import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.util.rememberPosterCardSharer
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
-
-/**
- * The caption clears the whole dissolve band — white copy cannot follow the artwork into
- * the page. Only the dots, whose ink is the page's, sit inside it.
- */
-private val LibraryHeroContentBottom = LivingPosterDefaults.CAPTION_BOTTOM
 
 /** How far the content column is pulled up over the lower edge of the hero. */
 private val HeroLift = 52.dp
@@ -405,7 +396,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                         ) {
                                             if (heroPending) {
                                                 SkeletonBlock(
-                                                    Modifier.matchParentSize().fadeIntoPage(),
+                                                    Modifier.matchParentSize().fadeIntoPage(artwork.fadeHeight),
                                                     shape = RectangleShape,
                                                 )
                                             }
@@ -439,6 +430,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                             showSidePreview = showSidePreview,
                                             held = !carouselVisible || serverMenuOpen,
                                             ambientUrls = slideUrls,
+                                            artwork = artwork,
                                             modifier =
                                                 Modifier
                                                     .fillMaxWidth()
@@ -808,10 +800,9 @@ private fun HeroCarousel(
     Box(
         modifier
             .fillMaxSize()
-            .then(if (framed) Modifier.livingPosterFrame() else Modifier)
             .pressable(onClick = openDetail),
     ) {
-        Box(Modifier.fillMaxSize().fadeIntoPage().clipToBounds()) {
+        LivingPosterArtworkPlane(artwork, framed) {
             FallbackImage(
                 urls = urls,
                 contentDescription = item.title,
@@ -827,8 +818,6 @@ private fun HeroCarousel(
                         .launchWaveImage(hero = true),
             )
         }
-        // Contrast only. The image itself owns the lower transition through fadeIntoPage().
-        Box(Modifier.fillMaxSize().background(heroTopScrim()))
         Row(
             Modifier
                 .fillMaxWidth()
@@ -885,12 +874,11 @@ private fun HeroCarousel(
             Modifier
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
-                .heroCaptionScrim()
+                .livingPosterCaptionScrim()
                 .padding(
                     start = 20.dp,
                     end = 20.dp,
                     top = 24.dp,
-                    bottom = LibraryHeroContentBottom,
                 ).launchWaveItem(),
         ) {
             Text(

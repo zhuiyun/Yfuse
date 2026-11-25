@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.text.BasicText
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
@@ -38,6 +40,67 @@ import kotlin.math.roundToInt
 
 @RunWith(AndroidJUnit4::class)
 class HeroLiftInstrumentedTest {
+    @Test(timeout = 30_000)
+    fun carousel_artwork_and_frame_dissolve_into_the_same_page_pixels() {
+        val hero = AtomicReference(Rect.Zero)
+        val framed = mutableStateOf(false)
+        val background = Color(0xFFB76232)
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.setContent {
+                    Box(Modifier.fillMaxSize().background(background).padding(top = 24.dp)) {
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .height(280.dp)
+                                .onGloballyPositioned { hero.set(Rect(it.positionInWindow(), it.size.toSize())) },
+                        ) {
+                            val hasFrame = framed.value
+                            LivingPosterArtworkPlane(livingPosterArtwork(400.dp, 280.dp, hasFrame), hasFrame) {
+                                Box(Modifier.fillMaxSize().background(Color.White))
+                            }
+                            Box(
+                                Modifier
+                                    .align(Alignment.BottomStart)
+                                    .fillMaxWidth()
+                                    .height(180.dp)
+                                    .livingPosterCaptionScrim(),
+                            )
+                        }
+                    }
+                }
+            }
+            waitUntil("The reel was never laid out") { hero.get().height > 0f }
+            val bounds = hero.get()
+            val density = bounds.height / 280f
+            for (hasFrame in listOf(false, true)) {
+                scenario.onActivity { framed.value = hasFrame }
+                SystemClock.sleep(180)
+                val shot =
+                    capture(
+                        scenario,
+                        Rect(bounds.left, bounds.bottom - 40f * density, bounds.right, bounds.bottom + 12f * density),
+                    )
+                try {
+                    for (x in listOf(1, shot.width / 2, shot.width - 2)) {
+                        val pagePixel = shot.getPixel(x, (46f * density).roundToInt())
+                        val edgePixel = shot.getPixel(x, (39f * density).roundToInt())
+                        val largestChange =
+                            listOf(16, 8, 0).maxOf { shift ->
+                                kotlin.math.abs(((edgePixel ushr shift) and 255) - ((pagePixel ushr shift) and 255))
+                            }
+                        assertTrue(
+                            "Visible bottom edge (framed=$hasFrame, x=$x, channel change=$largestChange)",
+                            largestChange <= 4,
+                        )
+                    }
+                } finally {
+                    shot.recycle()
+                }
+            }
+        }
+    }
+
     @Test(timeout = 30_000)
     fun caption_fades_above_text_and_keeps_white_artwork_readable() {
         val caption = AtomicReference(Rect.Zero)

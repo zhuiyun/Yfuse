@@ -86,6 +86,7 @@ class LivingPosterPage internal constructor(
 @Immutable
 data class LivingPosterArtwork(
     val aspectRatio: Float,
+    val fadeHeight: Dp,
     val fadeFraction: Float,
 )
 
@@ -102,10 +103,9 @@ fun livingPosterArtwork(
         } else {
             width
         }
-    return LivingPosterArtwork(
-        aspectRatio = artworkWidth.value / height.value.coerceAtLeast(1f),
-        fadeFraction = (HeroPageFade.value / height.value.coerceAtLeast(1f)).coerceIn(0.02f, 1f),
-    )
+    val reelHeight = height.coerceAtLeast(1.dp)
+    val fadeHeight = (reelHeight * 0.42f).coerceIn(148.dp, 280.dp).coerceAtMost(reelHeight)
+    return LivingPosterArtwork(artworkWidth.value / reelHeight.value, fadeHeight, fadeHeight.value / reelHeight.value)
 }
 
 /** Sample only decoded artwork. A composed neighbour may get ready, but only the current page can publish. */
@@ -143,6 +143,7 @@ fun LivingPosterHeroCarousel(
     held: Boolean,
     /** The current artwork, blurred behind the inset poster when [showSidePreview]. */
     ambientUrls: List<String?>,
+    artwork: LivingPosterArtwork,
     modifier: Modifier = Modifier,
     lit: Boolean = true,
     beyondViewportPageCount: Int = 1,
@@ -190,7 +191,8 @@ fun LivingPosterHeroCarousel(
         if (showSidePreview) {
             LivingPosterAmbient(
                 urls = ambientUrls,
-                modifier = Modifier.fillMaxSize().fadeIntoPage(),
+                fadeHeight = artwork.fadeHeight,
+                modifier = Modifier.fillMaxSize(),
             )
         }
         if (pageCount == 0) {

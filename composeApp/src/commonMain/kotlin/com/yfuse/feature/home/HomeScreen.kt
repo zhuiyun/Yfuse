@@ -40,7 +40,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -78,7 +77,7 @@ import com.yfuse.core.designsystem.HeroTextShadow
 import com.yfuse.core.designsystem.ItemAction
 import com.yfuse.core.designsystem.LiftMenu
 import com.yfuse.core.designsystem.LivingPosterArtwork
-import com.yfuse.core.designsystem.LivingPosterDefaults
+import com.yfuse.core.designsystem.LivingPosterArtworkPlane
 import com.yfuse.core.designsystem.LivingPosterHeroCarousel
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
@@ -106,18 +105,15 @@ import com.yfuse.core.designsystem.ZoomBackAnchor
 import com.yfuse.core.designsystem.arrivalSweep
 import com.yfuse.core.designsystem.carouselArtworkMotion
 import com.yfuse.core.designsystem.carouselCaptionEntry
-import com.yfuse.core.designsystem.fadeIntoPage
 import com.yfuse.core.designsystem.glass
-import com.yfuse.core.designsystem.heroCaptionScrim
 import com.yfuse.core.designsystem.heroDurationLabel
 import com.yfuse.core.designsystem.heroMediaTypeLabel
-import com.yfuse.core.designsystem.heroTopScrim
 import com.yfuse.core.designsystem.homeArtworkParallax
 import com.yfuse.core.designsystem.liftable
 import com.yfuse.core.designsystem.liftedCardOpen
 import com.yfuse.core.designsystem.liveStatus
 import com.yfuse.core.designsystem.livingPosterArtwork
-import com.yfuse.core.designsystem.livingPosterFrame
+import com.yfuse.core.designsystem.livingPosterCaptionScrim
 import com.yfuse.core.designsystem.livingPosterHeroHeight
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
@@ -177,15 +173,6 @@ private const val SKELETON_SHELF_PHASE_MS = 300
 
 /** Posters a TMDB shelf shows before its 全部 takes over. */
 private const val HOME_SHELF_POSTERS = 12
-
-/**
- * The caption clears the whole dissolve band.
- *
- * White copy is legible on artwork and on the scrim over it; it is not legible on the page
- * the artwork is turning into. Every line of the caption therefore stays above the band,
- * and only the dots — whose ink is the page's — sit inside it.
- */
-private val HomeHeroContentBottom = LivingPosterDefaults.CAPTION_BOTTOM
 
 /**
  * 首页 — the prototype's `isHome` screen:
@@ -955,6 +942,7 @@ private fun HomeHeroCarousel(
             // A 浮起菜单 holds it too, from inside the reel.
             held = held || !visible,
             ambientUrls = ambientUrls,
+            artwork = artwork,
             modifier = Modifier.fillMaxSize(),
             lit = visible,
             empty = {
@@ -1059,7 +1047,6 @@ private fun HeroSlide(
     Box(
         modifier
             .fillMaxSize()
-            .then(if (framed) Modifier.livingPosterFrame() else Modifier)
             .then(
                 if (item == null) {
                     Modifier
@@ -1075,8 +1062,8 @@ private fun HeroSlide(
                 },
             ),
     ) {
-        if (item != null) {
-            Box(Modifier.fillMaxSize().fadeIntoPage().clipToBounds()) {
+        LivingPosterArtworkPlane(artwork, framed) {
+            if (item != null) {
                 FallbackImage(
                     urls = artworkUrls,
                     contentDescription = item.title,
@@ -1097,9 +1084,6 @@ private fun HeroSlide(
                 )
             }
         }
-        // Contrast only. The image itself owns the lower transition through fadeIntoPage().
-        Box(Modifier.fillMaxSize().background(heroTopScrim()))
-
         if (item != null) {
             HeroCaption(
                 item = item,
@@ -1230,12 +1214,11 @@ private fun HeroCaption(
     Column(
         modifier
             .fillMaxWidth()
-            .heroCaptionScrim()
+            .livingPosterCaptionScrim()
             .padding(
                 start = Dimens.pageHorizontal,
                 end = Dimens.pageHorizontal,
                 top = 24.dp,
-                bottom = HomeHeroContentBottom,
             ),
     ) {
         Text(

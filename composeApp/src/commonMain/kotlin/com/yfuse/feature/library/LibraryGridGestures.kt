@@ -529,7 +529,7 @@ internal fun Modifier.gridPinch(
     }
 }
 
-/** The title bar's − / +: the same thing the pinch does, one column at a time. */
+/** The grid options' − / +: the same thing the pinch does, one column at a time. */
 @Composable
 internal fun GridDensityButtons(
     state: GridDensityState,

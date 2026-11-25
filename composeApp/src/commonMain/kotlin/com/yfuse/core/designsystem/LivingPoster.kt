@@ -3,10 +3,13 @@ package com.yfuse.core.designsystem
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -27,6 +30,14 @@ object LivingPosterDefaults {
     val CAPTION_BOTTOM = HeroCaptionClearance
     val INDICATOR_BOTTOM = 16.dp
 }
+
+private val CaptionFeather = 44.dp
+
+/** Leave the last part of the dissolve free of caption shading. */
+internal fun Modifier.livingPosterCaptionScrim(): Modifier =
+    padding(bottom = LivingPosterDefaults.CAPTION_BOTTOM - CaptionFeather)
+        .heroCaptionScrim()
+        .padding(bottom = CaptionFeather)
 
 /** Compact carousel metadata shared by TMDB and Emby-backed titles. */
 fun heroDurationLabel(minutes: Int?): String? =
@@ -90,12 +101,13 @@ private const val SHORT_VIEWPORT_HERO_SHARE = 0.9f
 @Composable
 fun LivingPosterAmbient(
     urls: List<String?>,
+    fadeHeight: Dp,
     modifier: Modifier = Modifier,
 ) {
     if (urls.none { !it.isNullOrBlank() }) return
     // Fade the blurred echo as well as the foreground artwork. Leaving this layer opaque made
     // its clipped lower edge visible after the main image had already dissolved into the page.
-    Box(modifier.fadeIntoPage()) {
+    Box(modifier.fadeIntoPage(fadeHeight)) {
         FallbackImage(
             urls = urls,
             contentDescription = null,
@@ -114,11 +126,21 @@ fun LivingPosterAmbient(
     }
 }
 
-/** The continuous-corner, luminous-edge frame shared by both reels. */
+/** Apply the dissolve after compositing the poster, its top scrim and any inset frame. */
 @Composable
-fun Modifier.livingPosterFrame(): Modifier =
-    this
-        .shadow(Shadows.hero, AppShapes.sheet)
-        .clip(AppShapes.sheet)
-        .background(HeroInk)
-        .border(1.dp, Color.White.copy(alpha = 0.18f), AppShapes.sheet)
+internal fun LivingPosterArtworkPlane(
+    artwork: LivingPosterArtwork,
+    framed: Boolean,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    val frame =
+        if (framed) {
+            Modifier.clip(AppShapes.sheet).border(1.dp, Color.White.copy(alpha = 0.18f), AppShapes.sheet)
+        } else {
+            Modifier.clipToBounds()
+        }
+    Box(Modifier.fillMaxSize().fadeIntoPage(artwork.fadeHeight).then(frame)) {
+        content()
+        Box(Modifier.matchParentSize().background(heroTopScrim()))
+    }
+}

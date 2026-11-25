@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -69,8 +68,6 @@ import com.yfuse.core.designsystem.OrbProgressDefaults
 import com.yfuse.core.designsystem.OverlayButtonRow
 import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayHeader
-import com.yfuse.core.designsystem.OverlayOptionRow
-import com.yfuse.core.designsystem.OverlayOptionSpacing
 import com.yfuse.core.designsystem.PageHint
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.SKELETON_PHASE_STEP_MS
@@ -78,7 +75,6 @@ import com.yfuse.core.designsystem.SkeletonBlock
 import com.yfuse.core.designsystem.SkeletonHandoff
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.Tips
-import com.yfuse.core.designsystem.YfChip
 import com.yfuse.core.designsystem.calmMotion
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.glassControlHighlight
@@ -87,16 +83,13 @@ import com.yfuse.core.designsystem.liftable
 import com.yfuse.core.designsystem.motionAwareScrollToItem
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
-import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.pressableTarget
 import com.yfuse.core.designsystem.rememberDelayedBusy
 import com.yfuse.core.designsystem.rememberScreenReaderActive
 import com.yfuse.core.designsystem.sharedMediaOnClick
 import com.yfuse.core.designsystem.skeletonSweep
-import com.yfuse.core.designsystem.waitingPulse
 import com.yfuse.core.model.LibraryResolution
-import com.yfuse.core.model.LibrarySort
 import com.yfuse.core.model.MediaContainerKind
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.network.EmbyImages
@@ -143,17 +136,6 @@ private const val SKELETON_GRID_ROWS = 8
 /** How far the old page steps back while the page for a new sort or filter is on its way. */
 private const val REFILTER_GRID_ALPHA = 0.6f
 
-/** Which control asked for the page that is on its way, so the wait shows on that control. */
-private enum class GridRefilterOrigin { Sort, Genre, Specs }
-
-private val sortLabels =
-    mapOf(
-        LibrarySort.RecentlyAdded to "最近添加",
-        LibrarySort.Name to "名称",
-        LibrarySort.Year to "年份",
-        LibrarySort.Rating to "评分",
-    )
-
 @Composable
 fun LibraryGridScreen(
     component: LibraryGridComponent,
@@ -164,7 +146,18 @@ fun LibraryGridScreen(
     val accessToken = component.serverAccessToken
     val palette = LocalPalette.current
     StatusBarIconStyle(darkIcons = !palette.isDark)
-    var sortOpen by remember { mutableStateOf(false) }
+    var optionsOpen by remember { mutableStateOf(false) }
+    val categoryFiltered = state.genre != null || state.tag != null
+    val specFiltered = state.resolution != LibraryResolution.All
+    val filterCount = listOf(categoryFiltered, specFiltered, state.unplayedOnly).count { it }
+    val hasCategories =
+        state.genres.isNotEmpty() || state.tags.isNotEmpty() || state.genresLoading || state.genreLoadError != null
+    val hasOptions =
+        state.sortable ||
+            state.resolutionFilterable ||
+            state.loadedCount > 0 ||
+            hasCategories ||
+            state.containerKind == MediaContainerKind.Playlist
     val gridState = component.gridState
     val bottomContentInset = systemNavigationContentInset()
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
@@ -228,7 +221,6 @@ fun LibraryGridScreen(
     // never blanks. On a slow server that read as a tap that had missed: the control that asked
     // now carries the wait, and the old page steps back and stops taking taps meanwhile.
     val refiltering = state.loading && state.loadedCount > 0
-    var refilterOrigin by remember { mutableStateOf<GridRefilterOrigin?>(null) }
     val refilterShown = rememberDelayedBusy(refiltering)
     val gridAlpha =
         animateFloatAsState(
@@ -277,8 +269,8 @@ fun LibraryGridScreen(
                 Modifier
                     .fillMaxWidth()
                     .padding(horizontal = Dimens.pageHorizontal)
-                    .padding(top = 12.dp, bottom = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    .padding(top = 4.dp, bottom = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(
@@ -297,9 +289,9 @@ fun LibraryGridScreen(
                 }
                 Text(
                     component.title,
-                    style = AppTypography.display.strong,
+                    style = AppTypography.section.strong,
                     color = palette.text,
-                    maxLines = 2,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
@@ -314,99 +306,9 @@ fun LibraryGridScreen(
                         color = palette.sub2,
                     )
                 }
-            }
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = Dimens.pageHorizontal)
-                    .padding(bottom = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (state.loadedCount > 0) GridDensityButtons(gridDensity)
-                Spacer(Modifier.weight(1f))
-                if (state.sortable) {
-                    Row(
-                        Modifier
-                            .pressableTarget(AppShapes.pill, onClickLabel = "打开排序选项") { sortOpen = true }
-                            .height(34.dp)
-                            .glass(
-                                AppShapes.pill,
-                                palette.glassStrong,
-                                palette.tabbarBorder,
-                            ).waitingPulse(
-                                active = refiltering && refilterOrigin == GridRefilterOrigin.Sort,
-                                shape = AppShapes.pill,
-                            ).padding(horizontal = 13.dp),
-                        horizontalArrangement = Arrangement.spacedBy(5.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            AppIcons.Menu,
-                            null,
-                            tint = palette.sub,
-                            modifier = Modifier.size(13.dp),
-                        )
-                        Text(
-                            sortLabels[state.sort].orEmpty(),
-                            style = AppTypography.body.strong,
-                            color = palette.text,
-                        )
-                    }
+                if (hasOptions) {
+                    LibraryGridOptionsButton(filterCount, refilterShown) { optionsOpen = true }
                 }
-            }
-
-            if (state.containerKind == MediaContainerKind.Playlist) {
-                Text(
-                    text = "按服务器中的手工顺序显示",
-                    style = AppTypography.caption.medium,
-                    color = palette.sub2,
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = Dimens.pageHorizontal)
-                            .padding(bottom = 10.dp),
-                )
-            }
-
-            if (state.genres.isNotEmpty() || state.tags.isNotEmpty()) {
-                GenreFilterRow(
-                    genres = state.genres,
-                    selected = state.genre,
-                    pending = refiltering && refilterOrigin == GridRefilterOrigin.Genre,
-                    onSelect = {
-                        refilterOrigin = GridRefilterOrigin.Genre
-                        component.store.accept(GridIntent.SetGenre(it))
-                    },
-                    tags = state.tags,
-                    selectedTag = state.tag,
-                    onSelectTag = {
-                        refilterOrigin = GridRefilterOrigin.Genre
-                        component.store.accept(GridIntent.SetTag(it))
-                    },
-                )
-            } else if (state.genreLoadError != null) {
-                GenreLoadErrorRow(
-                    message = state.genreLoadError!!,
-                    onRetry = { component.store.accept(GridIntent.RetryGenres) },
-                )
-            }
-
-            if (state.resolutionFilterable) {
-                ResolutionFilterRow(
-                    selected = state.resolution,
-                    unplayedOnly = state.unplayedOnly,
-                    pending = refiltering && refilterOrigin == GridRefilterOrigin.Specs,
-                    onSelect = {
-                        refilterOrigin = GridRefilterOrigin.Specs
-                        component.store.accept(GridIntent.SetResolution(it))
-                    },
-                    onUnplayedOnly =
-                        { value: Boolean ->
-                            refilterOrigin = GridRefilterOrigin.Specs
-                            component.store.accept(GridIntent.SetUnplayedOnly(value))
-                        }.takeIf { state.unplayedFilterable },
-                )
             }
 
             SkeletonHandoff(
@@ -425,9 +327,7 @@ fun LibraryGridScreen(
                     state.loadedCount == 0 ->
                         EmptyGridHint(
                             title = component.title,
-                            filtered =
-                                state.genre != null ||
-                                    state.resolution != LibraryResolution.All,
+                            filtered = categoryFiltered || specFiltered,
                             unplayedOnly = state.unplayedOnly,
                             onClearFilters = { component.store.accept(GridIntent.ClearFilters) },
                             onShowPlayed = { component.store.accept(GridIntent.SetUnplayedOnly(false)) },
@@ -635,27 +535,8 @@ fun LibraryGridScreen(
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = bottomContentInset + 16.dp),
         )
 
-        // 排序 was a Material [DropdownMenu] hung off the chip — the last anchored menu in the
-        // app, and the one shape the overlay system exists to replace. Centred like every
-        // other overlay outside the player now; see [com.yfuse.core.designsystem.GlassDialog].
-        if (sortOpen) {
-            GlassDialog(onDismiss = { sortOpen = false }) {
-                OverlayHeader(title = "排序", onClose = { sortOpen = false })
-                Column(verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing)) {
-                    LibrarySort.entries.forEach { option ->
-                        OverlayOptionRow(
-                            label = sortLabels[option].orEmpty(),
-                            selected = state.sort == option,
-                            onClick =
-                                overlayAction {
-                                    refilterOrigin = GridRefilterOrigin.Sort
-                                    component.store.accept(GridIntent.SetSort(option))
-                                    sortOpen = false
-                                },
-                        )
-                    }
-                }
-            }
+        if (optionsOpen) {
+            LibraryGridOptionsDialog(state, gridDensity, component.store::accept) { optionsOpen = false }
         }
 
         // The store closes this one, the moment the removal starts; it still leaves the way it came.
@@ -693,144 +574,6 @@ fun LibraryGridScreen(
             message = state.actionMessage,
             onDismiss = { component.store.accept(GridIntent.DismissMessage) },
         )
-    }
-}
-
-/** Facet failure must stay actionable even when the poster request itself succeeded. */
-@Composable
-private fun GenreLoadErrorRow(
-    message: String,
-    onRetry: () -> Unit,
-) {
-    val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
-    Row(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = Dimens.pageHorizontal, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = message,
-            style = AppTypography.body.regular,
-            color = palette.sub,
-            modifier = Modifier.weight(1f),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-            text = "重试分类",
-            style = AppTypography.body.strong,
-            color = accent.accent,
-            modifier =
-                Modifier
-                    .pressableTarget(AppShapes.chip, onClickLabel = "重新加载分类", onClick = onRetry)
-                    .glass(
-                        shape = AppShapes.chip,
-                        fill = accent.container,
-                        border = glassControlHighlight(accent, palette.isDark),
-                    ).padding(horizontal = 14.dp, vertical = 7.dp),
-        )
-    }
-}
-
-/** 全部 plus one chip per genre the server reports for this library. */
-@Composable
-private fun GenreFilterRow(
-    genres: List<String>,
-    selected: String?,
-    /** The page for a genre chosen here is on its way. */
-    pending: Boolean,
-    onSelect: (String?) -> Unit,
-    /** The library's tags, after its genres and marked with #; one choice in the row with them. */
-    tags: List<String> = emptyList(),
-    selectedTag: String? = null,
-    onSelectTag: (String) -> Unit = {},
-) {
-    LazyRow(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .padding(bottom = 12.dp)
-                .waitingPulse(active = pending, shape = AppShapes.chip),
-        contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        motionItem(key = "genre-all") {
-            YfChip(
-                label = "全部",
-                selected = selected == null && selectedTag == null,
-                onClick = { onSelect(null) },
-                onClickLabel = "选择分类 全部",
-            )
-        }
-        motionItems(genres, key = { it }) { genre ->
-            // The facet arrives after the first page, so the row grows under the header.
-            YfChip(
-                label = genre,
-                selected = selected == genre,
-                onClick = { onSelect(genre) },
-                onClickLabel = "选择分类 $genre",
-            )
-        }
-        motionItems(tags, key = { "tag:$it" }) { tag ->
-            YfChip(
-                label = "#$tag",
-                selected = selectedTag == tag,
-                onClick = { onSelectTag(tag) },
-                onClickLabel = "选择标签 $tag",
-            )
-        }
-    }
-}
-
-/** Emby-backed media specification filters: resolution, Dolby Vision, and Blu-ray. */
-@Composable
-private fun ResolutionFilterRow(
-    selected: LibraryResolution,
-    unplayedOnly: Boolean,
-    /** The page for a specification chosen here is on its way. */
-    pending: Boolean,
-    onSelect: (LibraryResolution) -> Unit,
-    /** Null where the grid has no 只看未看: a collection's endpoint cannot filter on it. */
-    onUnplayedOnly: ((Boolean) -> Unit)?,
-) {
-    LazyRow(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .padding(bottom = 12.dp)
-                .waitingPulse(active = pending, shape = AppShapes.chip),
-        contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        motionItem(key = "resolution-label") {
-            Text(
-                text = "规格",
-                style = AppTypography.caption.strong,
-                color = LocalPalette.current.sub2,
-            )
-        }
-        motionItems(LibraryResolution.entries, key = { it.name }) { resolution ->
-            YfChip(
-                label = resolution.label,
-                selected = selected == resolution,
-                onClick = { onSelect(resolution) },
-                onClickLabel = "选择规格 ${resolution.label}",
-            )
-        }
-        if (onUnplayedOnly != null) {
-            motionItem(key = "unplayed-only") {
-                YfChip(
-                    label = "只看未看",
-                    selected = unplayedOnly,
-                    onClick = { onUnplayedOnly(!unplayedOnly) },
-                )
-            }
-        }
     }
 }
 
