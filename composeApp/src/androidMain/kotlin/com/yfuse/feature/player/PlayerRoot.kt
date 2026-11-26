@@ -3,6 +3,13 @@ package com.yfuse.feature.player
 import android.graphics.Rect
 import android.os.SystemClock
 import androidx.annotation.OptIn
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -17,7 +24,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.media3.common.util.UnstableApi
 import com.yfuse.core.account.AccountAccessTokenSource
 import com.yfuse.core.cast.CastManager
@@ -1452,7 +1462,60 @@ internal fun PlayerRoot(
             loadCastItem(deviceId, next, 0L)
         }
 
-        PlayerRootSurface(
+        val posture = com.yfuse.core.designsystem.LocalWindowPosture.current
+        val tabletopActive = posture.isTabletop && !inPictureInPicture
+        if (tabletopActive) {
+            val topWeight = (posture.horizontalHingeFraction ?: 0.5f).coerceIn(0.35f, 0.65f)
+            Column(Modifier.fillMaxSize().background(Color.Black)) {
+                Box(Modifier.fillMaxWidth().weight(topWeight)) {
+                    PlayerRootSurface(
+                        engine = engine,
+                        state = state,
+                        livePlayback = livePlayback,
+                        currentItem = currentItem,
+                        startIndex = startIndex,
+                        choices = choices,
+                        presentationSubtitleControls = presentationSubtitleControls,
+                        playbackPreferences = playbackPreferences,
+                        ambientPowerLimited =
+                            runtimeEnvironment.pressure.requiresPowerSaving ||
+                                resolvedOptimization.mode == com.yfuse.core.playback.PlaybackOptimizationMode.PowerSaver,
+                        inPictureInPicture = inPictureInPicture,
+                        rotationLocked = rotationLock?.locked == true,
+                        transition = transition,
+                        creditsTakeover = creditsTakeover,
+                        networkRecovery = networkRecovery,
+                        danmaku = danmaku,
+                        danmakuPicker = danmakuPicker,
+                        chromeExtras = chromeExtras,
+                        oledPauseProtectionActive = oledPauseProtection,
+                        onDismissOledPauseProtection = {
+                            oledPauseProtectionActive = false
+                            controlsWakeRequests++
+                        },
+                        onVideoBounds = onVideoBounds,
+                        onBack = onBack,
+                    ) { /* Tabletop upper screen stays completely unobstructed. */ }
+                }
+                if (posture.hingeThicknessDp > 0.dp) {
+                    Spacer(Modifier.height(posture.hingeThicknessDp))
+                }
+                PlayerTabletopDeck(
+                    title = currentItem?.title.orEmpty(),
+                    playback = livePlayback,
+                    onBack = onBack,
+                    onPlayPause = {
+                        if (livePlayback.value.playing) player.pause() else player.play()
+                    },
+                    onSeek = { targetMs -> player.seekTo(targetMs) },
+                    onSpeed = { speed -> player.setSpeed(speed) },
+                    onPrevious = { playbackGate.selectPrevious() },
+                    onNext = { playbackGate.selectNext() },
+                    modifier = Modifier.fillMaxWidth().weight(1f - topWeight),
+                )
+            }
+        } else {
+            PlayerRootSurface(
             engine = engine,
             state = state,
             livePlayback = livePlayback,
@@ -1560,6 +1623,7 @@ internal fun PlayerRoot(
                 onEnterPictureInPicture = onEnterPictureInPicture,
                 onRefreshEpisodes = onRefreshEpisodes,
             )
+            }
         }
     }
 }

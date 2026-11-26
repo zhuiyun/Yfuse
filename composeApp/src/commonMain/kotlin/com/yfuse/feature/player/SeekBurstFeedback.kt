@@ -16,7 +16,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
@@ -56,11 +61,55 @@ internal fun SeekBurstFeedback(
     // the tree before [active] turns on — it deliberately does not burst on its first frame.
     if (!moving || revision == 0 || revision == finishedRevision) return
     Canvas(Modifier.fillMaxSize()) {
-        val remaining = 1f - pulse.value
+        val t = pulse.value
+        val remaining = (1f - t).coerceIn(0f, 1f)
         if (remaining > 0f) {
-            val radius = (24.dp.toPx() + 56.dp.toPx() * pulse.value).coerceAtMost(size.minDimension / 2f)
-            drawCircle(Color.White.copy(alpha = 0.10f * remaining), radius, position)
-            drawCircle(Color.White.copy(alpha = 0.45f * remaining), radius, position, style = Stroke(1.5.dp.toPx()))
+            val isRewind = position.x < size.width / 2f
+            // Soft directional edge wash on the tapped half of the screen
+            val washCenter = Offset(if (isRewind) 0f else size.width, size.height * 0.5f)
+            val washRadius = (size.width * 0.42f).coerceAtLeast(120.dp.toPx())
+            drawOval(
+                brush =
+                    Brush.radialGradient(
+                        0f to Color.White.copy(alpha = 0.14f * remaining),
+                        0.65f to Color.White.copy(alpha = 0.05f * remaining),
+                        1f to Color.Transparent,
+                        center = washCenter,
+                        radius = washRadius,
+                    ),
+                topLeft = Offset(washCenter.x - washRadius, washCenter.y - size.height * 0.65f),
+                size = Size(washRadius * 2f, size.height * 1.3f),
+            )
+            // Dual concentric ripples centered on tap point
+            val radius = (24.dp.toPx() + 64.dp.toPx() * t).coerceAtMost(size.minDimension / 2f)
+            drawCircle(Color.White.copy(alpha = 0.12f * remaining), radius, position)
+            drawCircle(Color.White.copy(alpha = 0.48f * remaining), radius, position, style = Stroke(1.5.dp.toPx()))
+            val outerRadius = (36.dp.toPx() + 92.dp.toPx() * t).coerceAtMost(size.minDimension / 2f)
+            drawCircle(
+                Color.White.copy(alpha = 0.22f * remaining * remaining),
+                outerRadius,
+                position,
+                style = Stroke(1.dp.toPx()),
+            )
+            // Three staggered directional chevrons flowing outward from the tap point
+            val dir = if (isRewind) -1f else 1f
+            val chevronSize = 7.dp.toPx()
+            val stroke = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+            repeat(3) { index ->
+                val phase = (t * 1.35f - index * 0.18f).coerceIn(0f, 1f)
+                val chevronAlpha = kotlin.math.sin(phase * kotlin.math.PI).toFloat().coerceIn(0f, 1f) * remaining
+                if (chevronAlpha > 0.01f) {
+                    val cx = position.x + dir * (28.dp.toPx() + index * 11.dp.toPx() + 14.dp.toPx() * t)
+                    val cy = position.y
+                    val path =
+                        Path().apply {
+                            moveTo(cx - dir * chevronSize * 0.55f, cy - chevronSize)
+                            lineTo(cx + dir * chevronSize * 0.55f, cy)
+                            lineTo(cx - dir * chevronSize * 0.55f, cy + chevronSize)
+                        }
+                    drawPath(path, Color.White.copy(alpha = 0.85f * chevronAlpha), style = stroke)
+                }
+            }
         }
     }
     BoxWithConstraints(Modifier.fillMaxSize()) {

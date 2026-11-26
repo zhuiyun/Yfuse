@@ -31,6 +31,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -40,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.ArtworkPageTheme
 import com.yfuse.core.designsystem.CaptionedPoster
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
@@ -54,6 +56,7 @@ import com.yfuse.core.designsystem.PosterCaption
 import com.yfuse.core.designsystem.SectionHeader
 import com.yfuse.core.designsystem.SkeletonPosterTile
 import com.yfuse.core.designsystem.StatusBarIconStyle
+import com.yfuse.core.designsystem.artworkPageSurface
 import com.yfuse.core.designsystem.cinemaDetailArrival
 import com.yfuse.core.designsystem.contentHandoff
 import com.yfuse.core.designsystem.glass
@@ -61,6 +64,9 @@ import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.pressableTarget
+import com.yfuse.core.designsystem.rememberAnimatedArtworkAccent
+import com.yfuse.core.designsystem.rememberAnimatedColorState
+import com.yfuse.core.designsystem.rememberArtworkPageColor
 import com.yfuse.core.designsystem.sharedMediaArtwork
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.SavedServer
@@ -80,43 +86,77 @@ import com.yfuse.core.designsystem.ThemeText as Text
 fun PersonScreen(component: PersonComponent) {
     val state by component.state.collectAsState()
     val palette = LocalPalette.current
+    val portraitUrl =
+        remember(state.server, state.serverImageTag, state.tmdbProfilePath, component.request.personId) {
+            state.server?.let { from ->
+                state.serverImageTag?.let {
+                    EmbyImages.primary(
+                        from.baseUrl,
+                        component.request.personId,
+                        it,
+                        maxHeight = 360,
+                        accessToken = from.accessToken,
+                    )
+                }
+            } ?: TmdbImages.poster(state.tmdbProfilePath, PORTRAIT_SIZE)
+        }
+    val sampledPageColor = rememberArtworkPageColor(url = portraitUrl, targetAspectRatio = 1f, fadeFraction = 0.25f)
+    val pageSurface =
+        remember(sampledPageColor, palette.isDark, palette.background) {
+            sampledPageColor?.let { artworkPageSurface(it, palette.isDark) } ?: palette.background
+        }
+    val pageSurfaceState = rememberAnimatedColorState(pageSurface, Motion.ACCENT)
+    val personAccentState =
+        rememberAnimatedArtworkAccent(
+            url = portraitUrl,
+            fallback = LocalAccentColors.current.accent,
+            darkTheme = palette.isDark,
+            identity = component.request.personId,
+        )
     StatusBarIconStyle(darkIcons = !palette.isDark)
     var biographyExpanded by rememberSaveable(component.request.personId) { mutableStateOf(false) }
     // The age beside the birth date is a label, not a clock: once per page is enough.
     val today = remember { currentIsoDate() }
-    Column(Modifier.fillMaxSize().statusBarsPadding()) {
-        PersonTopBar(title = state.displayName, onBack = component.onBack)
-        if (state.serverMissing) {
-            PageHint("这台服务器已经不在列表里了", modifier = Modifier.fillMaxWidth().padding(top = 48.dp))
-            return@Column
-        }
-        LazyVerticalGrid(
-            columns = GridCells.Adaptive(PosterMinWidth),
-            modifier = Modifier.fillMaxSize(),
-            contentPadding =
-                PaddingValues(
-                    start = Dimens.pageHorizontal,
-                    end = Dimens.pageHorizontal,
-                    bottom = Dimens.contentBottom,
-                ),
-            horizontalArrangement = Arrangement.spacedBy(GridSpacing),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+    ArtworkPageTheme(background = pageSurface, artworkAccent = personAccentState.target) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .drawBehind { drawRect(pageSurfaceState.value) }
+                .statusBarsPadding(),
         ) {
-            motionItem(key = "person-header", span = FullLine) {
-                PersonHeader(state = state, personId = component.request.personId, today = today)
+            PersonTopBar(title = state.displayName, onBack = component.onBack)
+            if (state.serverMissing) {
+                PageHint("这台服务器已经不在列表里了", modifier = Modifier.fillMaxWidth().padding(top = 48.dp))
+                return@Column
             }
-            state.overview?.let { text ->
-                motionItem(key = "person-biography", span = FullLine) {
-                    PersonBiography(
-                        text = text,
-                        fromTmdb = state.overviewFromTmdb,
-                        expanded = biographyExpanded,
-                        onToggle = { biographyExpanded = !biographyExpanded },
-                    )
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(PosterMinWidth),
+                modifier = Modifier.fillMaxSize(),
+                contentPadding =
+                    PaddingValues(
+                        start = Dimens.pageHorizontal,
+                        end = Dimens.pageHorizontal,
+                        bottom = Dimens.contentBottom,
+                    ),
+                horizontalArrangement = Arrangement.spacedBy(GridSpacing),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                motionItem(key = "person-header", span = FullLine) {
+                    PersonHeader(state = state, personId = component.request.personId, today = today)
                 }
+                state.overview?.let { text ->
+                    motionItem(key = "person-biography", span = FullLine) {
+                        PersonBiography(
+                            text = text,
+                            fromTmdb = state.overviewFromTmdb,
+                            expanded = biographyExpanded,
+                            onToggle = { biographyExpanded = !biographyExpanded },
+                        )
+                    }
+                }
+                libraryWorks(state, component)
+                tmdbWorks(state, component)
             }
-            libraryWorks(state, component)
-            tmdbWorks(state, component)
         }
     }
 }

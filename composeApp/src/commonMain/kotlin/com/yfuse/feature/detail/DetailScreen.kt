@@ -557,8 +557,8 @@ fun DetailScreen(component: DetailComponent) {
                 } else {
                     when (windowWidthTier(maxWidth)) {
                         WindowWidthTier.Compact -> (maxHeight * 0.48f).coerceAtMost(520.dp)
-                        WindowWidthTier.Medium -> (maxHeight * 0.48f).coerceAtMost(580.dp)
-                        WindowWidthTier.Expanded -> (maxHeight * 0.46f).coerceAtMost(620.dp)
+                        WindowWidthTier.Medium -> (maxHeight * 0.44f).coerceAtMost(480.dp)
+                        WindowWidthTier.Expanded -> (maxHeight * 0.42f).coerceAtMost(440.dp)
                     }
                 }
             // Lift the measured caption and the primary action over the artwork. The backdrop
@@ -723,7 +723,7 @@ fun DetailScreen(component: DetailComponent) {
                                                         captionLift = with(density) { it.height.toDp() } +
                                                             SheetGap + PlayButtonHeroOverlap
                                                     },
-                                                statuses = detailStatusList,
+                                                statuses = emptyList(),
                                                 onStatusClick = { moreSheetOpen = true },
                                             )
                                             // Built out here rather than in the colour scope below: the play key
@@ -846,6 +846,7 @@ fun DetailScreen(component: DetailComponent) {
                                             SourceSection(
                                                 sources = comparableSources,
                                                 presentation = sourcePresentation,
+                                                sourceHealth = sourceHealth,
                                                 loading = state.sourcesLoading,
                                                 error = state.sourcesError,
                                                 onRetry = { component.store.accept(DetailIntent.RetrySources) },
@@ -1089,30 +1090,30 @@ fun DetailScreen(component: DetailComponent) {
                     onDismiss = { seasonPickerOpen = false },
                 )
 
-                if (metadataEditorOpen && detail != null && state.server != null) {
+                DialogPresence(if (metadataEditorOpen && detail != null && state.server != null) state.server!! to detail.id else null) { (srv, id) ->
                     MetadataEditorDialog(
-                        server = state.server!!,
-                        itemId = detail.id,
+                        server = srv,
+                        itemId = id,
                         onChanged = { component.store.accept(DetailIntent.Retry) },
                         onDismiss = { metadataEditorOpen = false },
                     )
                 }
-                if (moreSheetOpen && detail != null) {
+                DialogPresence(if (moreSheetOpen && detail != null) detail else null) { shownDetail ->
                     DetailMoreActionsDialog(
-                        title = detail.title,
+                        title = shownDetail.title,
                         artworkUrls = heroUrls,
-                        isSeries = detail.type.equals("Series", ignoreCase = true),
+                        isSeries = shownDetail.type.equals("Series", ignoreCase = true),
                         followed = detailIsFollowed,
-                        played = detail.played,
+                        played = shownDetail.played,
                         isPlex = state.server?.kind == com.yfuse.core.model.MediaServerKind.Plex,
                         watchAvailable = watchAvailable,
                         // 继续分享邀请 only for a room this title can be shared into; any other room is
                         // left, after asking, for a new one.
                         watchActive =
-                            watchRoomAction(watchState, detailWatchKeys(detail, seriesTmdbId)) ==
+                            watchRoomAction(watchState, detailWatchKeys(shownDetail, seriesTmdbId)) ==
                                 WatchRoomAction.Share,
                         serverFavoriteAvailable = serverFavoriteAvailable,
-                        serverFavorite = detail.isFavorite,
+                        serverFavorite = shownDetail.isFavorite,
                         serverWatchLater = state.watchLater,
                         serverWatchLaterMutating = state.watchLaterMutating,
                         personalLists = personalLists,
@@ -1129,7 +1130,7 @@ fun DetailScreen(component: DetailComponent) {
                         onToggleFollow = {
                             moreSheetOpen = false
                             detailScope.launch {
-                                component.toggleSeriesFollow(detail).onFailure { error ->
+                                component.toggleSeriesFollow(shownDetail).onFailure { error ->
                                     if (error is CalendarIdentityAmbiguousException) {
                                         followAfterIdentitySelection = true
                                         airingCalendarCandidates = error.candidates
@@ -1153,7 +1154,7 @@ fun DetailScreen(component: DetailComponent) {
                         onRefresh = {
                             moreSheetOpen = false
                             detailScope.launch {
-                                component.refreshServerMetadata(detail)
+                                component.refreshServerMetadata(shownDetail)
                             }
                         },
                         onEditMetadata = {
@@ -1163,15 +1164,15 @@ fun DetailScreen(component: DetailComponent) {
                         onAnalyze = {
                             moreSheetOpen = false
                             detailScope.launch {
-                                component.analyzeServerMetadata(detail)
+                                component.analyzeServerMetadata(shownDetail)
                             }
                         },
                         // Playback is intentionally not started here. The invite sheet owns the
                         // handoff so the host can share the room before entering the player.
                         onWatchTogether = {
                             moreSheetOpen = false
-                            val mediaKey = detail.providerIds.watchKey(detail.id)
-                            when (watchRoomAction(watchState, detailWatchKeys(detail, seriesTmdbId))) {
+                            val mediaKey = shownDetail.providerIds.watchKey(shownDetail.id)
+                            when (watchRoomAction(watchState, detailWatchKeys(shownDetail, seriesTmdbId))) {
                                 WatchRoomAction.Share -> shareSheetOpen = true
                                 WatchRoomAction.ConfirmReplace -> replaceRoomConfirmOpen = true
                                 WatchRoomAction.Create -> {
@@ -1183,7 +1184,7 @@ fun DetailScreen(component: DetailComponent) {
                         onDismiss = { moreSheetOpen = false },
                         onShare = {
                             moreSheetOpen = false
-                            sharer.sharePosterCard(detail.shareCardAt(baseUrl, accessToken))
+                            sharer.sharePosterCard(shownDetail.shareCardAt(baseUrl, accessToken))
                         },
                     )
                 }

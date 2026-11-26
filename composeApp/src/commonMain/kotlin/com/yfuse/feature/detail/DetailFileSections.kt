@@ -35,7 +35,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.yfuse.core.data.LatencySeverity
 import com.yfuse.core.data.PlaybackTrackRequest
+import com.yfuse.core.data.ServerHealth
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
@@ -47,7 +49,9 @@ import com.yfuse.core.designsystem.GlassLift
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Palette
 import com.yfuse.core.designsystem.RecommendBadge
+import com.yfuse.core.designsystem.SKELETON_PHASE_STEP_MS
 import com.yfuse.core.designsystem.SectionHeader
+import com.yfuse.core.designsystem.SkeletonBlock
 import com.yfuse.core.designsystem.contentColorForSurface
 import com.yfuse.core.designsystem.flatGlass
 import com.yfuse.core.designsystem.liquidGlass
@@ -59,6 +63,7 @@ import com.yfuse.core.designsystem.rememberDisclosureProgress
 import com.yfuse.core.designsystem.rememberTouchTargetFocus
 import com.yfuse.core.designsystem.resolveArtworkPagePalette
 import com.yfuse.core.designsystem.shadow
+import com.yfuse.core.designsystem.skeletonSweep
 import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.MediaVersion
@@ -649,6 +654,7 @@ internal fun SourceSection(
     onSeeAll: () -> Unit,
     modifier: Modifier = Modifier,
     presentation: SourceSelectionPresentation? = null,
+    sourceHealth: Map<String, ServerHealth> = emptyMap(),
     loading: Boolean = false,
     error: String? = null,
     onRetry: () -> Unit = {},
@@ -667,6 +673,10 @@ internal fun SourceSection(
             actionLabel = "全部 · ${availableSources.size}",
             onAction = onSeeAll,
         )
+        if (loading && availableSources.isEmpty()) {
+            SourceSkeletonRow()
+            return@Column
+        }
         if (loading || error != null || availableSources.isEmpty()) {
             Text(
                 when {
@@ -722,9 +732,72 @@ internal fun SourceSection(
                             } else {
                                 entry.serverId == bestServerId
                             },
+                        health = sourceHealth[entry.serverId],
                         width = cardWidth,
                         onSelect = { entry.itemId?.let { onSelect(entry.serverId, it) } },
                     )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SourceSkeletonRow() {
+    val palette = LocalPalette.current
+    BoxWithConstraints(Modifier.fillMaxWidth().skeletonSweep()) {
+        val cardWidth = (maxWidth - Dimens.pageHorizontal * 2 - 10.dp) / 2
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = Dimens.pageHorizontal),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            repeat(2) { index ->
+                val phase = SKELETON_PHASE_STEP_MS * (index + 1)
+                Column(
+                    Modifier
+                        .width(cardWidth)
+                        .solidGlass(
+                            shape = AppShapes.card,
+                            fill =
+                                if (palette.isDark) {
+                                    Color.White.copy(alpha = 0.055f)
+                                } else {
+                                    Color.White.copy(alpha = 0.24f)
+                                },
+                            border = Color.Transparent,
+                        ).padding(horizontal = 11.dp, vertical = 11.dp),
+                    verticalArrangement = Arrangement.spacedBy(9.dp),
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        SkeletonBlock(Modifier.size(22.dp), shape = CircleShape, phaseMs = phase)
+                        SkeletonBlock(
+                            Modifier.fillMaxWidth(0.68f).height(13.dp),
+                            shape = AppShapes.thumb,
+                            phaseMs = phase + SKELETON_PHASE_STEP_MS,
+                        )
+                    }
+                    SkeletonBlock(
+                        Modifier.fillMaxWidth(0.85f).height(12.dp),
+                        shape = AppShapes.thumb,
+                        phaseMs = phase + SKELETON_PHASE_STEP_MS * 2,
+                    )
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        SkeletonBlock(
+                            Modifier.width(48.dp).height(10.dp),
+                            shape = AppShapes.thumb,
+                            phaseMs = phase + SKELETON_PHASE_STEP_MS * 3,
+                        )
+                        SkeletonBlock(
+                            Modifier.width(42.dp).height(10.dp),
+                            shape = AppShapes.thumb,
+                            phaseMs = phase + SKELETON_PHASE_STEP_MS * 3,
+                        )
+                    }
                 }
             }
         }
@@ -737,6 +810,7 @@ private fun SourceCard(
     selected: Boolean,
     accent: Color,
     best: Boolean,
+    health: ServerHealth? = null,
     width: Dp,
     onSelect: () -> Unit,
 ) {
@@ -845,12 +919,35 @@ private fun SourceCard(
                 color = palette.body,
                 maxLines = 1,
             )
-            Text(
-                source?.bitrate ?: "—",
-                style = AppTypography.caption.strong,
-                color = palette.body,
-                maxLines = 1,
-            )
+            val latencyMs = health?.latencyMs
+            if (latencyMs != null) {
+                val dotColor =
+                    when (health.latencySeverity) {
+                        LatencySeverity.Stable -> Color(0xFF34C759)
+                        LatencySeverity.Slow -> Color(0xFFFF9F0A)
+                        LatencySeverity.Unstable -> Color(0xFFFF453A)
+                        LatencySeverity.Unknown -> palette.sub2
+                    }
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.size(6.dp).clip(CircleShape).background(dotColor))
+                    Text(
+                        "${latencyMs}ms",
+                        style = AppTypography.caption.medium,
+                        color = palette.sub,
+                        maxLines = 1,
+                    )
+                }
+            } else {
+                Text(
+                    source?.bitrate ?: "—",
+                    style = AppTypography.caption.strong,
+                    color = palette.body,
+                    maxLines = 1,
+                )
+            }
         }
     }
 }

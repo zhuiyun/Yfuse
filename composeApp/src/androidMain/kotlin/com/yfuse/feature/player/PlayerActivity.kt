@@ -61,12 +61,14 @@ import com.yfuse.core.designsystem.GlassMaterials
 import com.yfuse.core.designsystem.GlassStyle
 import com.yfuse.core.designsystem.LoadingAnimation
 import com.yfuse.core.designsystem.LocalPulseSweepEnabled
+import com.yfuse.core.designsystem.LocalWindowPosture
 import com.yfuse.core.designsystem.MotionTheme
 import com.yfuse.core.designsystem.ParticleLight
 import com.yfuse.core.designsystem.ParticleStyle
 import com.yfuse.core.designsystem.PlatformPredictiveBackHandler
 import com.yfuse.core.designsystem.PlayerHandoff
 import com.yfuse.core.designsystem.YfuseTheme
+import com.yfuse.core.designsystem.rememberAndroidWindowPosture
 import com.yfuse.core.filesource.FileSourceProgressRecorder
 import com.yfuse.core.filesource.FileSourceProgressStore
 import com.yfuse.core.logging.AppLog
@@ -875,6 +877,7 @@ class PlayerActivity :
             // The app shell provides 搜索与导航动效 to its pages, and this window is not one of them:
             // without it here the ending's liquid split whatever the switch said.
             val pulseSweep = preferences?.pulseSweep?.collectAsState()?.value ?: true
+            val posture = rememberAndroidWindowPosture(this)
             YfuseTheme(
                 dark = true,
                 dialogAnimation = dialogAnimation,
@@ -888,7 +891,10 @@ class PlayerActivity :
                 particleActive = !inPictureInPicture,
                 motionTheme = motionTheme,
             ) {
-                CompositionLocalProvider(LocalPulseSweepEnabled provides pulseSweep) {
+                CompositionLocalProvider(
+                    LocalPulseSweepEnabled provides pulseSweep,
+                    LocalWindowPosture provides posture,
+                ) {
                     ProvidePlayerChrome(television = televisionDevice) {
                         PlayerRoot(
                             transition = transition,

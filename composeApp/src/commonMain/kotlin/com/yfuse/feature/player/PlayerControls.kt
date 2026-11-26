@@ -1409,30 +1409,33 @@ internal fun PlayerControls(
                     uprightWindow = uprightWindow,
                 )
 
-                PlayerSettingsLayers(
-                    chrome = chrome,
-                    playback = playback,
-                    controlState = controlState,
-                    gestureState = gestureState,
-                    watchLocked = watchLocked,
-                    transport = transport,
-                    transportActions = transportActions,
-                    picture = picture,
-                    pictureActions = pictureActions,
-                    tracks = tracks,
-                    trackActions = trackActions,
-                    source = source,
-                    sourceActions = sourceActions,
-                    panels = panels,
-                    panelActions = panelActions,
-                    cast = cast,
-                    castActions = castActions,
-                    danmaku = danmaku,
-                    danmakuActions = danmakuActions,
-                    watch = watch,
-                    reduceMotion = reduceMotion,
-                    onEndSubtitlePeek = { endSubtitlePeek(null) },
-                )
+                val abLoop = rememberPlayerAbLoop(state.currentIndex, playback, transportActions.onSeek)
+                androidx.compose.runtime.CompositionLocalProvider(LocalPlayerAbLoop provides abLoop) {
+                    PlayerSettingsLayers(
+                        chrome = chrome,
+                        playback = playback,
+                        controlState = controlState,
+                        gestureState = gestureState,
+                        watchLocked = watchLocked,
+                        transport = transport,
+                        transportActions = transportActions,
+                        picture = picture,
+                        pictureActions = pictureActions,
+                        tracks = tracks,
+                        trackActions = trackActions,
+                        source = source,
+                        sourceActions = sourceActions,
+                        panels = panels,
+                        panelActions = panelActions,
+                        cast = cast,
+                        castActions = castActions,
+                        danmaku = danmaku,
+                        danmakuActions = danmakuActions,
+                        watch = watch,
+                        reduceMotion = reduceMotion,
+                        onEndSubtitlePeek = { endSubtitlePeek(null) },
+                    )
+                }
 
                 PlayerWatchLayers(
                     chrome = chrome,

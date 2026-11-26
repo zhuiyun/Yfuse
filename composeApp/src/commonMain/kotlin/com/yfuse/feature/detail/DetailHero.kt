@@ -594,7 +594,7 @@ internal fun TitleBlock(
     // 一镜到底: opened by a lifted card, the words rise into place one row after another once the
     // card has handed the artwork over (LiftExpansion.kt). Opened any other way they are there.
     val palette = LocalPalette.current
-    val darkArtwork = palette.isDark
+    val darkArtwork = palette.isDark || palette.background.luminance() < 0.55f
     val primaryInk = if (darkArtwork) ArtworkInk else LightPalette.text
     val subInk = if (darkArtwork) ArtworkInkSub else LightArtworkInkSub
     val faintInk = if (darkArtwork) ArtworkInkFaint else LightArtworkInkFaint

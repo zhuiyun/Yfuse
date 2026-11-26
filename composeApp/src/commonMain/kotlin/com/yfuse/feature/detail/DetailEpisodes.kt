@@ -78,7 +78,9 @@ import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.PlatformBackHandler
 import com.yfuse.core.designsystem.Poster
+import com.yfuse.core.designsystem.SKELETON_PHASE_STEP_MS
 import com.yfuse.core.designsystem.Shadows
+import com.yfuse.core.designsystem.SkeletonBlock
 import com.yfuse.core.designsystem.backdropBlur
 import com.yfuse.core.designsystem.contentHandoff
 import com.yfuse.core.designsystem.disclosureRotation
@@ -92,6 +94,7 @@ import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberDisclosureProgress
 import com.yfuse.core.designsystem.selectionColor
 import com.yfuse.core.designsystem.shadow
+import com.yfuse.core.designsystem.skeletonSweep
 import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.waitingPulse
@@ -594,6 +597,10 @@ internal fun EpisodeSection(
             onToggleGrid = if (gridFits) ({ showGrid = !showGrid }) else null,
             modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
         )
+        if (episodes.isEmpty() && seasonLoading) {
+            EpisodeSkeletonRail()
+            return@Column
+        }
         if (error != null || episodes.isEmpty()) {
             Text(
                 when {
@@ -728,6 +735,58 @@ internal fun EpisodeSection(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EpisodeSkeletonRail() {
+    val palette = LocalPalette.current
+    LazyRow(
+        modifier = Modifier.fillMaxWidth().skeletonSweep(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        contentPadding =
+            PaddingValues(
+                start = Dimens.pageHorizontal,
+                top = 10.dp,
+                end = Dimens.pageHorizontal,
+                bottom = 0.dp,
+            ),
+        userScrollEnabled = false,
+    ) {
+        items(3) { index ->
+            val phase = SKELETON_PHASE_STEP_MS * (index + 1)
+            Column(
+                Modifier
+                    .width(210.dp)
+                    .solidGlass(
+                        shape = AppShapes.card,
+                        fill =
+                            if (palette.isDark) {
+                                palette.card
+                            } else {
+                                Color.White.copy(alpha = 0.24f)
+                            },
+                        border = Color.Transparent,
+                    ).padding(8.dp),
+                verticalArrangement = Arrangement.spacedBy(7.dp),
+            ) {
+                SkeletonBlock(
+                    Modifier.fillMaxWidth().height(108.dp),
+                    shape = AppShapes.thumb,
+                    phaseMs = phase,
+                )
+                SkeletonBlock(
+                    Modifier.fillMaxWidth(0.72f).height(13.dp),
+                    shape = AppShapes.thumb,
+                    phaseMs = phase + SKELETON_PHASE_STEP_MS,
+                )
+                SkeletonBlock(
+                    Modifier.fillMaxWidth(0.48f).height(10.dp),
+                    shape = AppShapes.thumb,
+                    phaseMs = phase + SKELETON_PHASE_STEP_MS * 2,
+                )
             }
         }
     }

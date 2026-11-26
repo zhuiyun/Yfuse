@@ -415,6 +415,7 @@ fun App(root: RootComponent) {
                         ) {
                             val previousRootTab = remember { arrayOf(active) }
                             val rootMotion = remember(active) { rootTabMotion(previousRootTab[0], active) }
+                            val rootTabDirection = remember(active) { active.ordinal.compareTo(previousRootTab[0].ordinal) }
                             SideEffect { previousRootTab[0] = active }
                             // Top-level tabs are a real Navigation 3 back stack, while each tab's
                             // nested host continues to own its child routes. This host opts into
@@ -435,6 +436,7 @@ fun App(root: RootComponent) {
                                                 WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal),
                                             ),
                                         motion = rootMotion,
+                                        tabDirection = rootTabDirection,
                                         popMotion = rootPopMotion(active, root.startTab, rootMotion),
                                     ) { tab ->
                                         CompositionLocalProvider(LocalTabIdentity provides tab.name) {

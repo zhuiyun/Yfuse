@@ -150,6 +150,7 @@ fun LibraryGridScreen(
     val palette = LocalPalette.current
     StatusBarIconStyle(darkIcons = !palette.isDark)
     var optionsOpen by remember { mutableStateOf(false) }
+    var randomPickOpen by remember { mutableStateOf(false) }
     val categoryFiltered = state.genre != null || state.tag != null
     val specFiltered = state.resolution != LibraryResolution.All
     val filterCount = listOf(categoryFiltered, specFiltered, state.unplayedOnly).count { it }
@@ -269,6 +270,15 @@ fun LibraryGridScreen(
     }
 
     Box(Modifier.fillMaxSize()) {
+        DialogPresence(if (randomPickOpen && state.items.isNotEmpty()) state.items else null) { pickItems ->
+            RandomPickDialog(
+                items = pickItems,
+                baseUrl = baseUrl,
+                accessToken = accessToken,
+                onOpen = { item -> component.onOpenItem(item.id) },
+                onDismiss = { randomPickOpen = false },
+            )
+        }
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
             Row(
                 Modifier
@@ -309,6 +319,21 @@ fun LibraryGridScreen(
                         "$count ${if (directory != null) "个" else "部"}",
                         style = AppTypography.caption.medium,
                         color = palette.sub2,
+                    )
+                }
+                if (state.items.size >= 2 && state.directoryKind == null) {
+                    Text(
+                        "抽片",
+                        style = AppTypography.caption.strong,
+                        color = LocalAccentColors.current.accent,
+                        modifier =
+                            Modifier
+                                .pressableTarget(
+                                    AppShapes.chip,
+                                    onClickLabel = "片荒抽卡，随机推荐一部",
+                                    onClick = { randomPickOpen = true },
+                                ).glass(AppShapes.chip)
+                                .padding(horizontal = 10.dp, vertical = 7.dp),
                     )
                 }
                 if (hasOptions) {

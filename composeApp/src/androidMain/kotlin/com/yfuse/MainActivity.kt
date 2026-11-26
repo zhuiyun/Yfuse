@@ -33,6 +33,8 @@ import com.yfuse.core.data.ServerHealthMonitor
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.TmdbRepository
+import com.yfuse.core.designsystem.LocalWindowPosture
+import com.yfuse.core.designsystem.rememberAndroidWindowPosture
 import com.yfuse.core.designsystem.resolveDark
 import com.yfuse.core.designsystem.watchForAppIconSwitch
 import com.yfuse.core.logging.AppLog
@@ -205,7 +207,11 @@ class MainActivity : ComponentActivity() {
         observeDownloadNotificationPermission(koin.get())
 
         setContent {
-            CompositionLocalProvider(LocalAppUpdateManager provides updateManager) {
+            val posture = rememberAndroidWindowPosture(this)
+            CompositionLocalProvider(
+                LocalAppUpdateManager provides updateManager,
+                LocalWindowPosture provides posture,
+            ) {
                 AnimatedSplashApp(root) {
                     AppUpdateOverlay(updateManager, root)
                     PageFrameRateOverlay()

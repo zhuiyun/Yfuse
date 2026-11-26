@@ -1,7 +1,14 @@
 package com.yfuse.feature.calendar
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,6 +35,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -36,11 +44,15 @@ import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.FallbackImage
+import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.HeroInk
 import com.yfuse.core.designsystem.HeroTextShadow
 import com.yfuse.core.designsystem.LiftMenu
 import com.yfuse.core.designsystem.LocalAccentColors
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.LocalHaptics
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.CalendarEntry
@@ -86,16 +98,24 @@ internal fun CalendarPosterResults(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
+    val haptics = LocalHaptics.current
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val daysByDate = remember(days) { days.associateBy(CalendarDay::date) }
     val entries =
         remember(daysByDate, selectedDate) {
             coalesceCalendarEntries(daysByDate[selectedDate]?.entries.orEmpty())
         }
-    val featured = remember(entries) { calendarFeaturedEntry(entries) }
-    val rest = remember(entries, featured) { entries.filterNot { it === featured } }
     val week = remember(days, selectedDate) { calendarWeekDays(days, selectedDate) }
     val firstWeek = remember(days, today) { currentWeekStart(minOf(days.minOfOrNull { it.date } ?: today, today)) }
     val lastWeek = remember(days, today) { currentWeekStart(maxOf(days.maxOfOrNull { it.date } ?: today, today)) }
+    val minDate = firstWeek
+    val maxDate = remember(lastWeek) { shiftIsoDate(lastWeek, 6) }
+    val selectDateWithHaptic: (String) -> Unit = { target ->
+        if (target != selectedDate) {
+            haptics.play(HapticSignal.Select)
+            onSelectDate(target)
+        }
+    }
     val dateSummary =
         remember(selectedDate, today, entries.size) {
             val month = selectedDate.substring(5, 7).toIntOrNull()?.toString().orEmpty()
@@ -166,58 +186,169 @@ internal fun CalendarPosterResults(
                 )
             }
         }
-        CalendarWeekNavigator(week, today, selectedDate) { onSelectDate(it.date) }
-        LazyColumn(
-            Modifier.fillMaxWidth().weight(1f),
-            contentPadding =
-                PaddingValues(
-                    start = Dimens.pageHorizontal,
-                    end = Dimens.pageHorizontal,
-                    top = 4.dp,
-                    bottom = bottomContentInset + 16.dp,
-                ),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            if (featured != null) {
-                item(key = "featured:${featured.entry.episode.mediaKey}", contentType = "calendar-featured") {
-                    CalendarFeaturedPoster(
-                        display = featured,
-                        resolveBackdrop = backdrop,
-                        onOpen = { onOpen(featured.entry) },
-                        onPlay = { onPlay(featured.entry) },
-                    )
+        CalendarWeekNavigator(week, today, selectedDate) { selectDateWithHaptic(it.date) }
+        AnimatedContent(
+            targetState = selectedDate,
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .pointerInput(selectedDate, minDate, maxDate) {
+                        var accumulated = 0f
+                        val thresholdPx = 72.dp.toPx()
+                        detectHorizontalDragGestures(
+                            onDragStart = { accumulated = 0f },
+                            onDragCancel = { accumulated = 0f },
+                            onDragEnd = {
+                                if (accumulated <= -thresholdPx) {
+                                    val next = shiftIsoDate(selectedDate, 1)
+                                    if (next <= maxDate) selectDateWithHaptic(next)
+                                } else if (accumulated >= thresholdPx) {
+                                    val prev = shiftIsoDate(selectedDate, -1)
+                                    if (prev >= minDate) selectDateWithHaptic(prev)
+                                }
+                                accumulated = 0f
+                            },
+                            onHorizontalDrag = { _, dragAmount -> accumulated += dragAmount },
+                        )
+                    },
+            transitionSpec = {
+                if (reduceMotion) {
+                    fadeIn(Motion.tween(Motion.QUICK)) togetherWith fadeOut(Motion.tween(Motion.QUICK))
+                } else {
+                    val forward = targetState > initialState
+                    val enter =
+                        slideInHorizontally(Motion.tween(Motion.STANDARD)) { full ->
+                            if (forward) full / 4 else -full / 4
+                        } + fadeIn(Motion.tween(Motion.STANDARD))
+                    val exit =
+                        slideOutHorizontally(Motion.tween(Motion.QUICK)) { full ->
+                            if (forward) -full / 5 else full / 5
+                        } + fadeOut(Motion.tween(Motion.QUICK))
+                    enter togetherWith exit
                 }
-            } else {
-                item(key = "calendar-empty", contentType = "calendar-empty") {
-                    Text(
-                        "这一天没有排期，试试其他日期。",
-                        style = AppTypography.body.regular,
-                        color = palette.sub,
-                        modifier = Modifier.padding(vertical = 36.dp),
-                    )
+            },
+            label = "calendarDaySwipe",
+        ) { activeDate ->
+            val dayEntries =
+                remember(daysByDate, activeDate) {
+                    coalesceCalendarEntries(daysByDate[activeDate]?.entries.orEmpty())
                 }
-            }
-            if (rest.isNotEmpty()) {
-                item(key = "remaining-heading", contentType = "calendar-heading") {
-                    Row(
-                        Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 2.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
+            val featured = remember(dayEntries) { calendarFeaturedEntry(dayEntries) }
+            val rest = remember(dayEntries, featured) { dayEntries.filterNot { it === featured } }
+            val wideCalendar = com.yfuse.app.LocalWideWindow.current
+            if (wideCalendar && featured != null) {
+                Row(
+                    Modifier
+                        .fillMaxSize()
+                        .padding(
+                            start = Dimens.pageHorizontal,
+                            end = Dimens.pageHorizontal,
+                            top = 4.dp,
+                            bottom = bottomContentInset + 16.dp,
+                        ),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    Box(Modifier.weight(0.46f)) {
+                        CalendarFeaturedPoster(
+                            display = featured,
+                            resolveBackdrop = backdrop,
+                            onOpen = { onOpen(featured.entry) },
+                            onPlay = { onPlay(featured.entry) },
+                        )
+                    }
+                    LazyColumn(
+                        Modifier.weight(0.54f).fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Text("当日更多", style = AppTypography.body.strong, color = palette.text)
-                        Text("${rest.size} 部", style = AppTypography.caption.medium, color = palette.sub)
+                        if (rest.isNotEmpty()) {
+                            item(key = "remaining-heading", contentType = "calendar-heading") {
+                                Row(
+                                    Modifier.fillMaxWidth().padding(bottom = 2.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text("当日更多", style = AppTypography.body.strong, color = palette.text)
+                                    Text("${rest.size} 部", style = AppTypography.caption.medium, color = palette.sub)
+                                }
+                            }
+                            items(
+                                items = rest,
+                                key = { it.entry.episode.mediaKey },
+                                contentType = { "calendar-row" },
+                            ) { display ->
+                                CalendarPosterRow(
+                                    display = display,
+                                    onOpen = { onOpen(display.entry) },
+                                    onFollow = { onFollow(display.entry) },
+                                )
+                            }
+                        } else {
+                            item(key = "calendar-wide-single") {
+                                Text(
+                                    "今日仅有左侧一部排期更新。",
+                                    style = AppTypography.body.regular,
+                                    color = palette.sub,
+                                    modifier = Modifier.padding(vertical = 24.dp),
+                                )
+                            }
+                        }
                     }
                 }
-                items(
-                    items = rest,
-                    key = { it.entry.episode.mediaKey },
-                    contentType = { "calendar-row" },
-                ) { display ->
-                    CalendarPosterRow(
-                        display = display,
-                        onOpen = { onOpen(display.entry) },
-                        onFollow = { onFollow(display.entry) },
-                    )
+            } else {
+                LazyColumn(
+                    Modifier.fillMaxSize(),
+                    contentPadding =
+                        PaddingValues(
+                            start = Dimens.pageHorizontal,
+                            end = Dimens.pageHorizontal,
+                            top = 4.dp,
+                            bottom = bottomContentInset + 16.dp,
+                        ),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    if (featured != null) {
+                        item(key = "featured:${featured.entry.episode.mediaKey}", contentType = "calendar-featured") {
+                            CalendarFeaturedPoster(
+                                display = featured,
+                                resolveBackdrop = backdrop,
+                                onOpen = { onOpen(featured.entry) },
+                                onPlay = { onPlay(featured.entry) },
+                            )
+                        }
+                    } else {
+                        item(key = "calendar-empty", contentType = "calendar-empty") {
+                            Text(
+                                "这一天没有排期，左右滑动或点选其他日期。",
+                                style = AppTypography.body.regular,
+                                color = palette.sub,
+                                modifier = Modifier.padding(vertical = 36.dp),
+                            )
+                        }
+                    }
+                    if (rest.isNotEmpty()) {
+                        item(key = "remaining-heading", contentType = "calendar-heading") {
+                            Row(
+                                Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 2.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text("当日更多", style = AppTypography.body.strong, color = palette.text)
+                                Text("${rest.size} 部", style = AppTypography.caption.medium, color = palette.sub)
+                            }
+                        }
+                        items(
+                            items = rest,
+                            key = { it.entry.episode.mediaKey },
+                            contentType = { "calendar-row" },
+                        ) { display ->
+                            CalendarPosterRow(
+                                display = display,
+                                onOpen = { onOpen(display.entry) },
+                                onFollow = { onFollow(display.entry) },
+                            )
+                        }
+                    }
                 }
             }
         }

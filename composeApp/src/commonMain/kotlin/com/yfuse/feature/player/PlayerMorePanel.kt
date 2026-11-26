@@ -313,6 +313,9 @@ internal fun MorePanel(
                     checked = backgroundAudio,
                     onToggle = { animePreferences.setBackgroundAudio(!backgroundAudio) },
                 )
+                LocalPlayerAbLoop.current?.let { abLoop ->
+                    AbLoopPanelSection(abLoop) { playback.value.positionMs }
+                }
                 shortDramaMode?.let { mode ->
                     GroupLabel("短剧模式")
                     SegmentedRow(

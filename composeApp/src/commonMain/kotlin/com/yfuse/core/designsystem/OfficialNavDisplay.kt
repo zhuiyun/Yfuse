@@ -58,6 +58,8 @@ fun <T : Any> OfficialNavDisplay(
     contentKey: (T) -> String,
     modifier: Modifier = Modifier,
     motion: OfficialNavMotion = OfficialNavMotion.Stack,
+    /** Direction of a RootTab switch: +1 moving right/forward, -1 moving left/backward, 0 neutral. */
+    tabDirection: Int = 0,
     /**
      * How going back looks, a back gesture's preview included. That preview starts before
      * anything has changed, while [motion] still names how the page on top arrived — and at the
@@ -246,6 +248,7 @@ fun <T : Any> OfficialNavDisplay(
                                 searchTravelPx,
                                 pushTravelPx,
                                 popping = false,
+                                tabDirection = tabDirection,
                             )
                         }
                     },
@@ -352,6 +355,7 @@ private fun rootContentTransform(
     pushTravelPx: Int,
     popping: Boolean,
     predictive: Boolean = false,
+    tabDirection: Int = 0,
 ): ContentTransform {
     if (reduceMotion) return noBackTransition()
     if (popping) return opaqueBackTransform(predictive = predictive)
@@ -360,12 +364,20 @@ private fun rootContentTransform(
     // swipe showed about 80% of the way back; linear keeps the page under the finger.
     val easing = if (predictive) LinearEasing else Motion.Curve
 
+    val tabSlidePx = (pushTravelPx / 3).coerceAtLeast(12)
     val tabEnter =
         fadeIn(tween(Motion.TAB, easing = easing)) +
             scaleIn(
                 animationSpec = tween(Motion.TAB, easing = easing),
                 initialScale = Motion.TAB_SCALE_FROM,
-            )
+            ) +
+            if (tabDirection != 0) {
+                slideInHorizontally(tween(Motion.TAB, easing = easing)) {
+                    if (tabDirection > 0) tabSlidePx else -tabSlidePx
+                }
+            } else {
+                EnterTransition.None
+            }
     // Keep the covered surface opaque until the incoming page covers it. Two simultaneous
     // alpha fades expose the backdrop (their source-over alpha is not their sum).
     val tabExit = fadeOut(tween<Float>(Motion.TAB, easing = easing), targetAlpha = 1f)

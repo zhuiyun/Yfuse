@@ -11,8 +11,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -27,6 +30,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
@@ -127,7 +131,29 @@ fun PlaybackHistoryScreen(
     }
     var notice by remember { mutableStateOf<String?>(null) }
     var gridView by remember { mutableStateOf(false) }
-    val grouped = remember(rows) { groupHistoryRowsByRecency(rows) }
+    var searchQuery by remember { mutableStateOf("") }
+    var activeFilter by remember { mutableStateOf(HistoryFilter.All) }
+    val filteredRows =
+        remember(rows, searchQuery, activeFilter) {
+            val needle = searchQuery.trim().lowercase()
+            rows.filter { row ->
+                val matchesFilter =
+                    when (activeFilter) {
+                        HistoryFilter.All -> true
+                        HistoryFilter.InProgress -> !row.entry.completed && row.progress > 0f && row.progress < 0.98f
+                        HistoryFilter.Movie -> row.episodeLabel == null && !row.entry.media.mediaType.equals("tv", ignoreCase = true)
+                        HistoryFilter.Series -> row.episodeLabel != null || row.entry.media.mediaType.equals("tv", ignoreCase = true)
+                    }
+                val matchesQuery =
+                    needle.isEmpty() ||
+                        row.title.lowercase().contains(needle) ||
+                        row.episodeLabel?.lowercase()?.contains(needle) == true ||
+                        row.server?.serverName?.lowercase()?.contains(needle) == true
+                matchesFilter && matchesQuery
+            }
+        }
+    val grouped = remember(filteredRows) { groupHistoryRowsByRecency(filteredRows) }
+    val wideHistoryWindow = com.yfuse.app.LocalWideWindow.current
     StatusBarIconStyle(darkIcons = !LocalPalette.current.isDark)
     if (rootTab) ScrollToTopOnReselect(component.listState)
     Box(Modifier.fillMaxSize()) {
@@ -142,17 +168,41 @@ fun PlaybackHistoryScreen(
             if (contentEntries != null) item(key = "watching-entries") { contentEntries() }
             if (rows.isNotEmpty()) {
                 item(key = "history-view-toggle") {
-                    HistoryViewModeSwitch(
-                        gridView = gridView,
-                        onSelectGrid = { gridView = it },
-                        modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        HistoryViewModeSwitch(
+                            gridView = gridView,
+                            onSelectGrid = { gridView = it },
+                            modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
+                        )
+                        HistorySearchAndFilterBar(
+                            query = searchQuery,
+                            onQueryChange = { searchQuery = it },
+                            filter = activeFilter,
+                            onFilterChange = { activeFilter = it },
+                        )
+                    }
                 }
             }
             if (rows.isEmpty()) {
                 item(key = "history-empty") {
                     Box(Modifier.fillMaxWidth().padding(vertical = 72.dp), contentAlignment = Alignment.Center) {
                         PageHint("还没有播放记录，观看影片后会显示在这里")
+                    }
+                }
+            } else if (filteredRows.isEmpty()) {
+                item(key = "history-filter-empty") {
+                    Column(
+                        Modifier.fillMaxWidth().padding(vertical = 52.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        PageHint("没有符合筛选条件的播放记录")
+                        TextButton(onClick = {
+                            searchQuery = ""
+                            activeFilter = HistoryFilter.All
+                        }) {
+                            Text("重置筛选", style = AppTypography.body.strong, color = LocalAccentColors.current.accent)
+                        }
                     }
                 }
             }
@@ -187,19 +237,20 @@ fun PlaybackHistoryScreen(
                     }
                 }
                 if (gridView) {
-                    val pairs = bucketRows.chunked(2)
+                    val columns = if (wideHistoryWindow) 3 else 2
+                    val chunks = bucketRows.chunked(columns)
                     motionItems(
-                        pairs,
-                        key = { pair -> "grid-${pair.first().entry.identity}" },
+                        chunks,
+                        key = { chunk -> "grid-${chunk.first().entry.identity}" },
                         contentType = { "history-grid-row" },
-                    ) { pair ->
+                    ) { chunk ->
                         Row(
                             Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = Dimens.pageHorizontal),
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
-                            pair.forEach { row ->
+                            chunk.forEach { row ->
                                 val key = component.metadataKey(row)
                                 val rowMetadata =
                                     remember(component, key) {
@@ -224,7 +275,7 @@ fun PlaybackHistoryScreen(
                                     modifier = Modifier.weight(1f),
                                 )
                             }
-                            if (pair.size == 1) {
+                            repeat((columns - chunk.size).coerceAtLeast(0)) {
                                 Box(Modifier.weight(1f))
                             }
                         }
@@ -505,4 +556,98 @@ internal fun playbackHistoryLoadWindow(
     if (visible.isEmpty()) return emptyList()
     val neighbours = listOf(visible.min() - 1, visible.max() + 1).filter { it in rows.indices && it !in visible }
     return (visible + neighbours).map(rows::get)
+}
+
+private enum class HistoryFilter(
+    val label: String,
+) {
+    All("全部"),
+    InProgress("未看完"),
+    Movie("电影"),
+    Series("剧集"),
+}
+
+@Composable
+private fun HistorySearchAndFilterBar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    filter: HistoryFilter,
+    onFilterChange: (HistoryFilter) -> Unit,
+) {
+    val palette = LocalPalette.current
+    val accent = LocalAccentColors.current.accent
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = Dimens.pageHorizontal)
+                .height(40.dp)
+                .clip(AppShapes.pill)
+                .background(palette.text.copy(alpha = if (palette.isDark) 0.08f else 0.055f))
+                .border(1.dp, palette.border.copy(alpha = if (palette.isDark) 0.5f else 0.7f), AppShapes.pill)
+                .padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(AppIcons.Search, contentDescription = null, tint = palette.sub2, modifier = Modifier.size(15.dp))
+            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                if (query.isEmpty()) {
+                    Text("搜索观看记录或服务器…", style = AppTypography.caption.regular, color = palette.hint)
+                }
+                BasicTextField(
+                    value = query,
+                    onValueChange = onQueryChange,
+                    singleLine = true,
+                    textStyle = AppTypography.caption.medium.copy(color = palette.text),
+                    cursorBrush = SolidColor(accent),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            if (query.isNotEmpty()) {
+                Icon(
+                    AppIcons.Close,
+                    contentDescription = "清除搜索",
+                    tint = palette.sub,
+                    modifier =
+                        Modifier
+                            .size(16.dp)
+                            .pressable(onClickLabel = "清除搜索") { onQueryChange("") },
+                )
+            }
+        }
+        LazyRow(
+            modifier = Modifier.fillMaxWidth().selectableGroup(),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = Dimens.pageHorizontal),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            items(HistoryFilter.entries, key = { it.name }) { item ->
+                val selected = item == filter
+                Text(
+                    item.label,
+                    style = if (selected) AppTypography.caption.strong else AppTypography.caption.medium,
+                    color = if (selected) accent else palette.sub,
+                    modifier =
+                        Modifier
+                            .clip(AppShapes.pill)
+                            .background(
+                                if (selected) {
+                                    accent.copy(alpha = if (palette.isDark) 0.22f else 0.12f)
+                                } else {
+                                    palette.text.copy(alpha = if (palette.isDark) 0.07f else 0.045f)
+                                },
+                            ).border(
+                                1.dp,
+                                if (selected) accent.copy(alpha = 0.55f) else palette.border.copy(alpha = 0.45f),
+                                AppShapes.pill,
+                            ).pressable(
+                                role = Role.RadioButton,
+                                haptic = HapticSignal.Select,
+                                focusShape = AppShapes.pill,
+                                onClick = { onFilterChange(item) },
+                            ).semantics { this.selected = selected }
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                )
+            }
+        }
+    }
 }
