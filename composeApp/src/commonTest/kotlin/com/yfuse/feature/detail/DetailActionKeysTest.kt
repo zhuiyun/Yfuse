@@ -65,8 +65,14 @@ class DetailActionKeysTest {
         assertEquals("服务器收藏", favorite.description)
         assertEquals("已收藏", favorite.stateDescription)
         assertEquals(AppIcons.HeartFilled, favorite.checkedIcon)
-        assertEquals("已加入", built.getValue(DetailActionKeyIds.WATCH_LATER).stateDescription)
-        assertEquals("已看过", built.getValue(DetailActionKeyIds.PLAYED).stateDescription)
+        val later = built.getValue(DetailActionKeyIds.WATCH_LATER)
+        assertEquals("已加入", later.stateDescription)
+        assertEquals(AppIcons.BookmarkFilled, later.checkedIcon)
+        val played = built.getValue(DetailActionKeyIds.PLAYED)
+        assertEquals("已看过", played.stateDescription)
+        assertEquals(AppIcons.Eye, played.icon)
+        assertEquals(AppIcons.Check, played.checkedIcon)
+        assertEquals(keys(facts()).map { it.label }, built.values.map { it.label })
         assertTrue(built.values.filter { it.checked != null }.all { it.checked == true })
     }
 

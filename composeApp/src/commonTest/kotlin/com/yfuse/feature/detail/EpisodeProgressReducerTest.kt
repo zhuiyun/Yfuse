@@ -8,6 +8,7 @@ import com.yfuse.core.model.Season
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class EpisodeProgressReducerTest {
@@ -172,18 +173,18 @@ class EpisodeProgressReducerTest {
 
         val unplayed =
             with(DetailReducer) {
-                watching.reduce(DetailMsg.SeriesProgressChanged("one", "s1", played = false, message = "已标记为未看"))
+                watching.reduce(DetailMsg.SeriesProgressChanged("one", "s1", played = false))
             }
 
         assertEquals(listOf(false, false), unplayed.episodes.map { it.played })
         assertEquals(listOf(null, null), unplayed.episodes.map { it.resumePositionTicks })
         // 播放's target sits in a season the rail is not showing; its resume point is gone all the same.
         assertEquals(0L, unplayed.playPositionTicks)
-        assertEquals("已标记为未看", unplayed.actionMessage)
+        assertNull(unplayed.actionMessage)
 
         val otherTitle =
             with(DetailReducer) {
-                watching.reduce(DetailMsg.SeriesProgressChanged("one", "s2", played = true, message = "x"))
+                watching.reduce(DetailMsg.SeriesProgressChanged("one", "s2", played = true))
             }
         assertEquals(watching, otherTitle)
     }

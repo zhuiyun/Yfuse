@@ -6,12 +6,9 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -583,13 +580,8 @@ private object TopBarKeyFocusShape : Shape {
 internal fun TitleBlock(
     detail: MediaDetail,
     title: String,
-    /** Read while drawing: the artwork's colour blends in without recomposing the block. */
-    accent: () -> Color,
     version: MediaVersion?,
     modifier: Modifier = Modifier,
-    /** 已收藏 / 稍后观看 / 已看完 and the personal lists; nothing is drawn when there are none. */
-    statuses: List<DetailStatus> = emptyList(),
-    onStatusClick: () -> Unit = {},
 ) {
     // 一镜到底: opened by a lifted card, the words rise into place one row after another once the
     // card has handed the artwork over (LiftExpansion.kt). Opened any other way they are there.
@@ -657,100 +649,13 @@ internal fun TitleBlock(
         val dolbyAtmos = version?.hasDolbyAtmos == true
         if (dolbyVision || dolbyAtmos) {
             Spacer(Modifier.height(12.dp))
-            Row(Modifier.oneTakeArrival(arrival, row++), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
+            Row(Modifier.oneTakeArrival(arrival, row), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
                 if (dolbyVision) DolbyBadge("VISION", primaryInk)
                 if (dolbyAtmos) DolbyBadge("ATMOS", primaryInk)
             }
         }
-        // Its 48dp touch target is its spacing: the chips sit centred in it, a gap either side.
-        if (statuses.isNotEmpty()) DetailStatusRow(statuses, onStatusClick, Modifier.oneTakeArrival(arrival, row))
     }
 }
-
-/**
- * A state the title is in. These moved into 更多操作 with 1.0.85 so the synopsis could rise, and
- * the page stopped saying whether a film was already collected or watched at all.
- */
-internal enum class DetailStatus(
-    val label: String,
-) {
-    // Beside 个人收藏, a bare 已收藏 did not say whose list it was.
-    Favorite("服务器收藏"),
-    WatchLater("稍后观看"),
-    Played("已看完"),
-    PersonalFavorite("个人收藏"),
-    PersonalWanted("想看"),
-}
-
-internal fun detailStatuses(
-    favorite: Boolean,
-    watchLater: Boolean,
-    played: Boolean,
-    personalFavorite: Boolean,
-    personalWanted: Boolean,
-): List<DetailStatus> =
-    buildList {
-        if (favorite) add(DetailStatus.Favorite)
-        if (watchLater) add(DetailStatus.WatchLater)
-        if (played) add(DetailStatus.Played)
-        if (personalFavorite) add(DetailStatus.PersonalFavorite)
-        if (personalWanted) add(DetailStatus.PersonalWanted)
-    }
-
-/**
- * The title's states as read-only chips. One tap on the row opens 更多操作, where each is
- * switched; a screen reader hears the states, then that the row opens the sheet.
- */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun DetailStatusRow(
-    statuses: List<DetailStatus>,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    FlowRow(
-        modifier
-            .pressable(
-                focusShape = AppShapes.chip,
-                onClickLabel = "打开更多操作",
-                onClick = onClick,
-            ).touchTarget(),
-        horizontalArrangement = Arrangement.spacedBy(Dimens.space.sm),
-        verticalArrangement = Arrangement.spacedBy(Dimens.space.sm),
-    ) {
-        statuses.forEach { status ->
-            Row(
-                Modifier
-                    // On the artwork in both themes, like the title: its own dark plate rather
-                    // than glass, which re-tints with the palette and can turn light under
-                    // 减少透明效果. White caption ink on it clears 4.5:1 even over a white sky.
-                    .background(StatusChipFill, AppShapes.chip)
-                    .border(Dimens.hairline, StatusChipEdge, AppShapes.chip)
-                    .padding(horizontal = Dimens.space.sm, vertical = Dimens.space.xs),
-                horizontalArrangement = Arrangement.spacedBy(Dimens.space.xs),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    status.icon(),
-                    contentDescription = null,
-                    tint = ArtworkInk,
-                    modifier = Modifier.size(12.dp),
-                )
-                Text(status.label, style = AppTypography.caption.strong, color = ArtworkInk, maxLines = 1)
-            }
-        }
-    }
-}
-
-private fun DetailStatus.icon(): ImageVector =
-    when (this) {
-        DetailStatus.Favorite, DetailStatus.PersonalFavorite -> AppIcons.HeartFilled
-        DetailStatus.WatchLater, DetailStatus.PersonalWanted -> AppIcons.BookmarkFilled
-        DetailStatus.Played -> AppIcons.Check
-    }
-
-private val StatusChipFill = HeroInk.copy(alpha = 0.66f)
-private val StatusChipEdge = Color.White.copy(alpha = 0.22f)
 
 /** `1小时13分钟` — hours only when there are any, because "0小时13分钟" reads as a bug. */
 internal fun runtimeLabel(minutes: Int): String {

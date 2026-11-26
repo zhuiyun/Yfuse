@@ -42,6 +42,7 @@ class DetailReducerTest {
         assertSame(pending, pending.after(DetailMsg.FavoriteSaved("one", "other", true)))
         val saved = pending.after(DetailMsg.FavoriteSaved("one", "m1", true))
         assertEquals("one" to "m1", saved.confirmedFavorite)
+        assertNull(saved.actionMessage)
         val removed = saved.after(DetailMsg.FavoriteChanged("one", "m1", false))
         assertNull(removed.confirmedFavorite)
         assertSame(removed, removed.after(DetailMsg.FavoriteSaved("one", "m1", true)))

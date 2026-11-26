@@ -444,30 +444,6 @@ fun DetailScreen(component: DetailComponent) {
                 ?.kind
                 ?.capabilities()
                 ?.favorites != false
-    // Read at page level, not only inside 更多操作: the title block says which lists hold this title.
-    val personalLists =
-        detail?.let { item ->
-            if (state.server != null || component.catalog != null) {
-                com.yfuse.feature.personal.rememberPersonalMediaLists(
-                    item,
-                    state.server?.id,
-                    component.catalog?.context,
-                )
-            } else {
-                null
-            }
-        }
-    val detailStatusList =
-        detail
-            ?.let { item ->
-                detailStatuses(
-                    favorite = serverFavoriteAvailable && item.isFavorite,
-                    watchLater = state.watchLater,
-                    played = item.played,
-                    personalFavorite = personalLists?.favorite == true,
-                    personalWanted = personalLists?.wanted == true,
-                )
-            }.orEmpty()
     // 下载第 2 季（10 集）… in 更多: only where 播放 opens an episode, whose season can be taken whole.
     val seasonDownloadLabel = state.playTarget?.seriesId?.let { listedSeasonLabel(state.episodes, state.seasons) }
 
@@ -713,7 +689,6 @@ fun DetailScreen(component: DetailComponent) {
                                             TitleBlock(
                                                 detail = detail,
                                                 title = displayTitle,
-                                                accent = { detailAccentState.value },
                                                 // A series has no file of its own, so its 杜比 facts belong to
                                                 // the episode 继续观看 would open — which is the copy the badge
                                                 // would be describing anyway.
@@ -723,8 +698,6 @@ fun DetailScreen(component: DetailComponent) {
                                                         captionLift = with(density) { it.height.toDp() } +
                                                             SheetGap + PlayButtonHeroOverlap
                                                     },
-                                                statuses = emptyList(),
-                                                onStatusClick = { moreSheetOpen = true },
                                             )
                                             // Built out here rather than in the colour scope below: the play key
                                             // repaints on every frame of its blend, the keys stay the same list.
@@ -1116,7 +1089,16 @@ fun DetailScreen(component: DetailComponent) {
                         serverFavorite = shownDetail.isFavorite,
                         serverWatchLater = state.watchLater,
                         serverWatchLaterMutating = state.watchLaterMutating,
-                        personalLists = personalLists,
+                        personalLists =
+                            if (state.server != null || component.catalog != null) {
+                                com.yfuse.feature.personal.rememberPersonalMediaLists(
+                                    shownDetail,
+                                    state.server?.id,
+                                    component.catalog?.context,
+                                )
+                            } else {
+                                null
+                            },
                         onToggleServerFavorite = { component.store.accept(DetailIntent.ToggleFavorite) },
                         onToggleServerWatchLater = { component.store.accept(DetailIntent.ToggleWatchLater) },
                         onDownload = {

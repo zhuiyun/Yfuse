@@ -122,10 +122,7 @@ internal object DetailReducer : Reducer<DetailState, DetailMsg> {
                 }
             is DetailMsg.FavoriteSaved ->
                 if (server?.id == msg.serverId && detail?.id == msg.itemId && detail.isFavorite == msg.value) {
-                    copy(
-                        confirmedFavorite = if (msg.value) msg.serverId to msg.itemId else null,
-                        actionMessage = if (msg.value) "已加入收藏" else "已取消收藏",
-                    )
+                    copy(confirmedFavorite = if (msg.value) msg.serverId to msg.itemId else null)
                 } else {
                     this
                 }
@@ -183,7 +180,7 @@ internal object DetailReducer : Reducer<DetailState, DetailMsg> {
                     withEpisodeProgress(
                         episodes.mapTo(mutableSetOf()) { it.id } + listOfNotNull(playTarget?.id),
                         msg.played,
-                    ).copy(actionMessage = msg.message)
+                    )
                 } else {
                     this
                 }

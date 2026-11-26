@@ -640,7 +640,7 @@ private fun DetailActionKeyTile(
                 .clip(CircleShape)
                 .background(
                     if (on) {
-                        stateColors.iconSurface
+                        stateColors.foreground
                     } else {
                         palette.text.copy(alpha = if (palette.isDark) 0.08f else 0.045f)
                     },
@@ -654,9 +654,9 @@ private fun DetailActionKeyTile(
                     icon = if (on) action.checkedIcon ?: action.icon else action.icon,
                     active = on,
                     contentDescription = null,
-                    tint = ink,
+                    tint = if (on) primaryActionContentColor(stateColors.foreground) else ink,
                     burstColor = accent,
-                    iconSize = 15.dp,
+                    iconSize = 17.dp,
                 )
             }
         }

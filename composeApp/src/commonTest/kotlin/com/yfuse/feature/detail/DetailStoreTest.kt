@@ -1475,11 +1475,11 @@ class DetailStoreTest {
                 assertTrue(store.state.watchLater)
 
                 store.accept(DetailIntent.ToggleWatchLater)
-                store.states.first { !it.watchLaterBusy && it.actionMessage != null }
+                store.states.first { !it.watchLater && !it.watchLaterBusy }
 
                 assertTrue(!store.state.watchLater)
                 assertEquals("entry-1,entry-2", deletedEntryIds)
-                assertEquals("已从稍后观看移除", store.state.actionMessage)
+                assertNull(store.state.actionMessage)
             } finally {
                 store.dispose()
             }

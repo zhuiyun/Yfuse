@@ -95,7 +95,8 @@ internal fun detailActionKeys(
             add(
                 DetailActionKey(
                     id = DetailActionKeyIds.PLAYED,
-                    icon = AppIcons.Check,
+                    icon = AppIcons.Eye,
+                    checkedIcon = AppIcons.Check,
                     label = "已看",
                     checked = facts.played,
                     stateDescription = if (facts.played) "已看过" else "未看过",

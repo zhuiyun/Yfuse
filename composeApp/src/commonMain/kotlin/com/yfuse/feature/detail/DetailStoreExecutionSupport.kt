@@ -174,7 +174,6 @@ internal sealed interface DetailMsg {
         val serverId: String,
         val itemId: String,
         val played: Boolean,
-        val message: String,
     ) : DetailMsg
 
     data class WatchLaterChanged(
