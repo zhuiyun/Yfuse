@@ -1,0 +1,107 @@
+name: YCore-only poster cloud emulator
+
+on:
+  push:
+    branches: [codex/android-poster-emulator-20261125]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  poster-and-runtime:
+    name: Poster transition, poster names and YCore runtime on Android 15
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      APP_COMMIT: f040e43a180986cd36f31d58512df69063351b8a
+      NATIVE_COMMIT: 0f61f76626e370cd40c25c22fa0e211c12d7bd86
+      YCORE_AAR_SHA256: 1ff5de64e7c271f845df767de3b0e7d4ca43f5de0b1e9c8745bcc46827539787
+      YCORE_PROVENANCE_SHA256: 2461747045a9ea97105fda84e9886f46d530fca37f945289a18798ac8539b60e
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.APP_COMMIT }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          artifact-ids: "14436971516"
+          run-id: "44324037800"
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/pinned-ycore
+          merge-multiple: true
+      - name: Verify the pinned YCore artifact and unchanged native source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$APP_COMMIT"
+          git diff --exit-code "$NATIVE_COMMIT" "$APP_COMMIT" -- \
+            scripts/native 'scripts/build-ycore*.sh' scripts/fetch-ycore-source.py \
+            scripts/ycore-source-receipt.py scripts/package-ycore-native-aar.py \
+            scripts/embed-mini-debuginfo.sh scripts/verify-ycore-native.sh \
+            scripts/ycore-dependencies.json 'scripts/test-ycore*' scripts/native-test-build.sh \
+            NOTICE LICENSE docs/third-party-licenses
+          git worktree add --detach "$RUNNER_TEMP/native-source" "$NATIVE_COMMIT"
+          input="$RUNNER_TEMP/pinned-ycore"
+          python3 scripts/ycore-source-receipt.py verify \
+            --root "$RUNNER_TEMP/native-source" --artifact-dir "$input" \
+            --source-commit "$NATIVE_COMMIT" --aar-sha256 "$YCORE_AAR_SHA256" \
+            --provenance-sha256 "$YCORE_PROVENANCE_SHA256"
+          mkdir -p composeApp/libs
+          cp "$input"/ycore-native.aar "$input"/ycore-native.aar.sha256 composeApp/libs/
+          cp "$input"/NATIVE-SOURCES.txt composeApp/libs/ycore-native.sources.txt
+      - name: Build the isolated app and test APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
+          "$sdkmanager" 'platforms;android-37.0'
+          ./gradlew :composeApp:assembleDebug :composeApp:assembleDebugAndroidTest \
+            -PyfuseApplicationId=com.yfuse.validation -PyfusePlaybackProfile=ycore \
+            -PyfuseIncludeMdk=false -PyfuseNativeOnlyRuntime=true --max-workers=2 --no-daemon
+          mkdir -p build/poster-qa
+          python3 scripts/verify-playback-package.py \
+            composeApp/build/outputs/apk/debug/composeApp-debug.apk | tee build/poster-qa/package.json
+      - name: Enable KVM
+        shell: bash
+        run: |
+          test -c /dev/kvm
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Test on the Android 15 emulator
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          ram-size: 4096M
+          heap-size: 512M
+          disk-size: 4096M
+          emulator-boot-timeout: 600
+          disable-animations: false
+          emulator-options: -no-window -gpu lavapipe -noaudio -no-boot-anim -no-snapshot -camera-back none -accel on
+          script: |
+            adb shell getprop ro.build.version.sdk | tr -d '\r' | grep -Fx '35'
+            adb shell getprop ro.product.cpu.abilist | tee build/poster-qa/abi.txt
+            adb shell settings put global hide_error_dialogs 1
+            adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS
+            adb install -r -t composeApp/build/outputs/apk/debug/composeApp-debug.apk
+            adb install -r -t composeApp/build/outputs/apk/androidTest/debug/composeApp-debug-androidTest.apk
+            adb shell am instrument -w -r -e class 'com.yfuse.core.designsystem.HeroLiftInstrumentedTest,com.yfuse.feature.profile.SettingsPagesInstrumentedTest#poster_name_switch_saves_the_chosen_value_when_options_reopen,com.yfuse.feature.player.AndroidPlaybackRuntimeInstrumentedTest' com.yfuse.validation.test/androidx.test.runner.AndroidJUnitRunner | tr -d '\r' | tee build/poster-qa/instrumentation.txt
+            grep -Fx 'OK (7 tests)' build/poster-qa/instrumentation.txt
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: ycore-poster-emulator-evidence
+          path: build/poster-qa
+          if-no-files-found: warn
+          retention-days: 7
