@@ -32,6 +32,7 @@ class RetainedArtworkPageColor internal constructor(
     initial: Color?,
     private val key: String,
     private val darkTheme: Boolean,
+    private val cinemaDark: Boolean = false,
 ) {
     /** Raw sampled artwork colour stays untouched so changing appearance never compounds a tint. */
     private val rawState = mutableStateOf(initial)
@@ -41,7 +42,10 @@ class RetainedArtworkPageColor internal constructor(
      * itself is never brightened/darkened, so the adjustment is confined to the lower dissolve.
      */
     val value: Color?
-        get() = rawState.value?.let { artworkPageSurface(it, darkTheme) }
+        get() =
+            rawState.value?.let { sampled ->
+                if (cinemaDark) cinemaArtworkPageSurface(sampled) else artworkPageSurface(sampled, darkTheme)
+            }
 
     /** Only real samples are written, so a loading/fallback frame can never erase the return colour. */
     fun update(color: Color) {
@@ -51,15 +55,19 @@ class RetainedArtworkPageColor internal constructor(
 }
 
 @Composable
-fun rememberRetainedArtworkPageColor(key: String): RetainedArtworkPageColor {
+fun rememberRetainedArtworkPageColor(
+    key: String,
+    cinemaDark: Boolean = false,
+): RetainedArtworkPageColor {
     // Read this before a poster-aware ArtworkPageTheme is installed. At Home/Library/detail
     // call sites it represents the user's actual light/dark appearance, not the poster colour.
     val darkTheme = LocalPalette.current.isDark
-    return remember(key, darkTheme) {
+    return remember(key, darkTheme, cinemaDark) {
         RetainedArtworkPageColor(
             initial = ArtworkPageColorMemory.read(key),
             key = key,
             darkTheme = darkTheme,
+            cinemaDark = cinemaDark,
         )
     }
 }

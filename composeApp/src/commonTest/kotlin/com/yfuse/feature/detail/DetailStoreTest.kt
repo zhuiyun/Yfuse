@@ -856,6 +856,77 @@ class DetailStoreTest {
     }
 
     @Test
+    fun episode_cards_load_in_parallel_with_seasons_and_can_be_used_before_file_metadata() =
+        runTest {
+            val seasons = CompletableDeferred<Unit>()
+            val files = CompletableDeferred<Unit>()
+            var numberedRequests = 0
+            val store =
+                seriesStore(
+                    seedLightEpisodeSnapshot = true,
+                    beforeFirstSeasons = { seasons.await() },
+                    onNumberedDirectory = { numberedRequests++ },
+                    beforeSeasonFiles = { files.await() },
+                    mainContext = UnconfinedTestDispatcher(testScheduler),
+                )
+            try {
+                runCurrent()
+                assertEquals(1, numberedRequests)
+                val listed = store.states.first { it.episodes.size == 2 && !it.episodesLoading }
+                assertTrue(
+                    listed.episodes
+                        .first()
+                        .versions
+                        .isEmpty(),
+                )
+                assertTrue(listed.episodesForDownload.isEmpty())
+                assertEquals("season1", listed.listedSeasonId)
+                seasons.complete(Unit)
+                store.accept(DetailIntent.SelectEpisode("e2", 0L))
+                store.states.first { it.playTarget?.id == "e2" }
+                files.complete(Unit)
+                val enriched =
+                    store.states.first {
+                        it.episodes
+                            .first()
+                            .versions
+                            .isNotEmpty()
+                    }
+                assertEquals(
+                    "ev1",
+                    enriched.episodesForDownload
+                        .first()
+                        .versions
+                        .first()
+                        .id,
+                )
+                assertEquals("e2", enriched.selectedEpisodeId)
+            } finally {
+                seasons.complete(Unit)
+                files.complete(Unit)
+                store.dispose()
+            }
+        }
+
+    @Test
+    fun a_stalled_numbered_directory_falls_back_to_the_real_season_id() =
+        runTest {
+            val store =
+                seriesStore(
+                    onNumberedDirectory = { awaitCancellation() },
+                    mainContext = UnconfinedTestDispatcher(testScheduler),
+                )
+            try {
+                advanceUntilIdle()
+                assertEquals(listOf("e1", "e2"), store.state.episodes.map { it.id })
+                assertEquals("season1", store.state.listedSeasonId)
+                assertNull(store.state.episodesError)
+            } finally {
+                store.dispose()
+            }
+        }
+
+    @Test
     fun initial_series_play_target_does_not_wait_for_the_catalog() =
         runBlocking {
             val catalogStarted = CompletableDeferred<Unit>()
@@ -1660,6 +1731,8 @@ class DetailStoreTest {
         beforeInitialEpisodes: suspend () -> Unit = {},
         onFirstEpisodesRequest: (String?) -> Unit = {},
         beforeFirstSeasons: suspend () -> Unit = {},
+        onNumberedDirectory: suspend () -> Unit = {},
+        beforeSeasonFiles: suspend () -> Unit = {},
         beforeSecondEpisodes: suspend () -> Unit = {},
         beforeSecondSourceLookup: () -> Unit = {},
         secondEpisodesBody: String = """{"Items":[$ALT_EPISODE_ONE]}""",
@@ -1745,6 +1818,11 @@ class DetailStoreTest {
                         )
                     path.endsWith("/Shows/s1/Episodes") -> {
                         val coordinateLookup = request.url.parameters["Season"] != null
+                        val withFiles = "MediaSources" in request.url.parameters["Fields"].orEmpty()
+                        if (coordinateLookup && !withFiles) {
+                            onNumberedDirectory()
+                        }
+                        if (withFiles && request.url.parameters["SeasonId"] != null) beforeSeasonFiles()
                         if (!coordinateLookup) {
                             onFirstEpisodesRequest(request.url.parameters["SeasonId"])
                         }
@@ -1753,15 +1831,20 @@ class DetailStoreTest {
                         }
                         when (request.url.parameters["SeasonId"]) {
                             "season2" -> {
-                                beforeSeasonTwoEpisodes()
-                                seasonTwoEpisodesFailure?.invoke()?.let { throw it }
+                                if (!withFiles) {
+                                    beforeSeasonTwoEpisodes()
+                                    seasonTwoEpisodesFailure?.invoke()?.let { throw it }
+                                }
                                 json("""{"Items":[$EPISODE_THREE]}""")
                             }
                             "season3" -> {
                                 seasonThreeEpisodesFailure?.invoke()?.let { throw it }
                                 json("""{"Items":[]}""")
                             }
-                            else -> json("""{"Items":[$EPISODE_ONE,$EPISODE_TWO]}""")
+                            else -> {
+                                val first = if (coordinateLookup && !withFiles) EPISODE_ONE_LIGHT else EPISODE_ONE
+                                json("""{"Items":[$first,$EPISODE_TWO]}""")
+                            }
                         }
                     }
                     path.endsWith("/Shows/s2/Episodes") -> {

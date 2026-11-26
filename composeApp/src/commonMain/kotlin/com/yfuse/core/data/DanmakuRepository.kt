@@ -16,7 +16,9 @@ import io.ktor.utils.io.readRemaining
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlinx.io.readByteArray
+import kotlin.time.TimeSource
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -91,6 +93,33 @@ data class DanmakuMedia(
     val serverId: String?,
 )
 
+/** Live latency probe result for one configured [DanmakuSource]. */
+data class DanmakuProbeResult(
+    val sourceId: String,
+    val reachable: Boolean,
+    val latencyMs: Long?,
+    val statusCode: Int? = null,
+    val error: String? = null,
+)
+
+/**
+ * Resolves a lightweight probe URL for latency testing without sending fake watch activity:
+ * - API roots probe `/api/v2/search/anime?keyword=test` (the same path 搜索弹幕 uses).
+ * - Templates probe the origin (`scheme://host[:port]/`) so placeholder tokens are never sent.
+ */
+internal fun danmakuProbeUrl(source: DanmakuSource): String? {
+    val trimmed = source.url.trim()
+    if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) return null
+    val apiRoot = with(DanmakuRepository) { source.apiRoot() }
+    if (apiRoot != null) return "$apiRoot/api/v2/search/anime?keyword=test"
+    val schemeEnd = trimmed.indexOf("://")
+    if (schemeEnd < 0) return null
+    val hostStart = schemeEnd + 3
+    val pathStart = trimmed.indexOf('/', hostStart)
+    val origin = if (pathStart > hostStart) trimmed.substring(0, pathStart) else trimmed
+    return "$origin/"
+}
+
 /**
  * Loads an arbitrary user-provided endpoint. The endpoint can be a direct URL or a template using
  * `{id}`, `{title}`, `{season}`, `{episode}` and `{serverId}`. Bilibili XML, DPlayer tuples
@@ -122,6 +151,51 @@ class DanmakuRepository(
                     return@withContext Result.failure(error)
                 }
             fetchComments(url)
+        }
+
+    /** Measures round-trip latency to [source] with a 6-second timeout. */
+    suspend fun probeLatency(source: DanmakuSource): DanmakuProbeResult =
+        withContext(Dispatchers.Default) {
+            val probeUrl =
+                danmakuProbeUrl(source)
+                    ?: return@withContext DanmakuProbeResult(
+                        sourceId = source.id,
+                        reachable = false,
+                        latencyMs = null,
+                        error = "地址格式无效",
+                    )
+            val mark = TimeSource.Monotonic.markNow()
+            try {
+                val response = withTimeout(6_000L) { client.get(probeUrl) }
+                val elapsedMs = mark.elapsedNow().inWholeMilliseconds.coerceAtLeast(1L)
+                val code = response.status.value
+                DanmakuProbeResult(
+                    sourceId = source.id,
+                    reachable = code < 500,
+                    latencyMs = elapsedMs,
+                    statusCode = code,
+                    error = if (code >= 500) "服务端错误 ($code)" else null,
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: ResponseException) {
+                val elapsedMs = mark.elapsedNow().inWholeMilliseconds.coerceAtLeast(1L)
+                val code = error.response.status.value
+                DanmakuProbeResult(
+                    sourceId = source.id,
+                    reachable = code < 500,
+                    latencyMs = elapsedMs,
+                    statusCode = code,
+                    error = if (code >= 500) "服务端错误 ($code)" else null,
+                )
+            } catch (_: Throwable) {
+                DanmakuProbeResult(
+                    sourceId = source.id,
+                    reachable = false,
+                    latencyMs = null,
+                    error = "连接超时或不可达",
+                )
+            }
         }
 
     /**

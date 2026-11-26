@@ -32,8 +32,8 @@ object LivingPosterDefaults {
     val LEADING_INSET = 18.dp
     val TRAILING_PEEK = 58.dp
     val PAGE_SPACING = 12.dp
-    val CAPTION_BOTTOM = HeroCaptionClearance
-    val INDICATOR_BOTTOM = 16.dp
+    fun captionBottom(hasIndicator: Boolean): Dp =
+        if (hasIndicator) 38.dp else 14.dp
 }
 
 private val CaptionFeather = 44.dp
@@ -44,9 +44,8 @@ internal fun Modifier.livingPosterPageBlend(pageColor: State<Color>): Modifier =
         drawRect(heroPanelBrush(pageColor.value, this, height = size.height.toDp()))
     }
 
-/** Keep caption clearance above the lower dissolve without painting a dark horizontal stripe. */
-internal fun Modifier.livingPosterCaptionScrim(): Modifier =
-    padding(bottom = LivingPosterDefaults.CAPTION_BOTTOM)
+internal fun Modifier.livingPosterCaptionPadding(hasIndicator: Boolean): Modifier =
+    padding(bottom = LivingPosterDefaults.captionBottom(hasIndicator))
 
 /** Compact carousel metadata shared by TMDB and Emby-backed titles. */
 fun heroDurationLabel(minutes: Int?): String? =
@@ -77,29 +76,23 @@ fun heroMediaTypeLabel(type: String): String =
  * compact phones. Both tabs still resolve from the same token so switching tabs never makes
  * the carousel jump in height.
  *
- * The 480dp floor is for a phone held upright. A phone on its side is only 360–430dp tall, and
- * there the floor made the reel taller than the screen: its 播放 and 收藏 row sat under the
- * floating dock, or below the fold altogether. On a viewport that short the floor gives way to
- * [SHORT_VIEWPORT_HERO_SHARE] of it, which keeps that row above the dock.
+ * A short window leaves a fifth of the viewport for the first shelf and the floating dock.
+ * A single poster ends below its actions, without reserving a row for page indicators.
  */
 fun livingPosterHeroHeight(
     viewportHeight: Dp,
     wideLayout: Boolean,
+    hasIndicator: Boolean = true,
 ): Dp {
-    val floor = minOf(480.dp, viewportHeight * SHORT_VIEWPORT_HERO_SHARE)
-    return if (wideLayout) {
-        (viewportHeight * 0.67f).coerceIn(floor, 730.dp)
-    } else {
-        (viewportHeight * 0.72f).coerceIn(floor, 610.dp)
-    }
+    val floor = minOf(384.dp, viewportHeight * 0.76f)
+    val height =
+        if (wideLayout) {
+            (viewportHeight * 0.58f).coerceIn(floor, 640.dp)
+        } else {
+            (viewportHeight * 0.56f).coerceIn(floor, 488.dp)
+        }
+    return if (hasIndicator) height else (height - 28.dp).coerceAtLeast(0.dp)
 }
-
-/**
- * The most of a short viewport the reel may take. The caption's action row sits
- * [LivingPosterDefaults.CAPTION_BOTTOM] above the reel's foot, about as high as the floating
- * dock reaches; the tenth left below the reel is the margin between the two.
- */
-private const val SHORT_VIEWPORT_HERO_SHARE = 0.9f
 
 /**
  * A quiet, blurred echo of the settled artwork behind the inset poster.

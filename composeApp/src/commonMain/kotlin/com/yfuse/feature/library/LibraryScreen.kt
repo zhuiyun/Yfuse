@@ -25,6 +25,7 @@ fun LibraryScreen(component: LibraryComponent) {
         listPane = { it.instance !is LibraryComponent.Child.Detail },
         isLauncher = { it.instance is LibraryComponent.Child.Player },
         isDetail = { it.instance is LibraryComponent.Child.Detail },
+        insetEntryHorizontally = { it.instance !is LibraryComponent.Child.Home },
     ) { entry ->
         val instance = entry.instance
         when (instance) {

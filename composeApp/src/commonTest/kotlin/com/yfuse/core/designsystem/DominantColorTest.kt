@@ -26,6 +26,22 @@ class DominantColorTest {
     }
 
     @Test
+    fun playButtonsStayColouredAndReadableOnNeutralAndTintedArtwork() {
+        val swatches = listOf(Color.White, Color.Black, Color.LightGray, Color(0xFFFFF7E8), Brand.Primary, Color(0xFF87381D))
+        for (level in 0..255 step 8) {
+            val background = Color(level, level, level)
+            for (swatch in swatches) {
+                for (dark in listOf(false, true)) {
+                    val fill = artworkPlayButtonColor(swatch, background, dark)
+                    assertTrue(fill.luminance() < 0.70f)
+                    assertTrue(artworkPageContrastRatio(fill, background) >= 3f)
+                    assertTrue(artworkPageContrastRatio(contentColorForSurface(fill), fill) >= 4.5f)
+                }
+            }
+        }
+    }
+
+    @Test
     fun artworkPageSampling_followsTheFadeAndFavoursItsLowerEdge() {
         val weights = (0..100).map { artworkPageSampleWeight(it / 100f) }
 

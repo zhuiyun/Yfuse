@@ -153,10 +153,15 @@ fun PlaybackHistoryScreen(
             }
         }
     val grouped = remember(filteredRows) { groupHistoryRowsByRecency(filteredRows) }
-    val wideHistoryWindow = com.yfuse.app.LocalWideWindow.current
     StatusBarIconStyle(darkIcons = !LocalPalette.current.isDark)
     if (rootTab) ScrollToTopOnReselect(component.listState)
-    Box(Modifier.fillMaxSize()) {
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
+        val gridColumns =
+            when {
+                maxWidth >= 840.dp -> 4
+                maxWidth >= 600.dp -> 3
+                else -> 2
+            }
         SettingsPage(
             title = "播放记录",
             subtitle = "${personal.activeProfile.name} · ${rows.size} 部作品 · 最近观看优先",
@@ -237,7 +242,7 @@ fun PlaybackHistoryScreen(
                     }
                 }
                 if (gridView) {
-                    val columns = if (wideHistoryWindow) 3 else 2
+                    val columns = gridColumns
                     val chunks = bucketRows.chunked(columns)
                     motionItems(
                         chunks,

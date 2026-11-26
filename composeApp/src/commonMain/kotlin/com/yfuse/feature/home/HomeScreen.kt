@@ -110,11 +110,12 @@ import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.heroDurationLabel
 import com.yfuse.core.designsystem.heroMediaTypeLabel
 import com.yfuse.core.designsystem.homeArtworkParallax
+import com.yfuse.core.designsystem.horizontalSafeDrawingPadding
 import com.yfuse.core.designsystem.liftable
 import com.yfuse.core.designsystem.liftedCardOpen
 import com.yfuse.core.designsystem.liveStatus
 import com.yfuse.core.designsystem.livingPosterArtwork
-import com.yfuse.core.designsystem.livingPosterCaptionScrim
+import com.yfuse.core.designsystem.livingPosterCaptionPadding
 import com.yfuse.core.designsystem.livingPosterHeroHeight
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
@@ -185,7 +186,7 @@ fun HomeScreen(component: HomeComponent) {
     // The carousel reports the settled artwork colour for its own background and the accent.
     val navigationState by component.store.states.collectAsState(component.store.state)
     val retainedPageColor =
-        rememberRetainedArtworkPageColor("home:${navigationState.server?.id.orEmpty()}")
+        rememberRetainedArtworkPageColor("home:${navigationState.server?.id.orEmpty()}", cinemaDark = true)
     var heroAccent by remember { mutableStateOf<Color?>(null) }
     CarouselArtworkPageTheme(
         background = retainedPageColor.value.takeIf { navigationState.featuredSlides.isNotEmpty() },
@@ -379,9 +380,14 @@ internal fun HomeContentBody(
             .fillMaxSize()
             .drawBehind {
                 if (!heroFolded) drawRect(heroPageColor.value)
-            },
+            }.horizontalSafeDrawingPadding(),
     ) {
-        val heroHeight = livingPosterHeroHeight(maxHeight, wideLayout = maxWidth >= 600.dp)
+        val heroHeight =
+            livingPosterHeroHeight(
+                maxHeight,
+                wideLayout = maxWidth >= 600.dp,
+                hasIndicator = heroSlides.size > 1 || (state.loading && state.content.isEmpty),
+            )
         // Clears the floating dock as it is actually laid out: the fixed 122dp left the last shelf
         // under the glass with three-button navigation or large text.
         val bottomContentInset = floatingNavigationContentInset()
@@ -953,6 +959,7 @@ private fun HomeHeroCarousel(
                 HeroSlide(
                     listState = listState,
                     item = null,
+                    hasIndicator = false,
                     onPlay = {},
                     onDetails = {},
                     onFavorite = {},
@@ -986,6 +993,7 @@ private fun HomeHeroCarousel(
             HeroSlide(
                 listState = listState,
                 item = item,
+                hasIndicator = items.size > 1,
                 onPlay = { onPlay(item) },
                 onDetails = { onDetails(item) },
                 onFavorite = { onFavorite(item) },
@@ -1020,6 +1028,7 @@ private fun tmdbHeroArtworkUrls(item: TmdbItem?): List<String?> =
 private fun HeroSlide(
     listState: LazyListState,
     item: TmdbItem?,
+    hasIndicator: Boolean,
     onPlay: () -> Unit,
     onDetails: () -> Unit,
     onFavorite: () -> Unit,
@@ -1057,9 +1066,7 @@ private fun HeroSlide(
                 if (item == null) {
                     Modifier
                 } else {
-                    // The CTA and info key already opened this title, but the artwork — the
-                    // largest and most obvious target on the screen — did nothing. Keep its
-                    // bounds still so a tap does not fight the pager's drag animation.
+                    // Keep the artwork's detail target still during a pager drag.
                     Modifier.pressable(
                         pressedScale = 1f,
                         onClickLabel = "查看${item.title}",
@@ -1094,10 +1101,9 @@ private fun HeroSlide(
             HeroCaption(
                 item = item,
                 selected = settled,
-                onPlay = if (canResolvePlayback) playerArtworkOnClick(playerArtworkKey, onPlay) else onDetails,
+                onPlay = if (canResolvePlayback) playerArtworkOnClick(playerArtworkKey, onPlay) else null,
                 onFavorite = onFavorite,
-                canResolvePlayback = canResolvePlayback,
-                modifier = Modifier.align(Alignment.BottomStart),
+                modifier = Modifier.align(Alignment.BottomStart).livingPosterCaptionPadding(hasIndicator),
             )
         }
     }
@@ -1202,25 +1208,18 @@ private fun HeroHeader(
     }
 }
 
-/**
- * Hero caption — ✦今日精选 badge, Display 片名, 类型 · 年份, then the action row:
- * 主按钮「播放」+ 次级详情/收藏。TMDB picks are resolved only after the tap, so promising
- * immediate playback here was inaccurate whenever the title was not in the user's library.
- */
 @Composable
 private fun HeroCaption(
     item: TmdbItem,
     selected: Boolean,
-    onPlay: () -> Unit,
+    onPlay: (() -> Unit)?,
     onFavorite: () -> Unit,
-    canResolvePlayback: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val captionProgress = rememberCarouselCaptionProgress(selected)
     Column(
         modifier
             .fillMaxWidth()
-            .livingPosterCaptionScrim()
             .padding(
                 start = Dimens.pageHorizontal,
                 end = Dimens.pageHorizontal,
@@ -1302,8 +1301,6 @@ private fun HeroCaption(
             modifier = Modifier.carouselCaptionEntry(captionProgress, stage = 2),
             onPlay = onPlay,
             onFavorite = onFavorite,
-            playActionLabel = if (canResolvePlayback) "播放" else "查看详情",
-            primaryIcon = if (canResolvePlayback) AppIcons.Play else AppIcons.Info,
         )
     }
 }

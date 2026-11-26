@@ -6,6 +6,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import com.arkivanov.essenty.lifecycle.Lifecycle
 import com.yfuse.core.designsystem.LocalRouteVisible
@@ -14,8 +15,19 @@ import kotlinx.coroutines.delay
 /** Checks only while the route is visible and the app is in the foreground. */
 @Composable
 fun HomeRecommendationRefreshEffect(component: HomeComponent) {
-    val lifecycle = component.lifecycle
+    CarouselDateCheckEffect(component.lifecycle, enabled = component.recommendationsEnabled) {
+        component.store.accept(HomeIntent.RefreshRecommendationsIfStale)
+    }
+}
+
+@Composable
+internal fun CarouselDateCheckEffect(
+    lifecycle: Lifecycle,
+    enabled: Boolean,
+    check: () -> Unit,
+) {
     val routeVisible = LocalRouteVisible.current
+    val latestCheck by rememberUpdatedState(check)
     var resumed by remember(lifecycle) { mutableStateOf(lifecycle.state == Lifecycle.State.RESUMED) }
     DisposableEffect(lifecycle) {
         val callbacks =
@@ -32,11 +44,9 @@ fun HomeRecommendationRefreshEffect(component: HomeComponent) {
         resumed = lifecycle.state == Lifecycle.State.RESUMED
         onDispose { lifecycle.unsubscribe(callbacks) }
     }
-    LaunchedEffect(component, routeVisible, resumed) {
-        if (routeVisible && resumed && component.recommendationsEnabled) {
-            pollHomeRecommendationDate {
-                component.store.accept(HomeIntent.RefreshRecommendationsIfStale)
-            }
+    LaunchedEffect(lifecycle, routeVisible, resumed, enabled) {
+        if (routeVisible && resumed && enabled) {
+            pollHomeRecommendationDate { latestCheck() }
         }
     }
 }

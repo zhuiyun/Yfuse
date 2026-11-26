@@ -332,6 +332,7 @@ internal fun ServersGridScreen(component: ServersTabComponent) {
                             ServerCard(
                                 server = server,
                                 isCurrent = false,
+                                gridMode = layout == ServerLayout.Grid && !largeText,
                                 health = health[server.id],
                                 checking = (checking[server.id] ?: 0) > 0,
                                 stats = serverStats[server.id],
@@ -348,14 +349,6 @@ internal fun ServersGridScreen(component: ServersTabComponent) {
                                 onMore = { actionsFor = server },
                                 modifier = cardMotion,
                             )
-                        }
-
-                        // 文件来源 below the servers. A child profile can neither add one nor play
-                        // a file that belongs to no server, so it is not offered one.
-                        if (canManage) {
-                            motionItem(key = "file-sources", span = { GridItemSpan(maxLineSpan) }) {
-                                FileSourcesSection(component.fileSources)
-                            }
                         }
                     }
                 }

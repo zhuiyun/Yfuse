@@ -69,11 +69,14 @@ import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.PressFeedback
 import com.yfuse.core.designsystem.completionEdge
 import com.yfuse.core.designsystem.glassButtonAlpha
+import com.yfuse.core.designsystem.glassSelection
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.liquidMotionEnabled
 import com.yfuse.core.designsystem.liquidOutline
 import com.yfuse.core.designsystem.playerHandoffKey
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.readableSurfaceInk
+import com.yfuse.core.designsystem.rememberGlassSelectionStyle
 import com.yfuse.core.designsystem.rememberRouteVisibility
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.softActionSurface
@@ -135,6 +138,7 @@ internal fun DetailActionDock(
     keyAccent: Color = accent,
 ) {
     val actionInk = primaryActionContentColor(accent)
+    val insetFill = (if (actionInk == Color.White) Color.Black else Color.White).copy(alpha = 0.16f)
     // One source per key: each key presses and washes on its own.
     val playInteractions = remember { MutableInteractionSource() }
     val fromStartInteractions = remember { MutableInteractionSource() }
@@ -293,7 +297,7 @@ internal fun DetailActionDock(
                     Modifier
                         .size(32.dp)
                         .clip(CircleShape)
-                        .background(actionInk.copy(alpha = 0.16f)),
+                        .background(insetFill),
                     contentAlignment = Alignment.Center,
                 ) {
                     InlineLoadingContent(loading = resolving, slotSize = 15.dp, color = actionInk) {
@@ -327,7 +331,7 @@ internal fun DetailActionDock(
                         Text(
                             it,
                             style = AppTypography.caption.medium,
-                            color = actionInk.copy(alpha = 0.76f),
+                            color = readableSurfaceInk(actionInk.copy(alpha = 0.76f), accent),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -354,7 +358,7 @@ internal fun DetailActionDock(
                                     .graphicsLayer { alpha = liquid.resumeAlpha(progress = canPlayFromStart) }
                                     .padding(start = 8.dp, end = 5.dp)
                                     .clip(AppShapes.thumb)
-                                    .background(actionInk.copy(alpha = 0.16f))
+                                    .background(insetFill)
                                     .padding(horizontal = 7.dp, vertical = 3.dp),
                         )
                     }
@@ -563,6 +567,12 @@ internal data class DetailActionKey(
  * the artwork has all but dissolved into the page, so the palette's inks on the tiles' own glass read
  * in either theme; the title block above it is the part that sits on the picture.
  */
+internal fun shouldWrapDetailActionKeys(
+    keyCount: Int,
+    maxWidthDp: Float,
+    fontScale: Float,
+): Boolean = keyCount >= 4 && (maxWidthDp < 340f || fontScale >= 1.25f)
+
 @Composable
 internal fun DetailActionKeyRow(
     keys: List<DetailActionKey>,
@@ -570,12 +580,34 @@ internal fun DetailActionKeyRow(
     modifier: Modifier = Modifier,
 ) {
     if (keys.isEmpty()) return
-    Row(
-        modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(DETAIL_KEY_GAP.dp),
-    ) {
-        keys.forEach { action ->
-            key(action.id) { DetailActionKeyTile(action, accent, Modifier.weight(1f)) }
+    val fontScale = androidx.compose.ui.platform.LocalDensity.current.fontScale
+    androidx.compose.foundation.layout.BoxWithConstraints(modifier.fillMaxWidth()) {
+        if (shouldWrapDetailActionKeys(keys.size, maxWidth.value, fontScale)) {
+            val rows = keys.chunked((keys.size + 1) / 2)
+            Column(
+                Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(DETAIL_KEY_GAP.dp),
+            ) {
+                rows.forEach { rowKeys ->
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(DETAIL_KEY_GAP.dp),
+                    ) {
+                        rowKeys.forEach { action ->
+                            key(action.id) { DetailActionKeyTile(action, accent, Modifier.weight(1f)) }
+                        }
+                    }
+                }
+            }
+        } else {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(DETAIL_KEY_GAP.dp),
+            ) {
+                keys.forEach { action ->
+                    key(action.id) { DetailActionKeyTile(action, accent, Modifier.weight(1f)) }
+                }
+            }
         }
     }
 }
@@ -587,22 +619,20 @@ private fun DetailActionKeyTile(
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalPalette.current
-    val stateColors = detailStateColors(accent, palette.background, palette.isDark)
     val on = action.checked == true
-    // GlassActionButton's body and edge, so the row reads as the same family of keys.
-    val fill =
-        when {
-            on -> stateColors.surface
-            palette.isDark -> Color.White.copy(alpha = 0.075f)
-            else -> Color.White.copy(alpha = 0.20f)
+    val selection = rememberGlassSelectionStyle(accent)
+    val ink = if (on) selection.contentColor else palette.body
+    val surface =
+        if (on) {
+            Modifier.glassSelection(AppShapes.card, selection)
+        } else {
+            Modifier.liquidGlass(
+                shape = AppShapes.card,
+                fill = Color.White.copy(alpha = if (palette.isDark) 0.075f else 0.20f),
+                border = Color.White.copy(alpha = if (palette.isDark) 0.14f else 0.22f),
+                sheen = 0.72f,
+            )
         }
-    val edge =
-        when {
-            on -> stateColors.border
-            palette.isDark -> Color.White.copy(alpha = 0.14f)
-            else -> Color.White.copy(alpha = 0.22f)
-        }
-    val ink = if (on) stateColors.foreground else palette.body
     Column(
         modifier
             .heightIn(min = DetailActionKeyHeight)
@@ -620,7 +650,7 @@ private fun DetailActionKeyTile(
                 action.checked?.let { toggleableState = ToggleableState(it) }
                 action.stateDescription?.let { stateDescription = it }
             }.shadow(GlassLift.control, AppShapes.card)
-            .liquidGlass(shape = AppShapes.card, fill = fill, border = edge, sheen = 0.72f)
+            .then(surface)
             .then(
                 if (action.completed !=
                     null
@@ -635,16 +665,7 @@ private fun DetailActionKeyTile(
         verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
     ) {
         Box(
-            Modifier
-                .size(26.dp)
-                .clip(CircleShape)
-                .background(
-                    if (on) {
-                        stateColors.foreground
-                    } else {
-                        palette.text.copy(alpha = if (palette.isDark) 0.08f else 0.045f)
-                    },
-                ),
+            Modifier.size(26.dp),
             contentAlignment = Alignment.Center,
         ) {
             if (action.checked == null) {
@@ -654,7 +675,7 @@ private fun DetailActionKeyTile(
                     icon = if (on) action.checkedIcon ?: action.icon else action.icon,
                     active = on,
                     contentDescription = null,
-                    tint = if (on) primaryActionContentColor(stateColors.foreground) else ink,
+                    tint = ink,
                     burstColor = accent,
                     iconSize = 17.dp,
                 )
@@ -663,7 +684,7 @@ private fun DetailActionKeyTile(
         Text(
             action.label,
             style = if (on) AppTypography.caption.strong else AppTypography.caption.medium,
-            color = if (on) stateColors.foreground else palette.text,
+            color = if (on) ink else palette.text,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             // The key already carries its name; the label is not read out a second time.

@@ -636,7 +636,7 @@ class HomeStoreTest {
                         assertFalse(message.contains("服务器离线"), message)
                         if (hasCache) {
                             assertEquals(CACHED_HOME, state.content)
-                            assertTrue(message.contains("已保留上次显示的推荐内容"))
+                            assertTrue(message.contains("当前展示缓存中的推荐"))
                             assertNull(state.error)
                         }
                     } finally {
@@ -955,38 +955,64 @@ class HomeStoreTest {
         }
 
     @Test
-    fun successful_manual_refresh_rotates_unchanged_feed_but_failure_keeps_the_batch() =
+    fun manual_refresh_rotates_on_partial_failure_and_offline_and_restores_the_batch() =
         runTest(scheduler) {
-            var fail = false
-            val store =
+            var failNowPlaying = false
+            var offline = false
+            var calls = 0
+            val settings = MapSettings()
+            fun createStore() =
                 HomeStoreFactory(
                     storeFactory = DefaultStoreFactory(),
                     tmdb =
-                        mockTmdb {
-                            if (fail) throw IOException("offline")
-                            popularRecommendations(*(1..30).toList().toIntArray())
+                        mockTmdb { request ->
+                            calls++
+                            val path = request.url.encodedPath
+                            if (offline || (failNowPlaying && path.endsWith("/movie/now_playing"))) {
+                                throw IOException("offline")
+                            }
+                            if (path.endsWith("/movie/popular")) {
+                                popularRecommendations(*(1..30).toList().toIntArray())
+                            } else {
+                                json("""{"results":[]}""")
+                            }
                         },
                     emby = testRepo { error("Recommendations must not load servers") },
                     registry = testRegistry(),
-                    cache = TmdbHomeCache(MapSettings()),
+                    cache = TmdbHomeCache(settings),
                     cacheDispatcher = UnconfinedTestDispatcher(testScheduler),
                     libraryEnabled = false,
                 ).create()
+            val third: List<TmdbItem>
+            val store = createStore()
             try {
                 advanceUntilIdle()
                 val first = store.state.featuredSlides
                 assertEquals(8, first.size)
+                failNowPlaying = true
                 store.accept(HomeIntent.Refresh)
                 advanceUntilIdle()
                 val second = store.state.featuredSlides
                 assertTrue(first.toSet().intersect(second.toSet()).isEmpty())
-                fail = true
+                assertTrue(assertNotNull(store.state.recommendationNotice).contains("部分推荐未更新"))
+                offline = true
                 store.accept(HomeIntent.Refresh)
                 advanceUntilIdle()
-                assertEquals(second, store.state.featuredSlides)
+                third = store.state.featuredSlides
+                assertEquals(8, third.size)
+                assertTrue((first + second).toSet().intersect(third.toSet()).isEmpty())
                 assertFalse(store.state.refreshing)
             } finally {
                 store.dispose()
+            }
+            val beforeReopen = calls
+            val reopened = createStore()
+            try {
+                advanceUntilIdle()
+                assertEquals(third.map(TmdbItem::id), reopened.state.featuredSlides.map(TmdbItem::id))
+                assertEquals(beforeReopen, calls)
+            } finally {
+                reopened.dispose()
             }
         }
 

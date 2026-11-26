@@ -1138,6 +1138,25 @@ class PlayerActivity :
         }
     }
 
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (waitingForSessions || isTelevisionDevice(this)) return
+        val tablet = newConfig.smallestScreenWidthDp >= TABLET_MIN_SMALLEST_WIDTH_DP
+        val nextReorients = !tablet
+        if (nextReorients != reorientsPerEntry) {
+            reorientsPerEntry = nextReorients
+            if (!isInPictureInPictureMode && !isInMultiWindowMode) {
+                if (tablet) {
+                    if (phonePlayerMayReorient(requestedOrientation)) {
+                        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_USER
+                    }
+                } else {
+                    reorientForCurrentEntry()
+                }
+            }
+        }
+    }
+
     override fun onPictureInPictureModeChanged(
         isInPictureInPictureMode: Boolean,
         newConfig: Configuration,

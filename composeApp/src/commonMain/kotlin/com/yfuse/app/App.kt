@@ -22,21 +22,16 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredWidth
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
@@ -91,7 +86,9 @@ import com.arkivanov.decompose.extensions.compose.subscribeAsState
 import com.yfuse.app.RootComponent.Tab
 import com.yfuse.backend.BackendAccess
 import com.yfuse.core.account.AccountState
+import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.account.canUseWatchTogether
+import com.yfuse.core.designsystem.LocalHaptics
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.designsystem.ActionToast
@@ -431,10 +428,10 @@ fun App(root: RootComponent) {
                                         // ready. Re-read the model before returning between tabs.
                                         onBack = { root.navigateBackFromModel() },
                                         contentKey = { "tab:${it.name}" },
-                                        modifier =
-                                            Modifier.fillMaxSize().windowInsetsPadding(
-                                                WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal),
-                                            ),
+                                        modifier = Modifier.fillMaxSize(),
+                                        // Artwork feeds paint their dynamic backdrop edge-to-edge behind
+                                        // horizontal cutouts on both phones and wide screens.
+                                        insetEntryHorizontally = { it != Tab.Home && it != Tab.Browse },
                                         motion = rootMotion,
                                         tabDirection = rootTabDirection,
                                         popMotion = rootPopMotion(active, root.startTab, rootMotion),
@@ -551,24 +548,66 @@ fun App(root: RootComponent) {
                             // Still composed while it slides away, but no longer the bar: a tap on the
                             // current tab in those 280ms popped the page that had just been pushed.
                             val dockWanted by rememberUpdatedState(dockShown)
-                            CompositionLocalProvider(LocalNavigationTabs provides navigationTabs(customHomeVisible)) {
-                                BottomNavigationDock(
-                                    active = active,
-                                    collapsed = navCollapsed.value,
-                                    onSelect = { if (dockWanted) onSelectTab(it) },
-                                    onExpand = {
-                                        if (dockWanted) {
-                                            // A tap during a fling is explicit navigation intent. Keep the
-                                            // expanded dock pinned until that fling finishes or the user
-                                            // starts a new direct scroll gesture.
-                                            navCollapseGuard.onManualExpand()
-                                            navCollapsed.value = false
-                                        }
+                            var quickDockAction by remember { mutableStateOf<DockQuickAction?>(null) }
+                            val serversState by root.servers.store.states.collectAsState(root.servers.store.state)
+                            LaunchedEffect(active, dockShown) {
+                                if (!dockShown) quickDockAction = null
+                            }
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                DockQuickActionPopover(
+                                    action = quickDockAction,
+                                    servers = serversState.servers,
+                                    activeServerId = serversState.defaultServerId,
+                                    onSelectServer = { id ->
+                                        root.servers.store.accept(com.yfuse.feature.servers.ServersIntent.SelectDefault(id))
+                                        if (dockWanted) onSelectTab(Tab.Browse)
                                     },
-                                    onSearch = { if (dockWanted) onSelectTab(Tab.Search) },
-                                    backdrop = backdrop,
-                                    cueKey = pendingInvite?.roomCode,
+                                    onOpenServers = { if (dockWanted) onSelectTab(Tab.Servers) },
+                                    onOpenHistory = { if (dockWanted) onSelectTab(Tab.Watching) },
+                                    onOpenSearch = { if (dockWanted) onSelectTab(Tab.Search) },
+                                    onDismiss = { quickDockAction = null },
                                 )
+                                CompositionLocalProvider(LocalNavigationTabs provides navigationTabs(customHomeVisible)) {
+                                    BottomNavigationDock(
+                                        active = active,
+                                        collapsed = navCollapsed.value,
+                                        onSelect = {
+                                            quickDockAction = null
+                                            if (dockWanted) onSelectTab(it)
+                                        },
+                                        onExpand = {
+                                            if (dockWanted) {
+                                                // A tap during a fling is explicit navigation intent. Keep the
+                                                // expanded dock pinned until that fling finishes or the user
+                                                // starts a new direct scroll gesture.
+                                                navCollapseGuard.onManualExpand()
+                                                navCollapsed.value = false
+                                            }
+                                        },
+                                        onSearch = {
+                                            quickDockAction = null
+                                            if (dockWanted) onSelectTab(Tab.Search)
+                                        },
+                                        backdrop = backdrop,
+                                        cueKey = pendingInvite?.roomCode,
+                                        activeSessionHalo = miniPlaybackActive || watchState.connected || pendingInvite != null,
+                                        onLongPressTab = { tab ->
+                                            quickDockAction =
+                                                when (tab) {
+                                                    Tab.Servers ->
+                                                        if (quickDockAction == DockQuickAction.Servers) null else DockQuickAction.Servers
+                                                    Tab.Watching ->
+                                                        if (quickDockAction == DockQuickAction.History) null else DockQuickAction.History
+                                                    Tab.Search ->
+                                                        if (quickDockAction == DockQuickAction.Search) null else DockQuickAction.Search
+                                                    else -> null
+                                                }
+                                        },
+                                    )
+                                }
                             }
                         }
                         // One slot above the tab bar, and the two things that can occupy it
@@ -955,10 +994,29 @@ private fun BottomNavigationDock(
     modifier: Modifier = Modifier,
     /** Changes to a non-null value when something arrives for the user — a 一起看 invite. */
     cueKey: Any? = null,
+    activeSessionHalo: Boolean = false,
+    onLongPressTab: ((Tab) -> Unit)? = null,
 ) {
     val height = dockHeight()
+    val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val liquidMotion = liquidMotionEnabled()
+    val tiltX = rememberDockTiltX(enabled = !reduceMotion && !collapsed)
+    var reselectTick by remember { mutableStateOf(0) }
+    val reselectDip = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(reselectTick) {
+        if (reselectTick > 0 && !reduceMotion) {
+            reselectDip.snapTo(1f)
+            reselectDip.animateTo(
+                0f,
+                androidx.compose.animation.core.spring(
+                    dampingRatio = 0.55f,
+                    stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow,
+                ),
+            )
+        }
+    }
     // Composed afresh each time the dock enters, so every entrance starts as one capsule.
     val liquid =
         remember {
@@ -1051,7 +1109,10 @@ private fun BottomNavigationDock(
             }
             // One accent sweep across the dock as the invite lands, before its sheet opens:
             // the bar is where the user is looking, and it is the surface the invite belongs to.
-            .attentionSweep(cueKey),
+            .attentionSweep(cueKey)
+            .graphicsLayer {
+                translationY = reselectDip.value * 2.5.dp.toPx()
+            },
         // The gap between the capsule and 搜索 is the same token as the margin to the screen
         // edge, so the three spaces across the row read as one rhythm.
         horizontalArrangement = Arrangement.spacedBy(Dimens.tabBarInset),
@@ -1079,12 +1140,20 @@ private fun BottomNavigationDock(
                 targetState = liquid.keyShown,
                 modifier =
                     Modifier
-                        .then(
+                        .dockActiveSessionHalo(
+                            active = activeSessionHalo && !collapsed,
+                            accent = accent.accent,
+                            reduceMotion = reduceMotion,
+                        ).then(
                             if (liquidDrawing) {
                                 Modifier.clipToLiquidCapsule(liquid, rtl)
                             } else {
                                 Modifier.navigationGlass(backdrop, CircleShape)
                             },
+                        ).dockGyroSpecularSheen(
+                            tiltX = tiltX,
+                            dark = palette.isDark,
+                            enabled = !reduceMotion && !collapsed,
                         ).navigationDockViewport(dockWidth, expandedWidth),
                 contentAlignment = Alignment.CenterStart,
                 transitionSpec = {
@@ -1104,7 +1173,10 @@ private fun BottomNavigationDock(
                     } else {
                         GlassTabBar(
                             active = active,
-                            onSelect = onSelect,
+                            onSelect = { tab ->
+                                if (tab == active) reselectTick++
+                                onSelect(tab)
+                            },
                             backdrop = backdrop,
                             modifier =
                                 Modifier
@@ -1113,6 +1185,8 @@ private fun BottomNavigationDock(
                             height = height,
                             drawShell = false,
                             dockLiquid = liquid,
+                            reselectTick = reselectTick,
+                            onLongPressTab = onLongPressTab,
                         )
                     }
                 }
@@ -1135,10 +1209,16 @@ private fun BottomNavigationDock(
             selected = active == Tab.Search,
             backdrop = backdrop,
             diameter = height,
-            onClick = onSearch,
+            onClick = {
+                if (active == Tab.Search) reselectTick++
+                onSearch()
+            },
             dockLiquid = liquid,
             inKey = collapsed,
             shown = searchShown,
+            tiltX = tiltX,
+            onLongClick = onLongPressTab?.let { cb -> { cb(Tab.Search) } },
+            reselectTick = if (active == Tab.Search) reselectTick else 0,
         )
     }
 }
@@ -1229,6 +1309,9 @@ private fun SearchButton(
     dockLiquid: DockLiquid? = null,
     inKey: Boolean = false,
     shown: State<Float>? = null,
+    tiltX: State<Float>? = null,
+    onLongClick: (() -> Unit)? = null,
+    reselectTick: Int = 0,
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
@@ -1247,6 +1330,22 @@ private fun SearchButton(
         animationSpec = Motion.settle<Float>(reduceMotion),
         label = "searchIsland",
     )
+    // Expressive magnifier wiggle on select / reselect.
+    val wiggle = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(selected, reselectTick) {
+        if ((selected || reselectTick > 0) && !reduceMotion) {
+            wiggle.snapTo(0f)
+            wiggle.animateTo(-14f, tween(90))
+            wiggle.animateTo(8f, tween(110))
+            wiggle.animateTo(
+                0f,
+                androidx.compose.animation.core.spring(
+                    dampingRatio = 0.55f,
+                    stiffness = androidx.compose.animation.core.Spring.StiffnessMedium,
+                ),
+            )
+        }
+    }
     Box(
         Modifier
             .size(diameter)
@@ -1266,6 +1365,8 @@ private fun SearchButton(
                         haptic = HapticSignal.Select,
                         role = Role.Tab,
                         onClickLabel = "搜索",
+                        onLongClickLabel = "搜索快捷操作",
+                        onLongClick = onLongClick,
                         onClick = {
                             if (!selected) SearchDockOrigin.begin()
                             onClick()
@@ -1274,6 +1375,13 @@ private fun SearchButton(
                 },
             ).semantics(mergeDescendants = true) { this.selected = selected }
             .then(if (drawShell) Modifier.navigationGlass(backdrop, CircleShape) else Modifier)
+            .then(
+                if (tiltX != null && !inKey) {
+                    Modifier.dockGyroSpecularSheen(tiltX = tiltX, dark = palette.isDark, enabled = !reduceMotion)
+                } else {
+                    Modifier
+                },
+            ).dockReselectRipple(reselectTick = reselectTick, accent = accent.accent, reduceMotion = reduceMotion)
             .graphicsLayer {
                 val frame = dockLiquid?.frame() ?: return@graphicsLayer
                 translationX = frame.dropShift * density * if (rtl) -1f else 1f
@@ -1305,6 +1413,7 @@ private fun SearchButton(
             tint = tint,
             modifier =
                 Modifier.size(26.dp).graphicsLayer {
+                    rotationZ = wiggle.value
                     // Shape first, content after: the magnifier comes into focus as the drop lands.
                     // Going back in it stays sharp, riding the drop, and only fades as it is taken.
                     val frame = dockLiquid?.frame() ?: return@graphicsLayer
@@ -1336,6 +1445,8 @@ internal fun GlassTabBar(
     drawShell: Boolean = true,
     /** While the dock shows as liquid, the destination cells follow the capsule's right edge. */
     dockLiquid: DockLiquid? = null,
+    reselectTick: Int = 0,
+    onLongPressTab: ((Tab) -> Unit)? = null,
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
@@ -1348,7 +1459,7 @@ internal fun GlassTabBar(
     val tabs = LocalNavigationTabs.current
     val selectedIndex = tabs.indexOfFirst { it.tab == active }
     val hasSelection = selectedIndex >= 0
-    val enhanced = LocalPulseSweepEnabled.current
+    val enhanced = LocalPulseSweepEnabled.current || !reduceMotion
     val highlights = !LocalAccessibilityOptions.current.reduceTransparency && !reduceMotion
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val liquidMotion =
@@ -1357,6 +1468,24 @@ internal fun GlassTabBar(
         } else {
             null
         }
+    val haptics = LocalHaptics.current
+    val lensCenterIndex by remember(liquidMotion) {
+        derivedStateOf {
+            if (liquidMotion == null) {
+                selectedIndex.toFloat()
+            } else {
+                (liquidMotion.left.value + liquidMotion.right.value) / 2f - 0.5f
+            }
+        }
+    }
+    val hoveredDragCell by remember(liquidMotion) {
+        derivedStateOf {
+            if (liquidMotion?.dragging == true) lensCenterIndex.roundToInt().coerceIn(0, (tabs.size - 1).coerceAtLeast(0)) else -1
+        }
+    }
+    LaunchedEffect(hoveredDragCell) {
+        if (hoveredDragCell >= 0) haptics.play(HapticSignal.Tick)
+    }
     // Keep the resting selection round; only the liquid lens stretches in transit.
     val defaultMotion = if (enhanced) null else rememberDefaultTabMotion(selectedIndex, reduceMotion)
     val phaseMoving by remember(liquidMotion?.sweep, liquidMotion?.dragging) {
@@ -1456,10 +1585,23 @@ internal fun GlassTabBar(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         tabs.forEachIndexed { index, item ->
+            val isSelected = active == item.tab
+            val hoverScale =
+                dockLensHoverScale(
+                    tabIndex = index,
+                    lensCenterIndex = lensCenterIndex,
+                    dragging = liquidMotion?.dragging == true,
+                )
             TabButton(
                 item = item,
-                selected = active == item.tab,
+                selected = isSelected,
                 onClick = { onSelect(item.tab) },
+                onLongClick =
+                    onLongPressTab
+                        ?.takeIf { item.tab == Tab.Servers || item.tab == Tab.Watching }
+                        ?.let { cb -> { cb(item.tab) } },
+                reselectTick = if (isSelected) reselectTick else 0,
+                hoverScale = hoverScale,
                 // Where the liquid capsule has this tab's cell this frame: from a quarter of the
                 // whole row, closing up behind the capsule's retreating edge.
                 modifier =
@@ -1484,6 +1626,9 @@ private fun RowScope.TabButton(
     selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    onLongClick: (() -> Unit)? = null,
+    reselectTick: Int = 0,
+    hoverScale: Float = 1f,
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
@@ -1505,6 +1650,7 @@ private fun RowScope.TabButton(
                 .fillMaxHeight()
                 .heightIn(min = MinTouchTarget)
                 .clip(CircleShape)
+                .dockReselectRipple(reselectTick = reselectTick, accent = accent.accent, reduceMotion = reduceMotion)
                 // This was `clickable(indication = null)` with nothing put back, so the one
                 // control every session touches most had no press feedback at all.
                 .pressable(
@@ -1513,6 +1659,8 @@ private fun RowScope.TabButton(
                     haptic = HapticSignal.Select,
                     // Without this every tab was announced as an unlabelled clickable region.
                     role = Role.Tab,
+                    onLongClickLabel = "${item.label}快捷操作",
+                    onLongClick = onLongClick,
                     onClick = onClick,
                 ).semantics(mergeDescendants = true) {
                     this.selected = selected
@@ -1521,7 +1669,13 @@ private fun RowScope.TabButton(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        LiquidGlassTabIcon(item = item, tint = tint, selected = selected)
+        LiquidGlassTabIcon(
+            item = item,
+            tint = tint,
+            selected = selected,
+            reselectTick = reselectTick,
+            hoverScale = hoverScale,
+        )
     }
 }
 
@@ -1530,7 +1684,8 @@ private fun RowScope.TabButton(
  *
  * The glyphs are silhouettes, so there is nothing for the material to do here beyond the
  * tint: the holes cut through them show the lens underneath. Inactive glyphs keep their
- * full optical size; selection adds a restrained spring scale and one-dp lift.
+ * full optical size; selection adds a restrained spring scale, one-dp lift, and per-tab
+ * micro-narrative motion (clock rewind spin, server rack pulse, home/library bounce).
  */
 @Composable
 private fun LiquidGlassTabIcon(
@@ -1539,6 +1694,8 @@ private fun LiquidGlassTabIcon(
     selected: Boolean = false,
     /** Only where no caption names the glyph — the collapsed key. */
     description: String? = null,
+    reselectTick: Int = 0,
+    hoverScale: Float = 1f,
 ) {
     // No lift-and-settle on the selected glyph under 静息 either.
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion || calmMotion()
@@ -1547,11 +1704,55 @@ private fun LiquidGlassTabIcon(
         animationSpec = Motion.tabIcon(reduceMotion),
         label = "tabSelectionScale",
     )
+    val microRotation = remember { androidx.compose.animation.core.Animatable(0f) }
+    val microBounce = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(selected, reselectTick) {
+        if (!selected || reduceMotion) return@LaunchedEffect
+        when (item.tab) {
+            Tab.Watching -> {
+                microRotation.snapTo(0f)
+                microRotation.animateTo(
+                    -360f,
+                    androidx.compose.animation.core.spring(
+                        dampingRatio = 0.72f,
+                        stiffness = androidx.compose.animation.core.Spring.StiffnessLow,
+                    ),
+                )
+                microRotation.snapTo(0f)
+            }
+            Tab.Servers -> {
+                microBounce.snapTo(0f)
+                microBounce.animateTo(1f, tween(100))
+                microBounce.animateTo(
+                    0f,
+                    androidx.compose.animation.core.spring(
+                        dampingRatio = 0.50f,
+                        stiffness = androidx.compose.animation.core.Spring.StiffnessMedium,
+                    ),
+                )
+            }
+            else -> {
+                microBounce.snapTo(0f)
+                microBounce.animateTo(1f, tween(95))
+                microBounce.animateTo(
+                    0f,
+                    androidx.compose.animation.core.spring(
+                        dampingRatio = 0.58f,
+                        stiffness = androidx.compose.animation.core.Spring.StiffnessMedium,
+                    ),
+                )
+            }
+        }
+    }
     Box(
         Modifier.size(DockIconBox).graphicsLayer {
-            scaleX = 1f + 0.10f * emphasis
-            scaleY = scaleX
-            translationY = if (reduceMotion) 0f else -1.dp.toPx() * emphasis
+            val bounceScale = if (item.tab == Tab.Servers) 0.14f * microBounce.value else 0.08f * microBounce.value
+            val totalScale = (1f + 0.10f * emphasis + bounceScale) * hoverScale
+            scaleX = totalScale
+            scaleY = totalScale
+            rotationZ = microRotation.value
+            val liftDp = if (item.tab == Tab.Servers) 0f else 3.dp.toPx() * microBounce.value
+            translationY = if (reduceMotion) 0f else (-1.dp.toPx() * emphasis - liftDp)
         },
         contentAlignment = Alignment.Center,
     ) {

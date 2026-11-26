@@ -26,6 +26,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.io.IOException
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class LibraryStoreTest {
@@ -555,6 +556,73 @@ class LibraryStoreTest {
             assertEquals(updatedAt, failed.updatedAtEpochMs)
             store.dispose()
             advanceUntilIdle()
+        }
+
+    @Test
+    fun carousel_interleaves_libraries_rotates_on_pull_and_keeps_history_after_reopening() =
+        runTest {
+            val server = SavedServer("id1", "http://offline:8096", "服务器", "u1", "user", "token")
+            val registry = testRegistry().apply { addOrUpdate(server) }
+            val settings = MapSettings()
+            fun item(id: String, art: String? = "backdrop") =
+                content(id, movieCount = 1).featured.single().copy(backdropTag = art)
+            val a = listOf(item("missing", art = null)) + (1..16).map { item("a$it") }
+            val b = listOf(item("a1")) + (1..16).map { item("b$it") }
+            LibraryCache(settings).write(
+                server.id,
+                HomeContent(
+                    resume = listOf(item("resume")),
+                    rows = listOf(HomeRow("a", "影视库 A", a), HomeRow("b", "影视库 B", b)),
+                ),
+                updatedAtEpochMs = 1_600_000_000_000L,
+                userId = server.userId,
+            )
+            var date = "2026-11-26"
+            fun createStore() =
+                LibraryStoreFactory(
+                    DefaultStoreFactory(),
+                    testRepo(dispatcher = UnconfinedTestDispatcher(testScheduler)) { throw IOException("offline") },
+                    registry,
+                    LibraryCache(settings),
+                    mainContext = UnconfinedTestDispatcher(testScheduler),
+                    workContext = UnconfinedTestDispatcher(testScheduler),
+                    currentDate = { date },
+                ).create()
+
+            val first: List<String>
+            val second: List<String>
+            val store = createStore()
+            try {
+                advanceUntilIdle()
+                first = store.state.featuredSlides.map(MediaItem::id)
+                assertEquals(listOf("a1", "a2", "b1", "a3", "b2", "a4", "b3", "a5"), first)
+                store.accept(LibraryIntent.Retry)
+                advanceUntilIdle()
+                assertEquals(first, store.state.featuredSlides.map(MediaItem::id))
+                store.accept(LibraryIntent.Refresh)
+                advanceUntilIdle()
+                second = store.state.featuredSlides.map(MediaItem::id)
+                assertEquals(8, second.size)
+                assertTrue(first.intersect(second.toSet()).isEmpty())
+            } finally {
+                store.dispose()
+            }
+
+            val reopened = createStore()
+            try {
+                advanceUntilIdle()
+                assertEquals(second, reopened.state.featuredSlides.map(MediaItem::id))
+                assertNull(LibraryCache(settings).readCarousel(server.copy(userId = "other")))
+                date = "2026-11-27"
+                reopened.accept(LibraryIntent.CheckFeaturedDate)
+                val third = reopened.state.featuredSlides.map(MediaItem::id)
+                assertEquals(8, third.size)
+                assertTrue((first + second).intersect(third.toSet()).isEmpty())
+                reopened.accept(LibraryIntent.CheckFeaturedDate)
+                assertEquals(third, reopened.state.featuredSlides.map(MediaItem::id))
+            } finally {
+                reopened.dispose()
+            }
         }
 
     @Test

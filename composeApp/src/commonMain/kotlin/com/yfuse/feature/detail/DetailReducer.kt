@@ -83,8 +83,19 @@ internal object DetailReducer : Reducer<DetailState, DetailMsg> {
                     episodesLoading = false,
                     episodesError = null,
                     episodes = msg.episodes,
+                    episodeFilesReady = msg.episodes.isEmpty(),
                     listedSeasonId = selectedSeasonId,
                 )
+            is DetailMsg.EpisodeFilesLoaded -> {
+                val files = msg.episodes.associateBy { it.id }
+                copy(
+                    episodes =
+                        episodes.map { episode ->
+                            files[episode.id]?.let { episode.copy(versions = it.versions) } ?: episode
+                        },
+                    episodeFilesReady = true,
+                )
+            }
             DetailMsg.SourcesLoading -> copy(sourcesLoading = true, sourcesError = null)
             is DetailMsg.SourcesFailed -> copy(sourcesLoading = false, sourcesError = msg.message)
             is DetailMsg.SourcesLoaded -> {
@@ -328,6 +339,7 @@ internal object DetailReducer : Reducer<DetailState, DetailMsg> {
                     watchLaterLoading = if (organizationSourceChanged) true else watchLaterLoading,
                     watchLaterMutating = if (organizationSourceChanged) false else watchLaterMutating,
                     episodes = msg.episodes ?: episodes,
+                    episodeFilesReady = msg.episodes != null || episodeFilesReady,
                     episodesLoading = msg.episodes == null && episodesLoading,
                     episodesError = if (msg.episodes != null) null else episodesError,
                     selectionLoading = false,

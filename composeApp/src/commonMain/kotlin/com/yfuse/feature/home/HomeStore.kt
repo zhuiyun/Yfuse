@@ -17,6 +17,7 @@ import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.data.WATCH_LATER_COLLECTION_ID
 import com.yfuse.core.designsystem.UndoWindow
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core.model.CarouselBatch
 import com.yfuse.core.model.HomeContent
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.SavedServer
@@ -24,9 +25,10 @@ import com.yfuse.core.model.TmdbHome
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.model.TmdbRow
 import com.yfuse.core.model.TmdbRowTitles
+import com.yfuse.core.model.carouselKey
 import com.yfuse.core.model.deduplicatePlaybackHistory
 import com.yfuse.core.model.featuredSlidesForDay
-import com.yfuse.core.model.recordRecommendationExposure
+import com.yfuse.core.model.selectCarouselBatch
 import com.yfuse.core.network.knownUnavailableEndpointReason
 import com.yfuse.core.network.toUserMessage
 import com.yfuse.core.sync.ServerSyncManager
@@ -79,7 +81,7 @@ data class HomeState(
      * yesterday's after the date has turned is the bug this field exists to prevent.
      */
     val today: String = currentIsoDate(),
-    val featuredHistory: List<String> = emptyList(),
+    val featuredCarousel: CarouselBatch<TmdbItem>? = null,
     /**
      * The server [resume] was loaded from, kept beside it rather than read from the
      * registry at draw time. The row is addressed by item id against one server's base
@@ -112,7 +114,7 @@ data class HomeState(
      * catalog, and a `get()` would repeat it on every read (the hero reads it on every
      * recomposition). State copies are cheap and only happen on real changes.
      */
-    val featuredSlides: List<TmdbItem> by lazy { content.featuredSlidesForDay(today, featuredHistory) }
+    val featuredSlides: List<TmdbItem> by lazy { featuredCarousel?.items ?: content.featuredSlidesForDay(today) }
 
     val recentAdded: List<HomeResumeEntry>
         get() =
@@ -338,6 +340,7 @@ private sealed interface Action {
 private sealed interface Msg {
     data class RecommendationDay(
         val date: String,
+        val carousel: CarouselBatch<TmdbItem>?,
     ) : Msg
 
     data class Loading(
@@ -346,12 +349,15 @@ private sealed interface Msg {
 
     data class Cached(
         val content: TmdbHome,
+        val date: String,
+        val carousel: CarouselBatch<TmdbItem>?,
     ) : Msg
 
     data class Loaded(
         val content: TmdbHome,
+        val date: String,
+        val carousel: CarouselBatch<TmdbItem>?,
         val notice: String? = null,
-        val rotateFeatured: Boolean = false,
     ) : Msg
 
     data class ResumeLoaded(
@@ -377,6 +383,8 @@ private sealed interface Msg {
 
     data class Failed(
         val message: String,
+        val date: String,
+        val carousel: CarouselBatch<TmdbItem>?,
     ) : Msg
 
     data class Resolving(
@@ -643,7 +651,7 @@ class HomeStoreFactory(
                     if (state().today == date) return
                     // Rotate cached titles immediately, even offline. One automatic attempt per
                     // day avoids a request storm on failure; manual refresh remains available.
-                    dispatch(Msg.RecommendationDay(date))
+                    dispatch(Msg.RecommendationDay(date, selectCarousel(state().content, date)))
                     loadRecommendations()
                 }
                 HomeIntent.RefreshLibrary -> {
@@ -914,18 +922,26 @@ class HomeStoreFactory(
             dispatch(Msg.Loading(refresh))
             val shouldReadCache = state().content.isEmpty
             recommendations.launch(request) {
+                var previousCarousel = state().featuredCarousel
                 if (shouldReadCache) {
-                    val cached = withContext(cacheDispatcher) { cache.readCached() }
+                    val (cached, savedCarousel) =
+                        withContext(cacheDispatcher) { cache.readCached() to cache.readCarousel() }
                     if (!request.isCurrent) return@launch
-                    if (cached != null) {
+                    previousCarousel = savedCarousel ?: previousCarousel
+                    val date = currentDate()
+                    val todayCarousel = previousCarousel?.takeIf { it.date == date && it.items.isNotEmpty() }
+                    val cachedContent = cached?.content ?: todayCarousel?.let { TmdbHome(featured = it.items) }
+                    if (cachedContent != null) {
+                        val carousel = todayCarousel ?: selectCarousel(cachedContent, date, previousCarousel)
                         // Fetched today already: that is the page, not a stand-in
                         // for it. The sixteen feed requests wait for a pull or a
                         // new day; a stale entry still shows first and refreshes.
-                        if (!refresh && cached.isFresh(currentDate())) {
-                            dispatch(Msg.Loaded(cached.content))
+                        if (!refresh && cached?.isFresh(date) == true) {
+                            dispatch(Msg.Loaded(cachedContent, date, carousel))
                             return@launch
                         }
-                        dispatch(Msg.Cached(cached.content))
+                        dispatch(Msg.Cached(cachedContent, date, carousel))
+                        previousCarousel = carousel
                     }
                 }
 
@@ -938,10 +954,12 @@ class HomeStoreFactory(
                     // A partial page must not make yesterday's full cache look fresh today.
                     if (complete) recommendationCacheWriter.write(update.content)
                     if (request.isCurrent) {
+                        val date = currentDate()
                         dispatch(
                             Msg.Loaded(
                                 content = update.content,
-                                rotateFeatured = refresh && complete,
+                                date = date,
+                                carousel = selectCarousel(update.content, date, previousCarousel, rotate = refresh),
                                 notice =
                                     if (complete) {
                                         null
@@ -963,13 +981,36 @@ class HomeStoreFactory(
                         message = "Home recommendations failed to load",
                         throwable = error,
                     )
+                    val date = currentDate()
+                    val carousel =
+                        if (refresh || state().today != date) {
+                            selectCarousel(state().content, date, previousCarousel, rotate = refresh)
+                        } else {
+                            previousCarousel
+                        }
                     dispatch(
                         Msg.Failed(
-                            recommendationFailureMessage((error as? TmdbRecommendationException)?.failure),
+                            message = recommendationFailureMessage((error as? TmdbRecommendationException)?.failure),
+                            date = date,
+                            carousel = carousel,
                         ),
                     )
                 }
             }
+        }
+
+        private fun selectCarousel(
+            content: TmdbHome,
+            date: String,
+            previous: CarouselBatch<TmdbItem>? = state().featuredCarousel,
+            rotate: Boolean = false,
+        ): CarouselBatch<TmdbItem>? {
+            val selected =
+                previous.selectCarouselBatch(date, rotate, TmdbItem::carouselKey) { keep, recent ->
+                    content.featuredSlidesForDay(date, recent, keep)
+                }
+            if (selected != null && selected != previous) cache.writeCarousel(selected)
+            return selected
         }
 
         /** Loads every server independently so one slow or offline endpoint cannot blank the row. */
@@ -1177,7 +1218,7 @@ class HomeStoreFactory(
     private inner class ReducerImpl : Reducer<HomeState, Msg> {
         override fun HomeState.reduce(msg: Msg): HomeState =
             when (msg) {
-                is Msg.RecommendationDay -> copy(today = msg.date, featuredHistory = emptyList())
+                is Msg.RecommendationDay -> copy(today = msg.date, featuredCarousel = msg.carousel)
                 is Msg.Loading ->
                     copy(
                         loading = true,
@@ -1188,26 +1229,18 @@ class HomeStoreFactory(
                 is Msg.Cached ->
                     copy(
                         content = msg.content,
-                        today = currentDate(),
+                        today = msg.date,
+                        featuredCarousel = msg.carousel,
                     )
                 is Msg.Loaded ->
                     copy(
                         loading = false,
                         refreshing = false,
                         content = msg.content,
-                        today = currentDate(),
+                        today = msg.date,
                         error = null,
                         recommendationNotice = msg.notice,
-                        featuredHistory =
-                            when {
-                                today != currentDate() -> emptyList()
-                                msg.rotateFeatured ->
-                                    recordRecommendationExposure(
-                                        featuredHistory,
-                                        featuredSlides.map { "${it.mediaType}:${it.id}" },
-                                    )
-                                else -> featuredHistory
-                            },
+                        featuredCarousel = msg.carousel,
                     )
                 is Msg.ResumeLoaded ->
                     copy(resume = deduplicatePlaybackHistory(msg.items, { it.item }, { it.server.id }))
@@ -1229,21 +1262,14 @@ class HomeStoreFactory(
                 // recommendation resolution and the server opened from the library tab.
                 is Msg.Server -> copy(server = msg.value)
                 is Msg.Failed ->
-                    if (content.isEmpty) {
-                        copy(
-                            loading = false,
-                            refreshing = false,
-                            error = msg.message,
-                            recommendationNotice = null,
-                        )
-                    } else {
-                        copy(
-                            loading = false,
-                            refreshing = false,
-                            error = null,
-                            recommendationNotice = "${msg.message}；已保留上次显示的推荐内容",
-                        )
-                    }
+                    copy(
+                        loading = false,
+                        refreshing = false,
+                        error = msg.message.takeIf { content.isEmpty },
+                        recommendationNotice = "${msg.message}；当前展示缓存中的推荐".takeUnless { content.isEmpty },
+                        today = msg.date,
+                        featuredCarousel = msg.carousel,
+                    )
                 is Msg.Resolving -> copy(resolving = msg.value)
                 is Msg.ActionMessage -> copy(actionMessage = msg.value, resumeUndoKey = null)
                 is Msg.CardsHeld -> {

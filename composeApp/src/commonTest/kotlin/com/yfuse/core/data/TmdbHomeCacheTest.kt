@@ -5,6 +5,7 @@ import com.russhwolf.settings.Settings
 import com.yfuse.core.model.TmdbHome
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.model.TmdbRow
+import com.yfuse.core.model.TmdbRowTitles
 import kotlinx.coroutines.CancellationException
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -31,6 +32,29 @@ class TmdbHomeCacheTest {
         assertEquals(21, restored.featured.size)
         assertEquals(4, restored.rows.size)
         assertEquals(listOf(24, 24, 24, 24), restored.rows.map { it.items.size })
+    }
+
+    @Test
+    fun longer_carousel_shelves_fall_back_to_compact_rows_when_over_the_size_budget() {
+        val cache = TmdbHomeCache(MapSettings())
+        val items =
+            List(80) { id ->
+                item(id).copy(
+                    overview = "\n".repeat(1_500),
+                    posterPath = "a".repeat(300),
+                    backdropPath = "b".repeat(300),
+                )
+            }
+        cache.write(
+            TmdbHome(
+                featured = items.take(21),
+                rows = listOf(TmdbRow(TmdbRowTitles.POPULAR, items), TmdbRow(TmdbRowTitles.LATEST, items)),
+            ),
+        )
+
+        val restored = checkNotNull(cache.read())
+        assertEquals(listOf(24, 24), restored.rows.map { it.items.size })
+        assertEquals(21, restored.featured.size)
     }
 
     @Test

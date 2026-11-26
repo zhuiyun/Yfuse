@@ -64,13 +64,13 @@ class HeroLiftInstrumentedTest {
                                     .align(Alignment.BottomStart)
                                     .fillMaxWidth()
                                     .height(180.dp)
-                                    .livingPosterCaptionScrim(),
+                                    .livingPosterCaptionPadding(hasIndicator = true),
                             )
                             Box(
                                 Modifier
                                     .align(Alignment.BottomCenter)
                                     .fillMaxWidth()
-                                    .height(LivingPosterDefaults.CAPTION_BOTTOM)
+                                    .height(LivingPosterDefaults.captionBottom(hasIndicator = true))
                                     .livingPosterPageBlend(background),
                             )
                         }

@@ -449,6 +449,7 @@ internal class DetailExecutor(
 
         playbackSelectionLoad.cancel()
         initialPlaybackResolution?.cancel()
+        loadInitialSeriesCatalog(server, detail)
         val resolution =
             scope.async {
                 withTimeoutOrNull(playbackResolutionTimeoutMs.coerceAtMost(5_000L) * 3L) {
@@ -457,7 +458,6 @@ internal class DetailExecutor(
             }
         initialPlaybackResolution = resolution
         initialPlaybackResolutionPage = page
-        loadInitialSeriesCatalog(server, detail)
         loadSources(server, detail, detail.seasonNumber, detail.episodeNumber)
         playbackSelectionLoad.launch {
             val timely = withTimeoutOrNull(playbackResolutionTimeoutMs) { resolution.await() }
@@ -511,6 +511,7 @@ internal class DetailExecutor(
         failedSeasonId = null
         dispatch(DetailMsg.EpisodesLoading)
         initialCatalog.launch(request) {
+            var preview: SeriesCatalog? = null
             val result =
                 retryTransientDetailRequest(
                     event = "initial_series_catalog_retry",
@@ -521,15 +522,32 @@ internal class DetailExecutor(
                         ),
                     stillCurrent = { request.isCurrent && isVisibleSource(server.id, detail.id) },
                 ) {
-                    cancellableResult { playbackResolver.loadSeriesCatalog(server, seriesId, target, allEpisodes = null) }
+                    cancellableResult {
+                        playbackResolver.loadInitialEpisodeDirectory(server, seriesId, target) { known ->
+                            if (request.isCurrent &&
+                                isVisibleSource(server.id, detail.id) &&
+                                state().episodes.isEmpty()
+                            ) {
+                                preview = known
+                                dispatch(DetailMsg.SeasonsLoaded(known.seasons, known.selectedSeasonId))
+                                dispatch(DetailMsg.EpisodesLoaded(known.episodes))
+                                detailStage("episode_directory_ready", "known_season")
+                            }
+                        }
+                    }
                 }
             if (!request.isCurrent || !isVisibleSource(server.id, detail.id)) return@launch
-            initialCatalog.finish(request)
             result
                 .onSuccess { directory ->
                     dispatch(DetailMsg.SeasonsLoaded(directory.seasons, directory.selectedSeasonId))
-                    dispatch(DetailMsg.EpisodesLoaded(directory.episodes))
+                    if (preview?.episodes !== directory.episodes) {
+                        dispatch(DetailMsg.EpisodesLoaded(directory.episodes))
+                        detailStage("episode_directory_ready")
+                    }
                     followResumeSeason()
+                    if (directory.episodes.isNotEmpty()) {
+                        enrichEpisodeFiles(server, seriesId, directory.selectedSeasonId, request)
+                    }
                 }.onFailure {
                     AppLog.warning(
                         category = "feature.detail",
@@ -540,7 +558,34 @@ internal class DetailExecutor(
                     )
                     dispatch(DetailMsg.EpisodesFailed(it.toUserMessage("剧集加载失败")))
                 }
+            initialCatalog.finish(request)
         }
+    }
+
+    private suspend fun enrichEpisodeFiles(
+        server: SavedServer,
+        seriesId: String,
+        seasonId: String?,
+        request: LatestWins.Ticket,
+    ) {
+        if (!request.isCurrent) return
+
+        fun stillCurrent() =
+            request.isCurrent && state().playServer?.id == server.id && state().listedSeasonId == seasonId
+
+        val result =
+            retryTransientDetailRequest(
+                event = "episode_files_retry",
+                attributes = mapOf("serverId" to server.id, "seriesId" to seriesId),
+                stillCurrent = ::stillCurrent,
+            ) { repo.episodes(server, seriesId, seasonId, includeMediaSources = true) }
+        if (!stillCurrent()) return
+        result
+            .onSuccess { dispatch(DetailMsg.EpisodeFilesLoaded(it)) }
+            .onFailure {
+                failedSeasonId = seasonId
+                dispatch(DetailMsg.EpisodesFailed(it.toUserMessage("剧集文件信息加载失败")))
+            }
     }
 
     private fun followResumeSeason() {
@@ -1029,12 +1074,7 @@ internal class DetailExecutor(
                         state().playSourceDetail?.id == playSourceItemId
                 },
             ) {
-                repo.episodes(
-                    server = server,
-                    seriesId = seriesId,
-                    seasonId = seasonId,
-                    includeMediaSources = true,
-                )
+                repo.episodes(server, seriesId, seasonId)
             }.onSuccess { episodes ->
                 if (
                     !request.isCurrent ||
@@ -1045,6 +1085,7 @@ internal class DetailExecutor(
                     return@onSuccess
                 }
                 dispatch(DetailMsg.EpisodesLoaded(episodes))
+                if (episodes.isNotEmpty()) enrichEpisodeFiles(server, seriesId, seasonId, request)
             }.onFailure {
                 if (
                     !request.isCurrent ||

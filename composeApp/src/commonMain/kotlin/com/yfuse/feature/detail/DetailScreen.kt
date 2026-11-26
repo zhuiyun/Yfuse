@@ -445,7 +445,8 @@ fun DetailScreen(component: DetailComponent) {
                 ?.capabilities()
                 ?.favorites != false
     // 下载第 2 季（10 集）… in 更多: only where 播放 opens an episode, whose season can be taken whole.
-    val seasonDownloadLabel = state.playTarget?.seriesId?.let { listedSeasonLabel(state.episodes, state.seasons) }
+    val seasonDownloadLabel =
+        state.playTarget?.seriesId?.let { listedSeasonLabel(state.episodesForDownload, state.seasons) }
 
     LaunchedEffect(airingCalendarOpen, airingCalendarReload, detail?.id) {
         val target = detail ?: return@LaunchedEffect

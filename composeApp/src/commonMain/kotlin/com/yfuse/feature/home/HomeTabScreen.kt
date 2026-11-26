@@ -29,6 +29,7 @@ fun HomeTabScreen(
         },
         isLauncher = { it.instance is HomeTabComponent.Child.Player },
         isDetail = { it.instance is HomeTabComponent.Child.Detail || it.instance is HomeTabComponent.Child.Info },
+        insetEntryHorizontally = { it.instance !is HomeTabComponent.Child.Home },
     ) { entry ->
         val instance = entry.instance
         when (instance) {

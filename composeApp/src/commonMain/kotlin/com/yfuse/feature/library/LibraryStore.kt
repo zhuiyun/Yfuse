@@ -11,16 +11,20 @@ import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.FAVORITES_COLLECTION_ID
 import com.yfuse.core.data.LibraryCache
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.data.libraryFeaturedSlides
 import com.yfuse.core.designsystem.UndoWindow
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core.model.CarouselBatch
 import com.yfuse.core.model.HomeContent
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.deduplicateFavoriteItems
 import com.yfuse.core.model.deduplicatePlaybackHistory
+import com.yfuse.core.model.selectCarouselBatch
 import com.yfuse.core.network.toUserMessage
 import com.yfuse.core.sync.playback.PlaybackSyncManager
 import com.yfuse.core.util.LatestWins
+import com.yfuse.core.util.currentIsoDate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.drop
@@ -109,7 +113,10 @@ data class LibraryState(
     val actionMessage: String? = null,
     /** Set while [actionMessage] offers 撤销 for a 播放记录 change: the id of the title it puts back. */
     val historyUndoKey: String? = null,
-)
+    val featuredCarousel: CarouselBatch<MediaItem>? = null,
+) {
+    val featuredSlides: List<MediaItem> by lazy { featuredCarousel?.items ?: content.libraryFeaturedSlides() }
+}
 
 sealed interface LibraryIntent {
     data class SelectServer(
@@ -123,6 +130,10 @@ sealed interface LibraryIntent {
     ) : LibraryIntent
 
     data object Retry : LibraryIntent
+
+    data object Refresh : LibraryIntent
+
+    data object CheckFeaturedDate : LibraryIntent
 
     /**
      * 浮起菜单 on 播放记录: 标记为已看 when [watched], else 从播放记录移除. The card leaves at once and
@@ -165,11 +176,13 @@ private sealed interface Msg {
     data class Cached(
         val content: HomeContent,
         val updatedAtEpochMs: Long?,
+        val carousel: CarouselBatch<MediaItem>?,
     ) : Msg
 
     data class Loaded(
         val content: HomeContent,
         val updatedAtEpochMs: Long,
+        val carousel: CarouselBatch<MediaItem>?,
     ) : Msg
 
     data class Progress(
@@ -183,6 +196,11 @@ private sealed interface Msg {
 
     data class Failed(
         val message: String,
+        val carousel: CarouselBatch<MediaItem>?,
+    ) : Msg
+
+    data class Featured(
+        val carousel: CarouselBatch<MediaItem>?,
     ) : Msg
 
     data class ActionMessage(
@@ -293,6 +311,7 @@ class LibraryStoreFactory(
     private val playedWriter: LibraryPlayedWriter = { _, _, _ -> Result.success(Unit) },
     /** Local playback sync manager for instant continue-watching progress re-projection. */
     private val playbackSync: PlaybackSyncManager? = null,
+    private val currentDate: () -> String = ::currentIsoDate,
 ) {
     fun create(): Store<LibraryIntent, LibraryState, Nothing> =
         storeFactory.create(
@@ -352,11 +371,18 @@ class LibraryStoreFactory(
             when (intent) {
                 is LibraryIntent.SelectServer -> registry.setDefault(intent.id)
                 is LibraryIntent.ToggleFavorite -> toggleFavorite(intent)
-                LibraryIntent.Retry ->
+                LibraryIntent.Retry, LibraryIntent.Refresh ->
                     state().currentServer?.let {
                         loadedConnection = it.libraryConnection()
-                        load(it, refresh = true)
+                        load(it, refresh = true, rotateFeatured = intent == LibraryIntent.Refresh)
                     }
+                LibraryIntent.CheckFeaturedDate -> {
+                    val state = state()
+                    val server = state.currentServer ?: return
+                    val date = currentDate()
+                    if (libraryLoad.isActive || state.content.isEmpty || state.featuredCarousel?.date == date) return
+                    dispatch(Msg.Featured(selectCarousel(server, state.content, date)))
+                }
                 is LibraryIntent.HideFromHistory -> hideFromHistory(intent.item, intent.watched)
                 is LibraryIntent.UndoHistoryChange ->
                     historyChanges
@@ -434,26 +460,39 @@ class LibraryStoreFactory(
         private fun load(
             server: SavedServer,
             refresh: Boolean = false,
+            rotateFeatured: Boolean = false,
         ) {
             val request = libraryLoad.next()
             val connection = server.libraryConnection()
             dispatch(Msg.Loading(refresh = refresh && !state().content.isEmpty))
             libraryLoad.launch(request) {
+                var previousCarousel = state().featuredCarousel
                 if (state().content.isEmpty) {
-                    val snapshot =
+                    val (snapshot, savedCarousel) =
                         withContext(workContext) {
-                            runCatching { cache.readSnapshot(server.id) }
-                                .onFailure {
-                                    AppLog.warning(
-                                        "feature.library",
-                                        "cache_read_failed",
-                                        "Library cache is unavailable; continuing online",
-                                        throwable = it,
-                                    )
-                                }.getOrNull()
+                            val snapshot =
+                                runCatching { cache.readSnapshot(server.id, server.userId) }
+                                    .onFailure {
+                                        AppLog.warning(
+                                            "feature.library",
+                                            "cache_read_failed",
+                                            "Library cache is unavailable; continuing online",
+                                            throwable = it,
+                                        )
+                                    }.getOrNull()
+                            snapshot to cache.readCarousel(server)
                         }
                     if (!ownsLoad(request, connection)) return@launch
-                    snapshot?.let { dispatch(Msg.Cached(it.content.withoutHeldHistory(), it.updatedAtEpochMs)) }
+                    previousCarousel = savedCarousel ?: previousCarousel
+                    val date = currentDate()
+                    val todayCarousel = previousCarousel?.takeIf { it.date == date && it.items.isNotEmpty() }
+                    val cachedContent = snapshot?.content ?: todayCarousel?.let { HomeContent(featured = it.items) }
+                    if (cachedContent != null) {
+                        val content = cachedContent.withoutHeldHistory()
+                        val carousel = todayCarousel ?: selectCarousel(server, content, date, previousCarousel)
+                        dispatch(Msg.Cached(content, snapshot?.updatedAtEpochMs, carousel))
+                        previousCarousel = carousel
+                    }
                 }
                 val initialContent = state().content
                 val started = TimeSource.Monotonic.markNow()
@@ -487,7 +526,7 @@ class LibraryStoreFactory(
                         if (!ownsLoad(request, connection)) return@onSuccess
                         val updatedAtEpochMs = nowEpochMs().coerceAtLeast(0L)
                         withContext(workContext) {
-                            runCatching { cache.write(server.id, content, updatedAtEpochMs) }
+                            runCatching { cache.write(server.id, content, updatedAtEpochMs, server.userId) }
                                 .onFailure {
                                     AppLog.warning(
                                         "feature.library",
@@ -498,7 +537,10 @@ class LibraryStoreFactory(
                                 }
                         }
                         if (!ownsLoad(request, connection)) return@onSuccess
-                        dispatch(Msg.Loaded(content.withoutHeldHistory(), updatedAtEpochMs))
+                        val visibleContent = content.withoutHeldHistory()
+                        val carousel =
+                            selectCarousel(server, visibleContent, currentDate(), previousCarousel, rotateFeatured)
+                        dispatch(Msg.Loaded(visibleContent, updatedAtEpochMs, carousel))
                         AppLog.info(
                             "feature.library",
                             "load_completed",
@@ -520,13 +562,33 @@ class LibraryStoreFactory(
                             throwable = error,
                             attributes = mapOf("serverId" to server.id),
                         )
-                        dispatch(Msg.Failed(error.toUserMessage("加载失败")))
+                        val date = currentDate()
+                        val currentCarousel = state().featuredCarousel ?: previousCarousel
+                        val carousel =
+                            if (rotateFeatured || currentCarousel?.date != date) {
+                                selectCarousel(server, state().content, date, currentCarousel, rotateFeatured)
+                            } else {
+                                currentCarousel
+                            }
+                        dispatch(Msg.Failed(error.toUserMessage("加载失败"), carousel))
                     }
                 } catch (cancelled: CancellationException) {
                     AppLog.info("feature.library", "load_cancelled", "Media library load cancelled", logAttributes)
                     throw cancelled
                 }
             }
+        }
+
+        private fun selectCarousel(
+            server: SavedServer,
+            content: HomeContent,
+            date: String,
+            previous: CarouselBatch<MediaItem>? = state().featuredCarousel,
+            rotate: Boolean = false,
+        ): CarouselBatch<MediaItem>? {
+            val selected = previous.selectCarouselBatch(date, rotate, MediaItem::id, content::libraryFeaturedSlides)
+            if (selected != null && selected != previous) cache.writeCarousel(server, selected)
+            return selected
         }
 
         private fun ownsLoad(
@@ -546,7 +608,8 @@ class LibraryStoreFactory(
         override fun LibraryState.reduce(msg: Msg): LibraryState =
             when (msg) {
                 is Msg.Data -> {
-                    val serverChanged = msg.current?.id != currentServer?.id
+                    val serverChanged =
+                        msg.current?.id != currentServer?.id || msg.current?.userId != currentServer?.userId
                     val resetTransientState = msg.current == null || serverChanged
                     copy(
                         servers = msg.servers,
@@ -562,6 +625,7 @@ class LibraryStoreFactory(
                             },
                         updatedAtEpochMs = if (resetTransientState) null else updatedAtEpochMs,
                         error = if (resetTransientState) null else error,
+                        featuredCarousel = if (resetTransientState) null else featuredCarousel,
                     )
                 }
                 is Msg.Loading ->
@@ -572,6 +636,7 @@ class LibraryStoreFactory(
                         contentSource = LibraryContentSource.Cached,
                         updatedAtEpochMs = msg.updatedAtEpochMs,
                         error = null,
+                        featuredCarousel = msg.carousel,
                     )
                 is Msg.Loaded ->
                     copy(
@@ -581,11 +646,22 @@ class LibraryStoreFactory(
                         contentSource = LibraryContentSource.Live,
                         updatedAtEpochMs = msg.updatedAtEpochMs,
                         error = null,
+                        featuredCarousel = msg.carousel,
                     )
+                is Msg.Featured -> copy(featuredCarousel = msg.carousel)
                 is Msg.Progress ->
                     copy(content = msg.content.withUniquePersonalRows())
                 is Msg.FavoriteChanged ->
                     copy(
+                        featuredCarousel =
+                            featuredCarousel?.let { batch ->
+                                batch.copy(
+                                    items =
+                                        batch.items.map {
+                                            if (it.id == msg.itemId) it.copy(isFavorite = msg.favorite) else it
+                                        },
+                                )
+                            },
                         content =
                             content.copy(
                                 featured =
@@ -622,6 +698,7 @@ class LibraryStoreFactory(
                                 LibraryContentSource.Cached
                             },
                         error = msg.message,
+                        featuredCarousel = msg.carousel,
                     )
                 is Msg.ActionMessage -> copy(actionMessage = msg.value, historyUndoKey = null)
                 is Msg.HistoryHidden ->

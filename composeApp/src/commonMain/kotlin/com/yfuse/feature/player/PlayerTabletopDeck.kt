@@ -51,6 +51,12 @@ internal fun PlayerTabletopDeck(
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     modifier: Modifier = Modifier,
+    casting: Boolean = false,
+    speedUnavailableReason: String? = null,
+    errorMessage: String? = null,
+    onRetry: (() -> Unit)? = null,
+    subtitleLabel: String? = null,
+    onCycleSubtitle: (() -> Unit)? = null,
 ) {
     val state = playback.value
     val accent = LocalAccentColors.current.accent
@@ -68,7 +74,7 @@ internal fun PlayerTabletopDeck(
         Row(
             Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Box(
                 Modifier
@@ -88,25 +94,79 @@ internal fun PlayerTabletopDeck(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    "悬停模式 · 下屏独立控制",
+                    if (casting) "悬停模式 · 投屏控制" else "悬停模式 · 下屏独立控制",
                     style = AppTypography.caption.regular,
                     color = Color.White.copy(alpha = 0.56f),
+                )
+            }
+            if (onCycleSubtitle != null) {
+                Text(
+                    subtitleLabel ?: "字幕",
+                    style = AppTypography.caption.strong,
+                    color = if (subtitleLabel != null && subtitleLabel != "字幕关") accent else Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier =
+                        Modifier
+                            .clip(AppShapes.pill)
+                            .background(Color.White.copy(alpha = 0.10f))
+                            .border(1.dp, Color.White.copy(alpha = 0.18f), AppShapes.pill)
+                            .pressable(haptic = HapticSignal.Select, focusShape = AppShapes.pill, onClick = onCycleSubtitle)
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
                 )
             }
             Text(
                 speedLabel(state.speed),
                 style = AppTypography.caption.strong,
-                color = if (state.speed != 1f) accent else Color.White,
+                color =
+                    when {
+                        speedUnavailableReason != null -> Color.White.copy(alpha = 0.42f)
+                        state.speed != 1f -> accent
+                        else -> Color.White
+                    },
                 modifier =
                     Modifier
                         .clip(AppShapes.pill)
-                        .background(Color.White.copy(alpha = 0.10f))
+                        .background(Color.White.copy(alpha = if (speedUnavailableReason != null) 0.05f else 0.10f))
                         .border(1.dp, Color.White.copy(alpha = 0.18f), AppShapes.pill)
                         .pressable(haptic = HapticSignal.Select, focusShape = AppShapes.pill) {
                             val idx = speeds.indexOfFirst { kotlin.math.abs(it - state.speed) < 0.05f }
                             onSpeed(speeds[(idx + 1) % speeds.size])
                         }.padding(horizontal = 12.dp, vertical = 6.dp),
             )
+        }
+
+        if (errorMessage != null && onRetry != null) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(AppShapes.card)
+                    .background(Color(0x33EF4444))
+                    .border(1.dp, Color(0x66EF4444), AppShapes.card)
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(
+                    errorMessage,
+                    style = AppTypography.caption.medium,
+                    color = Color.White.copy(alpha = 0.92f),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    "重试",
+                    style = AppTypography.caption.strong,
+                    color = Color.White,
+                    modifier =
+                        Modifier
+                            .clip(AppShapes.pill)
+                            .background(accent)
+                            .pressable(haptic = HapticSignal.Confirm, focusShape = AppShapes.pill, onClick = onRetry)
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                )
+            }
         }
 
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {

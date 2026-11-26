@@ -18,7 +18,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
@@ -29,9 +29,10 @@ import kotlin.math.abs
 import kotlin.math.floor
 
 object HeroPageIndicatorDefaults {
-    val activeWidth = 26.dp
-    val inactiveWidth = 10.dp
-    val dotHeight = 3.dp
+    val activeWidth = 18.dp
+    val dotHeight = 5.dp
+    val slotWidth = 14.dp
+    val compactHeight = 32.dp
 }
 
 /**
@@ -40,16 +41,7 @@ object HeroPageIndicatorDefaults {
  */
 private const val CAROUSEL_DOT_IN_FLIGHT = 0.05f
 
-/**
- * Shared hero pagination with one fixed 48dp tab target per visual dot.
- *
- * On a fading poster the pixels behind each tab still depend on the artwork.
- * A dark rim keeps the light marks distinguishable across the row.
- *
- * There is no pause control any more. It existed to undo an auto-advance that every
- * interaction already suspends on its own, and it was a permanently visible second state
- * bolted onto the smallest cluster of controls on the page.
- */
+/** Compact pagination on the surface where the poster fades into the page. */
 @Composable
 fun HeroPageIndicator(
     pageCount: Int,
@@ -60,7 +52,9 @@ fun HeroPageIndicator(
     onArtwork: Boolean = false,
     pageOffsetProvider: (() -> Float)? = null,
 ) {
-    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val accessibility = LocalAccessibilityOptions.current
+    val reduceMotion = accessibility.reduceMotion
+    val screenReader = rememberScreenReaderActive()
     // Which dot is the selected one, as a float the row can be halfway between.
     //
     // The pager's own offset is continuous while the pager is moving, and that carried the whole
@@ -85,17 +79,18 @@ fun HeroPageIndicator(
             drawnPage.animateTo(target, Motion.settle<Float>())
         }
     }
-    BoxWithConstraints(modifier) {
-        // Eight 48dp slots are 384dp, wider than a 360dp phone: the last dot was squeezed to 24dp
-        // and the row sat off-centre. Each slot shrinks to its share of the width instead; the
-        // height keeps the full touch target.
+    BoxWithConstraints(modifier, contentAlignment = Alignment.Center) {
+        val expandedTouch = screenReader || accessibility.largeText
+        val preferredWidth =
+            if (expandedTouch) MinTouchTarget else HeroPageIndicatorDefaults.slotWidth
         val slot =
             if (constraints.hasBoundedWidth && pageCount > 0) {
-                minOf(MinTouchTarget, maxWidth / pageCount)
+                minOf(preferredWidth, maxWidth / pageCount)
             } else {
-                MinTouchTarget
+                preferredWidth
             }
-        HeroPageDots(pageCount, selectedPage, onPageSelected, slot, onArtwork, drawnPage) {
+        val slotHeight = if (expandedTouch) MinTouchTarget else HeroPageIndicatorDefaults.compactHeight
+        HeroPageDots(pageCount, selectedPage, onPageSelected, slot, slotHeight, onArtwork, drawnPage) {
             if (reduceMotion) 0f else currentOffset.value?.invoke() ?: currentPageOffset.value
         }
     }
@@ -107,11 +102,17 @@ private fun HeroPageDots(
     selectedPage: Int,
     onPageSelected: (Int) -> Unit,
     slot: Dp,
+    slotHeight: Dp,
     onArtwork: Boolean,
     drawnPage: Animatable<Float, AnimationVector1D>,
     offset: () -> Float,
 ) {
     val palette = LocalPalette.current
+    val ink = if (onArtwork) contentColorForSurface(palette.background) else palette.text
+    val inactiveInk =
+        remember(ink, palette.background) {
+            ink.copy(alpha = 0.34f)
+        }
     Row(
         modifier = Modifier.selectableGroup(),
         verticalAlignment = Alignment.CenterVertically,
@@ -128,7 +129,7 @@ private fun HeroPageDots(
                         selected = active
                         contentDescription = "第 ${index + 1} 张，共 $pageCount 张"
                     }.width(slot)
-                    .height(MinTouchTarget)
+                    .height(slotHeight)
                     .drawBehind {
                         // Stable touch/layout slots; fractional pager movement invalidates drawing only.
                         val offset = offset()
@@ -141,29 +142,11 @@ private fun HeroPageDots(
                         val position = if (drawnPage.isRunning) drawnPage.value else selectedPage + offset
                         val page = floor(position).toInt()
                         val weight = carouselIndicatorWeight(index, page, position - page, pageCount)
-                        val width =
-                            (
-                                HeroPageIndicatorDefaults.inactiveWidth +
-                                    (HeroPageIndicatorDefaults.activeWidth - HeroPageIndicatorDefaults.inactiveWidth) *
-                                    weight
-                            ).toPx()
                         val height = HeroPageIndicatorDefaults.dotHeight.toPx()
+                        val width = (height + (HeroPageIndicatorDefaults.activeWidth.toPx() - height) * weight).coerceAtMost(size.width)
                         val origin = Offset((size.width - width) / 2f, (size.height - height) / 2f)
-                        val color =
-                            if (onArtwork) {
-                                val rim = 1.dp.toPx()
-                                drawRoundRect(
-                                    color = Color.Black.copy(alpha = 0.72f),
-                                    topLeft = Offset(origin.x - rim, origin.y - rim),
-                                    size = Size(width + 2 * rim, height + 2 * rim),
-                                    cornerRadius = CornerRadius(height / 2f + rim),
-                                )
-                                Color.White.copy(alpha = 0.62f + 0.34f * weight)
-                            } else {
-                                palette.text.copy(alpha = 0.28f + 0.54f * weight)
-                            }
                         drawRoundRect(
-                            color = color,
+                            color = lerp(inactiveInk, ink, weight),
                             topLeft = origin,
                             size = Size(width, height),
                             cornerRadius = CornerRadius(height / 2f),

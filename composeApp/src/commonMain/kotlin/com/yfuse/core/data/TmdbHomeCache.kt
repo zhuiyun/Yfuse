@@ -2,8 +2,10 @@ package com.yfuse.core.data
 
 import com.russhwolf.settings.Settings
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core.model.CarouselBatch
 import com.yfuse.core.model.TmdbHome
 import com.yfuse.core.model.TmdbItem
+import com.yfuse.core.model.TmdbRowTitles
 import com.yfuse.core.util.currentIsoDate
 import com.yfuse.core.util.isoDateDaysBefore
 import kotlinx.coroutines.CancellationException
@@ -18,14 +20,17 @@ class TmdbHomeCache(
     constructor(settings: Settings, today: () -> String = { currentIsoDate() }) : this(lazy { settings }, today)
 
     private val settings by storage
+    private val carousel = CarouselBatchCache({ settings }, TmdbItem.serializer())
 
     private companion object {
         const val KEY = "tmdb.home.cache.v1"
+        const val CAROUSEL_KEY = "tmdb.home.carousel.v1"
         const val MAX_CACHE_AGE_DAYS = 7
         const val MAX_SERIALIZED_CHARS = 512_000
         const val MAX_FEATURED = 21
         const val MAX_ROWS = 4
         const val MAX_ITEMS_PER_ROW = 24
+        const val MAX_CAROUSEL_ROW_ITEMS = 80
         const val MAX_ROW_TITLE_CHARS = 80
         const val MAX_TITLE_CHARS = 200
         const val MAX_OVERVIEW_CHARS = 1_500
@@ -55,6 +60,12 @@ class TmdbHomeCache(
     }
 
     fun read(): TmdbHome? = readCached()?.content
+
+    internal fun readCarousel(): CarouselBatch<TmdbItem>? = carousel.read(CAROUSEL_KEY)
+
+    internal fun writeCarousel(batch: CarouselBatch<TmdbItem>) {
+        carousel.write(CAROUSEL_KEY, batch.copy(items = batch.items.map { it.trimForCache() }))
+    }
 
     fun readCached(): Cached? {
         return try {
@@ -103,18 +114,28 @@ class TmdbHomeCache(
                 featured = content.featured.take(MAX_FEATURED).map { it.trimForCache() },
                 rows =
                     content.rows.take(MAX_ROWS).map { row ->
+                        val limit =
+                            if (row.title == TmdbRowTitles.POPULAR || row.title == TmdbRowTitles.LATEST) {
+                                MAX_CAROUSEL_ROW_ITEMS
+                            } else {
+                                MAX_ITEMS_PER_ROW
+                            }
                         row.copy(
                             title = row.title.take(MAX_ROW_TITLE_CHARS),
-                            items = row.items.take(MAX_ITEMS_PER_ROW).map { it.trimForCache() },
+                            items = row.items.take(limit).map { it.trimForCache() },
                         )
                     },
             )
         try {
+            val savedOn = today()
+            val expanded = json.encodeToString(Entry.serializer(), Entry(savedOn, trimmed))
             val encoded =
-                json.encodeToString(
-                    Entry.serializer(),
-                    Entry(savedOn = today(), content = trimmed),
-                )
+                if (expanded.length <= MAX_SERIALIZED_CHARS) {
+                    expanded
+                } else {
+                    val rows = trimmed.rows.map { row -> row.copy(items = row.items.take(MAX_ITEMS_PER_ROW)) }
+                    json.encodeToString(Entry.serializer(), Entry(savedOn, trimmed.copy(rows = rows)))
+                }
             check(encoded.length <= MAX_SERIALIZED_CHARS) {
                 "Home recommendations cache exceeds its size limit"
             }

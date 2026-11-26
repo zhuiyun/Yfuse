@@ -420,45 +420,6 @@ internal fun AdvancedPlaybackSettingsScreen(
 }
 
 @Composable
-internal fun DanmakuSettingsScreen(
-    onBack: () -> Unit,
-    sourceSummary: String,
-    blockedSummary: String,
-    onSources: () -> Unit,
-    onBlockedWords: () -> Unit,
-) {
-    SettingsPage(
-        title = "弹幕",
-        subtitle = "来源与内容过滤",
-        onBack = onBack,
-    ) {
-        motionItem(key = "danmaku-sources") {
-            Section(title = "弹幕设置") {
-                SettingsCard {
-                    SettingRow(
-                        "弹幕来源",
-                        sourceSummary,
-                        true,
-                        onSources,
-                        icon = AppIcons.Danmaku,
-                        iconTint = SettingTint.danmaku,
-                    )
-                    SettingsDivider()
-                    SettingRow(
-                        "屏蔽词",
-                        blockedSummary,
-                        true,
-                        onBlockedWords,
-                        icon = AppIcons.DanmakuOff,
-                        iconTint = SettingTint.danmaku,
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
 internal fun WatchTogetherSettingsScreen(
     onBack: () -> Unit,
     connected: Boolean,

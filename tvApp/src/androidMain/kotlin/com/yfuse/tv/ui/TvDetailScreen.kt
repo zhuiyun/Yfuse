@@ -522,7 +522,7 @@ internal fun TvDetailScreen(
                     state.playTarget?.let { target ->
                         TvOfflineDownloadDialog(
                             detail = target,
-                            episodes = state.episodes,
+                            episodes = state.episodesForDownload,
                             selectedVersionId = state.selectedVersionId,
                             focusMemory = focusMemory,
                             onConfirm = { selection ->

@@ -185,30 +185,37 @@ fun AddServerDialog(
                         }
                     }
                 }
-                ServerFormInput(
-                    outlined = true,
-                    label = "地址",
-                    value = form.host,
-                    placeholder = "media.example.com",
-                    enabled = !form.submitting,
-                    keyboardType = KeyboardType.Uri,
-                    divider = false,
-                ) { sendIntent(ServersIntent.HostChanged(it)) }
-                ServerFormInput(
-                    outlined = true,
-                    label = "端口",
-                    value = form.port,
-                    enabled = !form.submitting,
-                    keyboardType = KeyboardType.Number,
-                    divider = false,
-                ) { sendIntent(ServersIntent.PortChanged(it)) }
-                // Last rather than first: it is optional, and it used to stand between the user
-                // and the address, which is what actually connects.
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    androidx.compose.foundation.layout.Box(Modifier.weight(0.68f)) {
+                        ServerFormInput(
+                            outlined = true,
+                            label = "服务器地址",
+                            value = form.host,
+                            placeholder = "emby.example.com",
+                            enabled = !form.submitting,
+                            keyboardType = KeyboardType.Uri,
+                            divider = false,
+                        ) { sendIntent(ServersIntent.HostChanged(it)) }
+                    }
+                    androidx.compose.foundation.layout.Box(Modifier.weight(0.32f)) {
+                        ServerFormInput(
+                            outlined = true,
+                            label = "端口",
+                            value = form.port,
+                            enabled = !form.submitting,
+                            keyboardType = KeyboardType.Number,
+                            divider = false,
+                        ) { sendIntent(ServersIntent.PortChanged(it)) }
+                    }
+                }
                 ServerFormInput(
                     outlined = true,
                     label = "显示名称",
                     value = form.serverName,
-                    placeholder = if (editing) "输入服务器名称" else "留空使用服务器名称",
+                    placeholder = if (editing) "输入服务器名称" else "选填，留空跟随服务器名",
                     enabled = !form.submitting,
                     divider = false,
                 ) { sendIntent(ServersIntent.ServerNameChanged(it)) }
@@ -374,7 +381,7 @@ fun AddServerDialog(
                         placeholder =
                             when {
                                 state.reauthenticating -> "输入密码重新登录"
-                                editing -> "仅修改名称时无需填写"
+                                editing -> "留空保持当前登录态"
                                 else -> "留空表示无密码"
                             },
                         enabled = !form.submitting,

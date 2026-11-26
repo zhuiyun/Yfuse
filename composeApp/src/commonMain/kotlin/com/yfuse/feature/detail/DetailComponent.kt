@@ -32,6 +32,7 @@ import com.yfuse.core.model.ThemeSong
 import com.yfuse.core.model.capabilities
 import com.yfuse.core.network.currentPlaybackNetworkClass
 import com.yfuse.core.offline.OfflineBatchItem
+import com.yfuse.core.offline.OfflineBatchMode
 import com.yfuse.core.offline.OfflineDownloadSelection
 import com.yfuse.core.offline.buildOfflineDownloadRequests
 import com.yfuse.core.offline.sameOfflineDownloadVariant
@@ -286,6 +287,7 @@ class DetailComponent(
         val state = store.state
         val detail = state.playTarget ?: return null
         val server = state.playServer ?: return null
+        if (selection.batchMode != OfflineBatchMode.Current && !state.episodeFilesReady) return null
         val requests =
             buildOfflineDownloadRequests(
                 serverId = server.id,

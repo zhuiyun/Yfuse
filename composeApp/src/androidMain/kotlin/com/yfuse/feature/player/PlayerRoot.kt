@@ -33,6 +33,7 @@ import com.yfuse.core.account.AccountAccessTokenSource
 import com.yfuse.core.cast.CastManager
 import com.yfuse.core.cast.CastPlaybackStatus
 import com.yfuse.core.cast.CastTermination
+import com.yfuse.core.cast.CastTrackKind
 import com.yfuse.core.cast.castRecoveryDecision
 import com.yfuse.core.data.DanmakuPreferences
 import com.yfuse.core.data.DanmakuRepository
@@ -1500,17 +1501,151 @@ internal fun PlayerRoot(
                 if (posture.hingeThicknessDp > 0.dp) {
                     Spacer(Modifier.height(posture.hingeThicknessDp))
                 }
+                val controlOwner = gestures.contextKey
+                val tabletopSpeedUnavailable =
+                    playbackSpeedUnavailableReason(
+                        watchLocked = playbackGate.locked,
+                        casting = castState.hasActiveSession || castState.status == CastPlaybackStatus.Connecting,
+                    )
+                val selectedSubtitle = state.subtitleTracks.firstOrNull { it.selected }
+                val tabletopSubtitleLabel =
+                    when {
+                        state.subtitleTracks.isEmpty() -> null
+                        selectedSubtitle == null -> "字幕关"
+                        else -> selectedSubtitle.label.take(6).ifBlank { "字幕" }
+                    }
                 PlayerTabletopDeck(
                     title = currentItem?.title.orEmpty(),
                     playback = livePlayback,
                     onBack = onBack,
                     onPlayPause = {
-                        if (livePlayback.value.playing) player.pause() else player.play()
+                        if (castState.hasActiveSession) {
+                            scope.launch {
+                                if (
+                                    castState.status == CastPlaybackStatus.Playing ||
+                                    castState.status == CastPlaybackStatus.Buffering ||
+                                    (
+                                        castState.status == CastPlaybackStatus.Error &&
+                                            castState.lastRemoteWasPlaying
+                                    )
+                                ) {
+                                    castManager.pause()
+                                } else {
+                                    castManager.resume()
+                                }
+                            }
+                        } else {
+                            playbackGate.togglePlayPause()
+                        }
                     },
-                    onSeek = { targetMs -> player.seekTo(targetMs) },
-                    onSpeed = { speed -> player.setSpeed(speed) },
-                    onPrevious = { playbackGate.selectPrevious() },
-                    onNext = { playbackGate.selectNext() },
+                    onSeek = { targetMs -> gestures.seek(targetMs, controlOwner) },
+                    onSpeed = { newSpeed ->
+                        val cast = castManager.state.value
+                        val refusal =
+                            playbackSpeedUnavailableReason(
+                                watchLocked = playbackGate.locked,
+                                casting = cast.hasActiveSession || cast.status == CastPlaybackStatus.Connecting,
+                            )
+                        if (refusal != null) {
+                            PlayerNotices.show(refusal)
+                        }
+                        applyRememberedPlaybackSpeed(
+                            speed = newSpeed,
+                            canChange = { refusal == null },
+                            applySpeed = playbackGate::setSpeed,
+                            rememberSpeed = { accepted ->
+                                choices.requestedPlaybackSpeed = accepted
+                                rememberSeriesPlayback { remembered -> remembered.copy(speed = accepted) }
+                            },
+                        )
+                    },
+                    onPrevious = {
+                        gestures.invalidate()
+                        sourceSwitchCoordinator.invalidate()
+                        val previous = state.currentIndex - 1
+                        if (previous in activeItems.indices) {
+                            sleepTimer.follow(
+                                previous,
+                                castState.sessionRevision.takeIf { castState.hasActiveSession },
+                            )
+                        }
+                        val deviceId = castState.activeDeviceId
+                        if (castState.hasActiveSession && deviceId != null && previous in activeItems.indices) {
+                            scope.launch {
+                                if (!castManager.queuePrevious()) loadCastItem(deviceId, previous, 0L)
+                            }
+                        } else {
+                            playbackGate.selectPrevious()
+                        }
+                    },
+                    onNext = {
+                        gestures.invalidate()
+                        sourceSwitchCoordinator.invalidate()
+                        val next = state.currentIndex + 1
+                        if (next in activeItems.indices) {
+                            sleepTimer.follow(next, castState.sessionRevision.takeIf { castState.hasActiveSession })
+                        }
+                        val deviceId = castState.activeDeviceId
+                        if (castState.hasActiveSession && deviceId != null && next in activeItems.indices) {
+                            scope.launch {
+                                if (!castManager.queueNext()) loadCastItem(deviceId, next, 0L)
+                            }
+                        } else {
+                            playbackGate.selectNext()
+                        }
+                    },
+                    casting = castState.hasActiveSession,
+                    speedUnavailableReason = tabletopSpeedUnavailable,
+                    errorMessage = state.error,
+                    onRetry = {
+                        gestures.invalidate()
+                        sourceSwitchCoordinator.invalidate()
+                        val deviceId = castState.activeDeviceId
+                        if (castState.hasActiveSession && deviceId != null) {
+                            scope.launch {
+                                loadCastItem(deviceId, state.currentIndex, livePlayback.value.positionMs)
+                            }
+                        } else {
+                            playbackGate.retry()
+                        }
+                    },
+                    subtitleLabel = tabletopSubtitleLabel,
+                    onCycleSubtitle =
+                        state.subtitleTracks.takeIf { it.isNotEmpty() }?.let { tracks ->
+                            {
+                                choices.subtitlePeek = null
+                                val currentIdx = tracks.indexOfFirst { it.selected }
+                                val nextTrack =
+                                    when {
+                                        currentIdx < 0 -> tracks.first()
+                                        currentIdx + 1 < tracks.size -> tracks[currentIdx + 1]
+                                        else -> null
+                                    }
+                                val nextId = nextTrack?.id ?: EngineTrack.OFF
+                                choices.handoverItemId = currentItem?.id
+                                choices.subtitleRestore = nextTrack?.let { tracks.restorePreferenceFor(it) }
+                                choices.restoreSubtitlesOff = nextId == EngineTrack.OFF
+                                rememberSeriesPlayback { remembered ->
+                                    remembered.copy(
+                                        primarySubtitlesOff = nextId == EngineTrack.OFF,
+                                        primarySubtitle = nextTrack?.toRememberedPlaybackTrack(),
+                                    )
+                                }
+                                if (castState.hasActiveSession) {
+                                    scope.launch {
+                                        castManager.selectTrack(
+                                            kind = CastTrackKind.Subtitle,
+                                            language = nextTrack?.language,
+                                            label = nextTrack?.label.orEmpty(),
+                                            enabled = nextId != EngineTrack.OFF,
+                                        )
+                                    }
+                                } else {
+                                    player.selectTrack(YTrackType.Subtitle, nextId)
+                                }
+                                PlayerNotices.show(nextTrack?.let { "字幕：${it.label}" } ?: "已关闭字幕")
+                            }
+                        },
                     modifier = Modifier.fillMaxWidth().weight(1f - topWeight),
                 )
             }

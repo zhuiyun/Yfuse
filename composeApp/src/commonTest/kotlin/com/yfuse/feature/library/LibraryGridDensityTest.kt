@@ -91,4 +91,50 @@ class LibraryGridDensityTest {
         preferences.setColumns("movies", 40)
         assertEquals(12, preferences.columns("movies"))
     }
+
+    @Test
+    fun savedColumnsClampToNarrowPaneWithoutBreakingPhoneFiveColumnPinch() {
+        // Tablet saved 8 columns inside a narrow 308px pane (60px min readable tile, 10px spacing) -> clamped to 4.
+        assertEquals(
+            4,
+            clampedGridColumns(
+                savedColumns = 8,
+                availableWidthPx = 308f,
+                minTilePx = 108f,
+                minReadableTilePx = 60f,
+                spacingPx = 10f,
+            ),
+        )
+        // Standard phone (368px available) still allows dense 5-column pinch.
+        assertEquals(
+            5,
+            clampedGridColumns(
+                savedColumns = 5,
+                availableWidthPx = 368f,
+                minTilePx = 108f,
+                minReadableTilePx = 60f,
+                spacingPx = 10f,
+            ),
+        )
+        // Wide tablet keeps its saved 8 columns.
+        assertEquals(
+            8,
+            clampedGridColumns(
+                savedColumns = 8,
+                availableWidthPx = 1100f,
+                minTilePx = 108f,
+                minReadableTilePx = 60f,
+                spacingPx = 10f,
+            ),
+        )
+        assertNull(
+            clampedGridColumns(
+                savedColumns = null,
+                availableWidthPx = 308f,
+                minTilePx = 108f,
+                minReadableTilePx = 60f,
+                spacingPx = 10f,
+            ),
+        )
+    }
 }

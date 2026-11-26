@@ -245,7 +245,7 @@ internal fun DetailDownloadSheet(
     }
     OfflineDownloadDialog(
         detail = target,
-        episodes = state.episodes,
+        episodes = state.episodesForDownload,
         selectedVersionId = state.selectedVersionId,
         allowedQualities =
             if (state.playServer?.kind == MediaServerKind.Plex) {

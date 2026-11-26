@@ -5,6 +5,10 @@ import com.yfuse.core.model.Episode
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.model.SavedServer
+import com.yfuse.core.model.Season
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withTimeoutOrNull
 
 internal class DetailPlaybackResolver(
     private val repo: EmbyRepository,
@@ -194,6 +198,59 @@ internal class DetailPlaybackResolver(
                 selectedSeasonId = catalog.selectedSeasonId,
                 episodes = catalog.episodes,
             )
+        }
+
+    /** Load the visible cards without waiting for every episode's files and tracks. */
+    suspend fun loadInitialEpisodeDirectory(
+        server: SavedServer,
+        seriesId: String,
+        target: MediaDetail,
+        onKnownSeason: (SeriesCatalog) -> Unit,
+    ): SeriesCatalog =
+        coroutineScope {
+            val preferredNumber = target.seasonNumber ?: 1
+            // Emby and Jellyfin can read a single season by number before its id is known.
+            // Plex would fetch allLeaves for this query, so use its season id instead.
+            val byNumber =
+                if (server.kind == MediaServerKind.Plex) {
+                    null
+                } else {
+                    async {
+                        val rows =
+                            repo
+                                .episodes(
+                                    server,
+                                    seriesId,
+                                    seasonId = null,
+                                    seasonNumber = preferredNumber,
+                                ).getOrNull()
+                        val seasonId = rows?.firstOrNull()?.seasonId
+                        if (target.seasonNumber != null &&
+                            !seasonId.isNullOrBlank() &&
+                            rows != null &&
+                            rows.all { it.seasonId == seasonId && it.seasonNumber == preferredNumber } &&
+                            rows.any { it.id == target.id }
+                        ) {
+                            val season = Season(seasonId, "第 $preferredNumber 季", preferredNumber, posterTag = null)
+                            onKnownSeason(SeriesCatalog(listOf(season), seasonId, rows))
+                        }
+                        rows
+                    }
+                }
+            val seasons = repo.seasons(server, seriesId).getOrThrow()
+            val selected = seasons.firstOrNull { it.indexNumber == target.seasonNumber } ?: seasons.firstOrNull()
+            val numbered =
+                if (selected != null && selected.indexNumber == preferredNumber) {
+                    // Once the real season id is known, a stalled numeric lookup must not hold the rail.
+                    withTimeoutOrNull(2_000L) { byNumber?.await() }?.takeIf { rows ->
+                        rows.isNotEmpty() && rows.all { it.seasonId == selected.id }
+                    }
+                } else {
+                    null
+                }
+            byNumber?.cancel()
+            val episodes = numbered ?: repo.episodes(server, seriesId, selected?.id).getOrThrow()
+            SeriesCatalog(seasons, selected?.id, episodes)
         }
 
     suspend fun loadSeriesCatalog(

@@ -236,35 +236,101 @@ internal fun CalendarPosterResults(
                 }
             val featured = remember(dayEntries) { calendarFeaturedEntry(dayEntries) }
             val rest = remember(dayEntries, featured) { dayEntries.filterNot { it === featured } }
-            val wideCalendar = com.yfuse.app.LocalWideWindow.current
-            if (wideCalendar && featured != null) {
-                Row(
-                    Modifier
-                        .fillMaxSize()
-                        .padding(
-                            start = Dimens.pageHorizontal,
-                            end = Dimens.pageHorizontal,
-                            top = 4.dp,
-                            bottom = bottomContentInset + 16.dp,
-                        ),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                ) {
-                    Box(Modifier.weight(0.46f)) {
-                        CalendarFeaturedPoster(
-                            display = featured,
-                            resolveBackdrop = backdrop,
-                            onOpen = { onOpen(featured.entry) },
-                            onPlay = { onPlay(featured.entry) },
-                        )
+            androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
+                val wideCalendar = maxWidth >= 600.dp
+                if (wideCalendar && featured != null) {
+                    Row(
+                        Modifier
+                            .fillMaxSize()
+                            .padding(
+                                start = Dimens.pageHorizontal,
+                                end = Dimens.pageHorizontal,
+                                top = 4.dp,
+                                bottom = bottomContentInset + 16.dp,
+                            ),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    ) {
+                        Box(Modifier.weight(0.46f)) {
+                            CalendarFeaturedPoster(
+                                display = featured,
+                                resolveBackdrop = backdrop,
+                                onOpen = { onOpen(featured.entry) },
+                                onPlay = { onPlay(featured.entry) },
+                            )
+                        }
+                        LazyColumn(
+                            Modifier.weight(0.54f).fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            if (rest.isNotEmpty()) {
+                                item(key = "remaining-heading", contentType = "calendar-heading") {
+                                    Row(
+                                        Modifier.fillMaxWidth().padding(bottom = 2.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text("当日更多", style = AppTypography.body.strong, color = palette.text)
+                                        Text("${rest.size} 部", style = AppTypography.caption.medium, color = palette.sub)
+                                    }
+                                }
+                                items(
+                                    items = rest,
+                                    key = { it.entry.episode.mediaKey },
+                                    contentType = { "calendar-row" },
+                                ) { display ->
+                                    CalendarPosterRow(
+                                        display = display,
+                                        onOpen = { onOpen(display.entry) },
+                                        onFollow = { onFollow(display.entry) },
+                                    )
+                                }
+                            } else {
+                                item(key = "calendar-wide-single") {
+                                    Text(
+                                        "今日仅有左侧一部排期更新。",
+                                        style = AppTypography.body.regular,
+                                        color = palette.sub,
+                                        modifier = Modifier.padding(vertical = 24.dp),
+                                    )
+                                }
+                            }
+                        }
                     }
+                } else {
                     LazyColumn(
-                        Modifier.weight(0.54f).fillMaxSize(),
+                        Modifier.fillMaxSize(),
+                        contentPadding =
+                            PaddingValues(
+                                start = Dimens.pageHorizontal,
+                                end = Dimens.pageHorizontal,
+                                top = 4.dp,
+                                bottom = bottomContentInset + 16.dp,
+                            ),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
+                        if (featured != null) {
+                            item(key = "featured:${featured.entry.episode.mediaKey}", contentType = "calendar-featured") {
+                                CalendarFeaturedPoster(
+                                    display = featured,
+                                    resolveBackdrop = backdrop,
+                                    onOpen = { onOpen(featured.entry) },
+                                    onPlay = { onPlay(featured.entry) },
+                                )
+                            }
+                        } else {
+                            item(key = "calendar-empty", contentType = "calendar-empty") {
+                                Text(
+                                    "这一天没有排期，左右滑动或点选其他日期。",
+                                    style = AppTypography.body.regular,
+                                    color = palette.sub,
+                                    modifier = Modifier.padding(vertical = 36.dp),
+                                )
+                            }
+                        }
                         if (rest.isNotEmpty()) {
                             item(key = "remaining-heading", contentType = "calendar-heading") {
                                 Row(
-                                    Modifier.fillMaxWidth().padding(bottom = 2.dp),
+                                    Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 2.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
@@ -283,70 +349,6 @@ internal fun CalendarPosterResults(
                                     onFollow = { onFollow(display.entry) },
                                 )
                             }
-                        } else {
-                            item(key = "calendar-wide-single") {
-                                Text(
-                                    "今日仅有左侧一部排期更新。",
-                                    style = AppTypography.body.regular,
-                                    color = palette.sub,
-                                    modifier = Modifier.padding(vertical = 24.dp),
-                                )
-                            }
-                        }
-                    }
-                }
-            } else {
-                LazyColumn(
-                    Modifier.fillMaxSize(),
-                    contentPadding =
-                        PaddingValues(
-                            start = Dimens.pageHorizontal,
-                            end = Dimens.pageHorizontal,
-                            top = 4.dp,
-                            bottom = bottomContentInset + 16.dp,
-                        ),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    if (featured != null) {
-                        item(key = "featured:${featured.entry.episode.mediaKey}", contentType = "calendar-featured") {
-                            CalendarFeaturedPoster(
-                                display = featured,
-                                resolveBackdrop = backdrop,
-                                onOpen = { onOpen(featured.entry) },
-                                onPlay = { onPlay(featured.entry) },
-                            )
-                        }
-                    } else {
-                        item(key = "calendar-empty", contentType = "calendar-empty") {
-                            Text(
-                                "这一天没有排期，左右滑动或点选其他日期。",
-                                style = AppTypography.body.regular,
-                                color = palette.sub,
-                                modifier = Modifier.padding(vertical = 36.dp),
-                            )
-                        }
-                    }
-                    if (rest.isNotEmpty()) {
-                        item(key = "remaining-heading", contentType = "calendar-heading") {
-                            Row(
-                                Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 2.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text("当日更多", style = AppTypography.body.strong, color = palette.text)
-                                Text("${rest.size} 部", style = AppTypography.caption.medium, color = palette.sub)
-                            }
-                        }
-                        items(
-                            items = rest,
-                            key = { it.entry.episode.mediaKey },
-                            contentType = { "calendar-row" },
-                        ) { display ->
-                            CalendarPosterRow(
-                                display = display,
-                                onOpen = { onOpen(display.entry) },
-                                onFollow = { onFollow(display.entry) },
-                            )
                         }
                     }
                 }

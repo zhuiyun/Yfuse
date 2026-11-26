@@ -65,6 +65,7 @@ data class DetailState(
      */
     val listedSeasonId: String? = null,
     val episodes: List<Episode> = emptyList(),
+    val episodeFilesReady: Boolean = true,
     val episodesLoading: Boolean = false,
     val episodesError: String? = null,
     val progressManagerOpen: Boolean = false,
@@ -94,6 +95,9 @@ data class DetailState(
     val addedContainerIds: Set<String> = emptySet(),
     val confirmedFavorite: Pair<String, String>? = null,
 ) {
+    /** Batch downloads must match files and subtitle tracks across episodes. */
+    val episodesForDownload: List<Episode> get() = if (episodeFilesReady) episodes else emptyList()
+
     /** Compatibility/readiness view used by store tests and non-visual consumers. */
     val watchLaterBusy: Boolean
         get() = watchLaterLoading || watchLaterMutating

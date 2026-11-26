@@ -71,7 +71,6 @@ val HeroTextShadow: Shadow =
     )
 
 private val HeroDockFill = HeroInk.copy(alpha = 0.46f)
-private val HeroPlayFill = Color(0xFFF5F6FA)
 private val HeroToolSelectedFill = HeroInk.copy(alpha = 0.78f)
 
 /**
@@ -82,7 +81,7 @@ private val HeroToolSelectedFill = HeroInk.copy(alpha = 0.78f)
  */
 @Composable
 fun HeroActionDock(
-    onPlay: () -> Unit,
+    onPlay: (() -> Unit)?,
     onFavorite: () -> Unit,
     modifier: Modifier = Modifier,
     favorite: Boolean? = null,
@@ -92,44 +91,43 @@ fun HeroActionDock(
      */
     playActionLabel: String = "播放",
     favoriteActionLabel: String = if (favorite == true) "取消收藏" else "加入收藏",
-    primaryIcon: androidx.compose.ui.graphics.vector.ImageVector = AppIcons.Play,
 ) {
     val artworkAccent = LocalArtworkAccent.current
-    val playFill =
-        artworkAccent?.let { lerp(HeroPlayFill, it, 0.14f) }
-            ?: HeroPlayFill
-    val playInk =
-        artworkAccent?.let { lerp(HeroInk, it, 0.22f).darkenedTo(0.06f, HeroInk) }
-            ?: HeroInk
-    val playEdge = Color.White.copy(alpha = 0.65f)
     Row(
         modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            Modifier
-                .heightIn(min = 48.dp)
-                .playerHandoffKey(corner = 24.dp, glass = false)
-                .pressable(
-                    focusShape = AppShapes.pill,
-                    lightEffect = LightEffect.Converge,
-                    onClickLabel = playActionLabel,
-                    onClick = onPlay,
-                ).clip(AppShapes.pill)
-                .background(playFill)
-                .border(0.75.dp, playEdge, AppShapes.pill)
-                .padding(horizontal = 18.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                primaryIcon,
-                contentDescription = null,
-                tint = playInk,
-                modifier = Modifier.size(17.dp),
-            )
-            Text(playActionLabel, style = AppTypography.body.strong, color = playInk)
+        if (onPlay != null) {
+            val palette = LocalPalette.current
+            val playFill = remember(artworkAccent, palette.background, palette.isDark) {
+                artworkPlayButtonColor(artworkAccent ?: Brand.Primary, palette.background, palette.isDark) // design-system: brand-identity
+            }
+            val playInk = contentColorForSurface(playFill)
+            Row(
+                Modifier
+                    .heightIn(min = 48.dp)
+                    .playerHandoffKey(corner = 24.dp, tint = playFill, ink = playInk)
+                    .pressable(
+                        focusShape = AppShapes.pill,
+                        lightEffect = LightEffect.Converge,
+                        onClickLabel = playActionLabel,
+                        onClick = onPlay,
+                    ).clip(AppShapes.pill)
+                    .background(playFill)
+                    .border(0.75.dp, playInk.copy(alpha = 0.32f), AppShapes.pill)
+                    .padding(horizontal = 18.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    AppIcons.Play,
+                    contentDescription = null,
+                    tint = playInk,
+                    modifier = Modifier.size(17.dp),
+                )
+                Text(playActionLabel, style = AppTypography.body.strong, color = playInk)
+            }
         }
         HeroFavoriteButton(
             icon = if (favorite == true) AppIcons.HeartFilled else AppIcons.Heart,
@@ -207,16 +205,16 @@ private fun HeroFavoriteButton(
  * status bar and the floating header need it, and nothing at all below the midpoint.
  */
 fun heroTopScrim(
-    topInk: Float = 0.62f,
-    midInk: Float = 0.24f,
+    topInk: Float = 0.84f,
+    midInk: Float = 0.34f,
 ): Brush =
     scrim(
         0f to Color.Transparent,
-        0.48f to Color.Transparent,
-        0.60f to HeroInk.copy(alpha = midInk * 0.18f),
-        0.72f to HeroInk.copy(alpha = midInk * 0.56f),
+        0.46f to Color.Transparent,
+        0.58f to HeroInk.copy(alpha = midInk * 0.22f),
+        0.70f to HeroInk.copy(alpha = midInk * 0.62f),
         0.82f to HeroInk.copy(alpha = midInk),
-        0.92f to HeroInk.copy(alpha = (midInk + topInk) * 0.52f),
+        0.92f to HeroInk.copy(alpha = (midInk + topInk) * 0.56f),
         1f to HeroInk.copy(alpha = topInk),
     )
 
@@ -422,8 +420,8 @@ fun heroPanelBrush(
  */
 val HeroPageFade: Dp = 156.dp
 
-/** Copy stays out of the part of the hero that has mostly dissolved into the page. */
-val HeroCaptionClearance: Dp = 104.dp
+/** Gap from the bottom of the action row to the next control or the edge of the reel. */
+val HeroCaptionClearance: Dp = 8.dp
 
 fun Modifier.fadeIntoPage(height: Dp = HeroPageFade): Modifier =
     this

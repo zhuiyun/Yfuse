@@ -2,7 +2,10 @@ package com.yfuse.core.data
 
 import com.russhwolf.settings.Settings
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core.model.CarouselBatch
 import com.yfuse.core.model.HomeContent
+import com.yfuse.core.model.MediaItem
+import com.yfuse.core.model.SavedServer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -21,6 +24,7 @@ private data class PersistedLibraryCache(
     @SerialName("v") val version: Int,
     @SerialName("updatedAt") val updatedAtEpochMs: Long,
     @SerialName("content") val content: HomeContent,
+    val userId: String? = null,
 )
 
 /**
@@ -41,9 +45,11 @@ class LibraryCache(
     storage: () -> Settings = { settings },
 ) {
     private val settings by lazy(storage)
+    private val carousel = CarouselBatchCache({ this.settings }, MediaItem.serializer())
 
     private companion object {
         const val KEY_PREFIX = "library.cache."
+        const val CAROUSEL_KEY_PREFIX = "library.carousel.v1."
         const val PERSISTED_VERSION = 2
 
         /**
@@ -71,7 +77,7 @@ class LibraryCache(
      * frame, but callers must label it as cached with an unknown update time until a live request
      * succeeds and rewrites the entry in v2.
      */
-    fun readSnapshot(serverId: String): LibraryCacheSnapshot? {
+    fun readSnapshot(serverId: String, userId: String? = null): LibraryCacheSnapshot? {
         val raw = settings.getStringOrNull(KEY_PREFIX + serverId) ?: return null
         return runCatching {
             val root = json.parseToJsonElement(raw).jsonObject
@@ -79,6 +85,7 @@ class LibraryCache(
                 val persisted = json.decodeFromJsonElement(PersistedLibraryCache.serializer(), root)
                 require(persisted.version == PERSISTED_VERSION) { "Unsupported library cache version" }
                 require(persisted.updatedAtEpochMs >= 0L) { "Invalid library cache timestamp" }
+                if (userId != null && persisted.userId != null && userId != persisted.userId) return null
                 LibraryCacheSnapshot(
                     content = persisted.content,
                     updatedAtEpochMs = persisted.updatedAtEpochMs,
@@ -106,11 +113,20 @@ class LibraryCache(
     /** Compatibility helper for consumers that only need the content body. */
     fun read(serverId: String): HomeContent? = readSnapshot(serverId)?.content
 
+    internal fun readCarousel(server: SavedServer): CarouselBatch<MediaItem>? =
+        carousel.read(CAROUSEL_KEY_PREFIX + server.id, server.userId)
+
+    internal fun writeCarousel(server: SavedServer, batch: CarouselBatch<MediaItem>) {
+        val items = batch.items.map { it.copy(overview = it.overview?.take(1_500)) }
+        carousel.write(CAROUSEL_KEY_PREFIX + server.id, batch.copy(items = items), server.userId)
+    }
+
     /** Writes only successful live content; [updatedAtEpochMs] belongs to that same response. */
     fun write(
         serverId: String,
         content: HomeContent,
         updatedAtEpochMs: Long,
+        userId: String? = null,
     ) {
         if (content.isEmpty) {
             settings.remove(KEY_PREFIX + serverId)
@@ -137,6 +153,7 @@ class LibraryCache(
                         version = PERSISTED_VERSION,
                         updatedAtEpochMs = updatedAtEpochMs.coerceAtLeast(0L),
                         content = trimmed,
+                        userId = userId,
                     ),
                 ),
             )
@@ -153,6 +170,7 @@ class LibraryCache(
     /** Dropped along with the server it belongs to, so a re-add starts clean. */
     fun clear(serverId: String) {
         settings.remove(KEY_PREFIX + serverId)
+        settings.remove(CAROUSEL_KEY_PREFIX + serverId)
     }
 
     /**
@@ -162,8 +180,13 @@ class LibraryCache(
     internal fun clearOrphans(validServerIds: Set<String>): Int {
         val orphanKeys =
             settings.keys.filter { key ->
-                key.startsWith(KEY_PREFIX) &&
-                    key.removePrefix(KEY_PREFIX).let { it.isNotEmpty() && it !in validServerIds }
+                val id =
+                    when {
+                        key.startsWith(KEY_PREFIX) -> key.removePrefix(KEY_PREFIX)
+                        key.startsWith(CAROUSEL_KEY_PREFIX) -> key.removePrefix(CAROUSEL_KEY_PREFIX)
+                        else -> ""
+                    }
+                id.isNotEmpty() && id !in validServerIds
             }
         orphanKeys.forEach(settings::remove)
         return orphanKeys.size

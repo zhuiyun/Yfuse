@@ -95,6 +95,23 @@ class TmdbFeaturedTest {
         assertEquals(second, content.featuredSlidesForDay(date, history))
     }
 
+    @Test
+    fun uses_artwork_beyond_the_old_cutoffs_and_exhausts_unseen_titles_before_repeating() {
+        val popular = (1..30).map { item(it).copy(backdropPath = null) } + (31..42).map(::item)
+        val latest = (100..130).map { item(it).copy(backdropPath = null) } + (131..134).map(::item)
+        val content =
+            TmdbHome(
+                rows = listOf(TmdbRow(TmdbRowTitles.POPULAR, popular), TmdbRow(TmdbRowTitles.LATEST, latest)),
+            )
+        val first = content.featuredSlidesForDay(date)
+        assertEquals(3, first.count { it.id >= 131 })
+        assertTrue(first.all { it.id in 31..42 || it.id in 131..134 })
+        val second = content.featuredSlidesForDay(date, first.map(TmdbItem::carouselKey))
+        assertEquals(8, second.size)
+        assertTrue(first.toSet().intersect(second.toSet()).isEmpty())
+        assertEquals(1, second.count { it.id >= 131 })
+    }
+
     private fun home() =
         TmdbHome(
             featured = (1..21).map(::item),

@@ -678,8 +678,8 @@ internal fun runtimeLabel(minutes: Int): String {
  */
 internal fun actionKeyBrush(accent: Color): Brush {
     val body = primaryActionColor(accent)
-    val highlight = lerp(body, Color.White, if (body.luminance() > 0.45f) 0.16f else 0.10f)
-    return cssLinearGradient(135f, 0f to highlight, 1f to body)
+    val edge = if (primaryActionContentColor(body) == Color.White) Color.Black else Color.White
+    return cssLinearGradient(135f, 0f to lerp(body, edge, 0.08f), 1f to body)
 }
 
 internal fun primaryActionColor(accent: Color): Color = accent.copy(alpha = 1f)

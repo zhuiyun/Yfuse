@@ -49,6 +49,7 @@ import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.feature.library.GridIntent
+import com.yfuse.feature.library.LibraryFeaturedRefreshEffect
 import com.yfuse.feature.library.LibraryGridComponent
 import com.yfuse.feature.library.LibraryHomeComponent
 import com.yfuse.feature.library.LibraryIntent
@@ -67,8 +68,10 @@ internal fun TvLibraryHomeScreen(
     contentRequester: FocusRequester,
 ) {
     val state by component.store.states.collectAsState(component.store.state)
+    LibraryFeaturedRefreshEffect(component)
     val server = state.currentServer
     val store = component.store
+    val featured = state.featuredSlides.firstOrNull()
     TvRestoreRouteFocusEffect(
         route = "library",
         focusMemory = focusMemory,
@@ -77,9 +80,7 @@ internal fun TvLibraryHomeScreen(
             listOf(
                 state.loading,
                 server?.id,
-                state.content.featured
-                    .firstOrNull()
-                    ?.id,
+                featured?.id,
             ),
         context = server?.let { FocusContext("library", it.id, it.userId) },
     )
@@ -106,7 +107,6 @@ internal fun TvLibraryHomeScreen(
         return
     }
 
-    val featured = state.content.featured.firstOrNull()
     // 长按面板: the phone's shelves' 浮起菜单 — play (through 详情, which picks the file) and the
     // favourite this store writes; it keeps no watched flag.
     val quickActions: (MediaItem) -> LiftMenu = { media ->

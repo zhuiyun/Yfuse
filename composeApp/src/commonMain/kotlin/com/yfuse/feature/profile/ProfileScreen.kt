@@ -379,11 +379,6 @@ fun ProfileScreen(component: ProfileComponent) {
     StatusBarIconStyle(darkIcons = !palette.isDark)
     val wide = LocalWideWindow.current
     ReportOverlayVisible(enabled = !wide && frontPage != ProfilePage.Root)
-    LaunchedEffect(wide) {
-        if (wide && component.pages.value.active.configuration == ProfilePage.Root) {
-            component.selectCategory(ProfilePage.Appearance)
-        }
-    }
 
     LaunchedEffect(watchAvailable) {
         if (!watchAvailable) {
@@ -702,17 +697,8 @@ fun ProfileScreen(component: ProfileComponent) {
 
                         ProfilePage.Danmaku ->
                             DanmakuSettingsScreen(
+                                preferences = component.danmakuPreferences,
                                 onBack = component::closePage,
-                                sourceSummary =
-                                    when (danmakuSources.size) {
-                                        0 -> "未配置"
-                                        1 -> "${danmakuSources.first().name}"
-                                        else -> {
-                                            val active = danmakuSources.activeOr(danmakuActiveSourceId)
-                                            "${danmakuSources.size} 个 · ${active?.name.orEmpty()}"
-                                        }
-                                    },
-                                blockedSummary = if (danmakuBlocked.isEmpty()) "未设置" else "${danmakuBlocked.size} 个",
                                 onSources = { sheet = Sheet.DanmakuSource },
                                 onBlockedWords = { sheet = Sheet.DanmakuBlocked },
                             )

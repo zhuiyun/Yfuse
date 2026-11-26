@@ -276,8 +276,23 @@ internal fun CurrentServerHero(
     val badgeColor = serverTintColor(server.id, server.iconTint)
     val latencyColor =
         latencySeverityColor(health?.latencySeverity ?: LatencySeverity.Unknown)
-    val largeText = LocalDensity.current.fontScale >= SERVER_LARGE_TEXT_SCALE
-    val enterLabel = if (signInOnOpen) "重新登录" else "进入"
+    val enterLabel = if (signInOnOpen) "重新登录" else "进入媒体库"
+    val ambientBrush =
+        Brush.linearGradient(
+            colorStops =
+                arrayOf(
+                    0f to badgeColor.copy(alpha = if (palette.isDark) 0.28f else 0.16f),
+                    0.55f to palette.card2,
+                    1f to palette.card,
+                ),
+        )
+    val rimColor =
+        if (status == ServerHealthStatus.Healthy) {
+            Semantic.Success.copy(alpha = if (palette.isDark) 0.42f else 0.34f)
+        } else {
+            glassControlHighlight(accent, palette.isDark)
+        }
+    val squircle = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)
 
     Column(
         modifier
@@ -289,11 +304,10 @@ internal fun CurrentServerHero(
                 onLongClickLabel = "打开${server.serverName}操作",
                 onClick = onOpen,
             ).shadow(Shadows.profileCard, AppShapes.card)
-            .glass(
-                shape = AppShapes.card,
-                fill = lerp(palette.card2, accent.container, 0.18f),
-                border = glassControlHighlight(accent, palette.isDark),
-            ).padding(16.dp),
+            .clip(AppShapes.card)
+            .background(ambientBrush)
+            .border(1.dp, rimColor, AppShapes.card)
+            .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Row(
@@ -303,11 +317,11 @@ internal fun CurrentServerHero(
         ) {
             Box(
                 Modifier
-                    .size(56.dp)
-                    .clip(CircleShape)
+                    .size(48.dp)
+                    .clip(squircle)
                     .background(
                         Brush.linearGradient(
-                            listOf(lerp(badgeColor, Color.White, 0.16f), badgeColor),
+                            listOf(lerp(badgeColor, Color.White, 0.18f), badgeColor),
                         ),
                     ),
                 contentAlignment = Alignment.Center,
@@ -320,7 +334,7 @@ internal fun CurrentServerHero(
                     )
                 }
             }
-            Column(Modifier.weight(1f)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(7.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -329,50 +343,67 @@ internal fun CurrentServerHero(
                         server.serverName,
                         style = AppTypography.section.strong,
                         color = palette.text,
-                        maxLines = 2,
+                        maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false),
                     )
-                    Box(
-                        Modifier
-                            .size(18.dp)
-                            .clip(CircleShape)
-                            .background(accent.accent),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            AppIcons.Check,
-                            contentDescription = "当前服务器",
-                            tint = accent.onAccent,
-                            modifier = Modifier.size(10.dp),
-                        )
-                    }
+                    Text(
+                        "使用中",
+                        style = AppTypography.caption.strong,
+                        color = Semantic.Success,
+                        modifier =
+                            Modifier
+                                .clip(AppShapes.pill)
+                                .background(Semantic.Success.copy(alpha = 0.16f))
+                                .padding(horizontal = 7.dp, vertical = 2.dp),
+                    )
                 }
-                Spacer(Modifier.height(5.dp))
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    ServerConnectionMark(status, checking, statusColor, 6.dp)
                     Text(
-                        server.userName.ifBlank { "未记录账号" },
-                        style = AppTypography.body.regular,
+                        buildList {
+                            add(server.kind.name)
+                            if (server.hasBackupRoutes) {
+                                add("${server.effectiveRoutes.size} 条线路")
+                            } else if (server.userName.isNotBlank()) {
+                                add(server.userName)
+                            }
+                            add(connectionLabel(health))
+                        }.joinToString(" · "),
+                        style = AppTypography.caption.medium,
                         color = palette.sub2,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    ServerConnectionMark(status, checking, statusColor, 7.dp)
-                    Text(
-                        connectionLabel(health),
-                        style = AppTypography.body.medium,
-                        color =
-                            if (status == ServerHealthStatus.Unknown) {
-                                palette.sub2
-                            } else {
-                                palette.statusText(statusColor)
-                            },
-                        maxLines = 1,
-                    )
                 }
+            }
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    health?.latencyMs?.let { "${it}ms" } ?: connectionLabel(health),
+                    style = AppTypography.body.strong,
+                    color = palette.statusText(if (health?.latencyMs != null) latencyColor else statusColor),
+                    maxLines = 1,
+                )
+                Text(
+                    "$onlineCount/$serverCount 在线",
+                    style = AppTypography.caption.regular,
+                    color = palette.sub2,
+                    maxLines = 1,
+                )
+            }
+        }
+
+        Box(Modifier.fillMaxWidth().height(1.dp).background(palette.border.copy(alpha = 0.65f)))
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Box(Modifier.weight(1f)) {
+                ServerCountsRow(stats)
             }
             Row(
                 Modifier
@@ -380,73 +411,19 @@ internal fun CurrentServerHero(
                         focusShape = AppShapes.pill,
                         onClickLabel = "$enterLabel${server.serverName}",
                         onClick = onOpen,
-                    ).heightIn(min = MinTouchTarget)
-                    .shadow(GlassLift.control, AppShapes.pill)
-                    .liquidGlass(
-                        shape = AppShapes.pill,
-                        fill = accent.container,
-                        border = glassControlHighlight(accent, palette.isDark),
-                        sheen = 0.82f,
-                    ).padding(horizontal = 14.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    ).padding(horizontal = 4.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(enterLabel, style = AppTypography.body.strong, color = accent.accent)
+                Text(enterLabel, style = AppTypography.caption.strong, color = accent.accent)
                 Icon(
                     AppIcons.ChevronRight,
                     contentDescription = null,
                     tint = accent.accent,
-                    modifier = Modifier.size(12.dp),
+                    modifier = Modifier.size(11.dp),
                 )
             }
         }
-
-        if (largeText) {
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Text("已连接 $serverCount", style = AppTypography.caption.medium, color = palette.sub)
-                Text("在线 $onlineCount", style = AppTypography.caption.medium, color = palette.sub)
-                Text(
-                    health?.latencyMs?.let { "延迟 $it ms" } ?: "延迟未测速",
-                    style = AppTypography.caption.medium,
-                    color = palette.statusText(latencyColor),
-                )
-            }
-        } else {
-            Row(
-                Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                HeroMetric(
-                    icon = AppIcons.User,
-                    value = serverCount.toString(),
-                    label = "已连接",
-                    color = accent.accent,
-                    modifier = Modifier.weight(1f),
-                )
-                Box(Modifier.size(1.dp, 42.dp).background(palette.border))
-                HeroMetric(
-                    icon = AppIcons.Server,
-                    value = onlineCount.toString(),
-                    label = "在线",
-                    color = Semantic.Success,
-                    modifier = Modifier.weight(1f),
-                )
-                Box(Modifier.size(1.dp, 42.dp).background(palette.border))
-                HeroMetric(
-                    icon = AppIcons.Refresh,
-                    value = health?.latencyMs?.let { "$it ms" } ?: "未测速",
-                    label = health?.latencySeverity?.label ?: "延迟",
-                    color = latencyColor,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-        }
-
-        Box(Modifier.fillMaxWidth().height(1.dp).background(palette.border))
-        ServerCountsRow(stats)
     }
 }
 
@@ -558,40 +535,32 @@ internal fun ServerCard(
     onClick: () -> Unit,
     onMore: () -> Unit,
     modifier: Modifier = Modifier,
+    gridMode: Boolean = true,
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
-    val selection = rememberGlassSelectionStyle()
     val status = health?.status ?: ServerHealthStatus.Unknown
     val statusColor = serverStatusColor(status)
     val badgeColor = serverTintColor(server.id, server.iconTint)
-    val surfaceModifier =
+    val latencySeverity = health?.latencySeverity ?: LatencySeverity.Unknown
+    val latencyColor = latencySeverityColor(latencySeverity)
+    val squircle = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+    val ambientBrush =
+        Brush.linearGradient(
+            colorStops =
+                arrayOf(
+                    0f to badgeColor.copy(alpha = if (palette.isDark) 0.22f else 0.13f),
+                    0.62f to palette.card2,
+                    1f to palette.card,
+                ),
+        )
+    val borderColor =
         if (isCurrent) {
-            Modifier.glassSelection(AppShapes.card, selection)
-        } else if (server.iconTint != null) {
-            // A tint the user chose is theirs to see. It washes the card from the badge corner
-            // and fades out well before the numbers, so the figures keep the page's own contrast
-            // rather than being read through a colour.
-            Modifier
-                .shadow(GlassLift.control, AppShapes.card)
-                .liquidGlass(
-                    shape = AppShapes.card,
-                    // One tinted colour, not a gradient: liquidGlass draws its own body ramp
-                    // over whatever fill it is given, and it takes a Color.
-                    fill = lerp(palette.card, badgeColor, if (palette.isDark) 0.20f else 0.16f),
-                    border = palette.border,
-                    sheen = 0.52f,
-                )
+            glassControlHighlight(accent, palette.isDark)
         } else {
-            Modifier
-                .shadow(GlassLift.control, AppShapes.card)
-                .liquidGlass(
-                    shape = AppShapes.card,
-                    fill = palette.card,
-                    border = palette.border,
-                    sheen = 0.52f,
-                )
+            if (palette.isDark) Color.White.copy(alpha = 0.10f) else palette.border
         }
+
     Box(
         modifier
             .fillMaxWidth()
@@ -606,22 +575,125 @@ internal fun ServerCard(
                 onLongClick = onMore,
                 onLongClickLabel = "打开${server.serverName}操作",
                 onClick = onClick,
-            ).then(surfaceModifier),
+            ).shadow(GlassLift.control, AppShapes.card)
+            .clip(AppShapes.card)
+            .background(ambientBrush)
+            .border(1.dp, borderColor, AppShapes.card),
     ) {
-        Column(Modifier.padding(12.dp)) {
-            // The header keeps clear of the corner button's 44dp target, so a tap meant for
-            // the card cannot land on the menu and vice versa.
+        if (gridMode) {
+            Column(
+                Modifier.padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Row(
+                    Modifier.fillMaxWidth().padding(end = 26.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Box(
+                        Modifier
+                            .size(36.dp)
+                            .clip(squircle)
+                            .background(
+                                Brush.linearGradient(
+                                    listOf(lerp(badgeColor, Color.White, 0.18f), badgeColor),
+                                ),
+                            ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        ServerBadgeArtwork(server) {
+                            Text(
+                                server.iconEmoji ?: server.serverName.take(1).uppercase(),
+                                style = AppTypography.body.strong,
+                                color =
+                                    if (server.iconEmoji == null) {
+                                        contentColorForSurface(badgeColor)
+                                    } else {
+                                        Color.Unspecified
+                                    },
+                            )
+                        }
+                    }
+                    Spacer(Modifier.weight(1f))
+                    val pillColor = if (health?.latencyMs != null) latencyColor else statusColor
+                    Row(
+                        Modifier
+                            .clip(AppShapes.pill)
+                            .background(pillColor.copy(alpha = 0.14f))
+                            .padding(horizontal = 7.dp, vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        ServerConnectionMark(status, checking, pillColor, 5.dp)
+                        Text(
+                            health?.latencyMs?.let { "${it}ms" } ?: connectionLabel(health),
+                            style = AppTypography.caption.strong,
+                            color = palette.statusText(pillColor),
+                            maxLines = 1,
+                        )
+                    }
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        server.serverName,
+                        style = AppTypography.body.strong,
+                        color = palette.text,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        buildList {
+                            add(server.kind.name)
+                            if (server.hasBackupRoutes) {
+                                add("${server.effectiveRoutes.size} 条线路")
+                            } else if (server.userName.isNotBlank()) {
+                                add(server.userName)
+                            }
+                        }.joinToString(" · "),
+                        style = AppTypography.caption.regular,
+                        color = palette.sub2,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Box(Modifier.fillMaxWidth().height(1.dp).background(palette.border.copy(alpha = 0.55f)))
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    val totalCount =
+                        stats?.let { s ->
+                            val sum = (s.movieCount ?: 0) + (s.seriesCount ?: 0)
+                            if (sum > 0) "${formatServerCount(sum)} 部" else null
+                        }
+                    Text(
+                        totalCount ?: connectionLabel(health),
+                        style = AppTypography.caption.medium,
+                        color = palette.sub,
+                        maxLines = 1,
+                    )
+                    Text(
+                        lastWatchedLabel,
+                        style = AppTypography.caption.regular,
+                        color = palette.sub2,
+                        maxLines = 1,
+                    )
+                }
+            }
+        } else {
             Row(
-                Modifier.padding(end = 30.dp),
+                Modifier.fillMaxWidth().padding(start = 13.dp, end = 40.dp, top = 12.dp, bottom = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Box(
                     Modifier
-                        .size(30.dp)
-                        .clip(CircleShape)
+                        .size(42.dp)
+                        .clip(squircle)
                         .background(
                             Brush.linearGradient(
-                                listOf(badgeColor, badgeColor),
+                                listOf(lerp(badgeColor, Color.White, 0.18f), badgeColor),
                             ),
                         ),
                     contentAlignment = Alignment.Center,
@@ -639,19 +711,20 @@ internal fun ServerCard(
                         )
                     }
                 }
-                Spacer(Modifier.width(9.dp))
-                Column(Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
                         Text(
                             server.serverName,
                             style = AppTypography.body.strong,
                             color = palette.text,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier.weight(1f, fill = false),
                         )
                         if (isCurrent) {
-                            Spacer(Modifier.width(5.dp))
                             Icon(
                                 AppIcons.Check,
                                 contentDescription = "当前服务器",
@@ -660,94 +733,62 @@ internal fun ServerCard(
                             )
                         }
                     }
-                    // Which address the card is currently talking to, once there is more than
-                    // one to choose between. A single-route server would only ever read 主线路,
-                    // which says nothing the card does not already imply, so it keeps the account
-                    // in that slot instead.
                     Text(
-                        if (server.hasBackupRoutes) {
-                            server.activeRoute.name
-                        } else {
-                            server.userName.ifBlank { "未记录账号" }
-                        },
+                        buildList {
+                            add(server.kind.name)
+                            stats?.movieCount?.takeIf { it > 0 }?.let { add("电影 ${formatServerCount(it)}") }
+                            stats?.seriesCount?.takeIf { it > 0 }?.let { add("剧集 ${formatServerCount(it)}") }
+                            if (server.hasBackupRoutes) add("${server.effectiveRoutes.size} 条线路")
+                        }.joinToString(" · "),
                         style = AppTypography.caption.regular,
                         color = palette.sub2,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
+                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    val pillColor = if (health?.latencyMs != null) latencyColor else statusColor
+                    Row(
+                        Modifier
+                            .clip(AppShapes.pill)
+                            .background(pillColor.copy(alpha = 0.14f))
+                            .padding(horizontal = 8.dp, vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        ServerConnectionMark(status, checking, pillColor, 5.dp)
+                        Text(
+                            health?.latencyMs?.let { "${it}ms" } ?: connectionLabel(health),
+                            style = AppTypography.caption.strong,
+                            color = palette.statusText(pillColor),
+                            maxLines = 1,
+                        )
+                    }
+                    Text(
+                        lastWatchedLabel,
+                        style = AppTypography.caption.regular,
+                        color = palette.sub2,
+                        maxLines = 1,
+                    )
+                }
             }
-            Spacer(Modifier.height(9.dp))
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                ServerConnectionMark(status, checking, statusColor, 6.dp)
-                Text(
-                    connectionLabel(health),
-                    style = AppTypography.caption.medium,
-                    color = if (status == ServerHealthStatus.Unknown) palette.sub2 else palette.statusText(statusColor),
-                    maxLines = 1,
-                )
-                Spacer(Modifier.weight(1f))
-                Text(
-                    lastWatchedLabel,
-                    style = AppTypography.caption.regular,
-                    color = palette.sub2,
-                    maxLines = 1,
-                )
-            }
-            Spacer(Modifier.height(4.dp))
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                val latencySeverity = health?.latencySeverity ?: LatencySeverity.Unknown
-                Box(
-                    Modifier
-                        .size(6.dp)
-                        .clip(CircleShape)
-                        .background(latencySeverityColor(latencySeverity)),
-                )
-                Text(
-                    latencyLabel(health),
-                    style = AppTypography.caption.medium,
-                    color = palette.statusText(latencySeverityColor(latencySeverity)),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Spacer(Modifier.height(8.dp))
-            ServerCountsRow(stats)
         }
-
-        // Its own control in the corner rather than a glyph in the header row. Inline, it
-        // was a bare 13dp mark that read as decoration and sat wherever the name left it;
-        // in the corner with a surface under it, it is somewhere to press and it is in the
-        // same place on all twelve cards.
         Box(
             Modifier
                 .align(Alignment.TopEnd)
-                .pressableTarget(CircleShape, label = "打开${server.serverName}操作", onClick = onMore)
-                .size(28.dp)
-                // Round, and the app's own glass rather than a flat chip: it sits on a
-                // card that is already liquid glass, so a second, duller material for
-                // the one control on that card read as a sticker on top of it.
-                .liquidGlass(
-                    shape = CircleShape,
-                    fill = if (isCurrent) accent.container else palette.card2,
-                    border = if (isCurrent) glassControlHighlight(accent, palette.isDark) else palette.border,
-                    sheen = 0.9f,
-                ),
+                .pressable(
+                    focusShape = CircleShape,
+                    label = "${server.serverName}更多操作",
+                    onClick = onMore,
+                ).touchTarget()
+                .padding(10.dp),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
                 AppIcons.More,
                 contentDescription = null,
-                tint = if (isCurrent) accent.accent else palette.sub2,
-                modifier = Modifier.size(13.dp),
+                tint = palette.sub2,
+                modifier = Modifier.size(15.dp),
             )
         }
     }

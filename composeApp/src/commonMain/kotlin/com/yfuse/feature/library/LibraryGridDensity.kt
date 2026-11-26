@@ -27,6 +27,30 @@ internal fun adaptiveGridColumns(
     spacing: Float,
 ): Int = if (minTile <= 0f) 1 else ((available + spacing) / (minTile + spacing)).toInt().coerceAtLeast(1)
 
+/**
+ * Clamps a remembered column count to what the current pane width can comfortably render without
+ * mutating the user's saved preference (e.g., a tablet's 7-column choice inside a narrow split pane).
+ */
+internal fun clampedGridColumns(
+    savedColumns: Int?,
+    availableWidthPx: Float,
+    minTilePx: Float,
+    minReadableTilePx: Float,
+    spacingPx: Float,
+): Int? {
+    val saved = savedColumns ?: return null
+    if (availableWidthPx <= 0f || minTilePx <= 0f) return saved
+    val adaptive = adaptiveGridColumns(availableWidthPx, minTilePx, spacingPx)
+    val readableCap =
+        if (minReadableTilePx > 0f) {
+            adaptiveGridColumns(availableWidthPx, minReadableTilePx, spacingPx)
+        } else {
+            gridColumnRange(adaptive).last
+        }
+    val maxForPane = max(GRID_MIN_COLUMNS, minOf(gridColumnRange(adaptive).last, readableCap))
+    return saved.coerceIn(GRID_MIN_COLUMNS, maxForPane)
+}
+
 /** At five across the rating badge would cover too much of the artwork. */
 internal fun gridShowsRating(columns: Int): Boolean = columns < GRID_DENSE_COLUMNS
 

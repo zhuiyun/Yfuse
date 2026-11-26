@@ -1,6 +1,7 @@
 package com.yfuse.feature.detail
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import com.yfuse.core.designsystem.resolveArtworkPagePalette
 import kotlin.test.Test
 import kotlin.test.assertNotEquals
@@ -40,6 +41,17 @@ class DetailStateColorsTest {
 
         assertTrue(detailContrastRatio(colors.onPage, background) >= 4.5f)
         assertTrue(detailContrastRatio(colors.mutedOnPage, background) >= 3.4f)
+    }
+
+    @Test
+    fun terracotta_artwork_keeps_a_coloured_play_button_with_readable_text() {
+        for (background in listOf(Color(0xFFC3735A), Color(0xFFCA8065))) {
+            val button = harmonizeDetailPlayButtonColor(Color(0xFF87381D), background, darkTheme = false)
+            assertTrue(button.luminance() < background.luminance())
+            assertTrue(detailContrastRatio(button, background) >= 3f)
+            assertTrue(button.red > button.blue)
+            assertTrue(detailContrastRatio(primaryActionContentColor(button), button) >= 4.5f)
+        }
     }
 
     @Test

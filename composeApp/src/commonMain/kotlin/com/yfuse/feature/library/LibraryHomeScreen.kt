@@ -35,6 +35,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -109,6 +110,7 @@ import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.heroDurationLabel
 import com.yfuse.core.designsystem.heroMediaTypeLabel
 import com.yfuse.core.designsystem.heroScrollCollapse
+import com.yfuse.core.designsystem.horizontalSafeDrawingPadding
 import com.yfuse.core.designsystem.launchWaveImage
 import com.yfuse.core.designsystem.launchWaveInterrupt
 import com.yfuse.core.designsystem.launchWaveItem
@@ -116,7 +118,7 @@ import com.yfuse.core.designsystem.liftAnchor
 import com.yfuse.core.designsystem.liftable
 import com.yfuse.core.designsystem.liftedCardOpen
 import com.yfuse.core.designsystem.livingPosterArtwork
-import com.yfuse.core.designsystem.livingPosterCaptionScrim
+import com.yfuse.core.designsystem.livingPosterCaptionPadding
 import com.yfuse.core.designsystem.livingPosterHeroHeight
 import com.yfuse.core.designsystem.mediaLazyItemKey
 import com.yfuse.core.designsystem.motionItem
@@ -168,7 +170,8 @@ internal val libraryHeroPresentation =
 internal fun libraryHeroHeight(
     viewportHeight: androidx.compose.ui.unit.Dp,
     wideLayout: Boolean,
-): androidx.compose.ui.unit.Dp = livingPosterHeroHeight(viewportHeight, wideLayout)
+    hasIndicator: Boolean = true,
+): androidx.compose.ui.unit.Dp = livingPosterHeroHeight(viewportHeight, wideLayout, hasIndicator)
 
 /** Poster rail column width, shared by the real rails and the loading skeleton. */
 private val PosterWidth = MediaSizing.posterRailWidth
@@ -221,6 +224,13 @@ private fun utcDate(epochMs: Long): String {
     }
 }
 
+@Composable
+fun LibraryFeaturedRefreshEffect(component: LibraryHomeComponent, enabled: Boolean = true) {
+    com.yfuse.feature.home.CarouselDateCheckEffect(component.lifecycle, enabled) {
+        component.store.accept(LibraryIntent.CheckFeaturedDate)
+    }
+}
+
 /** 媒体库 — a viewport-aware hero carousel above the library rows. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -248,6 +258,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
         }
     }
     val libraryCarousel by component.themePreferences.libraryCarousel.collectAsState()
+    LibraryFeaturedRefreshEffect(component, enabled = libraryCarousel)
     val store = component.store
     val baseUrl = state.currentServer?.baseUrl.orEmpty()
     // Image endpoints answer 401 without it on a server that requires authentication, so
@@ -255,10 +266,11 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     // 播放记录, which was the only row that had it.
     val accessToken = state.currentServer?.accessToken.orEmpty()
 
-    val slides = state.content.featured.take(8)
+    val slides = state.featuredSlides
     // Kept by the page, not the list item the reel sits in: the current slide picks this page's
     // accent and colour, and the reel keeps its place while it is scrolled out of the list.
-    val hero = rememberLivingPosterHeroState(slides.map { it.id })
+    val slideIds = slides.map(MediaItem::id)
+    val hero = key(currentServerId, slideIds) { rememberLivingPosterHeroState(slideIds) }
     val slideIndex = hero.currentIndex(slides.size)
     val slide = slides.getOrNull(slideIndex)
     val slideUrls =
@@ -272,7 +284,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     val slideUrl = slideUrls.firstOrNull { it != null }
     var resolvedSlideUrl by remember(slide?.id) { mutableStateOf<String?>(null) }
     val retainedPageColor =
-        rememberRetainedArtworkPageColor("library:${state.currentServer?.id.orEmpty()}")
+        rememberRetainedArtworkPageColor("library:${state.currentServer?.id.orEmpty()}", cinemaDark = true)
     val artworkVisible = libraryCarousel && slide != null
     val showSmartPlaylists =
         com.yfuse.feature.search
@@ -320,13 +332,21 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     ) { pageColor ->
         val palette = LocalPalette.current
         BoxWithConstraints(
-            Modifier.fillMaxSize().drawBehind {
-                if (artworkVisible) drawRect(pageColor.value)
-            },
+            Modifier
+                .fillMaxSize()
+                .drawBehind {
+                    if (artworkVisible) drawRect(pageColor.value)
+                }.horizontalSafeDrawingPadding(),
         ) {
-            val heroHeight = libraryHeroHeight(maxHeight, wideLayout = maxWidth >= 600.dp)
             // The reel is switched on, but the first load has not brought anything to show in it.
             val heroPending = libraryCarousel && state.loading && state.content.isEmpty
+            val hasIndicator = slides.size > 1
+            val heroHeight =
+                libraryHeroHeight(
+                    maxHeight,
+                    wideLayout = maxWidth >= 600.dp,
+                    hasIndicator = hasIndicator || heroPending,
+                )
             val lightPageReached by rememberScrolledPastHero(listState, heroHeight)
             val showSidePreview = maxWidth >= 600.dp || maxWidth > maxHeight
             val artwork = livingPosterArtwork(maxWidth, heroHeight, showSidePreview)
@@ -361,7 +381,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                 else ->
                     PullToRefreshBox(
                         isRefreshing = state.refreshing,
-                        onRefresh = { store.accept(LibraryIntent.Retry) },
+                        onRefresh = { store.accept(LibraryIntent.Refresh) },
                         state = pullState,
                         indicator = {
                             RefreshIndicator(
@@ -488,6 +508,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                                 onPageColor = retainedPageColor::update,
                                                 onResolvedUrl = { url -> if (page.current) resolvedSlideUrl = url },
                                                 framed = showSidePreview,
+                                                hasIndicator = hasIndicator,
                                                 // The first stop TalkBack makes on this page, so 下拉刷新 lives
                                                 // here for someone who cannot pull.
                                                 modifier =
@@ -773,7 +794,7 @@ private fun LibraryCountFooter(
 /**
  * Viewport-aware hero — scrim `0deg rgba(10,14,26,.88) 0%, .55 42%, .05 62%, transparent`;
  * 正在流行 chip at `left/top 20/52`; server switcher at `right/top 20/52`;
- * Copy and actions reserve the indicator's complete 44dp hit lane plus breathing room.
+ * Copy and actions clear the indicator's touch targets when the reel has multiple pages.
  */
 @Composable
 private fun HeroCarousel(
@@ -793,6 +814,7 @@ private fun HeroCarousel(
     onPageColor: (Color) -> Unit,
     onResolvedUrl: (String) -> Unit,
     framed: Boolean,
+    hasIndicator: Boolean,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
     onPlay: () -> Unit,
@@ -836,30 +858,27 @@ private fun HeroCarousel(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // 正在流行 — `500 10.5px Manrope`, white, `{accent}45%`, `padding:4px 10px`.
             Text(
                 "正在流行",
-                style = AppTypography.caption.medium,
+                style = AppTypography.caption.strong,
                 color = Color.White,
                 modifier =
                     Modifier
                         .glass(
                             shape = AppShapes.pill,
-                            fill = accent.copy(alpha = 0.38f),
-                            border = Color.White.copy(alpha = 0.30f),
-                        ).padding(horizontal = 10.dp, vertical = 4.dp),
+                            fill = Color(0xFF141826).copy(alpha = 0.44f),
+                            border = Color.White.copy(alpha = 0.24f),
+                        ).padding(horizontal = 12.dp, vertical = 6.dp),
             )
 
-            // Server switcher — `rgba(20,24,38,.45)` over `rgba(255,255,255,.25)`,
-            // `radius:14px`, `padding:7px 12px`, `gap:6px`.
             Row(
                 Modifier
-                    .pressableTarget(AppShapes.chip, onClickLabel = "切换媒体服务器", onClick = onToggleServerMenu)
+                    .pressableTarget(AppShapes.pill, onClickLabel = "切换媒体服务器", onClick = onToggleServerMenu)
                     .glass(
-                        shape = AppShapes.chip,
-                        fill = Color(0xFF141826).copy(alpha = 0.36f),
-                        border = Color.White.copy(alpha = 0.30f),
-                    ).padding(horizontal = 12.dp, vertical = 7.dp),
+                        shape = AppShapes.pill,
+                        fill = Color(0xFF141826).copy(alpha = 0.44f),
+                        border = Color.White.copy(alpha = 0.24f),
+                    ).padding(horizontal = 12.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -884,7 +903,7 @@ private fun HeroCarousel(
             Modifier
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
-                .livingPosterCaptionScrim()
+                .livingPosterCaptionPadding(hasIndicator)
                 .padding(
                     start = 20.dp,
                     end = 20.dp,
@@ -911,8 +930,16 @@ private fun HeroCarousel(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+            val ratingFact =
+                item.communityRating
+                    ?.takeIf { it > 0.0 }
+                    ?.let { rating ->
+                        val tenths = kotlin.math.round(rating * 10.0).toInt()
+                        "★ ${tenths / 10}.${tenths % 10}"
+                    }
             val facts =
                 listOfNotNull(
+                    ratingFact,
                     item.year?.toString(),
                     heroMediaTypeLabel(item.type),
                     heroDurationLabel(item.runtimeMinutes),
@@ -1370,7 +1397,7 @@ private fun PlaybackHistoryCard(
     onOpen: () -> Unit,
     liftMenu: () -> LiftMenu,
 ) {
-    val palette = LocalPalette.current
+    val accent = LocalAccentColors.current.accent
     val backdropUrl = EmbyImages.backdrop(baseUrl, item, maxWidth = 640, accessToken = accessToken)
     val posterUrl = EmbyImages.poster(baseUrl, item, accessToken = accessToken)
     val primaryUrl = EmbyImages.primary(baseUrl, item.id, tag = null, maxHeight = 450, accessToken = accessToken)
@@ -1378,58 +1405,100 @@ private fun PlaybackHistoryCard(
         remember(backdropUrl, posterUrl, primaryUrl) {
             listOfNotNull(backdropUrl, posterUrl, primaryUrl).filter(String::isNotBlank).distinct()
         }
-    // Keyed by its place (see [libraryHomeSharedKey]): a film that was just watched is also a film
-    // that was just added, so the same id is on screen twice — and the player, or 跟手返回, must
-    // come back to this copy.
     val open = liftedCardOpen(detailKey, onOpen)
     val artwork = remember { LiftAnchor() }
-    Column(
-        // The press lands on the whole tile, caption included, as on [CaptionedPoster]; the
-        // artwork is what lifts.
+    val progressFraction = item.playedPercentage?.let { (it / 100.0).toFloat().coerceIn(0f, 1f) }
+    val progressMeta =
+        remember(item.subtitle, item.runtimeMinutes, item.playedPercentage, item.year) {
+            val remainingMinutes =
+                item.runtimeMinutes?.takeIf { it > 0 }?.let { total ->
+                    val pct = item.playedPercentage?.coerceIn(0.0, 100.0) ?: return@let null
+                    ((total * (100.0 - pct)) / 100.0).toInt().coerceAtLeast(1)
+                }
+            val episodePart = item.subtitle?.trim()?.takeIf { it.isNotEmpty() && it != item.year?.toString() }
+            val progressPart =
+                when {
+                    remainingMinutes != null -> "剩余 ${remainingMinutes} 分钟"
+                    progressFraction != null && progressFraction > 0f -> "已看 ${(progressFraction * 100).toInt()}%"
+                    else -> item.year?.toString()
+                }
+            listOfNotNull(episodePart, progressPart).joinToString(" · ").takeIf { it.isNotEmpty() }
+        }
+
+    Box(
         Modifier
-            .width(MediaSizing.landscapeCardWidth)
+            .width(220.dp)
+            .height(124.dp)
             .liftable(menu = { liftMenu().withArtwork(artworkUrls) }, anchor = artwork, onOpen = open)
-            .pressable(onClickLabel = "查看 ${item.title} 详情", onClick = open),
+            .pressable(onClickLabel = "查看 ${item.title} 详情", onClick = open)
+            .clip(AppShapes.card)
+            .border(1.dp, Color.White.copy(alpha = 0.14f), AppShapes.card)
+            .liftAnchor(artwork),
     ) {
         Poster(
             url = backdropUrl,
             fallbackUrl = posterUrl,
             fallbackUrls = listOfNotNull(primaryUrl),
             rating = item.communityRating,
-            progress = item.playedPercentage?.let { (it / 100.0).toFloat() },
+            progress = null,
             blurHash = if (backdropUrl != null) item.backdropBlurHash else item.posterBlurHash,
             contentDescription = item.title,
             sharedTransitionKey = sharedKey,
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .height(MediaSizing.landscapeCardHeight)
-                    .liftAnchor(artwork),
+            modifier = Modifier.fillMaxSize(),
         )
-        PosterCaption {
-            Spacer(Modifier.height(7.dp))
+        Box(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(74.dp)
+                .background(
+                    androidx.compose.ui.graphics.Brush.verticalGradient(
+                        0f to Color.Transparent,
+                        0.42f to Color(0xAA080B12),
+                        1f to Color(0xEB080B12),
+                    ),
+                ),
+        )
+        Column(
+            Modifier
+                .align(Alignment.BottomStart)
+                .fillMaxWidth()
+                .padding(horizontal = 11.dp, vertical = 9.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
             Text(
                 text = item.title,
                 style = AppTypography.body.strong,
-                color = palette.text,
+                color = Color.White,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.fillMaxWidth(),
             )
-            Spacer(Modifier.height(2.dp))
-            val year = item.year?.toString()
-            if (year != null) {
+            if (progressMeta != null) {
                 Text(
-                    text = year,
+                    text = progressMeta,
                     style = AppTypography.caption.regular,
-                    color = palette.sub2,
+                    color = Color.White.copy(alpha = 0.78f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.fillMaxWidth(),
                 )
-            } else {
-                // The year's own line box, so the cards line up with or without one; see [CaptionedPoster].
-                Spacer(Modifier.height(15.dp))
+            }
+            if (progressFraction != null && progressFraction > 0f) {
+                Spacer(Modifier.height(2.dp))
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(3.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.22f)),
+                ) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth(progressFraction.coerceIn(0.04f, 1f))
+                            .height(3.dp)
+                            .clip(CircleShape)
+                            .background(accent),
+                    )
+                }
             }
         }
     }

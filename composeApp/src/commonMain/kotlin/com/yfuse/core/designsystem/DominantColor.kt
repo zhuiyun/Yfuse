@@ -130,6 +130,18 @@ fun harmonizeArtworkAccent(
     return result
 }
 
+/** A solid poster-coloured play key that stays distinct from the surface behind it. */
+internal fun artworkPlayButtonColor(
+    accent: Color,
+    background: Color,
+    darkTheme: Boolean,
+): Color {
+    val chroma = maxOf(accent.red, accent.green, accent.blue) - minOf(accent.red, accent.green, accent.blue)
+    val source = if (chroma < 0.06f) Brand.Primary else accent.copy(alpha = 1f) // design-system: brand-identity
+    val body = harmonizeArtworkAccent(source, darkTheme)
+    return readableSurfaceInk(body, background, minimum = 3f)
+}
+
 /** The semantic target changes once; consumers opt into the intermediate paint values. */
 @Stable
 class AnimatedColorState internal constructor(

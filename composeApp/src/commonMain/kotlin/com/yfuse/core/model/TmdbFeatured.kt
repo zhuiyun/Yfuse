@@ -3,10 +3,13 @@ package com.yfuse.core.model
 import com.yfuse.core.util.isoDateDaysBefore
 import com.yfuse.core.util.isoEpochDay
 
+internal fun TmdbItem.carouselKey(): String = "$mediaType:$id"
+
 /** Shared by the carousel and runtime enrichment, including when restoring an older cache. */
 fun TmdbHome.featuredSlidesForDay(
     date: String,
     recentKeys: List<String> = emptyList(),
+    keep: List<String> = emptyList(),
 ): List<TmdbItem> {
     val recentStart = isoDateDaysBefore(date, 30)
     val recent =
@@ -14,31 +17,50 @@ fun TmdbHome.featuredSlidesForDay(
             .firstOrNull { it.title == TmdbRowTitles.LATEST }
             ?.items
             .orEmpty()
-            .take(24)
             .filter { item ->
                 !item.backdropPath.isNullOrBlank() &&
                     item.releaseDate?.let { it >= recentStart && it <= date } == true
-            }.distinctBy { it.mediaType to it.id }
-            .rotateForDay(date, 3)
-    val recentPicks = recommendationBatch(recent, 3, recentKeys) { "${it.mediaType}:${it.id}" }
-    val recentPickKeys = recentPicks.mapTo(mutableSetOf()) { it.mediaType to it.id }
+            }.distinctBy(TmdbItem::carouselKey)
+            .rotateForDay(date, LATEST_CAROUSEL_SLOTS)
     val popular =
-        featured
+        (rows.firstOrNull { it.title == TmdbRowTitles.POPULAR }?.items.orEmpty() + featured)
             .filter { !it.backdropPath.isNullOrBlank() }
-            .distinctBy { it.mediaType to it.id }
-            .rotateForDay(date, 8 - recentPicks.size)
-            .filterNot { (it.mediaType to it.id) in recentPickKeys }
-    val popularPicks = recommendationBatch(popular, 8 - recentPicks.size, recentKeys) { "${it.mediaType}:${it.id}" }
-    // Spread new releases through the reel instead of putting all of them at the end.
-    return buildList {
-        repeat(maxOf(popularPicks.size, recentPicks.size)) { index ->
-            popularPicks.getOrNull(index)?.let(::add)
-            recentPicks.getOrNull(index)?.let(::add)
+            .distinctBy(TmdbItem::carouselKey)
+            .rotateForDay(date, HOME_CAROUSEL_SIZE - minOf(recent.size, LATEST_CAROUSEL_SLOTS))
+    val kept = (recent + popular).retainCarouselItems(keep, TmdbItem::carouselKey)
+    val openSlots = HOME_CAROUSEL_SIZE - kept.size
+    if (openSlots == 0) return kept
+
+    val shown = recentKeys.toSet()
+    val recentCandidateKeys = recent.mapTo(mutableSetOf(), TmdbItem::carouselKey)
+    val used = kept.mapTo(mutableSetOf(), TmdbItem::carouselKey)
+    val remainingPopular = popular.filterNot { it.carouselKey() in used }
+    val remainingRecent = recent.filterNot { it.carouselKey() in used }
+    val keptRecent = used.count { it in recentCandidateKeys }
+    val recentSlots = minOf(openSlots, (LATEST_CAROUSEL_SLOTS - keptRecent).coerceAtLeast(0))
+    val recentPicks = recommendationBatch(remainingRecent, recentSlots, recentKeys, TmdbItem::carouselKey)
+    recentPicks.mapTo(used, TmdbItem::carouselKey)
+    val popularPicks =
+        recommendationBatch(
+            remainingPopular.filterNot { it.carouselKey() in used },
+            openSlots - recentPicks.size,
+            recentKeys,
+            TmdbItem::carouselKey,
+        )
+    val mixed =
+        buildList {
+            repeat(maxOf(popularPicks.size, recentPicks.size)) { index ->
+                popularPicks.getOrNull(index)?.let(::add)
+                recentPicks.getOrNull(index)?.let(::add)
+            }
         }
-        addAll(popular)
-        addAll(recent)
-    }.distinctBy { it.mediaType to it.id }.take(8)
+    val extras = recommendationBatch(remainingPopular + remainingRecent, openSlots, recentKeys, TmdbItem::carouselKey)
+    // Keep the usual mix where possible, then exhaust unseen titles before repeating any.
+    val picks = (mixed + extras).distinctBy(TmdbItem::carouselKey)
+    return kept + picks.sortedBy { it.carouselKey() in shown }.take(openSlots)
 }
+
+private const val LATEST_CAROUSEL_SLOTS = 3
 
 /** Advance a whole batch each day; even a small pool must not always start at index zero. */
 private fun <T> List<T>.rotateForDay(

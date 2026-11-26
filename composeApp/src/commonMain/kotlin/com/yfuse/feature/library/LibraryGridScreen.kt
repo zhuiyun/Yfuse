@@ -180,7 +180,15 @@ fun LibraryGridScreen(
             GridDensityState(gridState, scope, columnStore?.columns(component.densityKey))
         }
     val titles = LocalPosterCaptionsVisible.current
-    val showRating = gridDensity.columns?.let(::gridShowsRating) ?: true
+    val effectiveColumns =
+        clampedGridColumns(
+            savedColumns = gridDensity.columns,
+            availableWidthPx = gridDensity.availableWidth,
+            minTilePx = with(pixels) { PosterMinWidth.toPx() },
+            minReadableTilePx = with(pixels) { 60.dp.toPx() },
+            spacingPx = with(pixels) { GridSpacing.toPx() },
+        )
+    val showRating = effectiveColumns?.let(::gridShowsRating) ?: true
     SideEffect {
         gridDensity.showPosterNames = titles
         gridDensity.still = still
@@ -344,7 +352,7 @@ fun LibraryGridScreen(
             SkeletonHandoff(
                 loading = state.loading && state.loadedCount == 0,
                 modifier = Modifier.fillMaxSize(),
-                skeleton = { SkeletonGrid(bottomContentInset, gridDensity.columns, titles) },
+                skeleton = { SkeletonGrid(bottomContentInset, effectiveColumns, titles) },
             ) {
                 when {
                     state.error != null && state.loadedCount == 0 ->
@@ -378,7 +386,7 @@ fun LibraryGridScreen(
                         ) {
                             LazyVerticalGrid(
                                 columns =
-                                    gridDensity.columns?.let { GridCells.Fixed(it) }
+                                    effectiveColumns?.let { GridCells.Fixed(it) }
                                         ?: GridCells.Adaptive(PosterMinWidth),
                                 state = gridState,
                                 contentPadding =

@@ -269,7 +269,6 @@ fun LivingPosterHeroCarousel(
                     .padding(
                         start = if (showSidePreview) LivingPosterDefaults.LEADING_INSET else 0.dp,
                         end = if (showSidePreview) LivingPosterDefaults.TRAILING_PEEK else 0.dp,
-                        bottom = LivingPosterDefaults.INDICATOR_BOTTOM,
                     ),
             ) {
                 HeroPageIndicator(

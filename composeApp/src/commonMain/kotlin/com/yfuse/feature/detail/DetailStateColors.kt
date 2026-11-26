@@ -3,6 +3,7 @@ package com.yfuse.feature.detail
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
+import com.yfuse.core.designsystem.artworkPlayButtonColor
 import kotlin.math.abs
 
 /** Contrast-safe colors for selection and interactive states on dynamically tinted detail pages. */
@@ -70,24 +71,7 @@ internal fun harmonizeDetailPlayButtonColor(
     val minSat = if (hsl.saturation > 0.04f) 0.22f else hsl.saturation
     val refined = hsl.copy(saturation = hsl.saturation.coerceIn(minSat, maxSat))
 
-    val initial = refined.toDetailColor()
-    if (detailContrastRatio(initial, opaqueBg) >= 3.2f) return initial
-
-    // Shift HSL lightness smoothly away from the background rather than muting via RGB lerp.
-    val bgLum = opaqueBg.luminance()
-    val moveLighter = bgLum < 0.28f
-    for (step in 1..24) {
-        val frac = step / 24f
-        val targetL =
-            if (moveLighter) {
-                refined.lightness + (0.90f - refined.lightness) * frac
-            } else {
-                refined.lightness * (1f - frac * 0.85f)
-            }
-        val candidate = refined.copy(lightness = targetL.coerceIn(0.06f, 0.94f)).toDetailColor()
-        if (detailContrastRatio(candidate, opaqueBg) >= 3.2f) return candidate
-    }
-    return readableStateAccent(initial, opaqueBg, minimumRatio = 3.2f)
+    return artworkPlayButtonColor(refined.toDetailColor(), opaqueBg, darkTheme)
 }
 
 internal fun readableStateAccent(
@@ -102,9 +86,19 @@ internal fun readableStateAccent(
     val blackRatio = detailContrastRatio(Color.Black, behind)
     val whiteRatio = detailContrastRatio(Color.White, behind)
     val target = if (blackRatio >= whiteRatio) Color.Black else Color.White
+    return readableStateAccentToward(foreground, behind, target, minimumRatio)
+}
+
+private fun readableStateAccentToward(
+    foreground: Color,
+    background: Color,
+    target: Color,
+    minimumRatio: Float,
+): Color {
+    if (detailContrastRatio(foreground, background) >= minimumRatio) return foreground
     for (step in 1..20) {
         val candidate = lerp(foreground, target, step / 20f)
-        if (detailContrastRatio(candidate, behind) >= minimumRatio) return candidate
+        if (detailContrastRatio(candidate, background) >= minimumRatio) return candidate
     }
     return target
 }

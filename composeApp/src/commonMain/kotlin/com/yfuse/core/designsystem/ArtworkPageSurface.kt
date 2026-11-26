@@ -15,12 +15,29 @@ import kotlin.math.abs
  * darkened or saturated.
  */
 private const val LightArtworkPageMinimumLuminance = 0.24f
-private const val DarkArtworkPageMinimumLuminance = 0.035f
-private const val DarkArtworkPageMaximumLuminance = 0.20f
+private const val DarkArtworkPageMinimumLuminance = 0.025f
+private const val DarkArtworkPageMaximumLuminance = 0.085f
+private val CinemaObsidianBase = Color(0xFF0B0D12)
+private const val CinemaArtworkMinimumLuminance = 0.020f
+private const val CinemaArtworkMaximumLuminance = 0.058f
+private const val CinemaArtworkMinimumSaturation = 0.18f
 
 /** Low-chroma samples otherwise average into grey/muddy page colours at the bottom of a hero. */
 private const val LightArtworkPageMinimumSaturation = 0.14f
-private const val DarkArtworkPageMinimumSaturation = 0.10f
+private const val DarkArtworkPageMinimumSaturation = 0.14f
+
+/**
+ * Cinema obsidian surface for full-bleed home/library hero feeds: keeps a subtle ambient hue from
+ * the poster while anchoring the lower page in deep, crisp cinema dark so muddy grey-brown haze
+ * never appears behind shelves or the floating glass dock.
+ */
+fun cinemaArtworkPageSurface(sampled: Color): Color {
+    val saturated = sampled.softSaturateTo(CinemaArtworkMinimumSaturation)
+    val tinted = lerp(CinemaObsidianBase, saturated, 0.32f)
+    return tinted
+        .softLiftTo(CinemaArtworkMinimumLuminance)
+        .softLowerTo(CinemaArtworkMaximumLuminance)
+}
 
 /**
  * Protects only weak/extreme targets while preserving the artwork's own hue.

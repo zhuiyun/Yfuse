@@ -21,6 +21,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -241,7 +242,7 @@ internal fun MediaInfoSection(
 ) {
     val palette = LocalPalette.current
     val cardPalette = remember(palette) { mediaInfoCardPalette(palette) }
-    var expanded by remember(version.id) { mutableStateOf(false) }
+    var expanded by rememberSaveable(version.id) { mutableStateOf(true) }
     val disclosureProgress = rememberDisclosureProgress(expanded)
     Column(modifier) {
         Row(
@@ -254,26 +255,13 @@ internal fun MediaInfoSection(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            SectionHeader("媒体信息")
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    if (expanded) "收起" else "展开详情",
-                    style = AppTypography.caption.medium,
-                    color = palette.sub,
-                )
-                Icon(
-                    AppIcons.ChevronDown,
-                    contentDescription = null,
-                    tint = palette.sub2,
-                    modifier =
-                        Modifier
-                            .size(16.dp)
-                            .graphicsLayer { rotationZ = 180f * disclosureProgress.value },
-                )
-            }
+            SectionHeader("媒体信息", modifier = Modifier.weight(1f))
+            Icon(
+                AppIcons.ChevronDown,
+                contentDescription = null,
+                tint = palette.sub2,
+                modifier = Modifier.size(16.dp).graphicsLayer { rotationZ = 180f * disclosureProgress.value },
+            )
         }
         DisclosureContent(expanded, disclosureProgress) {
             Column {

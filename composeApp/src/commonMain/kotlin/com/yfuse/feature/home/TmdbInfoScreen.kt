@@ -38,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -63,6 +64,7 @@ import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.RatingBadges
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.StatusBarIconStyle
+import com.yfuse.core.designsystem.artworkPlayButtonColor
 import com.yfuse.core.designsystem.contentColorForSurface
 import com.yfuse.core.designsystem.fadeIntoPage
 import com.yfuse.core.designsystem.glassSelection
@@ -306,13 +308,16 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                         }
 
                         if (item.canLookupLibrarySources()) {
-                            AnimatedColorContent(themeAccentState) { themeAccent ->
+                            val playColor = remember(accent, palette) {
+                                artworkPlayButtonColor(accent, palette.card2.compositeOver(palette.background), palette.isDark)
+                            }
+                            AnimatedColorContent(rememberAnimatedColorState(playColor)) { fill ->
                                 TmdbPlayDock(
                                     playable = state.playable,
                                     resolving = state.resolvingPlay,
                                     sourcesLoading = state.sourcesLoading,
                                     sourcesError = state.sourcesError,
-                                    accent = themeAccent,
+                                    accent = fill,
                                     onPlay = component::play,
                                     onRetrySources = component::retrySources,
                                 )
@@ -606,6 +611,7 @@ private fun TmdbPlayDock(
             ).padding(inset),
     ) {
         if (playable) {
+            val ink = contentColorForSurface(accent)
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -613,17 +619,17 @@ private fun TmdbPlayDock(
                     .pressable(enabled = !resolving, focusShape = buttonShape, onClick = onPlay)
                     .clip(buttonShape)
                     .background(accent)
-                    .waitingPulse(active = resolving, shape = buttonShape, color = contentColorForSurface(accent))
-                    .border(1.dp, Color.White.copy(alpha = 0.24f), buttonShape)
+                    .waitingPulse(active = resolving, shape = buttonShape, color = ink)
+                    .border(1.dp, ink.copy(alpha = 0.24f), buttonShape)
                     .padding(horizontal = 12.dp, vertical = 10.dp),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                InlineLoadingContent(loading = resolving, slotSize = 15.dp, color = contentColorForSurface(accent)) {
-                    Icon(AppIcons.Play, null, tint = contentColorForSurface(accent), modifier = Modifier.size(14.dp))
+                InlineLoadingContent(loading = resolving, slotSize = 15.dp, color = ink) {
+                    Icon(AppIcons.Play, null, tint = ink, modifier = Modifier.size(14.dp))
                 }
                 Spacer(Modifier.width(8.dp))
-                Text("立即播放", style = AppTypography.body.strong, color = contentColorForSurface(accent))
+                Text("立即播放", style = AppTypography.body.strong, color = ink)
             }
         } else {
             Row(
@@ -631,7 +637,7 @@ private fun TmdbPlayDock(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                if (sourcesLoading) OrbProgress(Modifier.size(18.dp), color = accent)
+                if (sourcesLoading) OrbProgress(Modifier.size(18.dp), color = LocalAccentColors.current.accent)
                 Text(
                     when {
                         sourcesLoading -> "正在查找媒体库资源…"

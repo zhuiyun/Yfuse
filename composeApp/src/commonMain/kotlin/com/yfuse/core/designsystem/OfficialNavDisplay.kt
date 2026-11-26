@@ -18,8 +18,13 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -49,6 +54,10 @@ enum class OfficialNavMotion {
     SearchExit,
 }
 
+@Composable
+internal fun Modifier.horizontalSafeDrawingPadding(): Modifier =
+    windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
+
 /** AndroidX Navigation 3 host with gesture-seekable stack motion and opt-in root motion. */
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -75,11 +84,13 @@ fun <T : Any> OfficialNavDisplay(
     /** Detail entry keeps its shared poster; return uses one opaque, predictive side slide. */
     isDetail: (T) -> Boolean = { false },
     listPane: ((T) -> Boolean)? = null,
+    insetEntryHorizontally: (T) -> Boolean = { false },
     content: @Composable (T) -> Unit,
 ) {
     val parentRouteVisible = LocalRouteVisible.current
     val parentVisibility = LocalRouteVisibilityState.current ?: rememberUpdatedState(parentRouteVisible)
     val currentContent by rememberUpdatedState(content)
+    val currentInsetEntry by rememberUpdatedState(insetEntryHorizontally)
     val launchers = backStack.filter(isLauncher)
     val shownStack = backStack.filterNot(isLauncher).ifEmpty { backStack }
     val usePanes = listPane != null && LocalWideWindow.current
@@ -203,7 +214,7 @@ fun <T : Any> OfficialNavDisplay(
                                     ) {
                                         drawRect(pageBackground)
                                     }
-                                },
+                                }.then(if (currentInsetEntry(entryKey)) Modifier.horizontalSafeDrawingPadding() else Modifier),
                         ) {
                             CompositionLocalProvider(
                                 LocalRouteTransitionRunning provides (
