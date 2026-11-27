@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
@@ -56,6 +57,7 @@ internal fun DetailSkeleton(
         )
         Column(
             Modifier
+                .offset(y = (-176).dp)
                 .padding(horizontal = Dimens.pageHorizontal)
                 .padding(top = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -63,34 +65,33 @@ internal fun DetailSkeleton(
             // The title's lines alone: the page it becomes has no poster beside them.
             Column(
                 Modifier.fillMaxWidth().padding(top = 8.dp),
+                horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 SkeletonBlock(
-                    Modifier.fillMaxWidth(0.72f).height(18.dp),
+                    Modifier.fillMaxWidth(0.56f).height(24.dp),
                     shape = AppShapes.thumb,
                     phaseMs = SKELETON_PHASE_STEP_MS,
                 )
                 SkeletonBlock(
-                    Modifier.fillMaxWidth(0.46f).height(11.dp),
+                    Modifier.fillMaxWidth(0.42f).height(12.dp),
                     shape = AppShapes.thumb,
                     phaseMs = SKELETON_PHASE_STEP_MS * 2,
                 )
-                SkeletonBlock(
-                    Modifier.width(64.dp).height(11.dp),
-                    shape = AppShapes.thumb,
-                    phaseMs = SKELETON_PHASE_STEP_MS * 3,
-                )
             }
             SkeletonBlock(
-                Modifier.fillMaxWidth().height(48.dp),
-                shape = AppShapes.card,
+                Modifier.fillMaxWidth().height(52.dp),
+                shape = androidx.compose.foundation.shape.CircleShape,
                 phaseMs = SKELETON_PHASE_STEP_MS * 2,
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                repeat(3) { index ->
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+            ) {
+                repeat(5) { index ->
                     SkeletonBlock(
-                        Modifier.weight(1f).height(36.dp),
-                        shape = AppShapes.chip,
+                        Modifier.width(42.dp).height(42.dp),
+                        shape = androidx.compose.foundation.shape.CircleShape,
                         phaseMs = SKELETON_PHASE_STEP_MS * (3 + index),
                     )
                 }

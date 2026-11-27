@@ -83,6 +83,7 @@ import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
+import com.yfuse.core.designsystem.MinTouchTarget
 import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -173,16 +174,7 @@ internal fun RefinedTopBar(
     Row(
         modifier
             .fillMaxWidth()
-            .drawBehind {
-                drawRect(
-                    cssLinearGradient(
-                        180f,
-                        0f to ambientScrim(ambientLight?.value, alpha = 0.86f),
-                        0.90f to ambientScrim(ambientLight?.value, alpha = 0.84f),
-                        1f to Color.Transparent,
-                    ),
-                )
-            }.windowInsetsPadding(cutout)
+            .windowInsetsPadding(cutout)
             .padding(vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -205,7 +197,7 @@ internal fun RefinedTopBar(
                 ) {
                     Text(
                         title,
-                        style = AppTypography.body.strong,
+                        style = AppTypography.body.strong.copy(shadow = PlayerVideoTextShadow),
                         color = Color.White,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -242,7 +234,7 @@ internal fun RefinedTopBar(
                 ) {
                     Text(
                         shownSubtitle,
-                        style = AppTypography.caption.regular,
+                        style = AppTypography.caption.regular.copy(shadow = PlayerVideoTextShadow),
                         color = Color.White.copy(alpha = 0.90f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -561,16 +553,7 @@ private fun RefinedBottomBarContent(
     Column(
         modifier
             .fillMaxWidth()
-            .drawBehind {
-                drawRect(
-                    cssLinearGradient(
-                        0f,
-                        0f to ambientScrim(ambientLight?.value, alpha = 0.86f),
-                        0.90f to ambientScrim(ambientLight?.value, alpha = 0.84f),
-                        1f to Color.Transparent,
-                    ),
-                )
-            }.windowInsetsPadding(cutout)
+            .windowInsetsPadding(cutout)
             .padding(top = 10.dp, bottom = 16.dp),
     ) {
         Row(
@@ -591,6 +574,8 @@ private fun RefinedBottomBarContent(
                             ?.let { SeekFilmstripFrames(it, durationMs) }
                             ?.takeIf { it.count > 1 }
                     }
+                val retainedPreview = remember { mutableStateOf<TrickplayStoryboard?>(null) }
+                if (preview != null) retainedPreview.value = preview
                 AnimatedVisibility(
                     visible = scrubbing.value && preview != null,
                     enter =
@@ -615,8 +600,9 @@ private fun RefinedBottomBarContent(
                                 )
                         },
                 ) {
-                    if (preview != null && scrubbing.value) {
-                        val previewHeight = trickplayPreviewHeight(preview, chapterLine = chapters.isNotEmpty())
+                    val activePreview = preview ?: retainedPreview.value
+                    if (activePreview != null) {
+                        val previewHeight = trickplayPreviewHeight(activePreview, chapterLine = chapters.isNotEmpty())
                         BoxWithConstraints(
                             Modifier
                                 .fillMaxWidth()
@@ -628,13 +614,14 @@ private fun RefinedBottomBarContent(
                             val trackWidthPx = constraints.maxWidth
                             val previewPositionMs = shownPositionMs()
                             val tier = scrubUi.tier
+                            val scrubFadeMs = if (reduceMotion) 0 else Motion.QUICK
                             androidx.compose.animation.AnimatedVisibility(
                                 visible = tier != SeekScrubTier.Filmstrip,
-                                enter = fadeIn(Motion.tween(Motion.QUICK)),
-                                exit = fadeOut(Motion.tween(Motion.QUICK)),
+                                enter = fadeIn(Motion.tween(scrubFadeMs)),
+                                exit = fadeOut(Motion.tween(scrubFadeMs)),
                             ) {
                                 TrickplayPreview(
-                                    storyboard = preview,
+                                    storyboard = activePreview,
                                     positionMs = previewPositionMs,
                                     chapter = chapterNameAt(chapters, previewPositionMs),
                                     chapterLine = chapters.isNotEmpty(),
@@ -667,12 +654,12 @@ private fun RefinedBottomBarContent(
                                     }
                                 androidx.compose.animation.AnimatedVisibility(
                                     visible = tier == SeekScrubTier.Filmstrip,
-                                    enter = fadeIn(Motion.tween(Motion.QUICK)),
-                                    exit = fadeOut(Motion.tween(Motion.QUICK)),
+                                    enter = fadeIn(Motion.tween(if (reduceMotion) 0 else Motion.QUICK)),
+                                    exit = fadeOut(Motion.tween(if (reduceMotion) 0 else Motion.QUICK)),
                                     modifier = Modifier.align(Alignment.BottomStart),
                                 ) {
                                     SeekFilmstrip(
-                                        storyboard = preview,
+                                        storyboard = activePreview,
                                         frames = filmstripFrames,
                                         selected = scrubUi.frame,
                                         slots = slots,
@@ -971,8 +958,8 @@ private fun BarKeyLabelled(
         key()
         Text(
             label,
-            style = AppTypography.caption.regular,
-            color = Color.White.copy(alpha = 0.82f),
+            style = AppTypography.caption.regular.copy(shadow = PlayerVideoTextShadow),
+            color = Color.White.copy(alpha = 0.88f),
             maxLines = 1,
             // The key already says it; the label is for eyes only.
             modifier = Modifier.offset(y = (-4).dp).clearAndSetSemantics {},
@@ -993,24 +980,28 @@ internal fun CompactAutoSkipPill(
     /** The ✕; a 撤销 that already says what it does has no use for one. */
     dismissIcon: Boolean = true,
 ) {
-    Row(
+    Box(
         modifier
-            .height(30.dp)
-            .glass(
-                shape = AppShapes.pill,
-                fill = Color.Black.copy(alpha = 0.58f),
-                border = Color.White.copy(alpha = 0.22f),
-            ).pressable(focusShape = AppShapes.pill, onClickLabel = clickLabel, onClick = onCancel)
+            .pressable(focusShape = AppShapes.pill, onClickLabel = clickLabel, onClick = onCancel)
             .touchTarget()
             // Live, but with the ticking label left out of the spoken tree: every second would
             // otherwise be read out. The live region goes before the clear, which would drop it.
             .liveStatus()
-            .clearAndSetSemantics { contentDescription = announcement }
-            .padding(horizontal = 10.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .clearAndSetSemantics { contentDescription = announcement },
+        contentAlignment = Alignment.Center,
     ) {
-        Text(
+        Row(
+            Modifier
+                .height(30.dp)
+                .glass(
+                    shape = AppShapes.pill,
+                    fill = Color.Black.copy(alpha = 0.58f),
+                    border = Color.White.copy(alpha = 0.22f),
+                ).padding(horizontal = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
             label,
             style = AppTypography.caption.medium,
             color = Color.White.copy(alpha = 0.88f),
@@ -1023,6 +1014,7 @@ internal fun CompactAutoSkipPill(
                 tint = Color.White.copy(alpha = 0.68f),
                 modifier = Modifier.size(10.dp),
             )
+        }
         }
     }
 }
@@ -1189,7 +1181,7 @@ private fun RefinedTimeText(
     Box(Modifier.width(reservedWidth), contentAlignment = Alignment.Center) {
         RollingNumber(
             text = shownLabel,
-            style = style,
+            style = style.copy(shadow = PlayerVideoTextShadow),
             color = PlayerTokens.timeTextLandscape,
         )
     }
@@ -1388,7 +1380,7 @@ internal fun StandardSeekBar(
 
     Box(
         modifier
-            .height(44.dp)
+            .height(MinTouchTarget)
             .lightFeedback(light)
             .onSizeChanged { widthPx = it.width.coerceAtLeast(1) }
             .drawWithCache {
@@ -1660,10 +1652,11 @@ internal fun StandardSeekBar(
             }
             // 精细, said over the time it is fine-tuning for as long as the tier lasts. With a
             // storyboard the preview card says it instead, beside its own time.
+            val tierFadeMs = if (reduceMotion) 0 else Motion.QUICK
             androidx.compose.animation.AnimatedVisibility(
                 visible = scrubUi.tier == SeekScrubTier.Fine,
-                enter = fadeIn(Motion.tween(Motion.QUICK)),
-                exit = fadeOut(Motion.tween(Motion.QUICK)),
+                enter = fadeIn(Motion.tween(tierFadeMs)),
+                exit = fadeOut(Motion.tween(tierFadeMs)),
             ) {
                 Box(
                     Modifier

@@ -211,6 +211,14 @@ fun AddServerDialog(
                         ) { sendIntent(ServersIntent.PortChanged(it)) }
                     }
                 }
+                if (form.host.isNotBlank() && !endpointValidation.allowed && !endpointValidation.message.isNullOrBlank()) {
+                    Text(
+                        endpointValidation.message,
+                        style = AppTypography.caption.medium,
+                        color = palette.error,
+                        modifier = Modifier.padding(horizontal = 4.dp),
+                    )
+                }
                 ServerFormInput(
                     outlined = true,
                     label = "显示名称",
@@ -219,6 +227,14 @@ fun AddServerDialog(
                     enabled = !form.submitting,
                     divider = false,
                 ) { sendIntent(ServersIntent.ServerNameChanged(it)) }
+                if (editing && form.serverName.isBlank()) {
+                    Text(
+                        "请输入服务器显示名称",
+                        style = AppTypography.caption.medium,
+                        color = palette.error,
+                        modifier = Modifier.padding(horizontal = 4.dp),
+                    )
+                }
             }
             FieldLabel("账号")
             ServerFormSection {
@@ -279,11 +295,13 @@ fun AddServerDialog(
                                     }
                                 }
                                 is PlexAccountUiState.AwaitingAuthorization -> {
-                                    Text(
-                                        "登录码  ${account.code}",
-                                        style = AppTypography.body.strong,
-                                        color = palette.text,
-                                    )
+                                    androidx.compose.foundation.text.selection.SelectionContainer {
+                                        Text(
+                                            "登录码  ${account.code}",
+                                            style = AppTypography.body.strong,
+                                            color = palette.text,
+                                        )
+                                    }
                                     Text(
                                         "在 Plex 页面确认后会自动继续。",
                                         style = AppTypography.caption.regular,

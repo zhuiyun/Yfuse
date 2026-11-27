@@ -588,9 +588,9 @@ fun LazyItemScope.motionAwareItem(): Modifier =
         )
     } else {
         Modifier.animateItem(
-            fadeInSpec = Motion.tween(Motion.QUICK),
+            fadeInSpec = Motion.tween(Motion.STANDARD),
             placementSpec = Motion.settle(),
-            fadeOutSpec = Motion.tween(Motion.STANDARD),
+            fadeOutSpec = Motion.tween(Motion.QUICK),
         )
     }
 
@@ -610,8 +610,8 @@ fun LazyGridItemScope.motionAwareItem(): Modifier =
         )
     } else {
         Modifier.animateItem(
-            fadeInSpec = Motion.tween(Motion.QUICK),
+            fadeInSpec = Motion.tween(Motion.STANDARD),
             placementSpec = Motion.settle(),
-            fadeOutSpec = Motion.tween(Motion.STANDARD),
+            fadeOutSpec = Motion.tween(Motion.QUICK),
         )
     }

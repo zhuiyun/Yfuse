@@ -1,6 +1,8 @@
 package com.yfuse.app
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -23,9 +25,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -44,6 +48,11 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.dismiss
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
@@ -52,10 +61,18 @@ import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccentColors
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.LocalMotionBudget
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.LocalRouteVisible
+import com.yfuse.core.designsystem.MinTouchTarget
 import com.yfuse.core.designsystem.Motion
+import com.yfuse.core.designsystem.PlatformBackHandler
+import com.yfuse.core.designsystem.Semantic
+import com.yfuse.core.designsystem.calmMotion
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.pressableTarget
 import com.yfuse.core.model.SavedServer
 import kotlin.math.abs
 import kotlin.math.exp
@@ -150,12 +167,17 @@ internal fun Modifier.dockActiveSessionHalo(
         this
     } else {
         composed {
-            val haloAlpha =
-                if (reduceMotion) {
-                    0.26f
+            val staticHalo =
+                reduceMotion ||
+                    calmMotion() ||
+                    LocalMotionBudget.current.reduced ||
+                    !LocalRouteVisible.current
+            val haloAlphaState: State<Float>? =
+                if (staticHalo) {
+                    null
                 } else {
                     val transition = rememberInfiniteTransition(label = "dockSessionHalo")
-                    val animated by transition.animateFloat(
+                    transition.animateFloat(
                         initialValue = 0.14f,
                         targetValue = 0.42f,
                         animationSpec =
@@ -165,13 +187,13 @@ internal fun Modifier.dockActiveSessionHalo(
                             ),
                         label = "dockSessionHaloAlpha",
                     )
-                    animated
                 }
             drawBehind {
                 val expand = 3.dp.toPx()
                 val corner = CornerRadius((size.height + expand * 2f) / 2f)
+                val alpha = haloAlphaState?.value ?: 0.26f
                 drawRoundRect(
-                    color = accent.copy(alpha = haloAlpha),
+                    color = accent.copy(alpha = alpha),
                     topLeft = Offset(-expand, -expand),
                     size = Size(size.width + expand * 2f, size.height + expand * 2f),
                     cornerRadius = corner,
@@ -191,11 +213,12 @@ internal fun Modifier.dockReselectRipple(
         this
     } else {
         composed {
+            if (calmMotion() || LocalMotionBudget.current.reduced) return@composed this
             val progress = remember { Animatable(1f) }
             LaunchedEffect(reselectTick) {
                 if (reselectTick > 0) {
                     progress.snapTo(0f)
-                    progress.animateTo(1f, tween(durationMillis = 420, easing = Motion.Curve))
+                    progress.animateTo(1f, Motion.tween(Motion.EMPHASIZED))
                 }
             }
             drawWithContent {
@@ -240,26 +263,58 @@ internal fun DockQuickActionPopover(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val calm = calmMotion()
+    // Retain last non-null action so exit fade/slide/scale animates real content instead of 0ms blank cut.
+    val retainedAction = remember { androidx.compose.runtime.mutableStateOf<DockQuickAction?>(null) }
+    if (action != null) retainedAction.value = action
+    PlatformBackHandler(enabled = action != null, onBack = onDismiss)
+    val enter =
+        when {
+            reduceMotion -> EnterTransition.None
+            calm -> fadeIn(Motion.tween(Motion.STANDARD))
+            else ->
+                fadeIn(Motion.tween(Motion.STANDARD)) +
+                    slideInVertically(spring(dampingRatio = 0.78f, stiffness = Spring.StiffnessMedium)) { it / 3 } +
+                    scaleIn(spring(dampingRatio = 0.78f, stiffness = Spring.StiffnessMedium), initialScale = 0.92f)
+        }
+    val exit =
+        when {
+            reduceMotion -> ExitTransition.None
+            calm -> fadeOut(Motion.tween(Motion.QUICK))
+            else ->
+                fadeOut(Motion.tween(Motion.QUICK)) +
+                    slideOutVertically(Motion.tween(Motion.QUICK)) { it / 4 } +
+                    scaleOut(Motion.tween(Motion.QUICK), targetScale = 0.95f)
+        }
     AnimatedVisibility(
         visible = action != null,
         modifier = modifier,
-        enter =
-            fadeIn(tween(180)) +
-                slideInVertically(spring(dampingRatio = 0.78f, stiffness = Spring.StiffnessMedium)) { it / 3 } +
-                scaleIn(spring(dampingRatio = 0.78f, stiffness = Spring.StiffnessMedium), initialScale = 0.92f),
-        exit = fadeOut(tween(120)) + slideOutVertically(tween(120)) { it / 4 } + scaleOut(tween(120), targetScale = 0.95f),
+        enter = enter,
+        exit = exit,
         label = "dockQuickActionPopover",
     ) {
-        val current = action ?: return@AnimatedVisibility
+        val current = action ?: retainedAction.value ?: return@AnimatedVisibility
         Column(
             Modifier
                 .widthIn(min = 210.dp, max = 300.dp)
-                .glass(
+                .semantics {
+                    paneTitle =
+                        when (current) {
+                            DockQuickAction.Servers -> "快速切换服务器"
+                            DockQuickAction.History -> "快捷播放记录"
+                            DockQuickAction.Search -> "快捷搜索"
+                        }
+                    dismiss {
+                        onDismiss()
+                        true
+                    }
+                }.glass(
                     shape = AppShapes.card,
-                    fill = if (palette.isDark) Color(0xE6141824) else Color(0xF0FFFFFF),
+                    fill = palette.glassStrong,
                     border = if (palette.isDark) Color.White.copy(alpha = 0.16f) else palette.border,
                 ).padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             when (current) {
                 DockQuickAction.Servers -> {
@@ -274,7 +329,11 @@ internal fun DockQuickActionPopover(
                             style = AppTypography.caption.strong,
                             color = accent.accent,
                             modifier =
-                                Modifier.pressable(haptic = HapticSignal.Select) {
+                                Modifier.pressableTarget(
+                                    shape = AppShapes.pill,
+                                    haptic = HapticSignal.Select,
+                                    onClickLabel = "查看全部服务器",
+                                ) {
                                     onDismiss()
                                     onOpenServers()
                                 },
@@ -288,40 +347,50 @@ internal fun DockQuickActionPopover(
                             modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
                         )
                     } else {
-                        servers.take(5).forEach { server ->
-                            val isCurrent = server.id == activeServerId
-                            Row(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .clip(AppShapes.chip)
-                                    .background(if (isCurrent) accent.container else Color.Transparent)
-                                    .border(
-                                        1.dp,
-                                        if (isCurrent) accent.border.copy(alpha = 0.35f) else Color.Transparent,
-                                        AppShapes.chip,
-                                    ).pressable(haptic = HapticSignal.Confirm) {
-                                        onSelectServer(server.id)
-                                        onDismiss()
-                                    }.padding(horizontal = 10.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                Box(
+                        Column(
+                            modifier = Modifier.fillMaxWidth().selectableGroup(),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            servers.take(5).forEach { server ->
+                                val isCurrent = server.id == activeServerId
+                                Row(
                                     Modifier
-                                        .size(7.dp)
-                                        .clip(CircleShape)
-                                        .background(if (isCurrent) Brand.Online else palette.border),
-                                )
-                                Text(
-                                    server.serverName,
-                                    style = AppTypography.body.strong,
-                                    color = if (isCurrent) accent.accent else palette.text,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                if (isCurrent) {
-                                    Icon(AppIcons.Check, null, tint = accent.accent, modifier = Modifier.size(13.dp))
+                                        .fillMaxWidth()
+                                        .heightIn(min = MinTouchTarget)
+                                        .clip(AppShapes.chip)
+                                        .background(if (isCurrent) accent.container else Color.Transparent)
+                                        .border(
+                                            1.dp,
+                                            if (isCurrent) accent.border.copy(alpha = 0.35f) else Color.Transparent,
+                                            AppShapes.chip,
+                                        ).semantics { selected = isCurrent }
+                                        .pressable(
+                                            role = Role.RadioButton,
+                                            haptic = HapticSignal.Confirm,
+                                        ) {
+                                            onSelectServer(server.id)
+                                            onDismiss()
+                                        }.padding(horizontal = 12.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    Box(
+                                        Modifier
+                                            .size(7.dp)
+                                            .clip(CircleShape)
+                                            .background(if (isCurrent) Brand.Online else Semantic.Offline),
+                                    )
+                                    Text(
+                                        server.serverName,
+                                        style = AppTypography.body.strong,
+                                        color = if (isCurrent) accent.accent else palette.text,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    if (isCurrent) {
+                                        Icon(AppIcons.Check, null, tint = accent.accent, modifier = Modifier.size(14.dp))
+                                    }
                                 }
                             }
                         }
@@ -332,6 +401,7 @@ internal fun DockQuickActionPopover(
                     Row(
                         Modifier
                             .fillMaxWidth()
+                            .heightIn(min = MinTouchTarget)
                             .clip(AppShapes.chip)
                             .background(accent.container)
                             .pressable(haptic = HapticSignal.Confirm) {
@@ -350,6 +420,7 @@ internal fun DockQuickActionPopover(
                     Row(
                         Modifier
                             .fillMaxWidth()
+                            .heightIn(min = MinTouchTarget)
                             .clip(AppShapes.chip)
                             .background(accent.container)
                             .pressable(haptic = HapticSignal.Confirm) {

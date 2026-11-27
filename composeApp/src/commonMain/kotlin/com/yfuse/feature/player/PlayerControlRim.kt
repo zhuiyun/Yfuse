@@ -1,5 +1,6 @@
 package com.yfuse.feature.player
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.InteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
@@ -17,6 +18,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.isSpecified
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
@@ -25,14 +27,27 @@ import com.yfuse.core.designsystem.collectVisiblePressAsState
 import kotlin.math.PI
 import kotlin.math.atan2
 
+/** Shared crisp drop shadow so scrim-free player text stays legible over bright video frames. */
+internal val PlayerVideoTextShadow =
+    Shadow(
+        color = Color.Black.copy(alpha = 0.78f),
+        offset = Offset(0f, 1f),
+        blurRadius = 4f,
+    )
+
 /** The touch target includes padding around the visible ring. Light the rim nearest the finger. */
 @Composable
 internal fun Modifier.playerControlRim(source: InteractionSource): Modifier {
     val options = LocalAccessibilityOptions.current
-    if (options.reduceTransparency) return border(1.dp, Color.White.copy(alpha = 0.8f), CircleShape)
+    val backing =
+        background(
+            Color.Black.copy(alpha = if (options.reduceTransparency) 0.56f else 0.34f),
+            CircleShape,
+        )
+    if (options.reduceTransparency) return backing.border(1.dp, Color.White.copy(alpha = 0.8f), CircleShape)
     val sheen =
         remember { Brush.linearGradient(listOf(Color.White.copy(alpha = 0.76f), Color.White.copy(alpha = 0.36f))) }
-    val rim = border(1.dp, sheen, CircleShape)
+    val rim = backing.border(1.dp, sheen, CircleShape)
     if (options.reduceMotion || calmMotion()) return rim
     val pressed = source.collectVisiblePressAsState()
     var point by remember(source) { mutableStateOf(Offset.Unspecified) }

@@ -43,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
+import com.yfuse.core.designsystem.touchTarget
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -518,7 +519,8 @@ private fun RowScope.SeasonTabs(
                             bounds.lefts[index] = it.positionInParent().x
                             bounds.widths[index] = it.size.width.toFloat()
                         }.semantics { this.selected = selected }
-                        .pressable(onClickLabel = "查看${season.second}") { onTab(index) }
+                        .pressable(role = androidx.compose.ui.semantics.Role.Tab, onClickLabel = "查看${season.second}") { onTab(index) }
+                        .touchTarget()
                         .detailSelectionOutline(selected, accent, AppShapes.pill)
                         .padding(horizontal = 12.dp, vertical = 7.dp),
             )

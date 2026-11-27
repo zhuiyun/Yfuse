@@ -424,7 +424,7 @@ internal fun OrganizationContainerDialog(
                 Text(
                     text = error,
                     style = AppTypography.body.regular,
-                    color = palette.sub,
+                    color = palette.error,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
                 )
                 OverlayActionRow(label = "重试", onClick = onRetry)
@@ -443,7 +443,7 @@ internal fun OrganizationContainerDialog(
                     Text(
                         text = error,
                         style = AppTypography.caption.medium,
-                        color = palette.sub,
+                        color = palette.error,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                     )
                 }

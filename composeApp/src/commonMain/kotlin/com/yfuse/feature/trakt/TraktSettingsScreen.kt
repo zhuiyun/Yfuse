@@ -23,6 +23,7 @@ import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
@@ -108,6 +109,7 @@ fun TraktSettingsScreen(
                         )
                     }
                     if (state.connected) {
+                        var confirmDisconnect by remember { mutableStateOf(false) }
                         SettingsDivider()
                         SettingRow(
                             "断开 Trakt",
@@ -116,8 +118,21 @@ fun TraktSettingsScreen(
                             icon = AppIcons.Close,
                             iconTint = palette.error,
                             destructive = true,
-                            onClick = { store.accept(TraktSettingsIntent.Disconnect) },
+                            onClick = { confirmDisconnect = true },
                         )
+                        if (confirmDisconnect) {
+                            ConfirmDialog(
+                                title = "断开 Trakt 连接？",
+                                message = "断开后将停止当前资料的 Trakt 同步与观看进度上报。",
+                                confirmLabel = "断开",
+                                destructive = true,
+                                onConfirm = {
+                                    confirmDisconnect = false
+                                    store.accept(TraktSettingsIntent.Disconnect)
+                                },
+                                onDismiss = { confirmDisconnect = false },
+                            )
+                        }
                     }
                 }
             }

@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.TextButton
@@ -20,11 +21,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.GlassDialog
+import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.OverlayActionRow
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
@@ -284,15 +288,21 @@ private fun IptvDialog(onDismiss: () -> Unit) {
                                 launch = queue.map { it.toPlayerItem(selected.id) }
                             },
                         )
+                        val favorited = channel.id in selected.favorites
                         TextButton(
                             enabled = !busy,
                             onClick = { perform { repository.toggleFavorite(selected.id, channel.id) } },
                         ) {
-                            Text(if (channel.id in selected.favorites) "★" else "☆")
+                            Icon(
+                                if (favorited) AppIcons.StarFilled else AppIcons.Star,
+                                contentDescription = if (favorited) "取消收藏${channel.name}" else "收藏${channel.name}",
+                                tint = if (favorited) LocalAccentColors.current.accent else palette.sub,
+                                modifier = Modifier.size(18.dp),
+                            )
                         }
                     }
                 }
-                if (channels.isEmpty()) item { Text("当前分组或筛选没有频道", color = palette.sub2) }
+                if (channels.isEmpty()) item(key = "iptv-empty") { Text("当前分组或筛选没有频道", color = palette.sub2) }
             }
         }
     }

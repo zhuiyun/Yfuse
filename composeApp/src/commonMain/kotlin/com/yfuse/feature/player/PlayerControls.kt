@@ -1151,7 +1151,7 @@ internal fun PlayerControls(
                                     }
                                 }
                             }
-                            chrome.poke()
+                            chrome.touchActivity()
                         },
                         onLongPress = { offset ->
                             if (state.error != null) return@detectTapGestures
@@ -1220,7 +1220,7 @@ internal fun PlayerControls(
                                 } else if (gestureState.dragAxis == DragAxis.Vertical) {
                                     tips?.markUsed(Tips.PLAYER_SIDE_DRAG)
                                 }
-                                chrome.poke()
+                                chrome.touchActivity()
                             }
                         },
                         onDragCancel = { gestureState.cancelDrag() },

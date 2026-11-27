@@ -62,22 +62,33 @@ internal fun CinemaSpeedReadout(
         },
         contentAlignment = Alignment.Center,
     ) {
+        val reduceMotion = com.yfuse.core.designsystem.LocalAccessibilityOptions.current.reduceMotion
+        val calm = com.yfuse.core.designsystem.calmMotion()
         AnimatedContent(
             targetState = gear,
             transitionSpec = {
-                val direction = if (targetState > initialState) 1 else -1
-                (
+                if (reduceMotion) {
+                    (androidx.compose.animation.EnterTransition.None togetherWith androidx.compose.animation.ExitTransition.None)
+                        .using(null)
+                } else if (calm) {
                     (
-                        slideInHorizontally(tween(CinemaMotion.GEAR, easing = Motion.Curve)) { it * direction / 2 } +
-                            fadeIn(tween(CinemaMotion.GEAR, easing = Motion.Curve))
-                    ) togetherWith
+                        fadeIn(Motion.tween(Motion.QUICK)) togetherWith fadeOut(Motion.tween(Motion.QUICK))
+                    ).using(null)
+                } else {
+                    val direction = if (targetState > initialState) 1 else -1
+                    (
                         (
-                            slideOutHorizontally(tween(CinemaMotion.GEAR, easing = Motion.Curve)) {
-                                -it * direction / 2
-                            } +
-                                fadeOut(tween(CinemaMotion.GEAR, easing = Motion.Curve))
-                        )
-                ).using(null)
+                            slideInHorizontally(tween(CinemaMotion.GEAR, easing = Motion.Curve)) { it * direction / 2 } +
+                                fadeIn(tween(CinemaMotion.GEAR, easing = Motion.Curve))
+                        ) togetherWith
+                            (
+                                slideOutHorizontally(tween(CinemaMotion.GEAR, easing = Motion.Curve)) {
+                                    -it * direction / 2
+                                } +
+                                    fadeOut(tween(CinemaMotion.GEAR, easing = Motion.Curve))
+                            )
+                    ).using(null)
+                }
             },
             label = "cinema-speed-gear",
         ) { shown ->

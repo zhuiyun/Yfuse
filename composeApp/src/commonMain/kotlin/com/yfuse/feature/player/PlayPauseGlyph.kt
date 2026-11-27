@@ -70,6 +70,7 @@ private class PlayPausePainter(
     private val crossfade: Boolean,
 ) : Painter() {
     private val path = Path()
+    private val corners = FloatArray(PLAY_CORNERS.size)
     private var colorFilter: ColorFilter? = null
     private val layerPaint = Paint()
 
@@ -107,7 +108,10 @@ private class PlayPausePainter(
         val scale = size.minDimension / VIEWPORT
         val left = (size.width - VIEWPORT * scale) / 2f
         val top = (size.height - VIEWPORT * scale) / 2f
-        val corners = playPauseCorners(progress)
+        val t = progress.coerceIn(0f, 1f)
+        for (i in corners.indices) {
+            corners[i] = PLAY_CORNERS[i] + (PAUSE_CORNERS[i] - PLAY_CORNERS[i]) * t
+        }
         path.reset()
         for (piece in 0 until PIECES) {
             val first = piece * CORNERS_PER_PIECE * 2

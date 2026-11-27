@@ -35,7 +35,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import kotlinx.coroutines.launch
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -54,6 +56,7 @@ import com.yfuse.core.designsystem.LocalHaptics
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.pressableTarget
 import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.CalendarEntry
 import com.yfuse.core.model.LibraryStatus
@@ -134,11 +137,14 @@ internal fun CalendarPosterResults(
         ) {
             Box(
                 Modifier
-                    .size(30.dp)
-                    .clip(CircleShape)
-                    .pressable(enabled = week.first().date > firstWeek, focusShape = CircleShape) {
+                    .pressableTarget(
+                        shape = CircleShape,
+                        enabled = week.first().date > firstWeek,
+                        onClickLabel = "上一周",
+                    ) {
                         onSelectDate(shiftIsoDate(selectedDate, -7))
-                    },
+                    }.size(30.dp)
+                    .clip(CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
@@ -163,19 +169,22 @@ internal fun CalendarPosterResults(
                     color = accent.accent,
                     modifier =
                         Modifier
+                            .pressableTarget(shape = AppShapes.pill, onClickLabel = "回到今天") { onSelectDate(today) }
                             .clip(AppShapes.pill)
                             .background(accent.accent.copy(alpha = if (palette.isDark) 0.18f else 0.10f))
-                            .pressable(focusShape = AppShapes.pill) { onSelectDate(today) }
                             .padding(horizontal = 9.dp, vertical = 4.dp),
                 )
             }
             Box(
                 Modifier
-                    .size(30.dp)
-                    .clip(CircleShape)
-                    .pressable(enabled = week.first().date < lastWeek, focusShape = CircleShape) {
+                    .pressableTarget(
+                        shape = CircleShape,
+                        enabled = week.first().date < lastWeek,
+                        onClickLabel = "下一周",
+                    ) {
                         onSelectDate(shiftIsoDate(selectedDate, 7))
-                    },
+                    }.size(30.dp)
+                    .clip(CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
@@ -187,33 +196,84 @@ internal fun CalendarPosterResults(
             }
         }
         CalendarWeekNavigator(week, today, selectedDate) { selectDateWithHaptic(it.date) }
+        val dragOffset = remember { androidx.compose.animation.core.Animatable(0f) }
+        val dragScope = androidx.compose.runtime.rememberCoroutineScope()
+        val calm = com.yfuse.core.designsystem.calmMotion()
         AnimatedContent(
             targetState = selectedDate,
             modifier =
                 Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .pointerInput(selectedDate, minDate, maxDate) {
+                    .graphicsLayer {
+                        val dx = dragOffset.value
+                        if (dx != 0f && !reduceMotion) {
+                            translationX = dx
+                            val dragRatio = (kotlin.math.abs(dx) / size.width.coerceAtLeast(1f)).coerceIn(0f, 0.35f)
+                            val s = 1f - dragRatio * 0.06f
+                            scaleX = s
+                            scaleY = s
+                            alpha = 1f - dragRatio * 0.35f
+                        }
+                    }.pointerInput(selectedDate, minDate, maxDate, reduceMotion) {
                         var accumulated = 0f
                         val thresholdPx = 72.dp.toPx()
+                        val maxPullPx = 110.dp.toPx()
                         detectHorizontalDragGestures(
                             onDragStart = { accumulated = 0f },
-                            onDragCancel = { accumulated = 0f },
-                            onDragEnd = {
-                                if (accumulated <= -thresholdPx) {
-                                    val next = shiftIsoDate(selectedDate, 1)
-                                    if (next <= maxDate) selectDateWithHaptic(next)
-                                } else if (accumulated >= thresholdPx) {
-                                    val prev = shiftIsoDate(selectedDate, -1)
-                                    if (prev >= minDate) selectDateWithHaptic(prev)
-                                }
+                            onDragCancel = {
                                 accumulated = 0f
+                                dragScope.launch {
+                                    dragOffset.animateTo(0f, Motion.settle(reduceMotion))
+                                }
                             },
-                            onHorizontalDrag = { _, dragAmount -> accumulated += dragAmount },
+                            onDragEnd = {
+                                val switched =
+                                    if (accumulated <= -thresholdPx) {
+                                        val next = shiftIsoDate(selectedDate, 1)
+                                        if (next <= maxDate) {
+                                            selectDateWithHaptic(next)
+                                            true
+                                        } else {
+                                            false
+                                        }
+                                    } else if (accumulated >= thresholdPx) {
+                                        val prev = shiftIsoDate(selectedDate, -1)
+                                        if (prev >= minDate) {
+                                            selectDateWithHaptic(prev)
+                                            true
+                                        } else {
+                                            false
+                                        }
+                                    } else {
+                                        false
+                                    }
+                                accumulated = 0f
+                                dragScope.launch {
+                                    if (switched || reduceMotion) {
+                                        dragOffset.snapTo(0f)
+                                    } else {
+                                        dragOffset.animateTo(0f, Motion.overscroll())
+                                    }
+                                }
+                            },
+                            onHorizontalDrag = { _, dragAmount ->
+                                accumulated += dragAmount
+                                if (!reduceMotion) {
+                                    val atEdge =
+                                        (accumulated < 0f && selectedDate >= maxDate) ||
+                                            (accumulated > 0f && selectedDate <= minDate)
+                                    val factor = if (atEdge) 0.24f else 0.55f
+                                    val visual = (accumulated * factor).coerceIn(-maxPullPx, maxPullPx)
+                                    dragScope.launch { dragOffset.snapTo(visual) }
+                                }
+                            },
                         )
                     },
             transitionSpec = {
                 if (reduceMotion) {
+                    androidx.compose.animation.EnterTransition.None togetherWith androidx.compose.animation.ExitTransition.None
+                } else if (calm) {
                     fadeIn(Motion.tween(Motion.QUICK)) togetherWith fadeOut(Motion.tween(Motion.QUICK))
                 } else {
                     val forward = targetState > initialState
@@ -433,10 +493,10 @@ private fun CalendarFeaturedPoster(
             if (entry.canOpenCalendarPlayback()) {
                 Box(
                     Modifier
+                        .pressableTarget(shape = CircleShape, onClickLabel = "打开可播放内容", onClick = onPlay)
                         .size(42.dp)
                         .clip(CircleShape)
-                        .background(accent.accent)
-                        .pressable(focusShape = CircleShape, onClickLabel = "打开可播放内容", onClick = onPlay),
+                        .background(accent.accent),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(AppIcons.Play, null, tint = accent.onAccent, modifier = Modifier.size(16.dp))
@@ -513,24 +573,41 @@ private fun CalendarPosterRow(
             )
         }
         if (entry.episode.canFollow) {
+            val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+            val followBg by androidx.compose.animation.animateColorAsState(
+                targetValue =
+                    if (entry.followed) {
+                        accent.accent.copy(alpha = if (palette.isDark) 0.22f else 0.12f)
+                    } else {
+                        palette.text.copy(alpha = if (palette.isDark) 0.08f else 0.05f)
+                    },
+                animationSpec = Motion.settle(reduceMotion),
+                label = "calendarFollowBg",
+            )
+            val followTint by androidx.compose.animation.animateColorAsState(
+                targetValue = if (entry.followed) accent.accent else palette.sub,
+                animationSpec = Motion.settle(reduceMotion),
+                label = "calendarFollowTint",
+            )
             Box(
                 Modifier
-                    .size(34.dp)
+                    .pressableTarget(
+                        shape = CircleShape,
+                        haptic = HapticSignal.Confirm,
+                        onClickLabel = if (entry.followed) "取消追剧" else "追剧",
+                        onClick = onFollow,
+                    ).size(34.dp)
                     .clip(CircleShape)
-                    .background(
-                        if (entry.followed) {
-                            accent.accent.copy(alpha = if (palette.isDark) 0.22f else 0.12f)
-                        } else {
-                            palette.text.copy(alpha = if (palette.isDark) 0.08f else 0.05f)
-                        },
-                    ).pressable(focusShape = CircleShape, onClickLabel = if (entry.followed) "取消追剧" else "追剧", onClick = onFollow),
+                    .background(followBg),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(
-                    if (entry.followed) AppIcons.Check else AppIcons.Bell,
-                    null,
-                    tint = if (entry.followed) accent.accent else palette.sub,
-                    modifier = Modifier.size(16.dp),
+                com.yfuse.core.designsystem.BurstIcon(
+                    icon = if (entry.followed) AppIcons.Check else AppIcons.Bell,
+                    active = entry.followed,
+                    contentDescription = null,
+                    tint = followTint,
+                    burstColor = accent.accent,
+                    iconSize = 16.dp,
                 )
             }
         }

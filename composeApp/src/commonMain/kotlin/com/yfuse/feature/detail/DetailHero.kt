@@ -272,7 +272,7 @@ internal fun Hero(
                     scaleX = grow
                     scaleY = grow
                     transformOrigin = TransformOrigin(0.5f, 0f)
-                } else {
+                } else if (!still) {
                     translationY = scroll.value * 0.35f
                 }
             },
@@ -412,13 +412,24 @@ internal fun DetailTopBar(
                 modifier =
                     Modifier
                         .weight(1f)
-                        .graphicsLayer { alpha = progress.value },
+                        .graphicsLayer {
+                            val p = progress.value
+                            alpha = p
+                            if (!still) translationY = (1f - p) * 8.dp.toPx()
+                        },
             )
             if (showPlay) {
                 val playFocus = rememberTouchTargetFocus(AppShapes.chip)
                 Row(
                     Modifier
-                        .graphicsLayer { alpha = progress.value }
+                        .graphicsLayer {
+                            val p = progress.value
+                            alpha = p
+                            val s = if (still) 1f else 0.92f + 0.08f * p
+                            scaleX = s
+                            scaleY = s
+                            if (!still) translationY = (1f - p) * 6.dp.toPx()
+                        }
                         .pressable(
                             focusShape = playFocus,
                             enabled = solid && !resolving,
@@ -594,62 +605,50 @@ internal fun TitleBlock(
     val arrival = rememberOneTakeArrival(detail.id)
     var row = 0
     Column(
-        modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.Start,
+        modifier.fillMaxWidth().padding(horizontal = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
             title,
             style = AppTypography.display.strong.copy(shadow = captionShadow),
             color = primaryInk,
-            textAlign = TextAlign.Start,
+            textAlign = TextAlign.Center,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.oneTakeArrival(arrival, row++),
         )
-        val facts =
-            listOfNotNull(
-                detail.year?.toString(),
-                detail.runtimeMinutes?.let(::runtimeLabel),
-            )
-        if (facts.isNotEmpty()) {
-            Spacer(Modifier.height(8.dp))
-            Text(
-                facts.joinToString(" · "),
-                style = AppTypography.body.regular.copy(shadow = captionShadow),
-                color = subInk,
-                textAlign = TextAlign.Start,
-                maxLines = 1,
-                modifier = Modifier.oneTakeArrival(arrival, row++),
-            )
-        }
-        if (detail.displayRatings().isNotEmpty() || detail.officialRating != null) {
-            Spacer(Modifier.height(9.dp))
-            Column(
-                Modifier.oneTakeArrival(arrival, row++),
-                verticalArrangement = Arrangement.spacedBy(7.dp),
-            ) {
-                RatingBadges(detail.displayRatings(), onArtwork = darkArtwork)
-                detail.officialRating?.let { CertificationBadge(it, subInk) }
+        val metaParts =
+            buildList {
+                detail.year?.toString()?.let(::add)
+                detail.runtimeMinutes?.let(::runtimeLabel)?.let(::add)
+                detail.genres.take(2).joinToString(" / ").takeIf { it.isNotBlank() }?.let(::add)
             }
-        }
-        detail.genres.take(2).joinToString(" · ").takeIf { it.isNotBlank() }?.let { genre ->
-            Spacer(Modifier.height(8.dp))
+        if (metaParts.isNotEmpty()) {
+            Spacer(Modifier.height(6.dp))
             Text(
-                genre,
-                style = AppTypography.body.medium.copy(shadow = captionShadow),
-                color = faintInk,
+                metaParts.joinToString(" · "),
+                style = AppTypography.caption.medium.copy(shadow = captionShadow),
+                color = subInk,
+                textAlign = TextAlign.Center,
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.oneTakeArrival(arrival, row++),
             )
         }
-        // Only what this copy actually carries. A page that always claims Dolby says
-        // nothing; here the badge is the answer to "is this the good file", which on a
-        // title the library holds twice is the question being asked.
+        val ratings = detail.displayRatings()
         val dolbyVision = version?.isDolbyVision == true
         val dolbyAtmos = version?.hasDolbyAtmos == true
-        if (dolbyVision || dolbyAtmos) {
-            Spacer(Modifier.height(12.dp))
-            Row(Modifier.oneTakeArrival(arrival, row), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
+        if (ratings.isNotEmpty() || detail.officialRating != null || dolbyVision || dolbyAtmos) {
+            Spacer(Modifier.height(8.dp))
+            androidx.compose.foundation.layout.FlowRow(
+                modifier = Modifier.oneTakeArrival(arrival, row),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterVertically),
+            ) {
+                if (ratings.isNotEmpty()) {
+                    RatingBadges(ratings, onArtwork = darkArtwork)
+                }
+                detail.officialRating?.let { CertificationBadge(it, subInk) }
                 if (dolbyVision) DolbyBadge("VISION", primaryInk)
                 if (dolbyAtmos) DolbyBadge("ATMOS", primaryInk)
             }

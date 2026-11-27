@@ -614,7 +614,6 @@ private fun LiftRow(
 
 @Composable
 private fun LiftSeparator() {
-    val palette = LocalPalette.current
     Box(
         Modifier
             .fillMaxWidth()
@@ -625,7 +624,7 @@ private fun LiftSeparator() {
             Modifier
                 .fillMaxWidth()
                 .height(1.dp)
-                .background(palette.border),
+                .background(formDivider()),
         )
     }
 }

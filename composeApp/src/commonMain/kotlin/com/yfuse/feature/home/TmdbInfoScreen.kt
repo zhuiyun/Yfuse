@@ -63,6 +63,7 @@ import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.RatingBadges
 import com.yfuse.core.designsystem.Shadows
+import com.yfuse.core.designsystem.motionItemsIndexed
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.artworkPlayButtonColor
 import com.yfuse.core.designsystem.contentColorForSurface
@@ -390,7 +391,7 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                                 modifier =
                                     Modifier
                                         .fillMaxWidth()
-                                        .pressable(onClick = component::dismissError)
+                                        .pressable(onClickLabel = "关闭错误提示", onClick = component::dismissError)
                                         .solidGlass(AppShapes.card)
                                         .padding(12.dp),
                             )
@@ -436,7 +437,7 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                 Text("演职人员", style = AppTypography.section.strong, color = palette.text)
                                 LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                                    motionItems(detail.cast, key = { it.id }) { person ->
+                                    motionItemsIndexed(detail.cast, key = { index, person -> "cast-${person.id}-$index" }) { _, person ->
                                         Column(
                                             Modifier.width(70.dp),
                                             horizontalAlignment = Alignment.CenterHorizontally,

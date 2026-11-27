@@ -32,6 +32,7 @@ import com.yfuse.core.designsystem.LocalHaptics
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.pressableTarget
 import com.yfuse.core.designsystem.solidGlass
+import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
@@ -112,27 +113,35 @@ internal fun PlayerTabletopDeck(
                             .background(Color.White.copy(alpha = 0.10f))
                             .border(1.dp, Color.White.copy(alpha = 0.18f), AppShapes.pill)
                             .pressable(haptic = HapticSignal.Select, focusShape = AppShapes.pill, onClick = onCycleSubtitle)
+                            .touchTarget()
                             .padding(horizontal = 10.dp, vertical = 6.dp),
                 )
             }
+            val speedEnabled = speedUnavailableReason == null
             Text(
                 speedLabel(state.speed),
                 style = AppTypography.caption.strong,
                 color =
                     when {
-                        speedUnavailableReason != null -> Color.White.copy(alpha = 0.42f)
+                        !speedEnabled -> Color.White.copy(alpha = 0.42f)
                         state.speed != 1f -> accent
                         else -> Color.White
                     },
                 modifier =
                     Modifier
                         .clip(AppShapes.pill)
-                        .background(Color.White.copy(alpha = if (speedUnavailableReason != null) 0.05f else 0.10f))
+                        .background(Color.White.copy(alpha = if (!speedEnabled) 0.05f else 0.10f))
                         .border(1.dp, Color.White.copy(alpha = 0.18f), AppShapes.pill)
-                        .pressable(haptic = HapticSignal.Select, focusShape = AppShapes.pill) {
+                        .pressable(
+                            enabled = speedEnabled,
+                            haptic = HapticSignal.Select,
+                            focusShape = AppShapes.pill,
+                            onClickLabel = "切换播放速度",
+                        ) {
                             val idx = speeds.indexOfFirst { kotlin.math.abs(it - state.speed) < 0.05f }
                             onSpeed(speeds[(idx + 1) % speeds.size])
-                        }.padding(horizontal = 12.dp, vertical = 6.dp),
+                        }.touchTarget()
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
             )
         }
 
@@ -164,6 +173,7 @@ internal fun PlayerTabletopDeck(
                             .clip(AppShapes.pill)
                             .background(accent)
                             .pressable(haptic = HapticSignal.Confirm, focusShape = AppShapes.pill, onClick = onRetry)
+                            .touchTarget()
                             .padding(horizontal = 12.dp, vertical = 6.dp),
                 )
             }
@@ -263,7 +273,7 @@ private fun TabletopTransportKey(
     ) {
         Box(
             Modifier
-                .size(46.dp)
+                .size(48.dp)
                 .clip(CircleShape)
                 .background(Color.White.copy(alpha = if (enabled) 0.12f else 0.04f))
                 .pressable(enabled = enabled, focusShape = CircleShape, onClick = onClick),

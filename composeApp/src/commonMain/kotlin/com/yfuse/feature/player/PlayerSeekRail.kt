@@ -29,8 +29,14 @@ internal fun DrawScope.drawSeekRail(
         )
     // Without chapters this is one part from end to end: the rail as it always was.
     forEachRailPart(size.width, chapterCuts, chapterGap) { left, right ->
+        // Dark underlay keeps the unplayed rail visible over pure white frames without a full-screen scrim.
         drawRect(
-            Color.White.copy(alpha = 0.16f),
+            Color.Black.copy(alpha = 0.28f),
+            topLeft = Offset(left, 0f),
+            size = Size(right - left, size.height),
+        )
+        drawRect(
+            Color.White.copy(alpha = 0.22f),
             topLeft = Offset(left, 0f),
             size = Size(right - left, size.height),
         )

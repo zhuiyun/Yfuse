@@ -15,9 +15,14 @@ class CinemaArtworkPageSurfaceTest {
         listOf(muddyBrown, brightBeige, deepTeal).forEach { sample ->
             val surface = cinemaArtworkPageSurface(sample)
             val lum = surface.luminance()
-            assertTrue(lum in 0.015f..0.070f, "expected deep cinema luminance for $sample but was $lum")
+            assertTrue(lum in 0.040f..0.125f, "expected rich poster-matched luminance for $sample but was $lum")
             val palette = resolveArtworkPagePalette(surface)
             assertTrue(palette.isDark, "cinema surface should always resolve dark high-contrast typography")
         }
+        // Warm posters must stay warm (red > blue), cool posters must stay cool (blue > red).
+        val warmSurface = cinemaArtworkPageSurface(Color(0xFFC85A32))
+        assertTrue(warmSurface.red > warmSurface.blue, "warm poster should stay warm: $warmSurface")
+        val coolSurface = cinemaArtworkPageSurface(Color(0xFF2B6CB0))
+        assertTrue(coolSurface.blue > coolSurface.red, "cool poster should stay cool: $coolSurface")
     }
 }

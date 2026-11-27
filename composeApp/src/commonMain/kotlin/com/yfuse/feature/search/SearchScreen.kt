@@ -1611,7 +1611,7 @@ private fun ResultRow(
                 Text(
                     overview,
                     style = AppTypography.caption.reading,
-                    color = palette.hint,
+                    color = palette.sub,
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                 )

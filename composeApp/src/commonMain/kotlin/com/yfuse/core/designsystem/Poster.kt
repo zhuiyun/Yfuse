@@ -377,7 +377,7 @@ fun Poster(
     modifier: Modifier = Modifier,
     title: String? = null,
     year: String? = null,
-    shape: Shape = AppShapes.card,
+    shape: Shape = AppShapes.thumb,
     /** Community score rendered as an unboxed source icon and number over the artwork. */
     rating: Double? = null,
     /** 0f..1f — draws the 3px `#5B7FD1` resume bar along the bottom edge. */
@@ -685,7 +685,7 @@ fun CaptionedPoster(
             rating = rating,
             progress = progress,
             blurHash = blurHash,
-            contentDescription = title,
+            contentDescription = if (LocalPosterCaptionsVisible.current) null else title,
             modifier = posterModifier.liftAnchor(artwork.takeIf { lift != null }),
             sharedTransitionKey = sharedTransitionKey,
             // A 9:16 短剧 poster keeps the title and 全80集 printed at its top and foot.

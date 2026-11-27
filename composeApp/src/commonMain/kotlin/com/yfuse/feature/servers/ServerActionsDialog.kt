@@ -1,5 +1,6 @@
 package com.yfuse.feature.servers
 
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -47,13 +48,16 @@ import com.yfuse.core.designsystem.DialogAnimation
 import com.yfuse.core.designsystem.GlassButtonEmphasis
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.LocalAccentColors
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.ServerBadgeArtwork
 import com.yfuse.core.designsystem.SettingIconTile
 import com.yfuse.core.designsystem.SettingTint
 import com.yfuse.core.designsystem.flatGlass
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.liveStatus
+import com.yfuse.core.designsystem.motionAwareAnimateContentSize
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.pressable
@@ -155,14 +159,33 @@ internal fun ServerActionsDialog(
                 Spacer(Modifier.height(8.dp))
             }
 
-            key(managing) {
+            val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+            androidx.compose.animation.AnimatedContent(
+                targetState = managing,
+                modifier = Modifier.motionAwareAnimateContentSize(),
+                transitionSpec = {
+                    if (reduceMotion) {
+                        androidx.compose.animation.EnterTransition.None togetherWith androidx.compose.animation.ExitTransition.None
+                    } else {
+                        val dir = if (targetState) 1 else -1
+                        (
+                            androidx.compose.animation.fadeIn(Motion.tween(Motion.STANDARD)) +
+                                androidx.compose.animation.slideInHorizontally(Motion.tween(Motion.STANDARD)) { it / 12 * dir }
+                        ) togetherWith (
+                            androidx.compose.animation.fadeOut(Motion.tween(Motion.QUICK)) +
+                                androidx.compose.animation.slideOutHorizontally(Motion.tween(Motion.QUICK)) { -it / 16 * dir }
+                        )
+                    }
+                },
+                label = "serverActionsTabBody",
+            ) { showManage ->
                 Column(
                     Modifier
                         .padding(horizontal = 16.dp),
                 ) {
                     Column {
                         ServerActionsGroup {
-                            if (managing && canManage) {
+                            if (showManage && canManage) {
                                 ServerActionRow(
                                     AppIcons.Edit,
                                     "编辑服务器",

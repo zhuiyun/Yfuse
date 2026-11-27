@@ -43,6 +43,7 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MediaSharedElementKey
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.Poster
+import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.SectionHeader
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.motionItemsIndexed
@@ -79,7 +80,12 @@ internal fun GenreSection(
                     modifier =
                         Modifier
                             .let { base ->
-                                if (onGenreClick != null) base.pressable { onGenreClick(genre) } else base
+                                if (onGenreClick != null) {
+                                    base.pressable(onClickLabel = "按${genreDisplayLabel(genre)}筛选") { onGenreClick(genre) }
+                                        .touchTarget()
+                                } else {
+                                    base
+                                }
                             }.shadow(GlassLift.control, AppShapes.chip)
                             .liquidGlass(
                                 shape = AppShapes.chip,
@@ -161,11 +167,15 @@ internal fun ExternalLinksSection(
     if (links.isEmpty()) return
     Column(modifier) {
         SectionHeader("外部链接")
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             links.forEach { (label, url) ->
                 Row(
                     Modifier
-                        .pressable { runCatching { uriHandler.openUri(url) } }
+                        .pressable(onClickLabel = "打开$label") { runCatching { uriHandler.openUri(url) } }
+                        .touchTarget()
                         .shadow(GlassLift.control, AppShapes.chip)
                         .liquidGlass(
                             shape = AppShapes.chip,
@@ -345,7 +355,7 @@ internal fun CastRow(
                             Modifier
                                 .size(52.dp)
                                 .sharedMediaArtwork(sharedKey, CircleShape)
-                                .border(1.dp, Color.White.copy(alpha = 0.88f), CircleShape),
+                                .border(1.dp, palette.border, CircleShape),
                     )
                     Spacer(Modifier.height(6.dp))
                     Text(

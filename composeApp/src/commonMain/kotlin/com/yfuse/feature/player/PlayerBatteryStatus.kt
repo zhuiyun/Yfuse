@@ -88,7 +88,7 @@ internal fun PlayerBatteryStatus() {
         }
         ThemeText(
             "${current.percent}%",
-            style = AppTypography.caption.strong,
+            style = AppTypography.caption.strong.copy(shadow = PlayerVideoTextShadow),
             color = color,
             maxLines = 1,
         )

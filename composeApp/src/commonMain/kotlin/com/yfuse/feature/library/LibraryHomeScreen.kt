@@ -1202,10 +1202,10 @@ private fun LibraryCategoryCard(
     val palette = LocalPalette.current
     Box(
         Modifier
-            .width(148.dp)
-            .height(88.dp)
+            .width(162.dp)
+            .height(96.dp)
             .pressable(onClick = onClick)
-            .clip(AppShapes.card)
+            .clip(AppShapes.thumb)
             .background(
                 if (coverUrl == null && fallbackIcon != null) {
                     // A guaranteed-dark plate in both themes, for the white glyph below —
@@ -1427,12 +1427,12 @@ private fun PlaybackHistoryCard(
 
     Box(
         Modifier
-            .width(220.dp)
-            .height(124.dp)
+            .width(MediaSizing.landscapeCardWidth)
+            .height(MediaSizing.landscapeCardHeight)
             .liftable(menu = { liftMenu().withArtwork(artworkUrls) }, anchor = artwork, onOpen = open)
             .pressable(onClickLabel = "查看 ${item.title} 详情", onClick = open)
-            .clip(AppShapes.card)
-            .border(1.dp, Color.White.copy(alpha = 0.14f), AppShapes.card)
+            .clip(AppShapes.thumb)
+            .border(1.dp, Color.White.copy(alpha = 0.14f), AppShapes.thumb)
             .liftAnchor(artwork),
     ) {
         Poster(

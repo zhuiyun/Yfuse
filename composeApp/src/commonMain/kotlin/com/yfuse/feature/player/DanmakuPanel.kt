@@ -217,7 +217,7 @@ internal fun DanmakuTab(
         Text(
             state.matchLabel ?: if (state.searchable) "点击搜索" else "当前来源不可搜索",
             style = AppTypography.caption.medium,
-            color = Color.White.copy(alpha = 0.48f),
+            color = Color.White.copy(alpha = 0.70f),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(horizontal = 5.dp, vertical = 5.dp),

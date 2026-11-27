@@ -95,6 +95,12 @@ internal fun PlaybackErrorSurface(
 ) {
     val primaryFocus = remember { FocusRequester() }
     var retrying by remember(message) { mutableStateOf(false) }
+    LaunchedEffect(retrying) {
+        if (retrying) {
+            kotlinx.coroutines.delay(3_500L)
+            retrying = false
+        }
+    }
     LaunchedEffect(primaryFocus, message) {
         withFrameNanos { }
         runCatching { primaryFocus.requestFocus() }

@@ -14,6 +14,7 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -69,6 +70,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -105,6 +107,7 @@ import com.yfuse.core.designsystem.LiftMenuState
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalLiftMenu
+import com.yfuse.core.designsystem.LocalMotionBudget
 import com.yfuse.core.designsystem.LocalOverlayVisibility
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalPosterCaptionsVisible
@@ -512,6 +515,19 @@ fun App(root: RootComponent) {
                                     animationSpec = tween(dockExit, easing = Motion.Curve),
                                     targetOffsetY = dockExitTravel,
                                 )
+                        var quickDockAction by remember { mutableStateOf<DockQuickAction?>(null) }
+                        LaunchedEffect(active, dockShown) {
+                            if (!dockShown) quickDockAction = null
+                        }
+                        if (quickDockAction != null) {
+                            Box(
+                                Modifier
+                                    .fillMaxSize()
+                                    .pointerInput(Unit) {
+                                        detectTapGestures { quickDockAction = null }
+                                    },
+                            )
+                        }
                         AnimatedVisibility(
                             visible = dockShown,
                             // The one piece of furniture that stays still across the whole app
@@ -548,11 +564,7 @@ fun App(root: RootComponent) {
                             // Still composed while it slides away, but no longer the bar: a tap on the
                             // current tab in those 280ms popped the page that had just been pushed.
                             val dockWanted by rememberUpdatedState(dockShown)
-                            var quickDockAction by remember { mutableStateOf<DockQuickAction?>(null) }
                             val serversState by root.servers.store.states.collectAsState(root.servers.store.state)
-                            LaunchedEffect(active, dockShown) {
-                                if (!dockShown) quickDockAction = null
-                            }
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -1001,12 +1013,15 @@ private fun BottomNavigationDock(
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val calm = calmMotion()
+    val lowMotionBudget = LocalMotionBudget.current.reduced
     val liquidMotion = liquidMotionEnabled()
-    val tiltX = rememberDockTiltX(enabled = !reduceMotion && !collapsed)
+    val tiltEnabled = !reduceMotion && !calm && !lowMotionBudget && !collapsed && LocalRouteVisible.current
+    val tiltX = rememberDockTiltX(enabled = tiltEnabled)
     var reselectTick by remember { mutableStateOf(0) }
     val reselectDip = remember { androidx.compose.animation.core.Animatable(0f) }
     LaunchedEffect(reselectTick) {
-        if (reselectTick > 0 && !reduceMotion) {
+        if (reselectTick > 0 && !reduceMotion && !calm) {
             reselectDip.snapTo(1f)
             reselectDip.animateTo(
                 0f,
@@ -1153,7 +1168,7 @@ private fun BottomNavigationDock(
                         ).dockGyroSpecularSheen(
                             tiltX = tiltX,
                             dark = palette.isDark,
-                            enabled = !reduceMotion && !collapsed,
+                            enabled = tiltEnabled,
                         ).navigationDockViewport(dockWidth, expandedWidth),
                 contentAlignment = Alignment.CenterStart,
                 transitionSpec = {
@@ -1162,7 +1177,7 @@ private fun BottomNavigationDock(
                     val arriving =
                         fadeIn(Motion.tween(duration)) + scaleIn(Motion.tween(duration), initialScale = 0.96f)
                     val leaving =
-                        fadeOut(Motion.tween(quick)) + scaleOut(Motion.tween(duration), targetScale = 0.98f)
+                        fadeOut(Motion.tween(quick)) + scaleOut(Motion.tween(quick), targetScale = 0.98f)
                     (arriving togetherWith leaving).using(null)
                 },
                 label = "navigationDockContent",
@@ -1325,25 +1340,35 @@ private fun SearchButton(
         animationSpec = Motion.settle<Color>(reduceMotion),
         label = "searchTint",
     )
-    val islandAlpha by animateFloatAsState(
-        targetValue = if (selected) 1f else 0f,
-        animationSpec = Motion.settle<Float>(reduceMotion),
-        label = "searchIsland",
-    )
+    val islandAlphaState =
+        animateFloatAsState(
+            targetValue = if (selected) 1f else 0f,
+            animationSpec = Motion.settle<Float>(reduceMotion),
+            label = "searchIsland",
+        )
+    val calm = calmMotion()
+    val lowMotionBudget = LocalMotionBudget.current.reduced
+    val searchMotionEnabled = !reduceMotion && !calm && !lowMotionBudget && LocalRouteVisible.current
     // Expressive magnifier wiggle on select / reselect.
     val wiggle = remember { androidx.compose.animation.core.Animatable(0f) }
-    LaunchedEffect(selected, reselectTick) {
-        if ((selected || reselectTick > 0) && !reduceMotion) {
+    LaunchedEffect(selected, reselectTick, searchMotionEnabled) {
+        if ((selected || reselectTick > 0) && searchMotionEnabled) {
+            try {
+                wiggle.snapTo(0f)
+                wiggle.animateTo(-14f, Motion.tween(90))
+                wiggle.animateTo(8f, Motion.tween(110))
+                wiggle.animateTo(
+                    0f,
+                    androidx.compose.animation.core.spring(
+                        dampingRatio = 0.55f,
+                        stiffness = androidx.compose.animation.core.Spring.StiffnessMedium,
+                    ),
+                )
+            } finally {
+                if (wiggle.value != 0f) wiggle.snapTo(0f)
+            }
+        } else if (wiggle.value != 0f) {
             wiggle.snapTo(0f)
-            wiggle.animateTo(-14f, tween(90))
-            wiggle.animateTo(8f, tween(110))
-            wiggle.animateTo(
-                0f,
-                androidx.compose.animation.core.spring(
-                    dampingRatio = 0.55f,
-                    stiffness = androidx.compose.animation.core.Spring.StiffnessMedium,
-                ),
-            )
         }
     }
     Box(
@@ -1377,7 +1402,7 @@ private fun SearchButton(
             .then(if (drawShell) Modifier.navigationGlass(backdrop, CircleShape) else Modifier)
             .then(
                 if (tiltX != null && !inKey) {
-                    Modifier.dockGyroSpecularSheen(tiltX = tiltX, dark = palette.isDark, enabled = !reduceMotion)
+                    Modifier.dockGyroSpecularSheen(tiltX = tiltX, dark = palette.isDark, enabled = searchMotionEnabled)
                 } else {
                     Modifier
                 },
@@ -1388,7 +1413,7 @@ private fun SearchButton(
                 scaleX = frame.dropScale
                 scaleY = frame.dropScale
             }.drawBehind {
-                val shown = islandAlpha * (dockLiquid?.frame()?.glyph ?: 1f)
+                val shown = islandAlphaState.value * (dockLiquid?.frame()?.glyph ?: 1f)
                 if (shown <= 0f) return@drawBehind
                 // The island sits just inside the rim, as the tab pill sits inside the bar.
                 val inset = SEARCH_ISLAND_INSET.toPx()
@@ -1459,7 +1484,7 @@ internal fun GlassTabBar(
     val tabs = LocalNavigationTabs.current
     val selectedIndex = tabs.indexOfFirst { it.tab == active }
     val hasSelection = selectedIndex >= 0
-    val enhanced = LocalPulseSweepEnabled.current || !reduceMotion
+    val enhanced = LocalPulseSweepEnabled.current && !reduceMotion
     val highlights = !LocalAccessibilityOptions.current.reduceTransparency && !reduceMotion
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val liquidMotion =
@@ -1587,11 +1612,15 @@ internal fun GlassTabBar(
         tabs.forEachIndexed { index, item ->
             val isSelected = active == item.tab
             val hoverScale =
-                dockLensHoverScale(
-                    tabIndex = index,
-                    lensCenterIndex = lensCenterIndex,
-                    dragging = liquidMotion?.dragging == true,
-                )
+                if (reduceMotion) {
+                    1f
+                } else {
+                    dockLensHoverScale(
+                        tabIndex = index,
+                        lensCenterIndex = lensCenterIndex,
+                        dragging = liquidMotion?.dragging == true,
+                    )
+                }
             TabButton(
                 item = item,
                 selected = isSelected,
@@ -1699,53 +1728,64 @@ private fun LiquidGlassTabIcon(
 ) {
     // No lift-and-settle on the selected glyph under 静息 either.
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion || calmMotion()
-    val emphasis by animateFloatAsState(
-        targetValue = if (selected) 1f else 0f,
-        animationSpec = Motion.tabIcon(reduceMotion),
-        label = "tabSelectionScale",
-    )
+    val emphasisState =
+        animateFloatAsState(
+            targetValue = if (selected) 1f else 0f,
+            animationSpec = Motion.tabIcon(reduceMotion),
+            label = "tabSelectionScale",
+        )
     val microRotation = remember { androidx.compose.animation.core.Animatable(0f) }
     val microBounce = remember { androidx.compose.animation.core.Animatable(0f) }
-    LaunchedEffect(selected, reselectTick) {
-        if (!selected || reduceMotion) return@LaunchedEffect
-        when (item.tab) {
-            Tab.Watching -> {
-                microRotation.snapTo(0f)
-                microRotation.animateTo(
-                    -360f,
-                    androidx.compose.animation.core.spring(
-                        dampingRatio = 0.72f,
-                        stiffness = androidx.compose.animation.core.Spring.StiffnessLow,
-                    ),
-                )
-                microRotation.snapTo(0f)
+    LaunchedEffect(selected, reselectTick, reduceMotion) {
+        if (!selected || reduceMotion) {
+            if (microRotation.value != 0f) microRotation.snapTo(0f)
+            if (microBounce.value != 0f) microBounce.snapTo(0f)
+            return@LaunchedEffect
+        }
+        try {
+            when (item.tab) {
+                Tab.Watching -> {
+                    microRotation.snapTo(0f)
+                    microRotation.animateTo(
+                        -360f,
+                        androidx.compose.animation.core.spring(
+                            dampingRatio = 0.72f,
+                            stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow,
+                        ),
+                    )
+                    microRotation.snapTo(0f)
+                }
+                Tab.Servers -> {
+                    microBounce.snapTo(0f)
+                    microBounce.animateTo(1f, Motion.tween(100))
+                    microBounce.animateTo(
+                        0f,
+                        androidx.compose.animation.core.spring(
+                            dampingRatio = 0.50f,
+                            stiffness = androidx.compose.animation.core.Spring.StiffnessMedium,
+                        ),
+                    )
+                }
+                else -> {
+                    microBounce.snapTo(0f)
+                    microBounce.animateTo(1f, Motion.tween(95))
+                    microBounce.animateTo(
+                        0f,
+                        androidx.compose.animation.core.spring(
+                            dampingRatio = 0.58f,
+                            stiffness = androidx.compose.animation.core.Spring.StiffnessMedium,
+                        ),
+                    )
+                }
             }
-            Tab.Servers -> {
-                microBounce.snapTo(0f)
-                microBounce.animateTo(1f, tween(100))
-                microBounce.animateTo(
-                    0f,
-                    androidx.compose.animation.core.spring(
-                        dampingRatio = 0.50f,
-                        stiffness = androidx.compose.animation.core.Spring.StiffnessMedium,
-                    ),
-                )
-            }
-            else -> {
-                microBounce.snapTo(0f)
-                microBounce.animateTo(1f, tween(95))
-                microBounce.animateTo(
-                    0f,
-                    androidx.compose.animation.core.spring(
-                        dampingRatio = 0.58f,
-                        stiffness = androidx.compose.animation.core.Spring.StiffnessMedium,
-                    ),
-                )
-            }
+        } finally {
+            if (microRotation.value != 0f) microRotation.snapTo(0f)
+            if (microBounce.value != 0f) microBounce.snapTo(0f)
         }
     }
     Box(
         Modifier.size(DockIconBox).graphicsLayer {
+            val emphasis = emphasisState.value
             val bounceScale = if (item.tab == Tab.Servers) 0.14f * microBounce.value else 0.08f * microBounce.value
             val totalScale = (1f + 0.10f * emphasis + bounceScale) * hoverScale
             scaleX = totalScale

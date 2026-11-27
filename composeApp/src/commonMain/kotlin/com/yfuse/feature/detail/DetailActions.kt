@@ -220,9 +220,13 @@ internal fun DetailActionDock(
             Modifier
         } else {
             Modifier
-                .shadow(GlassLift.key, AppShapes.card)
-                .clip(AppShapes.card)
-                .background(actionKeyBrush(accent))
+                .shadow(GlassLift.key, CircleShape)
+                .liquidGlass(
+                    shape = CircleShape,
+                    fill = accent.copy(alpha = 0.72f),
+                    border = Color.White.copy(alpha = 0.34f),
+                    sheen = 0.88f,
+                )
         }
     // The label changes back to 播放 once the drop is on its way in, and the resume time goes with it.
     val merging = liquidMotion && twoKeys && !canPlayFromStart
@@ -276,10 +280,10 @@ internal fun DetailActionDock(
                     .playerHandoffKey(corner = 16.dp, tint = accent, ink = actionInk)
                     .softActionSurface(playInteractions, enabled = !resolving)
                     .then(keyBody)
-                    .waitingPulse(active = resolving, shape = AppShapes.card, color = actionInk)
+                    .waitingPulse(active = resolving, shape = CircleShape, color = actionInk)
                     .softSelectionSurface(
                         interactionSource = playInteractions,
-                        shape = AppShapes.card,
+                        shape = CircleShape,
                         pressedColor = pressedWash,
                         enabled = !resolving,
                     ).pressable(
@@ -571,7 +575,7 @@ internal fun shouldWrapDetailActionKeys(
     keyCount: Int,
     maxWidthDp: Float,
     fontScale: Float,
-): Boolean = keyCount >= 4 && (maxWidthDp < 340f || fontScale >= 1.25f)
+): Boolean = keyCount >= 5 && (maxWidthDp < 280f || fontScale >= 1.45f)
 
 @Composable
 internal fun DetailActionKeyRow(
@@ -619,57 +623,77 @@ private fun DetailActionKeyTile(
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalPalette.current
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val on = action.checked == true
     val selection = rememberGlassSelectionStyle(accent)
-    val ink = if (on) selection.contentColor else palette.body
-    val surface =
-        if (on) {
-            Modifier.glassSelection(AppShapes.card, selection)
-        } else {
-            Modifier.liquidGlass(
-                shape = AppShapes.card,
-                fill = Color.White.copy(alpha = if (palette.isDark) 0.075f else 0.20f),
-                border = Color.White.copy(alpha = if (palette.isDark) 0.14f else 0.22f),
-                sheen = 0.72f,
-            )
-        }
+    val ink by androidx.compose.animation.animateColorAsState(
+        targetValue = if (on) selection.contentColor else palette.text.copy(alpha = 0.90f),
+        animationSpec = Motion.settle(reduceMotion),
+        label = "detailActionKeyInk",
+    )
+    val labelColor by androidx.compose.animation.animateColorAsState(
+        targetValue = if (on) palette.text else palette.sub,
+        animationSpec = Motion.settle(reduceMotion),
+        label = "detailActionKeyLabel",
+    )
+    val circleFill by androidx.compose.animation.animateColorAsState(
+        targetValue =
+            if (on) {
+                selection.middle
+            } else {
+                Color.White.copy(alpha = if (palette.isDark) 0.10f else 0.22f)
+            },
+        animationSpec = Motion.settle(reduceMotion),
+        label = "detailActionKeyFill",
+    )
+    val circleBorder by androidx.compose.animation.animateColorAsState(
+        targetValue =
+            if (on) {
+                selection.rimTop
+            } else {
+                Color.White.copy(alpha = if (palette.isDark) 0.18f else 0.28f)
+            },
+        animationSpec = Motion.settle(reduceMotion),
+        label = "detailActionKeyBorder",
+    )
     Column(
         modifier
-            .heightIn(min = DetailActionKeyHeight)
             .graphicsLayer { alpha = glassButtonAlpha(action.enabled) }
             .pressable(
                 enabled = action.enabled && !action.busy,
                 pressedScale = PressFeedback.QUIET,
                 lightFeedback = false,
-                // A switch changes in place and navigates nowhere, so the tap is felt as well as seen.
                 haptic = HapticSignal.Confirm.takeIf { action.checked != null },
                 role = if (action.checked == null) Role.Button else Role.Checkbox,
                 label = action.description,
+                focusShape = CircleShape,
                 onClick = action.onClick,
             ).semantics {
                 action.checked?.let { toggleableState = ToggleableState(it) }
                 action.stateDescription?.let { stateDescription = it }
-            }.shadow(GlassLift.control, AppShapes.card)
-            .then(surface)
-            .then(
-                if (action.completed !=
-                    null
-                ) {
-                    Modifier.completionEdge(action.completionOwner, action.completed)
-                } else {
-                    Modifier
-                },
-            ).waitingPulse(active = action.busy, shape = AppShapes.card, color = if (on) ink else accent)
-            .padding(horizontal = 4.dp, vertical = 7.dp),
+            }.padding(vertical = 2.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
+        verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterVertically),
     ) {
         Box(
-            Modifier.size(26.dp),
+            Modifier
+                .size(DetailActionCircleSize)
+                .liquidGlass(
+                    shape = CircleShape,
+                    fill = circleFill,
+                    border = circleBorder,
+                    sheen = if (on) 0.86f else 0.72f,
+                ).then(
+                    if (action.completed != null) {
+                        Modifier.completionEdge(action.completionOwner, action.completed)
+                    } else {
+                        Modifier
+                    },
+                ).waitingPulse(active = action.busy, shape = CircleShape, color = if (on) ink else accent),
             contentAlignment = Alignment.Center,
         ) {
             if (action.checked == null) {
-                Icon(action.icon, contentDescription = null, tint = ink, modifier = Modifier.size(15.dp))
+                Icon(action.icon, contentDescription = null, tint = ink, modifier = Modifier.size(17.dp))
             } else {
                 BurstIcon(
                     icon = if (on) action.checkedIcon ?: action.icon else action.icon,
@@ -684,7 +708,7 @@ private fun DetailActionKeyTile(
         Text(
             action.label,
             style = if (on) AppTypography.caption.strong else AppTypography.caption.medium,
-            color = if (on) ink else palette.text,
+            color = labelColor,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             // The key already carries its name; the label is not read out a second time.
@@ -693,8 +717,8 @@ private fun DetailActionKeyTile(
     }
 }
 
-/** The icon well, the label and their padding — and never under the 48dp a finger needs. */
-private val DetailActionKeyHeight = 58.dp
+/** Apple TV+ / Infuse style circular glass key diameter for 收藏 / 稍后看 / 已看 / 下载 / 预告片. */
+private val DetailActionCircleSize = 42.dp
 
 // ---------------------------------------------------------------- sections
 

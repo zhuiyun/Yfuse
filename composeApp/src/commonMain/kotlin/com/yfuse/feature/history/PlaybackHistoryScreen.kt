@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
@@ -33,6 +34,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
@@ -43,6 +45,7 @@ import com.yfuse.app.systemNavigationContentInset
 import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
+import com.yfuse.core.designsystem.pressableTarget
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.HapticSignal
@@ -586,11 +589,11 @@ private fun HistorySearchAndFilterBar(
             Modifier
                 .fillMaxWidth()
                 .padding(horizontal = Dimens.pageHorizontal)
-                .height(40.dp)
+                .heightIn(min = 48.dp)
                 .clip(AppShapes.pill)
                 .background(palette.text.copy(alpha = if (palette.isDark) 0.08f else 0.055f))
                 .border(1.dp, palette.border.copy(alpha = if (palette.isDark) 0.5f else 0.7f), AppShapes.pill)
-                .padding(horizontal = 12.dp),
+                .padding(start = 12.dp, end = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -605,19 +608,26 @@ private fun HistorySearchAndFilterBar(
                     singleLine = true,
                     textStyle = AppTypography.caption.medium.copy(color = palette.text),
                     cursorBrush = SolidColor(accent),
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .semantics { contentDescription = "搜索观看记录或服务器" },
                 )
             }
             if (query.isNotEmpty()) {
-                Icon(
-                    AppIcons.Close,
-                    contentDescription = "清除搜索",
-                    tint = palette.sub,
-                    modifier =
-                        Modifier
-                            .size(16.dp)
-                            .pressable(onClickLabel = "清除搜索") { onQueryChange("") },
-                )
+                Box(
+                    Modifier
+                        .size(48.dp)
+                        .pressable(focusShape = CircleShape, onClickLabel = "清除搜索") { onQueryChange("") },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        AppIcons.Close,
+                        contentDescription = "清除搜索",
+                        tint = palette.sub,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
             }
         }
         LazyRow(
@@ -633,7 +643,12 @@ private fun HistorySearchAndFilterBar(
                     color = if (selected) accent else palette.sub,
                     modifier =
                         Modifier
-                            .clip(AppShapes.pill)
+                            .pressableTarget(
+                                shape = AppShapes.pill,
+                                role = Role.RadioButton,
+                                haptic = HapticSignal.Select,
+                                onClick = { onFilterChange(item) },
+                            ).clip(AppShapes.pill)
                             .background(
                                 if (selected) {
                                     accent.copy(alpha = if (palette.isDark) 0.22f else 0.12f)
@@ -644,11 +659,6 @@ private fun HistorySearchAndFilterBar(
                                 1.dp,
                                 if (selected) accent.copy(alpha = 0.55f) else palette.border.copy(alpha = 0.45f),
                                 AppShapes.pill,
-                            ).pressable(
-                                role = Role.RadioButton,
-                                haptic = HapticSignal.Select,
-                                focusShape = AppShapes.pill,
-                                onClick = { onFilterChange(item) },
                             ).semantics { this.selected = selected }
                             .padding(horizontal = 12.dp, vertical = 6.dp),
                 )

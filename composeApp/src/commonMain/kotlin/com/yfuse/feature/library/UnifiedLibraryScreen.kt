@@ -297,10 +297,11 @@ internal fun LibraryAction(
     enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
+    val palette = LocalPalette.current
     Text(
         if (selected) "✓ $label" else label,
         style = AppTypography.caption.strong,
-        color = LocalAccentColors.current.accent,
+        color = if (enabled) LocalAccentColors.current.accent else palette.sub2.copy(alpha = 0.5f),
         modifier =
             Modifier
                 .pressable(

@@ -152,7 +152,20 @@ private fun PlaybackHistoryRow.workKeys(): Set<String> {
     val episode =
         media.mediaType.equals("episode", true) || session?.isEpisode == true || metadata?.item?.seriesId != null
     val series = episode || media.mediaType.lowercase() in setOf("series", "tv")
-    if (!series) return setOf(media.identity)
+    val normalizedTitle = title.normalizedHistoryTitleKey()
+    val serverScope = server?.id ?: media.serverId
+    if (!series) {
+        return buildSet {
+            add(media.identity)
+            media.mediaKey.externalSeriesKey()?.let { add("movie-provider:$it") }
+            metadata?.item?.providerIds?.forEach { (provider, id) ->
+                "$provider:$id".externalSeriesKey()?.let { add("movie-provider:$it") }
+            }
+            if (normalizedTitle != null && !serverScope.isNullOrBlank()) {
+                add("movie-server-title:$serverScope:$normalizedTitle")
+            }
+        }
+    }
     return buildSet {
         add("series-item:${media.identity}")
         val providerKey = if (episode) parseEpisodeWatchKey(media.mediaKey)?.seriesKey else media.mediaKey
@@ -170,7 +183,24 @@ private fun PlaybackHistoryRow.workKeys(): Set<String> {
         if (!seriesItemId.isNullOrBlank() && !media.serverId.isNullOrBlank()) {
             add("series-server:${server?.id ?: media.serverId}:$seriesItemId")
         }
+        // Merge duplicate rows of the same show on the same server immediately on first render
+        // (before async Emby metadata arrives), without falsely merging unrelated local-only
+        // shows across different servers that lack shared provider IDs.
+        if (normalizedTitle != null && !serverScope.isNullOrBlank()) {
+            add("series-server-title:$serverScope:$normalizedTitle")
+        }
     }
+}
+
+private val GenericEpisodeOnlyRegex = Regex("""^(第\s*\d+\s*集|ep?\s*\d+|s\d+\s*e\d+)$""", RegexOption.IGNORE_CASE)
+
+private fun String.normalizedHistoryTitleKey(): String? {
+    val cleaned =
+        trim()
+            .lowercase()
+            .replace(Regex("""\s+"""), " ")
+    if (cleaned.isEmpty() || GenericEpisodeOnlyRegex.matches(cleaned)) return null
+    return cleaned
 }
 
 private fun String.externalSeriesKey(): String? =

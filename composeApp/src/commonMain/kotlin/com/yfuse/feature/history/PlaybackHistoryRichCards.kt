@@ -34,6 +34,7 @@ import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MediaSharedElementKey
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.pressableTarget
 import com.yfuse.core.designsystem.sharedMediaArtwork
 import com.yfuse.core.designsystem.sharedMediaOnClick
 import kotlin.math.roundToInt
@@ -230,15 +231,14 @@ internal fun PlaybackHistoryRichRowCard(
                 val playBorder = accent.copy(alpha = if (palette.isDark) 0.36f else 0.24f)
                 Box(
                     Modifier
-                        .size(38.dp)
+                        .pressableTarget(
+                            shape = CircleShape,
+                            onClickLabel = if (entry.completed) "重新播放${row.title}" else "继续播放${row.title}",
+                            onClick = onContinue,
+                        ).size(38.dp)
                         .clip(CircleShape)
                         .background(playFill.compositeOver(cardSurface))
-                        .border(0.75.dp, playBorder, CircleShape)
-                        .pressable(
-                            onClickLabel = if (entry.completed) "重新播放" else "继续播放",
-                            focusShape = CircleShape,
-                            onClick = onContinue,
-                        ),
+                        .border(0.75.dp, playBorder, CircleShape),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(AppIcons.Play, null, tint = accent, modifier = Modifier.size(16.dp))

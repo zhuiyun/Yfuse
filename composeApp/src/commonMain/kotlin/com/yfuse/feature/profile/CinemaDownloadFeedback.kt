@@ -30,8 +30,9 @@ internal fun CinemaDownloadMark(
     status: DownloadStatus,
     color: Color,
 ) {
-    val progress = cinemaChangeProgress(status)
     if (!cinemaMotion()) return
+    val progress = cinemaChangeProgress(status)
+    val playPath = androidx.compose.runtime.remember { Path() }
     AnimatedContent(
         targetState = status,
         transitionSpec = {
@@ -90,16 +91,14 @@ internal fun CinemaDownloadMark(
                         StrokeCap.Round,
                     )
                 }
-                else ->
-                    drawPath(
-                        Path().apply {
-                            moveTo(size.width * 0.28f, size.height * 0.18f)
-                            lineTo(size.width * 0.82f, size.height * 0.5f)
-                            lineTo(size.width * 0.28f, size.height * 0.82f)
-                            close()
-                        },
-                        color,
-                    )
+                else -> {
+                    playPath.rewind()
+                    playPath.moveTo(size.width * 0.28f, size.height * 0.18f)
+                    playPath.lineTo(size.width * 0.82f, size.height * 0.5f)
+                    playPath.lineTo(size.width * 0.28f, size.height * 0.82f)
+                    playPath.close()
+                    drawPath(playPath, color)
+                }
             }
         }
     }

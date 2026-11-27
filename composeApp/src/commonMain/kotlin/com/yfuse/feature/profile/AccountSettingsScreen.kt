@@ -459,40 +459,72 @@ private fun SignedInAccountCard(
                             sheen = 0.48f,
                         ).padding(12.dp),
             ) {
+                var passwordsVisible by remember { mutableStateOf(false) }
+                var passwordFormError by remember { mutableStateOf<String?>(null) }
                 YfFormField(
                     value = currentPassword,
-                    onValueChange = { currentPassword = it.take(128) },
+                    onValueChange = {
+                        currentPassword = it.take(128)
+                        passwordFormError = null
+                    },
                     label = "当前密码",
-                    visualTransformation = PasswordVisualTransformation(),
+                    visualTransformation =
+                        if (passwordsVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailingIcon = AppIcons.Eye,
+                    trailingIconContentDescription = if (passwordsVisible) "隐藏密码" else "显示密码",
+                    onTrailingIconClick = { passwordsVisible = !passwordsVisible },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     enabled = !busy,
                 )
                 Spacer(Modifier.height(9.dp))
                 YfFormField(
                     value = newPassword,
-                    onValueChange = { newPassword = it.take(128) },
+                    onValueChange = {
+                        newPassword = it.take(128)
+                        passwordFormError = null
+                    },
                     label = "新密码（至少 $MIN_PASSWORD_LENGTH 位）",
-                    visualTransformation = PasswordVisualTransformation(),
+                    visualTransformation =
+                        if (passwordsVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailingIcon = AppIcons.Eye,
+                    trailingIconContentDescription = if (passwordsVisible) "隐藏密码" else "显示密码",
+                    onTrailingIconClick = { passwordsVisible = !passwordsVisible },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     enabled = !busy,
                 )
                 Spacer(Modifier.height(9.dp))
                 YfFormField(
                     value = confirmPassword,
-                    onValueChange = { confirmPassword = it.take(128) },
+                    onValueChange = {
+                        confirmPassword = it.take(128)
+                        passwordFormError = null
+                    },
                     label = "确认新密码",
-                    visualTransformation = PasswordVisualTransformation(),
+                    visualTransformation =
+                        if (passwordsVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailingIcon = AppIcons.Eye,
+                    trailingIconContentDescription = if (passwordsVisible) "隐藏密码" else "显示密码",
+                    onTrailingIconClick = { passwordsVisible = !passwordsVisible },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     enabled = !busy,
                 )
+                passwordFormError?.let { error ->
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        error,
+                        style = AppTypography.caption.medium,
+                        color = palette.error,
+                    )
+                }
                 Spacer(Modifier.height(10.dp))
                 YfButton(
                     label = "确认修改密码",
                     onClick = {
                         if (newPassword != confirmPassword) {
-                            localError = "两次输入的新密码不一致"
+                            passwordFormError = "两次输入的新密码不一致"
                         } else {
                             busy = true
+                            passwordFormError = null
                             localError = null
                             val currentSecret = currentPassword.toCharArray()
                             val newSecret = newPassword.toCharArray()
@@ -502,7 +534,7 @@ private fun SignedInAccountCard(
                             scope.launch {
                                 val result = account.changePassword(currentSecret, newSecret)
                                 result.exceptionOrNull()?.let {
-                                    localError = it.message ?: "修改密码失败"
+                                    passwordFormError = it.message ?: "修改密码失败"
                                 }
                                 if (result.isSuccess) showPasswordForm = false
                                 busy = false
@@ -563,12 +595,17 @@ private fun SignedInAccountCard(
                 },
             )
             if (showUpgradeForm) {
+                var upgradePasswordVisible by remember { mutableStateOf(false) }
                 Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
                     YfFormField(
                         value = upgradePassword,
                         onValueChange = { upgradePassword = it.take(128) },
                         label = "当前密码",
-                        visualTransformation = PasswordVisualTransformation(),
+                        visualTransformation =
+                            if (upgradePasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = AppIcons.Eye,
+                        trailingIconContentDescription = if (upgradePasswordVisible) "隐藏密码" else "显示密码",
+                        onTrailingIconClick = { upgradePasswordVisible = !upgradePasswordVisible },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                         enabled = !busy,
                     )
@@ -692,6 +729,7 @@ private fun SignedInAccountCard(
     }
 
     Spacer(Modifier.height(14.dp))
+    var confirmLogout by remember { mutableStateOf(false) }
     AccountSectionCard(
         title = "账号操作",
         icon = AppIcons.User,
@@ -708,17 +746,27 @@ private fun SignedInAccountCard(
                     // notice below would have confirmed a sign-out that never happened.
                     onNotice("儿童资料不能退出 Yfuse 账号，请用家长 PIN 切换到成人资料")
                 } else {
-                    busy = true
-                    // Posted from the press rather than from the continuation: signing out replaces
-                    // this card with the signed-out one, and the scope that ran the call goes with
-                    // it. The repository clears the session locally either way.
-                    onNotice("已退出 Yfuse 账号")
-                    scope.launch {
-                        account.logout()
-                        busy = false
-                    }
+                    confirmLogout = true
                 }
             },
+        )
+    }
+    if (confirmLogout) {
+        ConfirmDialog(
+            title = "退出 Yfuse 账号？",
+            message = "退出后将暂停云端加密同步，本地已保存的数据不受影响。",
+            confirmLabel = "退出",
+            destructive = true,
+            onConfirm = {
+                confirmLogout = false
+                busy = true
+                onNotice("已退出 Yfuse 账号")
+                scope.launch {
+                    account.logout()
+                    busy = false
+                }
+            },
+            onDismiss = { confirmLogout = false },
         )
     }
 
@@ -804,27 +852,50 @@ private fun SignedInAccountCard(
                 color = palette.body,
             )
             Spacer(Modifier.height(10.dp))
+            var deletePasswordVisible by remember { mutableStateOf(false) }
+            var deletingAccount by remember { mutableStateOf(false) }
+            var deleteError by remember { mutableStateOf<String?>(null) }
             YfFormField(
                 value = deletePassword,
-                onValueChange = { deletePassword = it.take(128) },
+                onValueChange = {
+                    deletePassword = it.take(128)
+                    deleteError = null
+                },
                 label = "当前密码",
-                visualTransformation = PasswordVisualTransformation(),
+                visualTransformation =
+                    if (deletePasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                trailingIcon = AppIcons.Eye,
+                trailingIconContentDescription = if (deletePasswordVisible) "隐藏密码" else "显示密码",
+                onTrailingIconClick = { deletePasswordVisible = !deletePasswordVisible },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                enabled = !deletingAccount,
             )
+            deleteError?.let { error ->
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    error,
+                    style = AppTypography.caption.medium,
+                    color = palette.error,
+                )
+            }
             Spacer(Modifier.height(12.dp))
             YfButton(
                 label = "永久删除",
                 tone = YfButtonTone.Destructive,
                 modifier = Modifier.fillMaxWidth(),
-                enabled = deletePassword.isNotEmpty(),
+                enabled = !deletingAccount && deletePassword.isNotEmpty(),
+                loading = deletingAccount,
                 onClick = {
                     val password = deletePassword.toCharArray()
                     deletePassword = ""
-                    confirmDeleteAccount = false
+                    deletingAccount = true
+                    deleteError = null
                     scope.launch {
                         account
                             .deleteAccount(password)
-                            .onFailure { localError = it.message ?: "账号删除失败" }
+                            .onSuccess { confirmDeleteAccount = false }
+                            .onFailure { deleteError = it.message ?: "账号删除失败" }
+                        deletingAccount = false
                     }
                 },
             )

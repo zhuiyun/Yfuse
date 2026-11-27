@@ -203,7 +203,7 @@ private fun EpisodeHeader(
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             if (onOpenCalendar != null) {
                 Box(
-                    Modifier.touchTarget().pressable(onClickLabel = "查看追剧日历", onClick = onOpenCalendar),
+                    Modifier.pressable(onClickLabel = "查看追剧日历", onClick = onOpenCalendar).touchTarget(),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
@@ -832,19 +832,19 @@ private fun EpisodeCard(
             .pressable(enabled = enabled, onClick = onPlay)
             .semantics { this.selected = selected }
             .solidGlass(
-                shape = AppShapes.card,
+                shape = AppShapes.thumb,
                 fill =
                     if (selected) {
-                        selectedHighlight.copy(alpha = if (palette.isDark) 0.24f else 0.30f)
+                        selectedHighlight.copy(alpha = if (palette.isDark) 0.22f else 0.28f)
                     } else if (palette.isDark) {
-                        palette.card
+                        Color.White.copy(alpha = 0.055f)
                     } else {
-                        Color.White.copy(alpha = 0.24f)
+                        Color.White.copy(alpha = 0.20f)
                     },
-                border = Color.Transparent,
+                border = Color.White.copy(alpha = if (palette.isDark) 0.10f else 0.22f),
             ).then(
                 if (selected) {
-                    Modifier.detailSelectionOutline(true, accent)
+                    Modifier.detailSelectionOutline(true, accent, AppShapes.thumb)
                 } else {
                     Modifier
                 },

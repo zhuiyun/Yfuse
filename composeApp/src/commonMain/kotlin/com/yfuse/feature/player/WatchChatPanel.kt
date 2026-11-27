@@ -164,7 +164,7 @@ internal fun WatchChatPanel(
                 Text(
                     "${participants.size} 人在线 · ${participants.count { it.ready }} 人就绪 · 最近 50 条",
                     style = AppTypography.caption.medium,
-                    color = Color.White.copy(alpha = 0.48f),
+                    color = Color.White.copy(alpha = 0.70f),
                 )
             }
             Row(
@@ -174,10 +174,15 @@ internal fun WatchChatPanel(
                 Text(
                     if (danmakuEnabled) "弹幕开" else "弹幕关",
                     style = AppTypography.caption.strong,
-                    color = if (danmakuEnabled) accent.accent else Color.White.copy(alpha = 0.48f),
+                    color = if (danmakuEnabled) accent.accent else Color.White.copy(alpha = 0.72f),
                     modifier =
                         Modifier
-                            .pressableTarget(AppShapes.thumb, onClick = onToggleDanmaku)
+                            .pressableTarget(
+                                shape = AppShapes.thumb,
+                                role = androidx.compose.ui.semantics.Role.Switch,
+                                onClickLabel = if (danmakuEnabled) "关闭房间弹幕" else "开启房间弹幕",
+                                onClick = onToggleDanmaku,
+                            )
                             .glass(
                                 AppShapes.thumb,
                                 if (danmakuEnabled) {
@@ -190,7 +195,7 @@ internal fun WatchChatPanel(
                 )
                 Box(
                     Modifier
-                        .size(44.dp)
+                        .size(48.dp)
                         .pressable(
                             onClickLabel = "关闭聊天",
                             onClick = overlayDismiss(onDismiss),

@@ -93,6 +93,14 @@ internal class PlayerChromeState {
         askingStillWatching = false
     }
 
+    /** Records activity (e.g. double-tap seek or brightness/volume drag) without forcing hidden chrome open. */
+    fun touchActivity() {
+        interactions++
+        lastInteraction = TimeSource.Monotonic.markNow()
+        unattendedAdvances = 0
+        askingStillWatching = false
+    }
+
     /** Brings the lock's own chrome up again; [explain] makes it say how to undo the lock. */
     fun revealLock(explain: Boolean) {
         if (explain) lockedExplained = true

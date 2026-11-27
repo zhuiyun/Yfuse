@@ -6,10 +6,10 @@ import kotlin.test.assertTrue
 
 class DetailActionKeyWrapTest {
     @Test
-    fun wrapsFourOrMoreKeysOnNarrowPaneOrLargeFontScale() {
-        assertTrue(shouldWrapDetailActionKeys(keyCount = 4, maxWidthDp = 320f, fontScale = 1.0f))
-        assertTrue(shouldWrapDetailActionKeys(keyCount = 4, maxWidthDp = 420f, fontScale = 1.3f))
-        assertFalse(shouldWrapDetailActionKeys(keyCount = 4, maxWidthDp = 420f, fontScale = 1.0f))
-        assertFalse(shouldWrapDetailActionKeys(keyCount = 3, maxWidthDp = 300f, fontScale = 1.4f))
+    fun keepsFiveCircularKeysSingleRowOnStandardPhonesAndWrapsOnlyExtremeCases() {
+        assertFalse(shouldWrapDetailActionKeys(keyCount = 5, maxWidthDp = 328f, fontScale = 1.0f))
+        assertFalse(shouldWrapDetailActionKeys(keyCount = 4, maxWidthDp = 300f, fontScale = 1.3f))
+        assertTrue(shouldWrapDetailActionKeys(keyCount = 5, maxWidthDp = 260f, fontScale = 1.0f))
+        assertTrue(shouldWrapDetailActionKeys(keyCount = 5, maxWidthDp = 420f, fontScale = 1.5f))
     }
 }

@@ -58,6 +58,7 @@ import com.yfuse.core.designsystem.YfChip
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.pressableTarget
 import com.yfuse.core.designsystem.rememberDisclosureProgress
+import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.CalendarDay
@@ -157,18 +158,18 @@ fun CalendarScreen(component: CalendarComponent) {
                 if (state.section == CalendarSection.Schedule) {
                     Row(
                         Modifier
-                            .clip(AppShapes.pill)
+                            .pressableTarget(
+                                shape = AppShapes.pill,
+                                role = Role.Button,
+                                onClickLabel = if (filtersExpanded) "收起日历筛选" else "展开日历筛选",
+                                onClick = { filtersExpanded = !filtersExpanded },
+                            ).clip(AppShapes.pill)
                             .background(
                                 if (filtersExpanded || state.filter != CalendarFilter.All) {
                                     accent.accent.copy(alpha = if (palette.isDark) 0.22f else 0.12f)
                                 } else {
                                     palette.text.copy(alpha = if (palette.isDark) 0.09f else 0.06f)
                                 },
-                            ).pressable(
-                                role = Role.Button,
-                                onClickLabel = if (filtersExpanded) "收起日历筛选" else "展开日历筛选",
-                                focusShape = AppShapes.pill,
-                                onClick = { filtersExpanded = !filtersExpanded },
                             ).heightIn(min = 34.dp)
                             .padding(horizontal = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -243,7 +244,7 @@ fun CalendarScreen(component: CalendarComponent) {
                                     role = Role.Button,
                                     onClickLabel = if (changesExpanded) "收起排期调整" else "查看 ${scheduleChanges.size} 条排期调整",
                                     onClick = { changesExpanded = !changesExpanded },
-                                ),
+                                ).touchTarget(),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
@@ -492,7 +493,8 @@ private fun CalendarSectionBar(
                         role = Role.RadioButton,
                         focusShape = AppShapes.pill,
                         onClick = { onSelect(section) },
-                    ).semantics { this.selected = active },
+                    ).touchTarget()
+                    .semantics { this.selected = active },
                 contentAlignment = Alignment.Center,
             ) {
                 Text(

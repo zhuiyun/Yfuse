@@ -23,6 +23,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.yfuse.app.systemNavigationContentInset
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.OperationFeedback
@@ -104,13 +105,13 @@ private fun StremioPage(
                 LazyColumn(
                     Modifier.weight(1f),
                     state = listState,
-                    contentPadding = PaddingValues(top = 12.dp, bottom = 120.dp),
+                    contentPadding = PaddingValues(top = 12.dp, bottom = systemNavigationContentInset()),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     stremioStatus(state)
                     when {
                         !state.ready ->
-                            item {
+                            item(key = "stremio-retry") {
                                 StremioInset {
                                     YfButton(
                                         "重新读取",

@@ -405,7 +405,7 @@ private fun DetailQuickActionStrip(actions: List<DetailQuickAction>) {
     Row(
         Modifier
             .fillMaxWidth()
-            .height(82.dp)
+            .heightIn(min = 82.dp)
             .flatGlass(AppShapes.card, palette.card2, palette.border),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -424,7 +424,7 @@ private fun RowScope.DetailQuickActionItem(action: DetailQuickAction) {
     Column(
         Modifier
             .weight(1f)
-            .height(82.dp)
+            .heightIn(min = 82.dp)
             .pressable(role = Role.Button, onClick = overlayAction(action.onClick)),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,

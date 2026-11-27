@@ -566,13 +566,14 @@ fun DetailScreen(component: DetailComponent) {
                         },
                 )
             val detailSurface =
-                remember(sampledDetailPageColor, palette.isDark, palette.background) {
-                    sampledDetailPageColor?.let { artworkPageSurface(it, palette.isDark) } ?: palette.background
+                remember(sampledDetailPageColor) {
+                    sampledDetailPageColor?.let { com.yfuse.core.designsystem.cinemaArtworkPageSurface(it) }
+                        ?: com.yfuse.core.designsystem.DarkPalette.background
                 }
             val detailSurfaceState = rememberAnimatedColorState(detailSurface, Motion.ACCENT)
             val detailPlayColor =
-                remember(detailAccent, detailSurface, palette.isDark) {
-                    harmonizeDetailPlayButtonColor(detailAccent, detailSurface, palette.isDark)
+                remember(detailAccent, detailSurface) {
+                    harmonizeDetailPlayButtonColor(detailAccent, detailSurface, darkTheme = true)
                 }
 
             val detailPlayColorState = rememberAnimatedColorState(detailPlayColor)

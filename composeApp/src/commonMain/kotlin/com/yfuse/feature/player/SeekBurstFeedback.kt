@@ -48,6 +48,7 @@ internal fun SeekBurstFeedback(
     var finishedRevision by remember(itemKey) { mutableIntStateOf(0) }
     LaunchedEffect(revision, moving, pulse) {
         if (revision == 0 || !moving) {
+            active = false
             pulse.snapTo(1f)
         } else {
             active = true
@@ -60,6 +61,14 @@ internal fun SeekBurstFeedback(
     // Composed from the press that starts the pulse until the pulse ends, so [BurstIcon] is in
     // the tree before [active] turns on — it deliberately does not burst on its first frame.
     if (!moving || revision == 0 || revision == finishedRevision) return
+    val density = LocalDensity.current
+    val chevronPath = remember { Path() }
+    val innerRingStroke = remember(density) { Stroke(with(density) { 1.5.dp.toPx() }) }
+    val outerRingStroke = remember(density) { Stroke(with(density) { 1.dp.toPx() }) }
+    val chevronStroke =
+        remember(density) {
+            Stroke(width = with(density) { 2.dp.toPx() }, cap = StrokeCap.Round, join = StrokeJoin.Round)
+        }
     Canvas(Modifier.fillMaxSize()) {
         val t = pulse.value
         val remaining = (1f - t).coerceIn(0f, 1f)
@@ -83,31 +92,28 @@ internal fun SeekBurstFeedback(
             // Dual concentric ripples centered on tap point
             val radius = (24.dp.toPx() + 64.dp.toPx() * t).coerceAtMost(size.minDimension / 2f)
             drawCircle(Color.White.copy(alpha = 0.12f * remaining), radius, position)
-            drawCircle(Color.White.copy(alpha = 0.48f * remaining), radius, position, style = Stroke(1.5.dp.toPx()))
+            drawCircle(Color.White.copy(alpha = 0.48f * remaining), radius, position, style = innerRingStroke)
             val outerRadius = (36.dp.toPx() + 92.dp.toPx() * t).coerceAtMost(size.minDimension / 2f)
             drawCircle(
                 Color.White.copy(alpha = 0.22f * remaining * remaining),
                 outerRadius,
                 position,
-                style = Stroke(1.dp.toPx()),
+                style = outerRingStroke,
             )
             // Three staggered directional chevrons flowing outward from the tap point
             val dir = if (isRewind) -1f else 1f
             val chevronSize = 7.dp.toPx()
-            val stroke = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
             repeat(3) { index ->
                 val phase = (t * 1.35f - index * 0.18f).coerceIn(0f, 1f)
                 val chevronAlpha = kotlin.math.sin(phase * kotlin.math.PI).toFloat().coerceIn(0f, 1f) * remaining
                 if (chevronAlpha > 0.01f) {
                     val cx = position.x + dir * (28.dp.toPx() + index * 11.dp.toPx() + 14.dp.toPx() * t)
                     val cy = position.y
-                    val path =
-                        Path().apply {
-                            moveTo(cx - dir * chevronSize * 0.55f, cy - chevronSize)
-                            lineTo(cx + dir * chevronSize * 0.55f, cy)
-                            lineTo(cx - dir * chevronSize * 0.55f, cy + chevronSize)
-                        }
-                    drawPath(path, Color.White.copy(alpha = 0.85f * chevronAlpha), style = stroke)
+                    chevronPath.rewind()
+                    chevronPath.moveTo(cx - dir * chevronSize * 0.55f, cy - chevronSize)
+                    chevronPath.lineTo(cx + dir * chevronSize * 0.55f, cy)
+                    chevronPath.lineTo(cx - dir * chevronSize * 0.55f, cy + chevronSize)
+                    drawPath(chevronPath, Color.White.copy(alpha = 0.85f * chevronAlpha), style = chevronStroke)
                 }
             }
         }

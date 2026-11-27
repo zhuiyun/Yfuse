@@ -26,6 +26,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
@@ -97,22 +100,29 @@ internal fun RandomPickDialog(
         mutableStateOf(candidates.randomOrNull(Random(System.currentTimeMillis())))
     }
     val flip = remember { Animatable(0f) }
+    val sweep = remember { Animatable(1f) }
+
+    var rollJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
 
     fun reroll() {
         if (candidates.isEmpty()) return
         haptics.play(HapticSignal.Tap)
-        scope.launch {
-            if (!reduceMotion) {
-                flip.animateTo(90f, tween(140, easing = Motion.Curve))
+        rollJob?.cancel()
+        rollJob =
+            scope.launch {
+                if (!reduceMotion) {
+                    flip.animateTo(90f, Motion.tween(Motion.QUICK))
+                }
+                val pool = candidates.filterNot { it.id == picked?.id }.ifEmpty { candidates }
+                picked = pool.random(Random(System.currentTimeMillis() + rollCount++))
+                if (!reduceMotion) {
+                    flip.snapTo(-90f)
+                    sweep.snapTo(0f)
+                    flip.animateTo(0f, Motion.tween(Motion.STANDARD))
+                    sweep.animateTo(1f, Motion.tween(Motion.EMPHASIZED))
+                }
+                haptics.play(HapticSignal.Confirm)
             }
-            val pool = candidates.filterNot { it.id == picked?.id }.ifEmpty { candidates }
-            picked = pool.random(Random(System.currentTimeMillis() + rollCount++))
-            if (!reduceMotion) {
-                flip.snapTo(-90f)
-                flip.animateTo(0f, tween(220, easing = Motion.Curve))
-            }
-            haptics.play(HapticSignal.Confirm)
-        }
     }
 
     LaunchedEffect(candidates) {
@@ -193,7 +203,29 @@ internal fun RandomPickDialog(
                             Modifier
                                 .width(156.dp)
                                 .aspectRatio(2f / 3f)
-                                .border(1.dp, palette.border, AppShapes.card),
+                                .border(1.dp, palette.border, AppShapes.card)
+                                .drawWithContent {
+                                    drawContent()
+                                    val p = sweep.value
+                                    if (p in 0.001f..0.999f) {
+                                        val band = size.width * 0.45f
+                                        val startX = -band + (size.width + band * 2f) * p
+                                        drawRect(
+                                            brush =
+                                                Brush.linearGradient(
+                                                    colors =
+                                                        listOf(
+                                                            Color.Transparent,
+                                                            Color.White.copy(alpha = 0.28f * (1f - p)),
+                                                            accent.copy(alpha = 0.22f * (1f - p)),
+                                                            Color.Transparent,
+                                                        ),
+                                                    start = Offset(startX, 0f),
+                                                    end = Offset(startX + band, size.height),
+                                                ),
+                                        )
+                                    }
+                                },
                     )
                     Text(
                         current.title,
@@ -218,6 +250,7 @@ internal fun RandomPickDialog(
             OverlayButtonRow(
                 dismissLabel = "换一部",
                 confirmLabel = "就看这部",
+                confirmEnabled = picked != null,
                 onDismiss = ::reroll,
                 onConfirm = {
                     val chosen = picked ?: return@OverlayButtonRow

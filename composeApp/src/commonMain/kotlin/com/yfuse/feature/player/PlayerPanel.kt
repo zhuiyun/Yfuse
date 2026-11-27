@@ -13,12 +13,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -277,7 +279,7 @@ internal fun PlayerSidePanel(
                 materialOverride =
                     LocalGlassMaterials.current.dark.copy(
                         tintRgb = 0x191E27,
-                        opacity = 0.76f,
+                        opacity = 0.82f,
                         rim = 0.46f,
                         rimWidth = 0.75f,
                         ink = GlassInk.Light,
@@ -288,6 +290,7 @@ internal fun PlayerSidePanel(
             .pointerInput(Unit) { detectTapGestures { } }
             // Padding only; see [GlassDialog] for why the keyboard is not driven by scroll.
             .imePadding()
+            .windowInsetsPadding(playerCutoutInsets(WindowInsetsSides.End + WindowInsetsSides.Vertical))
             .padding(horizontal = 14.dp, vertical = 16.dp),
         verticalArrangement = verticalArrangement,
         content = {
@@ -480,7 +483,7 @@ internal fun PlayerPopupPanel(
                 materialOverride =
                     LocalGlassMaterials.current.dark.copy(
                         tintRgb = 0x191E27,
-                        opacity = 0.70f,
+                        opacity = 0.82f,
                         rim = 0.48f,
                         rimWidth = 0.75f,
                         ink = GlassInk.Light,

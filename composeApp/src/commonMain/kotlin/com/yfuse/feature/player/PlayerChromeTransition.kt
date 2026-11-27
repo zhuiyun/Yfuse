@@ -95,10 +95,11 @@ internal fun ChromeVisibility(
     val enterDelay = if (edge == ChromeEdge.Bottom) stagger else 0
     val exitDelay = if (edge == ChromeEdge.Top) stagger else 0
     val duration = if (calm) (Motion.STANDARD * CALM_DURATION_SCALE).roundToInt() else Motion.STANDARD
+    val exitDuration = (duration * 0.72f).roundToInt().coerceAtLeast(Motion.QUICK)
     val fade = tween<Float>(duration, delayMillis = enterDelay, easing = Motion.Curve)
     val slide = tween<IntOffset>(duration, delayMillis = enterDelay, easing = Motion.Curve)
-    val fadeAway = tween<Float>(duration, delayMillis = exitDelay, easing = Motion.Curve)
-    val slideAway = tween<IntOffset>(duration, delayMillis = exitDelay, easing = Motion.Curve)
+    val fadeAway = tween<Float>(exitDuration, delayMillis = exitDelay, easing = Motion.Curve)
+    val slideAway = tween<IntOffset>(exitDuration, delayMillis = exitDelay, easing = Motion.Curve)
     val calmTravelPx = with(LocalDensity.current) { CalmChromeTravel.roundToPx() }
     val travel: (Int) -> Int = { full -> if (calm) minOf(full / 6, calmTravelPx) else full / 6 }
     val moving = !reduceMotion
@@ -130,7 +131,7 @@ internal fun ChromeVisibility(
             else ->
                 fadeOut(fadeAway) +
                     scaleOut(
-                        tween(Motion.STANDARD, easing = Motion.Curve),
+                        tween(exitDuration, easing = Motion.Curve),
                         targetScale = 0.94f,
                         transformOrigin = TransformOrigin.Center,
                     )

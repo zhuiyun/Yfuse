@@ -63,6 +63,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import com.yfuse.core.designsystem.MinTouchTarget
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
@@ -155,8 +156,8 @@ internal fun PlayerClock() {
     }
     Text(
         now,
-        style = AppTypography.caption.strong,
-        color = Color.White.copy(alpha = 0.82f),
+        style = AppTypography.caption.strong.copy(shadow = PlayerVideoTextShadow),
+        color = Color.White.copy(alpha = 0.88f),
         maxLines = 1,
     )
 }
@@ -232,7 +233,7 @@ internal fun TransportRow(
         // cursor resting on the key does not lose it. The stall is a ring round the key instead.
         // Nor does pressing it: the glyph turns into the other one inside the same key, so focus
         // stays put and a screen reader hears the new state rather than nothing.
-        Box(Modifier.size(keySize + ControlTouchPadding * 2), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(maxOf(keySize + ControlTouchPadding * 2, MinTouchTarget)), contentAlignment = Alignment.Center) {
             CircleControl(
                 if (showsPause) AppIcons.Pause else AppIcons.Play,
                 if (showsPause) "暂停" else "播放",
@@ -377,7 +378,7 @@ internal fun VolumeSlider(
         currentLight.emit(LightEffect.Trail, fractionY = 1f - target)
         true
     }
-    Box(modifier.width(44.dp)) {
+    Box(modifier.width(MinTouchTarget)) {
         Column(
             Modifier
                 .align(Alignment.Center)
@@ -413,7 +414,7 @@ internal fun VolumeSlider(
         Box(
             Modifier
                 .align(Alignment.Center)
-                .width(44.dp)
+                .width(MinTouchTarget)
                 .height(140.dp)
                 .lightFeedback(light)
                 .then(
@@ -952,8 +953,8 @@ internal fun LockedOverlay(
                         .size(52.dp)
                         .glass(
                             shape = CircleShape,
-                            fill = Color.White.copy(alpha = 0.09f),
-                            border = Color.White.copy(alpha = 0.24f),
+                            fill = Color.Black.copy(alpha = 0.44f),
+                            border = Color.White.copy(alpha = 0.28f),
                         ),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -961,8 +962,8 @@ internal fun LockedOverlay(
                 }
                 Text(
                     message,
-                    style = AppTypography.body.medium,
-                    color = Color.White.copy(alpha = 0.57f),
+                    style = AppTypography.body.medium.copy(shadow = PlayerVideoTextShadow),
+                    color = Color.White.copy(alpha = 0.88f),
                     modifier = Modifier.liveStatus(),
                 )
             }

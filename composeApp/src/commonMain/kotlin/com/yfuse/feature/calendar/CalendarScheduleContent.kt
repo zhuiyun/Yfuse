@@ -273,7 +273,7 @@ internal fun CalendarWeekNavigator(
             Column(
                 Modifier
                     .weight(1f)
-                    .height(52.dp)
+                    .heightIn(min = 52.dp)
                     .clip(AppShapes.thumb)
                     .then(
                         when {

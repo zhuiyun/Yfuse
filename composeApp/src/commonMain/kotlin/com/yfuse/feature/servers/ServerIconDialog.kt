@@ -183,7 +183,7 @@ internal fun ServerIconDialog(
                         Box(
                             Modifier
                                 .weight(1f)
-                                .heightIn(min = 38.dp)
+                                .heightIn(min = 48.dp)
                                 .pressable(
                                     haptic = HapticSignal.Select,
                                     role = Role.RadioButton,
@@ -196,8 +196,8 @@ internal fun ServerIconDialog(
                                 .then(
                                     if (selected) {
                                         Modifier.border(
-                                            width = 1.dp,
-                                            color = Color.White.copy(alpha = 0.96f),
+                                            width = 1.5.dp,
+                                            color = contentColorForSurface(swatch).copy(alpha = 0.90f),
                                             shape = AppShapes.control,
                                         )
                                     } else {

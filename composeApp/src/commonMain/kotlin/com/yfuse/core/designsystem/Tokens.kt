@@ -975,7 +975,7 @@ private val Manrope = NumericFontFamily
  * 11, and the 11.5/12.5/13 body sizes become 12.5/13/13. Sizes already above the floor are
  * passed through untouched.
  */
-private const val MIN_TYPE_SP = 11f
+private const val MIN_TYPE_SP = 12f
 private const val MIN_BODY_SP = 12.5f
 
 /**

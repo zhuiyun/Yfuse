@@ -243,7 +243,7 @@ private fun PersonHeader(
                     personBirthPlaceLine(state.birthPlace),
                 )
             if (facts.isEmpty() && (state.profileLoading || state.otherWorksLoading)) {
-                Text("正在读取资料", style = AppTypography.caption.regular, color = palette.hint)
+                Text("正在读取资料", style = AppTypography.caption.regular, color = palette.sub2)
             }
             facts.forEach { line ->
                 Text(line, style = AppTypography.body.regular, color = palette.body)
@@ -297,7 +297,7 @@ private fun PersonBiography(
         }
         if (fromTmdb) {
             Spacer(Modifier.height(6.dp))
-            Text("简介来自 TMDB", style = AppTypography.caption.regular, color = palette.hint)
+            Text("简介来自 TMDB", style = AppTypography.caption.regular, color = palette.sub2)
         }
     }
 }

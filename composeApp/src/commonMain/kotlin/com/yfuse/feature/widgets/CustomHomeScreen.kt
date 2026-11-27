@@ -29,6 +29,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.yfuse.app.floatingNavigationContentInset
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
@@ -116,11 +117,17 @@ fun CustomHomeScreen(
             if (page == null) {
                 LazyColumn(
                     Modifier.weight(1f),
-                    contentPadding = PaddingValues(start = 24.dp, top = 36.dp, end = 24.dp, bottom = 120.dp),
+                    contentPadding =
+                        PaddingValues(
+                            start = 24.dp,
+                            top = 36.dp,
+                            end = 24.dp,
+                            bottom = floatingNavigationContentInset(),
+                        ),
                     verticalArrangement = Arrangement.spacedBy(24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    item {
+                    item(key = "custom-home-preview") {
                         Row(
                             Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(10.dp),

@@ -292,7 +292,6 @@ internal fun CurrentServerHero(
         } else {
             glassControlHighlight(accent, palette.isDark)
         }
-    val squircle = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)
 
     Column(
         modifier
@@ -318,7 +317,7 @@ internal fun CurrentServerHero(
             Box(
                 Modifier
                     .size(48.dp)
-                    .clip(squircle)
+                    .clip(CircleShape)
                     .background(
                         Brush.linearGradient(
                             listOf(lerp(badgeColor, Color.White, 0.18f), badgeColor),
@@ -350,7 +349,7 @@ internal fun CurrentServerHero(
                     Text(
                         "使用中",
                         style = AppTypography.caption.strong,
-                        color = Semantic.Success,
+                        color = palette.statusText(Semantic.Success),
                         modifier =
                             Modifier
                                 .clip(AppShapes.pill)
@@ -407,6 +406,7 @@ internal fun CurrentServerHero(
             }
             Row(
                 Modifier
+                    .heightIn(min = 48.dp)
                     .pressable(
                         focusShape = AppShapes.pill,
                         onClickLabel = "$enterLabel${server.serverName}",
@@ -544,7 +544,7 @@ internal fun ServerCard(
     val badgeColor = serverTintColor(server.id, server.iconTint)
     val latencySeverity = health?.latencySeverity ?: LatencySeverity.Unknown
     val latencyColor = latencySeverityColor(latencySeverity)
-    val squircle = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+    val totalResources = stats?.let { it.movieCount + it.seriesCount }
     val ambientBrush =
         Brush.linearGradient(
             colorStops =
@@ -593,7 +593,7 @@ internal fun ServerCard(
                     Box(
                         Modifier
                             .size(36.dp)
-                            .clip(squircle)
+                            .clip(CircleShape)
                             .background(
                                 Brush.linearGradient(
                                     listOf(lerp(badgeColor, Color.White, 0.18f), badgeColor),
@@ -662,15 +662,10 @@ internal fun ServerCard(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    val totalCount =
-                        stats?.let { s ->
-                            val sum = (s.movieCount ?: 0) + (s.seriesCount ?: 0)
-                            if (sum > 0) "${formatServerCount(sum)} 部" else null
-                        }
                     Text(
-                        totalCount ?: connectionLabel(health),
+                        totalResources?.let { "共 ${formatServerCount(it)} 部" } ?: "—",
                         style = AppTypography.caption.medium,
-                        color = palette.sub,
+                        color = if (totalResources == null) palette.sub2 else palette.text,
                         maxLines = 1,
                     )
                     Text(
@@ -690,7 +685,7 @@ internal fun ServerCard(
                 Box(
                     Modifier
                         .size(42.dp)
-                        .clip(squircle)
+                        .clip(CircleShape)
                         .background(
                             Brush.linearGradient(
                                 listOf(lerp(badgeColor, Color.White, 0.18f), badgeColor),
@@ -736,6 +731,7 @@ internal fun ServerCard(
                     Text(
                         buildList {
                             add(server.kind.name)
+                            totalResources?.takeIf { it > 0 }?.let { add("共 ${formatServerCount(it)} 部") }
                             stats?.movieCount?.takeIf { it > 0 }?.let { add("电影 ${formatServerCount(it)}") }
                             stats?.seriesCount?.takeIf { it > 0 }?.let { add("剧集 ${formatServerCount(it)}") }
                             if (server.hasBackupRoutes) add("${server.effectiveRoutes.size} 条线路")
@@ -804,19 +800,22 @@ internal fun ServerCard(
  */
 @Composable
 private fun ServerCountsRow(stats: ServerStats?) {
+    val total = stats?.let { it.movieCount + it.seriesCount }
     if (LocalDensity.current.fontScale >= SERVER_LARGE_TEXT_SCALE) {
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            ServerCount(AppIcons.TabLibrary, "总资源", total, Modifier.fillMaxWidth())
             ServerCount(AppIcons.Movie, "电影", stats?.movieCount, Modifier.fillMaxWidth())
             ServerCount(AppIcons.Series, "剧集", stats?.seriesCount, Modifier.fillMaxWidth())
         }
     } else {
         Row(
             Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            ServerCount(AppIcons.Movie, "电影", stats?.movieCount, Modifier.weight(1f))
-            ServerCount(AppIcons.Series, "剧集", stats?.seriesCount, Modifier.weight(1f))
+            ServerCount(AppIcons.TabLibrary, "总资源", total)
+            ServerCount(AppIcons.Movie, "电影", stats?.movieCount)
+            ServerCount(AppIcons.Series, "剧集", stats?.seriesCount)
         }
     }
 }

@@ -89,7 +89,7 @@ class DesignSystemContractTest {
         assertEquals(26.sp, AppTypography.display.regular.fontSize)
         assertEquals(18.sp, AppTypography.section.regular.fontSize)
         assertEquals(13.sp, AppTypography.body.regular.fontSize)
-        assertEquals(11.sp, AppTypography.caption.regular.fontSize)
+        assertEquals(12.sp, AppTypography.caption.regular.fontSize)
 
         assertEquals(FontWeight.Normal, AppTypography.body.regular.fontWeight)
         assertEquals(FontWeight.Medium, AppTypography.body.medium.fontWeight)

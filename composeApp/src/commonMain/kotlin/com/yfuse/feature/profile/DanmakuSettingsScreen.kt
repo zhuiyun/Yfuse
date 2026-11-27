@@ -11,8 +11,10 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -27,6 +29,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -536,7 +541,7 @@ private fun DanmakuSourceLatencyRow(
             Text(
                 latencyText,
                 style = AppTypography.caption.strong,
-                color = if (probing) accent.accent else latencyColor,
+                color = if (probing) accent.accent else palette.statusText(latencyColor),
                 maxLines = 1,
             )
         }
@@ -561,14 +566,15 @@ private fun <T> DanmakuSegmentedOptionRow(
     ) {
         Text(title, style = AppTypography.body.medium, color = palette.text)
         Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            Modifier.fillMaxWidth().selectableGroup(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             options.forEach { option ->
                 val isSelected = option == selected
                 Box(
                     Modifier
                         .weight(1f)
+                        .heightIn(min = 48.dp)
                         .clip(AppShapes.chip)
                         .background(if (isSelected) accent.container else palette.card2)
                         .border(
@@ -576,10 +582,12 @@ private fun <T> DanmakuSegmentedOptionRow(
                             if (isSelected) accent.border.copy(alpha = 0.45f) else palette.border,
                             AppShapes.chip,
                         ).pressable(
+                            role = Role.RadioButton,
                             haptic = HapticSignal.Select,
                             onClickLabel = "$title ${label(option)}",
                             onClick = { onSelect(option) },
-                        ).padding(vertical = 8.dp),
+                        ).semantics { this.selected = isSelected }
+                        .padding(vertical = 8.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(

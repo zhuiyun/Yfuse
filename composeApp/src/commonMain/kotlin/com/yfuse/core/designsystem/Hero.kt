@@ -113,10 +113,13 @@ fun HeroActionDock(
                         lightEffect = LightEffect.Converge,
                         onClickLabel = playActionLabel,
                         onClick = onPlay,
-                    ).clip(AppShapes.pill)
-                    .background(playFill)
-                    .border(0.75.dp, playInk.copy(alpha = 0.32f), AppShapes.pill)
-                    .padding(horizontal = 18.dp, vertical = 8.dp),
+                    ).shadow(GlassLift.control, AppShapes.pill)
+                    .liquidGlass(
+                        shape = AppShapes.pill,
+                        fill = playFill.copy(alpha = 0.72f),
+                        border = Color.White.copy(alpha = 0.36f),
+                        sheen = 0.92f,
+                    ).padding(horizontal = 18.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {

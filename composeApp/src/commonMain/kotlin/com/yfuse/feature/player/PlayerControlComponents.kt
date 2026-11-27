@@ -78,7 +78,7 @@ internal fun GroupLabel(text: String) {
     Text(
         text,
         style = AppTypography.caption.medium,
-        color = Color.White.copy(alpha = 0.48f),
+        color = Color.White.copy(alpha = 0.70f),
         modifier = Modifier.padding(top = 4.dp, bottom = 4.dp),
     )
 }
@@ -129,7 +129,7 @@ internal fun OptionRow(
                 Text(
                     detailLabel.orEmpty(),
                     style = AppTypography.caption.medium,
-                    color = Color.White.copy(alpha = 0.48f),
+                    color = Color.White.copy(alpha = 0.70f),
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(top = 2.dp),
@@ -163,7 +163,7 @@ internal fun OptionRow(
                 Text(
                     detailLabel,
                     style = AppTypography.caption.medium,
-                    color = Color.White.copy(alpha = 0.48f),
+                    color = Color.White.copy(alpha = 0.70f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(start = 10.dp),

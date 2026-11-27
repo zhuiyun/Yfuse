@@ -8,9 +8,9 @@ object MediaSizing {
     val heroHeight = 432.dp
 
     /** Landscape resume/history card used by 继续观看 / 播放记录. */
-    val landscapeCardWidth = 190.dp
-    val landscapeCardHeight = 114.dp
+    val landscapeCardWidth = 236.dp
+    val landscapeCardHeight = 132.dp
 
     /** Portrait poster rail width used by recommendation/library shelves. */
-    val posterRailWidth = 104.dp
+    val posterRailWidth = 114.dp
 }
